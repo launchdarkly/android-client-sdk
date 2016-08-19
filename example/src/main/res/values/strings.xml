@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">LaunchDarkly Example</string>
+    <string-array name="types_array">
+        <item>Boolean</item>
+        <item>String</item>
+        <item>Integer</item>
+        <item>Float</item>
+        <item>Json</item>
+    </string-array>
+</resources>

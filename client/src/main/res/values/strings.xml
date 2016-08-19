@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">client</string>
+    <string name="launchdarkly_version">0.0.1-SNAPSHOT</string>
+</resources>
