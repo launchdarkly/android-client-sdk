@@ -28,7 +28,6 @@ public class LDClient implements LDClientInterface, Closeable {
             Log.w(TAG, "LDClient.init() was called more than once! returning existing instance.");
             return instance;
         }
-        //see https://possiblemobile.com/2013/06/context/?utm_source=Android%20Weekly&utm_campaign=78ad4cb95e-Android_Weekly_64&utm_medium=email&utm_term=0_4eb677ad19-78ad4cb95e-328260729
         instance = new LDClient(application, config, user);
         return instance;
     }
@@ -47,8 +46,7 @@ public class LDClient implements LDClientInterface, Closeable {
         this.user = user;
         this.config = config;
 
-        //TODO: add custom app-name so multiple apps with LD don't collide?
-        String sharedPrefsKey = "launchdarkly-" + application.getPackageName();
+        String sharedPrefsKey = "LaunchDarkly-" + application.getPackageName();
         Log.i(TAG,"Using SharedPreferences key: " + sharedPrefsKey);
         this.sharedPrefs = application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
 

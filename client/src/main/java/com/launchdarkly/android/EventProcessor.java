@@ -34,18 +34,12 @@ class EventProcessor implements Closeable {
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
         this.config = config;
-//        ThreadFactory threadFactory = new ThreadFactoryBuilder()
-//                .setDaemon(true)
-//                .setNameFormat("LaunchDarkly-EventProcessor-%d")
-//                .build();
 
         //TODO: maybe use daemon thread here
         this.scheduler = Executors.newSingleThreadScheduledExecutor(Executors.defaultThreadFactory());
         this.scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
         client = new OkHttpClient.Builder()
                 .connectTimeout(this.config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
-
-//                    .cache() //TODO
                 .build();
     }
 
@@ -96,22 +90,10 @@ class EventProcessor implements Closeable {
 
             Log.d(TAG, "Posting " + events.size() + " event(s) to " + request.url());
 
-//            CloseableHttpResponse response = null;
-//            Gson gson = new Gson();
-//            String json = gson.toJson(events);
-//
-//            HttpPost request = config.postEventsRequest(key, "/bulk");
-//            StringEntity entity = new StringEntity(json, "UTF-8");
-//            entity.setContentType("application/json");
-//            request.setEntity(entity);
             Response response = null;
             try {
                 response = client.newCall(request).execute();
                 Log.i(TAG, "Events Response: " + response.code());
-//                response = client.execute(request);
-//                if (Util.handleResponse(logger, request, response)) {
-//                    logger.debug("Successfully posted " + events.size() + " event(s).");
-//                }
             } catch (IOException e) {
                 Log.e(TAG, "Unhandled exception in LaunchDarkly client attempting to connect to URI: " + request.url(), e);
             } finally {

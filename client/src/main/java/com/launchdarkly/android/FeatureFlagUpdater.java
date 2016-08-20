@@ -2,18 +2,14 @@ package com.launchdarkly.android;
 
 
 import android.content.SharedPreferences;
-import android.util.Base64;
 import android.util.Log;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.reflect.TypeToken;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -24,7 +20,7 @@ import okhttp3.Response;
 import static com.launchdarkly.android.LDConfig.GSON;
 
 class FeatureFlagUpdater {
-    private static final String TAG = "LDFeatureRequestor";
+    private static final String TAG = "LDFeatureFlagUpdater";
     private static FeatureFlagUpdater instance;
 
     private final LDConfig config;

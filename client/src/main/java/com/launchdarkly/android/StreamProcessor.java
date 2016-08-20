@@ -9,7 +9,6 @@ import com.launchdarkly.eventsource.MessageEvent;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Headers;
 
