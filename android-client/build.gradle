@@ -1,0 +1,92 @@
+apply plugin: 'com.android.library'
+apply plugin: 'maven'
+apply plugin: 'signing'
+
+android {
+    compileSdkVersion 24
+    buildToolsVersion "24.0.1"
+
+    defaultConfig {
+        minSdkVersion 15
+        targetSdkVersion 24
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    testCompile 'junit:junit:4.12'
+    compile 'com.android.support:appcompat-v7:24.2.0'
+    compile 'com.noveogroup.android:android-logger:1.3.5'
+    compile 'com.google.code.gson:gson:2.6.2'
+    compile 'com.launchdarkly:okhttp-eventsource:0.2.1'
+    compile 'com.squareup.okhttp3:okhttp:3.4.1'
+    compile group: 'com.google.guava', name: 'guava', version: '19.0'
+    compile group: 'org.apache.httpcomponents', name: 'httpcore', version: '4.3.2'
+}
+
+
+allprojects {
+    group = 'com.launchdarkly'
+    version = "0.0.1-SNAPSHOT"
+    sourceCompatibility = 1.7
+    targetCompatibility = 1.7
+}
+repositories {
+    mavenLocal()
+    // Before LaunchDarkly release artifacts get synced to Maven Central they are here along with snapshots:
+    maven { url "https://oss.sonatype.org/content/groups/public/" }
+    mavenCentral()
+}
+
+
+uploadArchives {
+    repositories {
+        mavenDeployer {
+            beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+
+            repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+                authentication(userName: ossrhUsername, password: ossrhPassword)
+            }
+
+            snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+                authentication(userName: ossrhUsername, password: ossrhPassword)
+            }
+
+            pom.project {
+                name 'LaunchDarkly SDK for Java'
+                packaging 'jar'
+                description 'Official LaunchDarkly SDK for Android'
+                url 'https://github.com/launchdarkly/android-client'
+
+                licenses {
+                    license {
+                        name 'The Apache License, Version 2.0'
+                        url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+
+                developers {
+                    developer {
+                        id 'drichelson'
+                        name 'Dan Richelson'
+                        email 'dan@launchdarkly.com'
+                    }
+                }
+
+                scm {
+                    connection 'scm:git:git://github.com/launchdarkly/android-client.git'
+                    developerConnection 'scm:git:ssh:git@github.com:launchdarkly/android-client.git'
+                    url 'https://github.com/launchdarkly/android-client'
+                }
+            }
+        }
+    }
+}
