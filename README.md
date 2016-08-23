@@ -1,4 +1,6 @@
-# LaunchDarkly Android SDK
+# Prerelease LaunchDarkly Android SDK
+NOTE: This is an early build and should not be used in production!
+
 How to use:
 Check out the included example app, or follow things here:
 
