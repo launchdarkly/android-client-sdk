@@ -4,12 +4,17 @@ NOTE: This is an early build and should not be used in production!
 How to use:
 Check out the included example app, or follow things here:
 
+1. Add the Maven snapshots repo to your repositories:
+	
+	```
+   maven { url "https://oss.sonatype.org/content/groups/public/" }
+	```
 1. Declare this dependency:
 
 	```
 	compile 'com.launchdarkly:android-client:0.0.1-SNAPSHOT'
 	```  
-2. In your application configure and initialize the client:
+1. In your application configure and initialize the client:
 
 	```
 	LDConfig ldConfig = new LDConfig.Builder()
