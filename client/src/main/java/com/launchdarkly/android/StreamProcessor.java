@@ -12,7 +12,7 @@ import java.io.IOException;
 
 import okhttp3.Headers;
 
-public class StreamProcessor implements Closeable {
+class StreamProcessor implements Closeable {
     private static final String TAG = "LDStreamProcessor";
 
     private EventSource es;
@@ -20,12 +20,12 @@ public class StreamProcessor implements Closeable {
     private final FeatureFlagUpdater updater;
     private volatile boolean running = false;
 
-    public StreamProcessor(LDConfig config, FeatureFlagUpdater updater) {
+    StreamProcessor(LDConfig config, FeatureFlagUpdater updater) {
         this.config = config;
         this.updater = updater;
     }
 
-    public synchronized void start() {
+    synchronized void start() {
         if (!running) {
             close();
             es = createEventSourceClient();
@@ -34,7 +34,7 @@ public class StreamProcessor implements Closeable {
         }
     }
 
-    public synchronized void stop() {
+    synchronized void stop() {
         close();
         running = false;
     }
@@ -42,7 +42,7 @@ public class StreamProcessor implements Closeable {
     private EventSource createEventSourceClient() {
         Headers headers = new Headers.Builder()
                 .add("Authorization", config.getMobileKey())
-                .add("User-Agent", "AndroidClient/" + "TODO: VERSION")
+                .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
                 .add("Accept", "text/event-stream")
                 .build();
 
@@ -66,7 +66,7 @@ public class StreamProcessor implements Closeable {
 
         @Override
         public void onError(Throwable t) {
-            Log.e(TAG, "Encountered EventStream error.", t);
+            Log.e(TAG, "Encountered EventStream error: " + t.getMessage(), t);
         }
     };
 

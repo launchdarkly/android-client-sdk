@@ -53,8 +53,8 @@ class EventProcessor implements Closeable {
         this.flush();
     }
 
-    public void flush() {
-        this.consumer.flush();
+    void flush() {
+        scheduler.schedule(consumer, 0, TimeUnit.SECONDS);
     }
 
     class Consumer implements Runnable {
@@ -69,7 +69,7 @@ class EventProcessor implements Closeable {
             flush();
         }
 
-        public void flush() {
+        public synchronized void flush() {
             List<Event> events = new ArrayList<>(queue.size());
             queue.drainTo(events);
 
@@ -86,7 +86,6 @@ class EventProcessor implements Closeable {
                     .post(RequestBody.create(JSON, content))
                     .addHeader("Content-Type", "application/json")
                     .build();
-
 
             Log.d(TAG, "Posting " + events.size() + " event(s) to " + request.url());
 

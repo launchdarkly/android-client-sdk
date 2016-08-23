@@ -1,8 +1,6 @@
 package com.launchdarkly.android;
 
 import android.app.Application;
-import android.content.Context;
-import android.content.SharedPreferences;
 import android.util.Log;
 
 import com.google.gson.JsonElement;
@@ -12,16 +10,17 @@ import com.google.gson.JsonPrimitive;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.Future;
 
 public class LDClient implements LDClientInterface, Closeable {
     private static final String TAG = "LaunchDarkly";
     private static LDClient instance = null;
     private final LDConfig config;
-    private final SharedPreferences sharedPrefs;
-    private LDUser user;
+    private final UserManager userManager;
+
     private EventProcessor eventProcessor;
     private StreamProcessor streamProcessor;
-
+    private FeatureFlagUpdater updater;
 
     public static LDClient init(Application application, LDConfig config, LDUser user) {
         if (instance != null) {
@@ -40,15 +39,11 @@ public class LDClient implements LDClientInterface, Closeable {
         return instance;
     }
 
-
     private LDClient(Application application, LDConfig config, LDUser user) {
         Log.i(TAG, "Starting LaunchDarkly client");
-        this.user = user;
         this.config = config;
-
-        String sharedPrefsKey = "LaunchDarkly-" + application.getPackageName();
-        Log.i(TAG,"Using SharedPreferences key: " + sharedPrefsKey);
-        this.sharedPrefs = application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
+        this.userManager = new UserManager(application, user);
+        userManager.setCurrentUser(user);
 
         if (!isOffline()) {
             Foreground foreground = Foreground.get(application);
@@ -65,12 +60,11 @@ public class LDClient implements LDClientInterface, Closeable {
             };
             foreground.addListener(foregroundListener);
 
-            FeatureFlagUpdater updater = FeatureFlagUpdater.init(config, sharedPrefs, user);
+            this.updater = FeatureFlagUpdater.init(config, userManager);
             this.streamProcessor = new StreamProcessor(config, updater);
             streamProcessor.start();
             eventProcessor = new EventProcessor(config);
-            identify(user);
-        }
+            sendEvent(new IdentifyEvent(user));        }
     }
 
     @Override
@@ -80,30 +74,38 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public void track(String key, JsonElement data) {
-        sendEvent(new CustomEvent(key, user, data));
+        sendEvent(new CustomEvent(key, userManager.getCurrentUser(), data));
     }
 
     @Override
     public void track(String key) {
-        sendEvent(new CustomEvent(key, user, null));
+        sendEvent(new CustomEvent(key, userManager.getCurrentUser(), null));
     }
 
+    /**
+     * Sets the current user, retrieves flags for that user, then sends an Identify Event to LaunchDarkly.
+     * The 5 most recent users' flag settings are kept locally.
+     * @param user
+     * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
+     */
     @Override
-    public void identify(LDUser user) {
-        this.user = user;
+    public synchronized Future<Void> identify(LDUser user) {
+        userManager.setCurrentUser(user);
+        Future<Void> doneFuture = updater.update();
         sendEvent(new IdentifyEvent(user));
+        return doneFuture;
     }
 
     @Override
     public Map<String, ?> allFlags() {
-        return sharedPrefs.getAll();
+        return userManager.getCurrentUserSharedPrefs().getAll();
     }
 
     @Override
     public Boolean boolVariation(String featureKey, boolean defaultValue) {
         boolean result = defaultValue;
         try {
-            result = sharedPrefs.getBoolean(featureKey, defaultValue);
+            result = userManager.getCurrentUserSharedPrefs().getBoolean(featureKey, defaultValue);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get boolean flag that exists as another type for key: "
                     + featureKey + " Returning default: " + defaultValue, cce);
@@ -116,7 +118,7 @@ public class LDClient implements LDClientInterface, Closeable {
     public Integer intVariation(String featureKey, int defaultValue) {
         Integer result = defaultValue;
         try {
-            result = (int) sharedPrefs.getFloat(featureKey, defaultValue);
+            result = (int) userManager.getCurrentUserSharedPrefs().getFloat(featureKey, defaultValue);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get integer flag that exists as another type for key: "
                     + featureKey + " Returning default: " + defaultValue, cce);
@@ -129,7 +131,7 @@ public class LDClient implements LDClientInterface, Closeable {
     public Float floatVariation(String featureKey, Float defaultValue) {
         float result = defaultValue;
         try {
-            result = sharedPrefs.getFloat(featureKey, defaultValue);
+            result = userManager.getCurrentUserSharedPrefs().getFloat(featureKey, defaultValue);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get float flag that exists as another type for key: "
                     + featureKey + " Returning default: " + defaultValue, cce);
@@ -142,7 +144,7 @@ public class LDClient implements LDClientInterface, Closeable {
     public String stringVariation(String featureKey, String defaultValue) {
         String result = defaultValue;
         try {
-            result = sharedPrefs.getString(featureKey, defaultValue);
+            result = userManager.getCurrentUserSharedPrefs().getString(featureKey, defaultValue);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get string flag that exists as another type for key: "
                     + featureKey + " Returning default: " + defaultValue, cce);
@@ -155,7 +157,7 @@ public class LDClient implements LDClientInterface, Closeable {
     public JsonElement jsonVariation(String featureKey, JsonElement defaultValue) {
         JsonElement result = defaultValue;
         try {
-            String stringResult = sharedPrefs.getString(featureKey, null);
+            String stringResult = userManager.getCurrentUserSharedPrefs().getString(featureKey, null);
             if (stringResult != null) {
                 result = new JsonParser().parse(stringResult);
             }
@@ -184,7 +186,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String featureKey, JsonElement value, JsonElement defaultValue) {
-        sendEvent(new FeatureRequestEvent(featureKey, user, value, defaultValue));
+        sendEvent(new FeatureRequestEvent(featureKey, userManager.getCurrentUser(), value, defaultValue));
     }
 
     private void sendEvent(Event event) {

@@ -10,6 +10,7 @@ import okhttp3.Request;
 public class LDConfig {
     private static final String TAG = "LDConfig";
     public static final String VERSION = "0.0.1-SNAPSHOT";
+    public static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + VERSION;
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     static final Gson GSON = new Gson();
 
@@ -53,7 +54,7 @@ public class LDConfig {
     public Request.Builder getRequestBuilder() {
         return new Request.Builder()
                 .addHeader("Authorization", mobileKey)
-                .addHeader("User-Agent", "AndroidClient/" + VERSION);
+                .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
     }
 
     public String getMobileKey() {

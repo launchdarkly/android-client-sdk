@@ -1,7 +1,6 @@
 package com.launchdarkly.android;
 
 
-import android.content.SharedPreferences;
 import android.util.Log;
 
 import com.google.gson.JsonElement;
@@ -10,6 +9,7 @@ import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.Map;
+import java.util.concurrent.Future;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -24,13 +24,10 @@ class FeatureFlagUpdater {
     private static FeatureFlagUpdater instance;
 
     private final LDConfig config;
-    private final SharedPreferences sharedPrefs;
+    private final UserManager userManager;
 
-    private LDUser user;
-
-
-    static FeatureFlagUpdater init(LDConfig config, SharedPreferences sharedPrefs, LDUser user) {
-        instance = new FeatureFlagUpdater(config, sharedPrefs, user);
+    static FeatureFlagUpdater init(LDConfig config, UserManager userManager) {
+        instance = new FeatureFlagUpdater(config, userManager);
         return instance;
     }
 
@@ -38,19 +35,19 @@ class FeatureFlagUpdater {
         return instance;
     }
 
-    private FeatureFlagUpdater(LDConfig config, SharedPreferences sharedPrefs, LDUser user) {
+    private FeatureFlagUpdater(LDConfig config, UserManager userManager) {
         this.config = config;
-        this.sharedPrefs = sharedPrefs;
-        this.user = user;
+        this.userManager = userManager;
     }
 
-    void update() {
+    Future<Void> update() {
         final Type mapType = new TypeToken<Map<String, JsonElement>>() {
         }.getType();
+        final VeryBasicFuture doneFuture = new VeryBasicFuture();
         //TODO: caching stuff
         OkHttpClient client = new OkHttpClient();
-        String uri = config.getBaseUri() + "/msdk/eval/users/" + user.getAsUrlSafeBase64();
-        Request request = config.getRequestBuilder()
+        String uri = config.getBaseUri() + "/msdk/eval/users/" + userManager.getCurrentUser().getAsUrlSafeBase64();
+        final Request request = config.getRequestBuilder()
                 .url(uri)
                 .build();
 
@@ -66,25 +63,16 @@ class FeatureFlagUpdater {
             public void onResponse(Call call, final Response response) throws IOException {
                 try {
                     if (!response.isSuccessful()) {
-                        throw new IOException("Unexpected response when retrieving Feature Flags! " + response);
+                        throw new IOException("Unexpected response when retrieving Feature Flags:  " + response + " using url: " + request.url());
                     }
                     String body = response.body().string();
                     Log.i(TAG, body);
                     Map<String, JsonElement> resultMap = GSON.fromJson(body, mapType);
-                    SharedPreferences.Editor editor = sharedPrefs.edit();
-                    editor.clear();
-                    for (Map.Entry<String, JsonElement> entry : resultMap.entrySet()) {
-                        JsonElement v = entry.getValue();
-                        if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isBoolean()) {
-                            editor.putBoolean(entry.getKey(), v.getAsBoolean());
-                        } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isNumber()) {
-                            editor.putFloat(entry.getKey(), v.getAsFloat());
-                        } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isString()) {
-                            editor.putString(entry.getKey(), v.getAsString());
-                        }
-                    }
-                    editor.apply();
-                    logAllFlags();
+                    userManager.saveFlagSettingsForUser(resultMap);
+                    doneFuture.completed(null);
+                } catch (Exception e) {
+                    Log.e(TAG, "Exception when handling response for url: " + request.url(), e);
+                    doneFuture.failed(e);
                 }
                 finally {
                     if (response != null) {
@@ -93,18 +81,6 @@ class FeatureFlagUpdater {
                 }
             }
         });
-    }
-
-
-    private void logAllFlags() {
-        Map<String, ?> all = sharedPrefs.getAll();
-        if (all.size() == 0) {
-            Log.i(TAG, "found zero saved feature flags");
-        } else {
-            Log.i(TAG, "Found feature flags:");
-            for (Map.Entry<String, ?> kv : all.entrySet()) {
-                Log.i(TAG, "Key: " + kv.getKey() + " value: " + kv.getValue());
-            }
-        }
+        return doneFuture;
     }
 }

@@ -7,6 +7,7 @@ import com.launchdarkly.android.LDUser;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.Future;
 
 public interface LDClientInterface extends Closeable {
     boolean initialized();
@@ -15,8 +16,7 @@ public interface LDClientInterface extends Closeable {
 
     void track(String eventName);
 
-
-    void identify(LDUser user);
+    Future<Void> identify(LDUser user);
 
     Map<String, ?> allFlags();
 

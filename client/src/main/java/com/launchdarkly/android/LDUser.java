@@ -163,15 +163,15 @@ public class LDUser {
             } else {
                 this.key = user.getKeyAsString();
             }
-            this.secondary = user.getSecondary().getAsString();
-            this.ip = user.getIp().getAsString();
-            this.firstName = user.getFirstName().getAsString();
-            this.lastName = user.getLastName().getAsString();
-            this.email = user.getEmail().getAsString();
-            this.name = user.getName().getAsString();
-            this.avatar = user.getAvatar().getAsString();
-            this.anonymous = user.getAnonymous().getAsBoolean();
-            this.country = LDCountryCode.valueOf(user.getCountry().getAsString());
+            this.secondary = user.getSecondary() != null ? user.getSecondary().getAsString() : null;
+            this.ip = user.getIp() != null ? user.getIp().getAsString() : null;
+            this.firstName = user.getFirstName() != null ? user.getFirstName().getAsString() : null;
+            this.lastName = user.getLastName() != null ? user.getLastName().getAsString() : null;
+            this.email = user.getEmail() != null ? user.getEmail().getAsString() : null;
+            this.name = user.getName() != null ? user.getName().getAsString() : null;
+            this.avatar = user.getAvatar() != null ? user.getAvatar().getAsString() : null;
+            this.anonymous = user.getAnonymous() != null ? user.getAnonymous().getAsBoolean() : null;
+            this.country = user.getCountry() != null ? LDCountryCode.valueOf(user.getCountry().getAsString()) : null;
             this.custom = user.custom;
         }
 

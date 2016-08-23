@@ -35,7 +35,9 @@ public class MainActivity extends AppCompatActivity {
                 .setMobileKey("MOBILE_KEY")
                 .build();
 
-        user = new LDUser.Builder("user key").build();
+        user = new LDUser.Builder("user key")
+                .email("fake@example.com")
+                .build();
 
         ldClient = LDClient.init(this.getApplication(), ldConfig, user);
     }
@@ -71,7 +73,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 Log.i(TAG, "identify onClick");
-                ldClient.identify(user);
+                String userKey = ((EditText) findViewById(R.id.userKey_editText)).getText().toString();
+
+                LDUser updatedUser = new LDUser.Builder(userKey)
+                        .build();
+
+                ldClient.identify(updatedUser);
             }
         });
     }
