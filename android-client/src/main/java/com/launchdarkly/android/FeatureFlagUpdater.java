@@ -3,12 +3,10 @@ package com.launchdarkly.android;
 
 import android.util.Log;
 
-import com.google.gson.JsonElement;
-import com.google.gson.reflect.TypeToken;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.io.IOException;
-import java.lang.reflect.Type;
-import java.util.Map;
 import java.util.concurrent.Future;
 
 import okhttp3.Call;
@@ -16,8 +14,6 @@ import okhttp3.Callback;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-
-import static com.launchdarkly.android.LDConfig.GSON;
 
 class FeatureFlagUpdater {
     private static final String TAG = "LDFeatureFlagUpdater";
@@ -41,8 +37,6 @@ class FeatureFlagUpdater {
     }
 
     Future<Void> update() {
-        final Type mapType = new TypeToken<Map<String, JsonElement>>() {
-        }.getType();
         final VeryBasicFuture doneFuture = new VeryBasicFuture();
         //TODO: caching stuff
         OkHttpClient client = new OkHttpClient();
@@ -67,8 +61,9 @@ class FeatureFlagUpdater {
                     }
                     String body = response.body().string();
                     Log.i(TAG, body);
-                    Map<String, JsonElement> resultMap = GSON.fromJson(body, mapType);
-                    userManager.saveFlagSettingsForUser(resultMap);
+                    JsonParser parser = new JsonParser();
+                    JsonObject jsonObject = parser.parse(body).getAsJsonObject();
+                    userManager.saveFlagSettingsForUser(jsonObject);
                     doneFuture.completed(null);
                 } catch (Exception e) {
                     Log.e(TAG, "Exception when handling response for url: " + request.url(), e);

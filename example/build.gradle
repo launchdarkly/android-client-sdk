@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+repositories {
+    mavenLocal()
+    // Before LaunchDarkly release artifacts get synced to Maven Central they are here along with snapshots:
+    maven { url "https://oss.sonatype.org/content/groups/public/" }
+    mavenCentral()
+}
+
 android {
     compileSdkVersion 24
     buildToolsVersion "24.0.1"
@@ -13,9 +20,12 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    lintOptions {
+        abortOnError false
     }
 }
 
@@ -24,4 +34,6 @@ dependencies {
     testCompile 'junit:junit:4.12'
     compile 'com.android.support:appcompat-v7:24.2.0'
     compile project(path: ':android-client')
+    // Comment the previous line and uncomment this one to depend on the published artifact:
+    //    compile 'com.launchdarkly:android-client:0.0.1-SNAPSHOT'
 }

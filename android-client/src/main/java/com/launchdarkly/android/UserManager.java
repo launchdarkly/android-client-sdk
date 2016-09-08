@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.util.Log;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -70,7 +71,7 @@ class UserManager {
      * Saves the flags param to SharedPreferences for the current user.
      * @param flags
      */
-    void saveFlagSettingsForUser(Map<String, JsonElement> flags) {
+    void saveFlagSettingsForUser(JsonObject flags) {
         SharedPreferences.Editor editor = currentUserSharedPrefs.edit();
         editor.clear();
         for (Map.Entry<String, JsonElement> entry : flags.entrySet()) {

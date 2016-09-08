@@ -1,0 +1,89 @@
+# Add project specific ProGuard rules here.
+#
+# For more details, see
+#   http://developer.android.com/guide/developing/tools/proguard.html
+
+-dontnote com.google.vending.licensing.ILicensingService
+-dontnote com.android.vending.licensing.ILicensingService
+-dontnote android.net.http.*
+-dontwarn android.net.**
+
+-keep class org.apache.http.** { *; }
+-dontwarn org.apache.http.**
+-dontnote org.apache.http.**
+-dontnote org.apache.commons.codec.**
+
+-dontwarn org.slf4j.**
+
+#LaunchDarkly
+-keepattributes InnerClasses
+-keep class com.launchdarkly.android.**
+-keepclassmembers class com.launchdarkly.android.** { *; }
+
+
+-keep class com.launchdarkly.eventsource.MessageEvent { *; }
+-keep class com.google.gson.JsonElement { *; }
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class okio.** { *; }
+-keep class com.google.common.io.LineProcessor { *; }
+-dontwarn java.nio.file.*
+-dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
+-dontwarn okio.**
+
+# OkHttp from https://github.com/krschultz/android-proguard-snippets/blob/master/libraries/proguard-square-okhttp3.pro
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-dontwarn okhttp3.**
+
+#Guava from https://github.com/krschultz/android-proguard-snippets/blob/master/libraries/proguard-guava.pro
+
+# Configuration for Guava 18.0
+#
+# disagrees with instructions provided by Guava project: https://code.google.com/p/guava-libraries/wiki/UsingProGuardWithGuava
+
+-keep class com.google.common.io.Resources {
+    public static <methods>;
+}
+-keep class com.google.common.collect.Lists {
+    public static ** reverse(**);
+}
+-keep class com.google.common.base.Charsets {
+    public static <fields>;
+}
+
+-keep class com.google.common.base.Joiner {
+    public static com.google.common.base.Joiner on(java.lang.String);
+    public ** join(...);
+}
+
+-keep class com.google.common.collect.MapMakerInternalMap$ReferenceEntry
+-keep class com.google.common.cache.LocalCache$ReferenceEntry
+
+# http://stackoverflow.com/questions/9120338/proguard-configuration-for-guava-with-obfuscation-and-optimization
+-dontwarn javax.annotation.**
+-dontwarn javax.inject.**
+-dontwarn sun.misc.Unsafe
+
+# Guava 19.0
+-dontwarn java.lang.ClassValue
+-dontwarn com.google.j2objc.annotations.Weak
+-dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
+
+
+#Gson from https://github.com/krschultz/android-proguard-snippets/blob/master/libraries/proguard-gson.pro
+## GSON 2.2.4 specific rules ##
+
+# Gson uses generic type information stored in a class file when working with fields. Proguard
+# removes such information by default, so configure it to keep all of it.
+-keepattributes Signature
+
+# For using GSON @Expose annotation
+-keepattributes *Annotation*
+
+-keepattributes EnclosingMethod
+
+# Gson specific classes
+-keep class sun.misc.Unsafe { *; }
+-keep class com.google.gson.stream.** { *; }

@@ -49,3 +49,4 @@ Check out the included example app, or follow things here:
 - Airplane mode
 - Tests
 - Javadoc
+- Make Android linter happy
