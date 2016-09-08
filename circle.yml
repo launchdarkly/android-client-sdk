@@ -5,11 +5,7 @@ dependencies:
     # Android SDK Build-tools, revision 24.0.2
     - if [ ! -d "/usr/local/android-sdk-linux/build-tools/24.0.2" ]; then echo y | android update sdk --no-ui --all --filter "build-tools-24.0.2"; fi
     # brings in appcompat
-    - echo y | android update sdk --no-ui --all --filter "extra-android-m2repository"
-    - ls /usr/local/android-sdk-linux/
-    - ls /usr/local/android-sdk-linux/extras
-    - ls /usr/local/android-sdk-linux/extras/android
-    - ls /usr/local/android-sdk-linux/extras/android/m2repository
+    - if [ ! -d "/usr/local/android-sdk-linux/extras/android/m2repository" ]; then echo y | android update sdk --no-ui --all --filter "extra-android-m2repository"; fi
   cache_directories:
     - /usr/local/android-sdk-linux/platforms/android-24
     - /usr/local/android-sdk-linux/build-tools/24.0.2
