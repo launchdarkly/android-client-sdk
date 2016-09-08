@@ -12,11 +12,6 @@ android {
         versionCode 1
         versionName "1.0"
     }
-//    buildTypes {
-//        release {
-//            consumerProguardFiles 'proguard-project.txt'
-//        }
-//    }
     lintOptions {
         // TODO: fix things and set this to true
         abortOnError false
