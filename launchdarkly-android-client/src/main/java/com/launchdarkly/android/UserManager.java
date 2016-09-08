@@ -91,7 +91,7 @@ class UserManager {
 
     private SharedPreferences loadSharedPrefsForUser(String user) {
         String sharedPrefsKey = sharedPrefsBaseKey + "-" + user;
-        Log.i(TAG, "Using SharedPreferences key: " + sharedPrefsKey);
+        Log.d(TAG, "Using SharedPreferences key: " + sharedPrefsKey);
         return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
     }
 

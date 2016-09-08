@@ -136,7 +136,7 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
             handler.removeCallbacks(check);
 
         if (wasBackground) {
-            Log.i(TAG, "went foreground");
+            Log.d(TAG, "went foreground");
             for (Listener l : listeners) {
                 try {
                     l.onBecameForeground();
@@ -145,7 +145,7 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
                 }
             }
         } else {
-            Log.i(TAG, "still foreground");
+            Log.d(TAG, "still foreground");
         }
     }
 
@@ -161,7 +161,7 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
             public void run() {
                 if (foreground && paused) {
                     foreground = false;
-                    Log.i(TAG, "went background");
+                    Log.d(TAG, "went background");
                     for (Listener l : listeners) {
                         try {
                             l.onBecameBackground();
@@ -170,7 +170,7 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
                         }
                     }
                 } else {
-                    Log.i(TAG, "still foreground");
+                    Log.d(TAG, "still foreground");
                 }
             }
         }, CHECK_DELAY);

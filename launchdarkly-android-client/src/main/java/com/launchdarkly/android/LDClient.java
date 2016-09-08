@@ -60,7 +60,7 @@ public class LDClient implements LDClientInterface, Closeable {
             };
             foreground.addListener(foregroundListener);
 
-            this.updater = FeatureFlagUpdater.init(config, userManager);
+            this.updater = FeatureFlagUpdater.init(application, config, userManager);
             this.streamProcessor = new StreamProcessor(config, updater);
             streamProcessor.start();
             eventProcessor = new EventProcessor(config);
