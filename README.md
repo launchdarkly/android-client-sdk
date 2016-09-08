@@ -42,6 +42,20 @@ Check out the included example app, or follow things here:
    ldClient.identify(user);
 	```
 
+## ProGuard Config
+If you're using ProGuard add these lines to your config:
+
+```
+-dontwarn org.apache.http.**
+-dontwarn org.slf4j.**
+-dontwarn java.nio.file.*
+-dontwarn javax.annotation.**
+-dontwarn sun.misc.Unsafe
+-dontwarn java.lang.ClassValue
+-dontwarn com.google.j2objc.annotations.Weak
+-dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
+```
+
 ## Known Issues/Features not yet implemented:
 - Http client caching
 - Background polling
@@ -49,3 +63,4 @@ Check out the included example app, or follow things here:
 - Airplane mode
 - Tests
 - Javadoc
+- Make Android linter happy
