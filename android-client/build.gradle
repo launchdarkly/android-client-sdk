@@ -12,11 +12,11 @@ android {
         versionCode 1
         versionName "1.0"
     }
-    buildTypes {
-        release {
-            consumerProguardFiles 'proguard-project.txt'
-        }
-    }
+//    buildTypes {
+//        release {
+//            consumerProguardFiles 'proguard-project.txt'
+//        }
+//    }
     lintOptions {
         // TODO: fix things and set this to true
         abortOnError false
@@ -64,7 +64,7 @@ uploadArchives {
             }
 
             pom.project {
-                name 'LaunchDarkly SDK for Java'
+                name 'LaunchDarkly SDK for Android'
                 packaging 'jar'
                 description 'Official LaunchDarkly SDK for Android'
                 url 'https://github.com/launchdarkly/android-client'

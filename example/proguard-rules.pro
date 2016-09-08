@@ -9,9 +9,40 @@
 
 # Add any project specific keep options here:
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+-dontnote com.google.vending.licensing.ILicensingService
+-dontnote com.android.vending.licensing.ILicensingService
+-dontnote android.net.http.*
+-dontwarn android.net.**
+
+-keep class org.apache.http.** { *; }
+-dontwarn org.apache.http.**
+-dontnote org.apache.http.**
+-dontnote org.apache.commons.codec.**
+
+-dontwarn org.slf4j.**
+
+-dontwarn java.nio.file.*
+
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-dontwarn okhttp3.**
+
+-dontwarn javax.annotation.**
+#-dontwarn javax.inject.**
+-dontwarn sun.misc.Unsafe
+
+# Guava 19.0
+-dontwarn java.lang.ClassValue
+-dontwarn com.google.j2objc.annotations.Weak
+-dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
+
+-keepattributes Signature
+
+-keepattributes *Annotation*
+
+-keepattributes EnclosingMethod
+
+-keep class sun.misc.Unsafe { *; }
+-keep class com.google.gson.stream.** { *; }
