@@ -32,7 +32,7 @@ public class MainActivity extends AppCompatActivity {
         setupIdentifyButton();
 
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("MOBILE_KEY")
+                .setMobileKey("mob-c2467a29-1405-4f30-ad0a-0649cf89cd3b")
                 .build();
 
         user = new LDUser.Builder("user key")

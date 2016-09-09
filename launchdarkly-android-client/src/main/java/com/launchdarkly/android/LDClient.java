@@ -1,6 +1,11 @@
 package com.launchdarkly.android;
 
+import android.app.AlarmManager;
 import android.app.Application;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.os.SystemClock;
 import android.util.Log;
 
 import com.google.gson.JsonElement;
@@ -15,12 +20,16 @@ import java.util.concurrent.Future;
 public class LDClient implements LDClientInterface, Closeable {
     private static final String TAG = "LaunchDarkly";
     private static LDClient instance = null;
+    private static final int BACKGROUND_INTERVAL_MS = 10000;
     private final LDConfig config;
     private final UserManager userManager;
 
     private EventProcessor eventProcessor;
     private StreamProcessor streamProcessor;
     private FeatureFlagUpdater updater;
+
+    private AlarmManager alarmMgr;
+    private PendingIntent alarmIntent;
 
     public static LDClient init(Application application, LDConfig config, LDUser user) {
         if (instance != null) {
@@ -64,7 +73,20 @@ public class LDClient implements LDClientInterface, Closeable {
             this.streamProcessor = new StreamProcessor(config, updater);
             streamProcessor.start();
             eventProcessor = new EventProcessor(config);
-            sendEvent(new IdentifyEvent(user));        }
+            sendEvent(new IdentifyEvent(user));
+
+            Intent intent = new Intent(application, BackgroundUpdater.class);
+
+            alarmIntent = PendingIntent.getBroadcast(application, 0, intent, 0);
+
+            alarmMgr = (AlarmManager)application.getSystemService(Context.ALARM_SERVICE);
+
+            alarmMgr.setInexactRepeating(
+                    AlarmManager.ELAPSED_REALTIME,
+                    SystemClock.elapsedRealtime() + BACKGROUND_INTERVAL_MS,
+                    BACKGROUND_INTERVAL_MS,
+                    alarmIntent);
+        }
     }
 
     @Override
