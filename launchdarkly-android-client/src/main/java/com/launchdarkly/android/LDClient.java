@@ -20,7 +20,6 @@ import java.util.concurrent.Future;
 public class LDClient implements LDClientInterface, Closeable {
     private static final String TAG = "LaunchDarkly";
     private static LDClient instance = null;
-    private static final int BACKGROUND_INTERVAL_MS = 10000;
     private final LDConfig config;
     private final UserManager userManager;
 
@@ -28,8 +27,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private StreamProcessor streamProcessor;
     private FeatureFlagUpdater updater;
 
-    private AlarmManager alarmMgr;
-    private PendingIntent alarmIntent;
 
     public static LDClient init(Application application, LDConfig config, LDUser user) {
         if (instance != null) {
@@ -48,32 +45,25 @@ public class LDClient implements LDClientInterface, Closeable {
         return instance;
     }
 
-    private LDClient(Application application, LDConfig config, LDUser user) {
+    private LDClient(final Application application, LDConfig config, LDUser user) {
         Log.i(TAG, "Starting LaunchDarkly client");
         this.config = config;
         this.userManager = new UserManager(application, user);
         userManager.setCurrentUser(user);
 
         if (!isOffline()) {
-            Intent intent = new Intent(application, BackgroundUpdater.class);
-            alarmIntent = PendingIntent.getBroadcast(application, 0, intent, 0);
-            alarmMgr = (AlarmManager)application.getSystemService(Context.ALARM_SERVICE);
 
             Foreground foreground = Foreground.get(application);
             Foreground.Listener foregroundListener = new Foreground.Listener() {
                 @Override
                 public void onBecameForeground() {
-                    alarmMgr.cancel(alarmIntent);
+                    BackgroundUpdater.stop(application);
                     streamProcessor.start();
                 }
 
                 @Override
                 public void onBecameBackground() {
-                    alarmMgr.setInexactRepeating(
-                            AlarmManager.ELAPSED_REALTIME,
-                            SystemClock.elapsedRealtime() + BACKGROUND_INTERVAL_MS,
-                            BACKGROUND_INTERVAL_MS,
-                            alarmIntent);
+                    BackgroundUpdater.start(application);
                     streamProcessor.stop();
                 }
             };

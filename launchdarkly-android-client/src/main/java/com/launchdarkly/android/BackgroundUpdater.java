@@ -1,26 +1,31 @@
 package com.launchdarkly.android;
 
-import android.content.BroadcastReceiver;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.util.Log;
+import android.os.SystemClock;
 
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+public class BackgroundUpdater {
+    private static final int BACKGROUND_INTERVAL_MS = 10000;
 
-public class BackgroundUpdater extends BroadcastReceiver {
-    private static final String TAG = "LDBackgroundUpdater";
-
-    @Override
-    public void onReceive(Context context, Intent intent) {
-        Log.i(TAG, "Alarm Background update starting...");
-        try {
-            FeatureFlagUpdater.getInstance().update().get(10, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException e) {
-            Log.e(TAG, "Exception caught when awaiting update", e);
-        } catch (TimeoutException e) {
-            Log.e(TAG, "Feature Flag update timed out", e);
-        }
+    static void start(Context context) {
+        Intent alarmIntent = new Intent(context, BackgroundUpdaterReceiver.class);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, 0, alarmIntent, 0);
+        AlarmManager alarmMgr = (AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
+        alarmMgr.setInexactRepeating(
+                AlarmManager.ELAPSED_REALTIME,
+                SystemClock.elapsedRealtime() + BACKGROUND_INTERVAL_MS,
+                BACKGROUND_INTERVAL_MS,
+                pendingIntent);
     }
+
+    static void stop(Context context) {
+        Intent alarmIntent = new Intent(context, BackgroundUpdaterReceiver.class);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, 0, alarmIntent, 0);
+        AlarmManager alarmMgr = (AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
+        alarmMgr.cancel(pendingIntent);
+    }
+
+
 }
