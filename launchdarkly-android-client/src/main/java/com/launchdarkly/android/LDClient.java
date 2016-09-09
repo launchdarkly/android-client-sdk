@@ -1,11 +1,6 @@
 package com.launchdarkly.android;
 
-import android.app.AlarmManager;
 import android.app.Application;
-import android.app.PendingIntent;
-import android.content.Context;
-import android.content.Intent;
-import android.os.SystemClock;
 import android.util.Log;
 
 import com.google.gson.JsonElement;
@@ -26,7 +21,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private EventProcessor eventProcessor;
     private StreamProcessor streamProcessor;
     private FeatureFlagUpdater updater;
-
 
     public static LDClient init(Application application, LDConfig config, LDUser user) {
         if (instance != null) {
@@ -52,7 +46,6 @@ public class LDClient implements LDClientInterface, Closeable {
         userManager.setCurrentUser(user);
 
         if (!isOffline()) {
-
             Foreground foreground = Foreground.get(application);
             Foreground.Listener foregroundListener = new Foreground.Listener() {
                 @Override

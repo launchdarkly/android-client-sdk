@@ -57,7 +57,6 @@ If you're using ProGuard add these lines to your config:
 ```
 
 ## Known Issues/Features not yet implemented:
-- Background polling
 - Realtime Feature Flag change notification.
 - Airplane mode
 - Tests
