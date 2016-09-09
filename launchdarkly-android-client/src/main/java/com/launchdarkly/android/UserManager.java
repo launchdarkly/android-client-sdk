@@ -102,7 +102,7 @@ class UserManager {
         } else {
             Log.d(TAG, "Found feature flags:");
             for (Map.Entry<String, ?> kv : all.entrySet()) {
-                Log.d(TAG, "Key: " + kv.getKey() + " value: " + kv.getValue());
+                Log.d(TAG, "\tKey: " + kv.getKey() + " value: " + kv.getValue());
             }
         }
     }

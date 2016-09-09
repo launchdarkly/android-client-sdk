@@ -40,7 +40,7 @@ class FeatureFlagUpdater {
         this.config = config;
         this.userManager = userManager;
 
-        File cacheDir = context.getDir("launchdarkly_api_cache-" + context.getPackageName(), Context.MODE_PRIVATE);
+        File cacheDir = context.getDir("launchdarkly_api_cache", Context.MODE_PRIVATE);
         deleteRecursive(cacheDir);
         Log.d(TAG, "Using cache at: " + cacheDir.getAbsolutePath());
 
