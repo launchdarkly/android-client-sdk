@@ -39,7 +39,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return instance;
     }
 
-    private LDClient(Application application, LDConfig config, LDUser user) {
+    private LDClient(final Application application, LDConfig config, LDUser user) {
         Log.i(TAG, "Starting LaunchDarkly client");
         this.config = config;
         this.userManager = new UserManager(application, user);
@@ -50,21 +50,24 @@ public class LDClient implements LDClientInterface, Closeable {
             Foreground.Listener foregroundListener = new Foreground.Listener() {
                 @Override
                 public void onBecameForeground() {
+                    BackgroundUpdater.stop(application);
                     streamProcessor.start();
                 }
 
                 @Override
                 public void onBecameBackground() {
+                    BackgroundUpdater.start(application);
                     streamProcessor.stop();
                 }
             };
             foreground.addListener(foregroundListener);
 
-            this.updater = FeatureFlagUpdater.init(config, userManager);
+            this.updater = FeatureFlagUpdater.init(application, config, userManager);
             this.streamProcessor = new StreamProcessor(config, updater);
             streamProcessor.start();
             eventProcessor = new EventProcessor(config);
-            sendEvent(new IdentifyEvent(user));        }
+            sendEvent(new IdentifyEvent(user));
+        }
     }
 
     @Override

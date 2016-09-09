@@ -2,7 +2,6 @@ package com.launchdarkly.android;
 
 
 import com.google.gson.JsonElement;
-import com.launchdarkly.android.LDUser;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -22,16 +21,11 @@ public interface LDClientInterface extends Closeable {
 
     Boolean boolVariation(String featureKey, boolean defaultValue);
 
-//    @Deprecated
-//    boolean toggle(String featureKey, LDUser user, boolean defaultValue);
-
     Integer intVariation(String featureKey, int defaultValue);
 
     Float floatVariation(String featureKey, Float defaultValue);
 
     String stringVariation(String featureKey, String defaultValue);
-
-//    JsonElement jsonVariation(String featureKey, JsonElement defaultValue);
 
     JsonElement jsonVariation(String featureKey, JsonElement defaultValue);
 
@@ -41,6 +35,4 @@ public interface LDClientInterface extends Closeable {
     void flush();
 
     boolean isOffline();
-
-//    String secureModeHash(LDUser user);
 }

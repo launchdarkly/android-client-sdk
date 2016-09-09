@@ -91,7 +91,7 @@ class UserManager {
 
     private SharedPreferences loadSharedPrefsForUser(String user) {
         String sharedPrefsKey = sharedPrefsBaseKey + "-" + user;
-        Log.i(TAG, "Using SharedPreferences key: " + sharedPrefsKey);
+        Log.d(TAG, "Using SharedPreferences key: " + sharedPrefsKey);
         return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
     }
 
@@ -102,7 +102,7 @@ class UserManager {
         } else {
             Log.d(TAG, "Found feature flags:");
             for (Map.Entry<String, ?> kv : all.entrySet()) {
-                Log.d(TAG, "Key: " + kv.getKey() + " value: " + kv.getValue());
+                Log.d(TAG, "\tKey: " + kv.getKey() + " value: " + kv.getValue());
             }
         }
     }

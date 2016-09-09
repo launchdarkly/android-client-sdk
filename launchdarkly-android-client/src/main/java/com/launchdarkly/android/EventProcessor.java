@@ -92,7 +92,7 @@ class EventProcessor implements Closeable {
             Response response = null;
             try {
                 response = client.newCall(request).execute();
-                Log.i(TAG, "Events Response: " + response.code());
+                Log.d(TAG, "Events Response: " + response.code());
             } catch (IOException e) {
                 Log.e(TAG, "Unhandled exception in LaunchDarkly client attempting to connect to URI: " + request.url(), e);
             } finally {
