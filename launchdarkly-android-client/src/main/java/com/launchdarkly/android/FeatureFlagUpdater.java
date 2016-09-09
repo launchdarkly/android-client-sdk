@@ -20,7 +20,7 @@ import okhttp3.Response;
 
 class FeatureFlagUpdater {
     private static final String TAG = "LDFeatureFlagUpdater";
-    private static final int MAX_CACHE_SIZE_BYTES = 10_000_000; // 10MB
+    private static final int MAX_CACHE_SIZE_BYTES = 500_000;
     private static FeatureFlagUpdater instance;
 
     private final LDConfig config;
