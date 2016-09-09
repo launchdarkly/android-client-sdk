@@ -48,7 +48,6 @@ class StreamProcessor implements Closeable {
 
         return new EventSource.Builder(handler, java.net.URI.create(config.getStreamUri().toString() + "/mping"))
                 .headers(headers)
-                .reconnectTimeMs(0L)
                 .build();
     }
 
