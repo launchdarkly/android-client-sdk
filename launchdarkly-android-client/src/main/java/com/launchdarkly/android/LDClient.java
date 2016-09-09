@@ -55,15 +55,25 @@ public class LDClient implements LDClientInterface, Closeable {
         userManager.setCurrentUser(user);
 
         if (!isOffline()) {
+            Intent intent = new Intent(application, BackgroundUpdater.class);
+            alarmIntent = PendingIntent.getBroadcast(application, 0, intent, 0);
+            alarmMgr = (AlarmManager)application.getSystemService(Context.ALARM_SERVICE);
+
             Foreground foreground = Foreground.get(application);
             Foreground.Listener foregroundListener = new Foreground.Listener() {
                 @Override
                 public void onBecameForeground() {
+                    alarmMgr.cancel(alarmIntent);
                     streamProcessor.start();
                 }
 
                 @Override
                 public void onBecameBackground() {
+                    alarmMgr.setInexactRepeating(
+                            AlarmManager.ELAPSED_REALTIME,
+                            SystemClock.elapsedRealtime() + BACKGROUND_INTERVAL_MS,
+                            BACKGROUND_INTERVAL_MS,
+                            alarmIntent);
                     streamProcessor.stop();
                 }
             };
@@ -74,18 +84,6 @@ public class LDClient implements LDClientInterface, Closeable {
             streamProcessor.start();
             eventProcessor = new EventProcessor(config);
             sendEvent(new IdentifyEvent(user));
-
-            Intent intent = new Intent(application, BackgroundUpdater.class);
-
-            alarmIntent = PendingIntent.getBroadcast(application, 0, intent, 0);
-
-            alarmMgr = (AlarmManager)application.getSystemService(Context.ALARM_SERVICE);
-
-            alarmMgr.setInexactRepeating(
-                    AlarmManager.ELAPSED_REALTIME,
-                    SystemClock.elapsedRealtime() + BACKGROUND_INTERVAL_MS,
-                    BACKGROUND_INTERVAL_MS,
-                    alarmIntent);
         }
     }
 

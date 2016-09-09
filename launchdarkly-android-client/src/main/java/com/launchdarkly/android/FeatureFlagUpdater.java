@@ -50,7 +50,7 @@ class FeatureFlagUpdater {
                 .build();
     }
 
-    Future<Void> update() {
+    synchronized Future<Void> update() {
         final VeryBasicFuture doneFuture = new VeryBasicFuture();
         String uri = config.getBaseUri() + "/msdk/eval/users/" + userManager.getCurrentUser().getAsUrlSafeBase64();
         final Request request = config.getRequestBuilder()
