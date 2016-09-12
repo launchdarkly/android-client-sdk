@@ -12,26 +12,20 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import static com.launchdarkly.android.Util.isInternetConnected;
-
 public class BackgroundUpdater extends BroadcastReceiver {
-    private static final String TAG = "LDBackgroundUpdater";
+    private static final String TAG = "LDBackgroundReceiver";
     private static final int BACKGROUND_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
     @Override
     public void onReceive(Context context, Intent intent) {
+        Log.d(TAG, "onReceive...");
         try {
-            if (isInternetConnected(context)) {
-                Log.d(TAG, "onReceive connected to the internet!");
-                FeatureFlagUpdater featureFlagUpdater = FeatureFlagUpdater.getInstance();
-                if (featureFlagUpdater == null) {
-                    Log.e(TAG, "FeatureFlagUpdater singleton was accessed before it was initialized! doing nothing");
-                    return;
-                }
-                featureFlagUpdater.update().get(15, TimeUnit.SECONDS);
-            } else {
-                Log.d(TAG, "onReceive with no internet connection! Skipping update.");
+            FeatureFlagUpdater featureFlagUpdater = FeatureFlagUpdater.getInstance();
+            if (featureFlagUpdater == null) {
+                Log.e(TAG, "FeatureFlagUpdater singleton was accessed before it was initialized! doing nothing");
+                return;
             }
+            featureFlagUpdater.update().get(15, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
             Log.e(TAG, "Exception caught when awaiting update", e);
         } catch (TimeoutException e) {
@@ -66,6 +60,6 @@ public class BackgroundUpdater extends BroadcastReceiver {
     }
 
     private static AlarmManager getAlarmManager(Context context) {
-        return (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        return (AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
     }
 }

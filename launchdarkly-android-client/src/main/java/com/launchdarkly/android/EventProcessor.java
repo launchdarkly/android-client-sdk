@@ -1,13 +1,13 @@
 package com.launchdarkly.android;
 
 
-import android.content.Context;
 import android.util.Log;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -20,26 +20,26 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 import static com.launchdarkly.android.LDConfig.JSON;
-import static com.launchdarkly.android.Util.isInternetConnected;
 
 class EventProcessor implements Closeable {
     private static final String TAG = "LDEventProcessor";
     private final ScheduledExecutorService scheduler;
+    private final Random random = new Random();
     private final BlockingQueue<Event> queue;
+    private final LDConfig config;
     private final Consumer consumer;
     private final OkHttpClient client;
-    private Context context;
 
-    EventProcessor(Context context, LDConfig config) {
-        this.context = context;
+    EventProcessor(LDConfig config) {
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
+        this.config = config;
 
         //TODO: maybe use daemon thread here
         this.scheduler = Executors.newSingleThreadScheduledExecutor(Executors.defaultThreadFactory());
         this.scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
         client = new OkHttpClient.Builder()
-                .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+                .connectTimeout(this.config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .build();
     }
 
@@ -70,17 +70,16 @@ class EventProcessor implements Closeable {
         }
 
         public synchronized void flush() {
-            if (isInternetConnected(context)) {
-                List<Event> events = new ArrayList<>(queue.size());
-                queue.drainTo(events);
+            List<Event> events = new ArrayList<>(queue.size());
+            queue.drainTo(events);
 
-                if (!events.isEmpty()) {
-                    postEvents(events);
-                }
+            if (!events.isEmpty()) {
+                postEvents(events);
             }
         }
 
         private void postEvents(List<Event> events) {
+
             String content = LDConfig.GSON.toJson(events);
             Request request = config.getRequestBuilder()
                     .url(config.getEventsUri().toString())
