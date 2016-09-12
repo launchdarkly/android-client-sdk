@@ -46,6 +46,7 @@ class EventProcessor implements Closeable {
         this.scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
         client = new OkHttpClient.Builder()
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+                .retryOnConnectionFailure(true)
                 .build();
     }
 
