@@ -4,6 +4,8 @@ package com.launchdarkly.android;
 import android.content.Context;
 import android.util.Log;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -12,6 +14,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -35,8 +38,11 @@ class EventProcessor implements Closeable {
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
 
-        //TODO: maybe use daemon thread here
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(Executors.defaultThreadFactory());
+        ThreadFactory threadFactory = new ThreadFactoryBuilder()
+                .setDaemon(true)
+                .setNameFormat("LaunchDarkly-EventProcessor-%d")
+                .build();
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
         this.scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
         client = new OkHttpClient.Builder()
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
