@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.Future;
 
+import static com.launchdarkly.android.Util.isInternetConnected;
+
 public class LDClient implements LDClientInterface, Closeable {
     private static final String TAG = "LaunchDarkly";
     private static LDClient instance = null;
@@ -31,10 +33,10 @@ public class LDClient implements LDClientInterface, Closeable {
         return instance;
     }
 
-    public static LDClient get() throws Exception {
+    public static LDClient get() throws LaunchDarklyException {
         if (instance == null) {
             Log.e(TAG, "LDClient.get() was called before init()!");
-            throw new Exception("LDClient.get() was called before init()!");
+            throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
         return instance;
     }
@@ -51,13 +53,15 @@ public class LDClient implements LDClientInterface, Closeable {
                 @Override
                 public void onBecameForeground() {
                     BackgroundUpdater.stop(application);
-                    streamProcessor.start();
+                    if (isInternetConnected(application)) {
+                        startStreaming();
+                    }
                 }
 
                 @Override
                 public void onBecameBackground() {
                     BackgroundUpdater.start(application);
-                    streamProcessor.stop();
+                    stopStreaming();
                 }
             };
             foreground.addListener(foregroundListener);
@@ -65,7 +69,7 @@ public class LDClient implements LDClientInterface, Closeable {
             this.updater = FeatureFlagUpdater.init(application, config, userManager);
             this.streamProcessor = new StreamProcessor(config, updater);
             streamProcessor.start();
-            eventProcessor = new EventProcessor(config);
+            eventProcessor = new EventProcessor(application, config);
             sendEvent(new IdentifyEvent(user));
         }
     }
@@ -190,6 +194,14 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void sendFlagRequestEvent(String featureKey, JsonElement value, JsonElement defaultValue) {
         sendEvent(new FeatureRequestEvent(featureKey, userManager.getCurrentUser(), value, defaultValue));
+    }
+
+    void stopStreaming() {
+        streamProcessor.stop();
+    }
+
+    void startStreaming() {
+        streamProcessor.start();
     }
 
     private void sendEvent(Event event) {
