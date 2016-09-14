@@ -11,6 +11,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.google.gson.JsonNull;
+import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
@@ -32,7 +33,7 @@ public class MainActivity extends AppCompatActivity {
         setupIdentifyButton();
 
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("MOBILE_KEY")
+                .setMobileKey("mob-c2467a29-1405-4f30-ad0a-0649cf89cd3b")
                 .build();
 
         user = new LDUser.Builder("user key")
@@ -96,15 +97,22 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 Log.i(TAG, "eval onClick");
-                String featureKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString();
+                final String featureKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString();
 
                 String type = spinner.getSelectedItem().toString();
-                String result;
+                final String result;
                 switch (type) {
                     case "String":
                         result = ldClient.stringVariation(featureKey, "default");
                         Log.i(TAG, result);
                         ((TextView) findViewById(R.id.result_textView)).setText(result);
+                        ldClient.registerFeatureFlagListener(featureKey, new FeatureFlagChangeListener() {
+                            @Override
+                            public void onFeatureFlagChange(String key) {
+                                ((TextView) findViewById(R.id.result_textView))
+                                        .setText(ldClient.stringVariation(featureKey, "default"));
+                            }
+                        });
                         break;
                     case "Boolean":
                         result = ldClient.boolVariation(featureKey, false).toString();

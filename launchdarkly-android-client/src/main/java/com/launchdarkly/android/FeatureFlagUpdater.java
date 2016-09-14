@@ -88,7 +88,7 @@ class FeatureFlagUpdater {
 
                         JsonParser parser = new JsonParser();
                         JsonObject jsonObject = parser.parse(body).getAsJsonObject();
-                        userManager.saveFlagSettingsForUser(jsonObject);
+                        userManager.saveFlagSettings(jsonObject);
                         doneFuture.completed(null);
                     } catch (Exception e) {
                         Log.e(TAG, "Exception when handling response for url: " + request.url(), e);
