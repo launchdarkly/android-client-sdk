@@ -57,7 +57,5 @@ If you're using ProGuard add these lines to your config:
 ```
 
 ## Known Issues/Features not yet implemented:
-- Realtime Feature Flag change notification.
 - Tests
-- Javadoc
 - Make Android linter happy
