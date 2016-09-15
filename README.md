@@ -25,9 +25,9 @@ Check out the included example app, or follow things here:
        .email("fake@example.com")
        .build();
 
-   ListenableFuture<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
-   LDClient ldClient = initFuture.get(10, TimeUnit.SECONDS);
-	```
+   // NOTE: This method blocks for up to 5 seconds. See Javadoc for nonblocking options.
+   LDClient ldClient = LDClient.init(this.getApplication(), ldConfig, user, 5);
+   ```
 1. Evaluation example:
 	
 	```

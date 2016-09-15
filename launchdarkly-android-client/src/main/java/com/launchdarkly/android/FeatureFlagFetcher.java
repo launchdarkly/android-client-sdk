@@ -56,7 +56,7 @@ class FeatureFlagFetcher {
     synchronized ListenableFuture<JsonObject> fetch(LDUser user) {
         final SettableFuture<JsonObject> doneFuture = SettableFuture.create();
 
-        if (isOffline || isInternetConnected(context)) {
+        if (!isOffline && isInternetConnected(context)) {
             final OkHttpClient client = new OkHttpClient.Builder()
                     .cache(cache)
                     .retryOnConnectionFailure(true)

@@ -15,6 +15,9 @@ import com.google.gson.JsonPrimitive;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static com.launchdarkly.android.Util.isInternetConnected;
 
@@ -26,7 +29,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final String TAG = "LaunchDarkly";
     private static LDClient instance = null;
 
-    private final Application application;
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
     private final StreamProcessor streamProcessor;
@@ -79,6 +81,31 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     /**
+     * Initializes the singleton instance and blocks for up to <code>startWaitSeconds</code> seconds
+     * until the client has been initialized. If the client does not initialize within
+     * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
+     * have fetched the most recent feature flag values.
+     * @param application
+     * @param config
+     * @param user
+     * @param startWaitSeconds
+     * @return
+     */
+    public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
+        Log.i(TAG, "Initializing Client and waiting up to " + startWaitSeconds + " for initialization to complete");
+        ListenableFuture<LDClient> initFuture = init(application, config, user);
+        try {
+            return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException e) {
+            Log.e(TAG, "Exception during Client initialization", e);
+        } catch (TimeoutException e) {
+            Log.w(TAG, "Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
+                    "It could be taking longer than expected to start up");
+        }
+        return instance;
+    }
+
+    /**
      * @return the singleton instance.
      * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
      */
@@ -93,7 +120,6 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     protected LDClient(final Application application, LDConfig config) {
         Log.i(TAG, "Starting LaunchDarkly client");
-        this.application = application;
         this.isOffline = config.isOffline();
         this.fetcher = FeatureFlagFetcher.init(application, config);
         this.userManager = new UserManager(application, fetcher);
@@ -102,7 +128,7 @@ public class LDClient implements LDClientInterface, Closeable {
             @Override
             public void onBecameForeground() {
                 BackgroundUpdater.stop(application);
-                if (!isOffline() && isInternetConnected(application)) {
+                if (isInternetConnected(application)) {
                     startStreaming();
                 }
             }
@@ -148,11 +174,15 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
      */
     @Override
-    public synchronized ListenableFuture identify(LDUser user) {
-        if (user == null || user.getKey() == null) {
+    public synchronized ListenableFuture<Void> identify(LDUser user) {
+        if (user == null) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
+        }
+
+        if (user.getKey() == null) {
             Log.w(TAG, "identify called with null user or null user key!");
         }
-        ListenableFuture doneFuture = userManager.setCurrentUser(user);
+        ListenableFuture<Void> doneFuture = userManager.setCurrentUser(user);
         sendEvent(new IdentifyEvent(user));
         return doneFuture;
     }
@@ -315,7 +345,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public synchronized void setOffline(){
+    public synchronized void setOffline() {
         Log.d(TAG, "Setting isOffline = true");
         isOffline = true;
         fetcher.setOffline();
@@ -324,7 +354,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public synchronized void setOnline(){
+    public synchronized void setOnline() {
         Log.d(TAG, "Setting isOffline = false");
         this.isOffline = false;
         fetcher.setOnline();
@@ -362,7 +392,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     void startStreaming() {
-        if (streamProcessor != null) {
+        if (!isOffline && streamProcessor != null) {
             streamProcessor.start();
         }
     }
