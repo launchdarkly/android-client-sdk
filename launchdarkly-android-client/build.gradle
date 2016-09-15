@@ -32,7 +32,7 @@ dependencies {
 
 allprojects {
     group = 'com.launchdarkly'
-    version = "0.0.1-SNAPSHOT"
+    version = "0.0.2-SNAPSHOT"
     sourceCompatibility = 1.7
     targetCompatibility = 1.7
 }
