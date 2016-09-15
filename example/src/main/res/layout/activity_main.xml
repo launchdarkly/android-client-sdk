@@ -114,4 +114,17 @@
         android:layout_alignParentLeft="true"
         android:layout_alignParentStart="true" />
 
+    <Switch
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Offline"
+        android:id="@+id/offlineSwitch"
+        android:layout_above="@+id/userKey_editText"
+        android:layout_alignTop="@+id/flush_button"
+        android:layout_alignRight="@+id/userKey_editText"
+        android:layout_alignEnd="@+id/userKey_editText"
+        android:checked="false"
+        android:layout_alignLeft="@+id/eval_button"
+        android:layout_alignStart="@+id/eval_button" />
+
 </RelativeLayout>

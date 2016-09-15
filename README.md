@@ -12,7 +12,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:0.0.1-SNAPSHOT'
+	compile 'com.launchdarkly:launchdarkly-android-client:0.0.2-SNAPSHOT'
 	```  
 1. In your application configure and initialize the client:
 
@@ -25,12 +25,13 @@ Check out the included example app, or follow things here:
        .email("fake@example.com")
        .build();
 
-   ldClient = LDClient.init(this.getApplication(), ldConfig, user);
+   ListenableFuture<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
+   LDClient ldClient = initFuture.get(10, TimeUnit.SECONDS);
 	```
 1. Evaluation example:
 	
 	```
-	variationResult = ldClient.stringVariation(featureKey, "default");
+	variationResult = ldClient.stringVariation(flagKey, "fallback");
 	```
 1. Updating the User:
 

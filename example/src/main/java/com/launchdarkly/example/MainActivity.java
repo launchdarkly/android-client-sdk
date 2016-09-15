@@ -6,21 +6,27 @@ import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonNull;
 import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
     private LDClient ldClient;
-    private LDUser user;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -31,16 +37,22 @@ public class MainActivity extends AppCompatActivity {
         setupFlushButton();
         setupTrackButton();
         setupIdentifyButton();
+        setupOfflineSwitch();
 
         LDConfig ldConfig = new LDConfig.Builder()
                 .setMobileKey("MOBILE_KEY")
                 .build();
 
-        user = new LDUser.Builder("user key")
+        LDUser user = new LDUser.Builder("user key")
                 .email("fake@example.com")
                 .build();
 
-        ldClient = LDClient.init(this.getApplication(), ldConfig, user);
+        ListenableFuture<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
+        try {
+            ldClient = initFuture.get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+           Log.e(TAG, "Exception when awaiting LaunchDarkly Client initialization", e);
+        }
     }
 
     private void setupFlushButton() {
@@ -84,6 +96,20 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void setupOfflineSwitch() {
+        Switch offlineSwitch = (Switch) findViewById(R.id.offlineSwitch);
+        offlineSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
+                if (isChecked) {
+                    ldClient.setOffline();
+                } else {
+                    ldClient.setOnline();
+                }
+            }
+        });
+    }
+
     private void setupEval() {
         final Spinner spinner = (Spinner) findViewById(R.id.type_spinner);
         ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this,
@@ -97,40 +123,40 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 Log.i(TAG, "eval onClick");
-                final String featureKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString();
+                final String flagKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString();
 
                 String type = spinner.getSelectedItem().toString();
                 final String result;
                 switch (type) {
                     case "String":
-                        result = ldClient.stringVariation(featureKey, "default");
+                        result = ldClient.stringVariation(flagKey, "default");
                         Log.i(TAG, result);
                         ((TextView) findViewById(R.id.result_textView)).setText(result);
-                        ldClient.registerFeatureFlagListener(featureKey, new FeatureFlagChangeListener() {
+                        ldClient.registerFeatureFlagListener(flagKey, new FeatureFlagChangeListener() {
                             @Override
-                            public void onFeatureFlagChange(String key) {
+                            public void onFeatureFlagChange(String flagKey) {
                                 ((TextView) findViewById(R.id.result_textView))
-                                        .setText(ldClient.stringVariation(featureKey, "default"));
+                                        .setText(ldClient.stringVariation(flagKey, "default"));
                             }
                         });
                         break;
                     case "Boolean":
-                        result = ldClient.boolVariation(featureKey, false).toString();
+                        result = ldClient.boolVariation(flagKey, false).toString();
                         Log.i(TAG, result);
                         ((TextView) findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Integer":
-                        result = ldClient.intVariation(featureKey, 0).toString();
+                        result = ldClient.intVariation(flagKey, 0).toString();
                         Log.i(TAG, result);
                         ((TextView) findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Float":
-                        result = ldClient.floatVariation(featureKey, 0F).toString();
+                        result = ldClient.floatVariation(flagKey, 0F).toString();
                         Log.i(TAG, result);
                         ((TextView) findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Json":
-                        result = ldClient.jsonVariation(featureKey, JsonNull.INSTANCE).toString();
+                        result = ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString();
                         Log.i(TAG, result);
                         ((TextView) findViewById(R.id.result_textView)).setText(result);
                         break;
