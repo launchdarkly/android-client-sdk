@@ -19,6 +19,6 @@ test:
     - ./gradlew :launchdarkly-android-client:assembleDebug --console=plain
     - circle-android wait-for-boot
     - ./gradlew :launchdarkly-android-client:connectedAndroidTest --console=plain
-    - cp -r my-project/build/outputs $CIRCLE_ARTIFACTS
-    - cp -r my-project/build/outputs/androidTest-results/* $CIRCLE_TEST_REPORTS
+    - ls -latrh
+    - cp -r launchdarkly-android-client/build/outputs/androidTest-results/* $CIRCLE_TEST_REPORTS
     - ./gradlew packageRelease --console=plain
