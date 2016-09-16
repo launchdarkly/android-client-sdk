@@ -42,6 +42,9 @@ public class LDClientTest extends EasyMockSupport {
         LDUser user = new LDUser.Builder("userKey").build();
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), config, user, 1);
 
+        assertTrue(ldClient.isInitialized());
+        assertTrue(ldClient.isOffline());
+
         assertTrue(ldClient.boolVariation("boolFlag", true));
         assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
         assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
