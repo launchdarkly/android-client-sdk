@@ -40,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
         setupOfflineSwitch();
 
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("MOBILE_KEY")
+                .setMobileKey("mob-83f98fe6-7918-49c9-bfdc-4c2be017499d")
                 .build();
 
         LDUser user = new LDUser.Builder("user key")

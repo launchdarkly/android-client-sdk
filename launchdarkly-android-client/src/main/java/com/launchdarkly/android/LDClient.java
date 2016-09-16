@@ -60,6 +60,7 @@ public class LDClient implements LDClientInterface, Closeable {
             return settableFuture;
         }
         instance = new LDClient(application, config);
+        instance.userManager.setCurrentUser(user);
 
         if (instance.isOffline() || !isInternetConnected(application)) {
             settableFuture.set(instance);
@@ -68,7 +69,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
         instance.eventProcessor.start();
         ListenableFuture<Void> streamingFuture = instance.streamProcessor.start();
-        instance.userManager.setCurrentUser(user);
         instance.sendEvent(new IdentifyEvent(user));
 
         // Transform the StreamProcessor's initialization Future so its result is the instance:
@@ -121,8 +121,8 @@ public class LDClient implements LDClientInterface, Closeable {
     protected LDClient(final Application application, LDConfig config) {
         Log.i(TAG, "Starting LaunchDarkly client");
         this.isOffline = config.isOffline();
-        this.fetcher = FeatureFlagFetcher.init(application, config);
-        this.userManager = new UserManager(application, fetcher);
+        this.fetcher = HttpFeatureFlagFetcher.init(application, config);
+        this.userManager = UserManager.init(application, fetcher);
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override

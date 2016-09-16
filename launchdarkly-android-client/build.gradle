@@ -11,6 +11,7 @@ android {
         targetSdkVersion 24
         versionCode 1
         versionName "1.0"
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
     }
     lintOptions {
         // TODO: fix things and set this to true
@@ -20,12 +21,20 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
+    compile group: 'com.google.guava', name: 'guava', version: '19.0'
+    compile group: 'org.apache.httpcomponents', name: 'httpcore', version: '4.3.2'
     compile 'com.noveogroup.android:android-logger:1.3.5'
     compile 'com.google.code.gson:gson:2.6.2'
     compile 'com.launchdarkly:okhttp-eventsource:0.2.2'
     compile 'com.squareup.okhttp3:okhttp:3.4.1'
-    compile group: 'com.google.guava', name: 'guava', version: '19.0'
-    compile group: 'org.apache.httpcomponents', name: 'httpcore', version: '4.3.2'
+    compile 'com.android.support:appcompat-v7:24.2.1'
+
+    androidTestCompile 'com.android.support:support-annotations:24.2.1'
+    androidTestCompile 'com.android.support.test:runner:0.5'
+    androidTestCompile 'com.android.support.test:rules:0.5'
+    androidTestCompile 'org.hamcrest:hamcrest-library:1.3'
+    androidTestCompile 'org.easymock:easymock:3.4'
+    testCompile 'com.google.dexmaker:dexmaker:1.1'
     testCompile 'junit:junit:4.12'
 }
 

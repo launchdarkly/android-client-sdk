@@ -4,20 +4,21 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!--For detecting internet connectivity:-->
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- For detecting internet connectivity: -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!--For background updates: -->
+    <!-- For background updates: -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <application
         android:label="@string/app_name"
         android:supportsRtl="true">
-        <receiver android:name=".BackgroundUpdater"/>
-
-        <receiver android:enabled="true" android:name=".ConnectivityReceiver">
+        <receiver android:name=".BackgroundUpdater" />
+        <receiver
+            android:name=".ConnectivityReceiver"
+            android:enabled="true">
             <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE"/>
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
             </intent-filter>
         </receiver>
 
