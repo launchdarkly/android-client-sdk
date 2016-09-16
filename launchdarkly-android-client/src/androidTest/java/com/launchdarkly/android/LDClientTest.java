@@ -7,7 +7,6 @@ import android.support.test.runner.AndroidJUnit4;
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
 
-import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -19,7 +18,7 @@ import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
-public class LDClientTest extends EasyMockSupport {
+public class LDClientTest {
 
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
