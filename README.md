@@ -58,5 +58,9 @@ If you're using ProGuard add these lines to your config:
 ```
 
 ## Known Issues/Features not yet implemented:
-- Tests
 - Make Android linter happy
+
+## Testing
+Much of the behavior we want to assert is around complicated device state changes such as
+app backgrounding, loss of internet connection. These are problematic to test in a programmatic way,
+so we rely on a combination of automated emulator tests and manual tests.
