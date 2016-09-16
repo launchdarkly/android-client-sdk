@@ -7,6 +7,7 @@ import android.support.test.runner.AndroidJUnit4;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonObject;
+import com.launchdarkly.android.test.TestActivity;
 
 import org.easymock.EasyMockRule;
 import org.easymock.EasyMockSupport;

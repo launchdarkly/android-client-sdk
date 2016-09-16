@@ -1,4 +1,4 @@
-package com.launchdarkly.android;
+package com.launchdarkly.android.test;
 
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
