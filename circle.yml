@@ -20,5 +20,5 @@ test:
     - circle-android wait-for-boot
     - ./gradlew :launchdarkly-android-client:connectedAndroidTest --console=plain -PdisablePreDex
     - ls -latrh
-    - cp -r launchdarkly-android-client/build/outputs/androidTest-results/* $CIRCLE_TEST_REPORTS
+    - cp -r launchdarkly-android-client/build/reports/* $CIRCLE_TEST_REPORTS
     - ./gradlew packageRelease --console=plain -PdisablePreDex
