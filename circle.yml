@@ -12,13 +12,13 @@ dependencies:
     - /usr/local/android-sdk-linux/extras/android/m2repository
 test:
   override:
-    - ./gradlew assembleDebug --console=plain
     - emulator -avd circleci-android23 -no-audio -no-window:
         background: true
         parallel: true
+    - ./gradlew :launchdarkly-android-client:test --console=plain
+    - ./gradlew :launchdarkly-android-client:assembleDebug --console=plain
     - circle-android wait-for-boot
-    - ./gradlew connectedAndroidTest --console=plain
+    - ./gradlew :launchdarkly-android-client:connectedAndroidTest --console=plain
     - cp -r my-project/build/outputs $CIRCLE_ARTIFACTS
     - cp -r my-project/build/outputs/androidTest-results/* $CIRCLE_TEST_REPORTS
-    - ./gradlew test --console=plain
     - ./gradlew packageRelease --console=plain
