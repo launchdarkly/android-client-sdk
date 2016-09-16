@@ -1,6 +1,6 @@
 dependencies:
   pre:
-    - ls -R /usr/local/android-sdk-linux/extras/android/m2repository > ${CIRCLE_ARTIFACTS}/repo_contents.txt
+    - ls -R /usr/local/android-sdk-linux/extras/android/m2repository > $CIRCLE_ARTIFACTS/repo_contents.txt
     # Android SDK Platform 24
     - if [ ! -d "/usr/local/android-sdk-linux/platforms/android-24" ]; then echo y | android update sdk --no-ui --all --filter "android-24"; fi
     # Android SDK Build-tools, revision 24.0.2
