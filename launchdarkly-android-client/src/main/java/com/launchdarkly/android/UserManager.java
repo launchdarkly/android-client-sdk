@@ -18,6 +18,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -34,11 +35,8 @@ import java.util.Map;
 class UserManager {
     private static final String TAG = "LDUserManager";
     private static final int MAX_USERS = 5;
-
     private static UserManager instance;
-
     private final FeatureFlagFetcher fetcher;
-
     private final String sharedPrefsBaseKey;
 
     // The active user is the one that we track for changes to enable listeners.
@@ -92,12 +90,13 @@ class UserManager {
      * @param user
      */
     ListenableFuture<Void> setCurrentUser(final LDUser user) {
-        Log.d(TAG, "Setting current user to: " + user.getAsUrlSafeBase64());
+        String userBase64 = user.getAsUrlSafeBase64();
+        Log.d(TAG, "Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
         currentUser = user;
-        currentUserSharedPrefs = loadSharedPrefsForUser(user.getAsUrlSafeBase64());
+        currentUserSharedPrefs = loadSharedPrefsForUser(userBase64);
         ListenableFuture<Void> updateFuture = updateCurrentUser();
         usersSharedPrefs.edit()
-                .putLong(user.getAsUrlSafeBase64(), System.currentTimeMillis())
+                .putLong(userBase64, System.currentTimeMillis())
                 .apply();
 
         while (usersSharedPrefs.getAll().size() > MAX_USERS) {
@@ -105,16 +104,28 @@ class UserManager {
             String removed = allUsers.get(0);
             Log.d(TAG, "Exceeded max # of users: [" + MAX_USERS + "] Removing user: [" + removed
                     + "] [" + userBase64ToJson(removed) + "]");
-            SharedPreferences sharedPrefsToDelete = loadSharedPrefsForUser(removed);
-            sharedPrefsToDelete.edit()
-                    .clear()
-                    .apply();
+            deleteSharedPreferences(removed);
             usersSharedPrefs.edit()
                     .remove(removed)
                     .apply();
         }
 
         return updateFuture;
+    }
+
+    /**
+     * Completely deletes a user's saved flag settings and the remaining empty SharedPreferences xml file.
+     * @param userKey
+     */
+    private void deleteSharedPreferences(String userKey) {
+        SharedPreferences sharedPrefsToDelete = loadSharedPrefsForUser(userKey);
+        sharedPrefsToDelete.edit()
+                .clear()
+                .apply();
+
+        File file = new File(application.getFilesDir().getParent() + "/shared_prefs/" + sharedPrefsKeyForUser(userKey) + ".xml");
+        Log.i(TAG, "Deleting SharedPrefs file:" + file.getAbsolutePath());
+        file.delete();
     }
 
     synchronized ListenableFuture<Void> updateCurrentUser() {
@@ -251,9 +262,12 @@ class UserManager {
     }
 
     private SharedPreferences loadSharedPrefsForUser(String user) {
-        String sharedPrefsKey = sharedPrefsBaseKey + "-" + user;
-        Log.d(TAG, "Using SharedPreferences key: [" + sharedPrefsKey + "]");
-        return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
+        Log.d(TAG, "Using SharedPreferences key: [" + sharedPrefsKeyForUser(user) + "]");
+        return application.getSharedPreferences(sharedPrefsKeyForUser(user), Context.MODE_PRIVATE);
+    }
+
+    private String sharedPrefsKeyForUser(String user) {
+        return sharedPrefsBaseKey + "-" + user;
     }
 
     private SharedPreferences loadSharedPrefsForActiveUser() {

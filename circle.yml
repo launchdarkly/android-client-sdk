@@ -12,5 +12,13 @@ dependencies:
     - /usr/local/android-sdk-linux/extras/android/m2repository
 test:
   override:
-    - ./gradlew test
-    - ./gradlew packageRelease
+    - emulator -avd circleci-android23 -no-audio -no-window:
+        background: true
+        parallel: true
+    - ./gradlew :launchdarkly-android-client:assembleDebug --console=plain -PdisablePreDex
+    - ./gradlew :launchdarkly-android-client:test --console=plain -PdisablePreDex
+    - circle-android wait-for-boot
+    - ./gradlew :launchdarkly-android-client:connectedAndroidTest --console=plain -PdisablePreDex
+    - ls -latrh
+    - cp -r launchdarkly-android-client/build/reports/* $CIRCLE_TEST_REPORTS
+    - ./gradlew packageRelease --console=plain -PdisablePreDex

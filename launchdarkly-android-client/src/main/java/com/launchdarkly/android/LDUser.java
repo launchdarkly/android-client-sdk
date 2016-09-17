@@ -60,7 +60,7 @@ public class LDUser {
         this.avatar = builder.avatar == null ? null : new JsonPrimitive(builder.avatar);
         this.anonymous = builder.anonymous == null ? null : new JsonPrimitive(builder.anonymous);
         this.custom = new HashMap<>(builder.custom);
-        this.urlSafeBase64 = Base64.encodeToString(GSON.toJson(this).getBytes(), Base64.URL_SAFE);
+        this.urlSafeBase64 = Base64.encodeToString(GSON.toJson(this).getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
     }
 
     String getAsUrlSafeBase64() {
