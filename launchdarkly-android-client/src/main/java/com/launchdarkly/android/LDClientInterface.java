@@ -4,12 +4,17 @@ package com.launchdarkly.android;
 import com.google.gson.JsonElement;
 
 import java.io.Closeable;
-import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.Future;
 
 public interface LDClientInterface extends Closeable {
-    boolean initialized();
+    boolean isInitialized();
+
+    boolean isOffline();
+
+    void setOffline();
+
+    void setOnline();
 
     void track(String eventName, JsonElement data);
 
@@ -17,22 +22,21 @@ public interface LDClientInterface extends Closeable {
 
     Future<Void> identify(LDUser user);
 
-    Map<String, ?> allFlags();
-
-    Boolean boolVariation(String featureKey, boolean defaultValue);
-
-    Integer intVariation(String featureKey, int defaultValue);
-
-    Float floatVariation(String featureKey, Float defaultValue);
-
-    String stringVariation(String featureKey, String defaultValue);
-
-    JsonElement jsonVariation(String featureKey, JsonElement defaultValue);
-
-    @Override
-    void close() throws IOException;
-
     void flush();
 
-    boolean isOffline();
+    Map<String, ?> allFlags();
+
+    Boolean boolVariation(String flagKey, Boolean fallback);
+
+    Integer intVariation(String flagKey, Integer fallback);
+
+    Float floatVariation(String flagKey, Float fallback);
+
+    String stringVariation(String flagKey, String fallback);
+
+    JsonElement jsonVariation(String flagKey, JsonElement fallback);
+
+    void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
+
+    void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 }

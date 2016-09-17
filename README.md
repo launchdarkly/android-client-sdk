@@ -12,7 +12,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:0.0.1-SNAPSHOT'
+	compile 'com.launchdarkly:launchdarkly-android-client:0.0.2-SNAPSHOT'
 	```  
 1. In your application configure and initialize the client:
 
@@ -25,12 +25,13 @@ Check out the included example app, or follow things here:
        .email("fake@example.com")
        .build();
 
-   ldClient = LDClient.init(this.getApplication(), ldConfig, user);
-	```
+   // NOTE: This method blocks for up to 5 seconds. See Javadoc for nonblocking options.
+   LDClient ldClient = LDClient.init(this.getApplication(), ldConfig, user, 5);
+   ```
 1. Evaluation example:
 	
 	```
-	variationResult = ldClient.stringVariation(featureKey, "default");
+	variationResult = ldClient.stringVariation(flagKey, "fallback");
 	```
 1. Updating the User:
 
@@ -57,7 +58,9 @@ If you're using ProGuard add these lines to your config:
 ```
 
 ## Known Issues/Features not yet implemented:
-- Realtime Feature Flag change notification.
-- Tests
-- Javadoc
 - Make Android linter happy
+
+## Testing
+Much of the behavior we want to assert is around complicated device state changes such as
+app backgrounding, loss of internet connection. These are problematic to test in a programmatic way,
+so we rely on a combination of automated emulator tests and manual tests.

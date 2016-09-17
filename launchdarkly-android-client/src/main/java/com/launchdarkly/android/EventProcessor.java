@@ -27,27 +27,36 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 
 class EventProcessor implements Closeable {
     private static final String TAG = "LDEventProcessor";
-    private final ScheduledExecutorService scheduler;
     private final BlockingQueue<Event> queue;
     private final Consumer consumer;
     private final OkHttpClient client;
-    private Context context;
+    private final Context context;
+    private final LDConfig config;
+    private ScheduledExecutorService scheduler;
 
     EventProcessor(Context context, LDConfig config) {
         this.context = context;
+        this.config = config;
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
 
-        ThreadFactory threadFactory = new ThreadFactoryBuilder()
-                .setDaemon(true)
-                .setNameFormat("LaunchDarkly-EventProcessor-%d")
-                .build();
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
-        this.scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
         client = new OkHttpClient.Builder()
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
                 .build();
+    }
+
+    void start() {
+        ThreadFactory threadFactory = new ThreadFactoryBuilder()
+                .setDaemon(true)
+                .setNameFormat("LaunchDarkly-EventProcessor-%d")
+                .build();
+        scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
+        scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    void stop() {
+        scheduler.shutdown();
     }
 
     boolean sendEvent(Event e) {
@@ -57,11 +66,11 @@ class EventProcessor implements Closeable {
     @Override
     public void close() throws IOException {
         scheduler.shutdown();
-        this.flush();
+        flush();
     }
 
     void flush() {
-        scheduler.schedule(consumer, 0, TimeUnit.SECONDS);
+        consumer.flush();
     }
 
     class Consumer implements Runnable {

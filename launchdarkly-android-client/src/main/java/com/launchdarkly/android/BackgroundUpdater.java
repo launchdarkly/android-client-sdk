@@ -21,21 +21,24 @@ public class BackgroundUpdater extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         try {
-            if (isInternetConnected(context)) {
+            LDClient client = LDClient.get();
+            if (client != null && !client.isOffline() && isInternetConnected(context)) {
                 Log.d(TAG, "onReceive connected to the internet!");
-                FeatureFlagUpdater featureFlagUpdater = FeatureFlagUpdater.getInstance();
-                if (featureFlagUpdater == null) {
-                    Log.e(TAG, "FeatureFlagUpdater singleton was accessed before it was initialized! doing nothing");
+                UserManager userManager = UserManager.get();
+                if (userManager == null) {
+                    Log.e(TAG, "UserManager singleton was accessed before it was initialized! doing nothing");
                     return;
                 }
-                featureFlagUpdater.update().get(15, TimeUnit.SECONDS);
+                userManager.updateCurrentUser().get(15, TimeUnit.SECONDS);
             } else {
-                Log.d(TAG, "onReceive with no internet connection! Skipping update.");
+                Log.d(TAG, "onReceive with no internet connection! Skipping fetch.");
             }
         } catch (InterruptedException | ExecutionException e) {
             Log.e(TAG, "Exception caught when awaiting update", e);
         } catch (TimeoutException e) {
             Log.e(TAG, "Feature Flag update timed out", e);
+        } catch (LaunchDarklyException e) {
+            Log.e(TAG, "Exception when getting client", e);
         }
     }
 
