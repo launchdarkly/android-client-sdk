@@ -1,6 +1,8 @@
 package com.launchdarkly.android;
 
 import android.app.Application;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -15,6 +17,7 @@ import com.google.gson.JsonPrimitive;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -27,6 +30,8 @@ import static com.launchdarkly.android.Util.isInternetConnected;
  */
 public class LDClient implements LDClientInterface, Closeable {
     private static final String TAG = "LaunchDarkly";
+    // Upon client init will get set to a Unique id per installation used when creating anonymous users
+    static String INSTANCE_ID = "UNKNOWN_ANDROID";
     private static LDClient instance = null;
 
     private final UserManager userManager;
@@ -121,6 +126,19 @@ public class LDClient implements LDClientInterface, Closeable {
     protected LDClient(final Application application, LDConfig config) {
         Log.i(TAG, "Starting LaunchDarkly client");
         this.isOffline = config.isOffline();
+
+        SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("id", Context.MODE_PRIVATE);
+        if (!instanceIdSharedPrefs.contains("instanceId")) {
+            String uuid = UUID.randomUUID().toString();
+            Log.i(TAG, "Did not find existing instance id. Saving a new one");
+            SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
+            editor.putString("instanceId", uuid);
+            editor.apply();
+        }
+
+        INSTANCE_ID = instanceIdSharedPrefs.getString("anonUserKey", "unknown");
+        Log.i(TAG, "Using instance id: " + INSTANCE_ID);
+
         this.fetcher = HttpFeatureFlagFetcher.init(application, config);
         this.userManager = UserManager.init(application, fetcher);
         Foreground foreground = Foreground.get(application);

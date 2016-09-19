@@ -1,12 +1,17 @@
 package com.launchdarkly.android;
 
 import com.google.gson.JsonElement;
+import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 
 class Event {
+    @Expose
     Long creationDate;
+    @Expose
     String key;
+    @Expose
     String kind;
+    @Expose
     LDUser user;
 
     Event(String kind, String key, LDUser user) {
@@ -25,6 +30,7 @@ class IdentifyEvent extends Event {
 }
 
 class CustomEvent extends Event {
+    @Expose
     private final JsonElement data;
 
     CustomEvent(String key, LDUser user, JsonElement data) {
@@ -34,7 +40,10 @@ class CustomEvent extends Event {
 }
 
 class FeatureRequestEvent extends Event {
+    @Expose
     JsonElement value;
+
+    @Expose
     @SerializedName("default")
     JsonElement defaultVal;
 

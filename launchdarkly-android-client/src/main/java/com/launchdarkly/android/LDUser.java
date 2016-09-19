@@ -1,11 +1,13 @@
 package com.launchdarkly.android;
 
 
+import android.os.Build;
 import android.util.Base64;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
+import com.google.gson.annotations.Expose;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,26 +32,43 @@ import static com.launchdarkly.android.LDConfig.GSON;
  * launch a feature to the top 10% of users on a site.
  */
 public class LDUser {
-    private final JsonPrimitive key;
-    private JsonPrimitive secondary;
-    private JsonPrimitive ip;
-    private JsonPrimitive email;
-    private JsonPrimitive name;
-    private JsonPrimitive avatar;
-    private JsonPrimitive firstName;
-    private JsonPrimitive lastName;
-    private JsonPrimitive anonymous;
-    private JsonPrimitive country;
-    private Map<String, JsonElement> custom;
     private static final Logger logger = LoggerFactory.getLogger(LDUser.class);
 
+    @Expose
+    private final JsonPrimitive key;
+    @Expose
+    private JsonPrimitive secondary;
+    @Expose
+    private JsonPrimitive ip;
+    @Expose
+    private JsonPrimitive email;
+    @Expose
+    private JsonPrimitive name;
+    @Expose
+    private JsonPrimitive avatar;
+    @Expose
+    private JsonPrimitive firstName;
+    @Expose
+    private JsonPrimitive lastName;
+    @Expose
+    private JsonPrimitive anonymous;
+    @Expose
+    private JsonPrimitive country;
+    @Expose
+    private Map<String, JsonElement> custom;
+
+    @Expose(deserialize = false, serialize = false)
     private final String urlSafeBase64;
 
     protected LDUser(Builder builder) {
         if (builder.key == null || builder.key.equals("")) {
-            logger.warn("User was created with null/empty key");
+            logger.warn("User was created with null/empty key. Using device-unique anonymous user key: " + LDClient.INSTANCE_ID);
+            this.key = new JsonPrimitive(LDClient.INSTANCE_ID);
+            this.anonymous = new JsonPrimitive(true);
+        } else {
+            this.key = new JsonPrimitive(builder.key);
+            this.anonymous = builder.anonymous == null ? null : new JsonPrimitive(builder.anonymous);
         }
-        this.key = builder.key == null ? null : new JsonPrimitive(builder.key);
         this.ip = builder.ip == null ? null : new JsonPrimitive(builder.ip);
         this.country = builder.country == null ? null : new JsonPrimitive(builder.country.getAlpha2());
         this.secondary = builder.secondary == null ? null : new JsonPrimitive(builder.secondary);
@@ -58,7 +77,6 @@ public class LDUser {
         this.email = builder.email == null ? null : new JsonPrimitive(builder.email);
         this.name = builder.name == null ? null : new JsonPrimitive(builder.name);
         this.avatar = builder.avatar == null ? null : new JsonPrimitive(builder.avatar);
-        this.anonymous = builder.anonymous == null ? null : new JsonPrimitive(builder.anonymous);
         this.custom = new HashMap<>(builder.custom);
         this.urlSafeBase64 = Base64.encodeToString(GSON.toJson(this).getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
     }
@@ -154,6 +172,8 @@ public class LDUser {
         public Builder(String key) {
             this.key = key;
             this.custom = new HashMap<>();
+            custom.put("os", new JsonPrimitive(Build.VERSION.SDK_INT));
+            custom.put("device", new JsonPrimitive(Build.MODEL + " " + Build.PRODUCT));
         }
 
         public Builder(LDUser user) {
