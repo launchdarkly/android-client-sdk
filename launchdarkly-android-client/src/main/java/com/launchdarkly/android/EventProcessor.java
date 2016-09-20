@@ -70,7 +70,7 @@ class EventProcessor implements Closeable {
     }
 
     void flush() {
-        consumer.flush();
+        Executors.newSingleThreadExecutor().execute(consumer);
     }
 
     class Consumer implements Runnable {
