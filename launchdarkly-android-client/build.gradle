@@ -25,11 +25,15 @@ android {
         // TODO: fix things and set this to true
         abortOnError false
     }
+
+    configurations {
+        javadocDeps
+    }
 }
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile group: 'com.google.guava', name: 'guava', version: '19.0'
+    compile 'com.google.guava:guava:19.0'
     compile 'com.noveogroup.android:android-logger:1.3.5'
     compile 'com.google.code.gson:gson:2.6.2'
     compile 'com.launchdarkly:okhttp-eventsource:0.2.2'
@@ -43,6 +47,11 @@ dependencies {
     androidTestCompile 'org.easymock:easymock:3.4'
     androidTestCompile 'com.google.dexmaker:dexmaker:1.1'
     androidTestCompile 'junit:junit:4.12'
+
+    javadocDeps 'com.google.guava:guava:19.0'
+    javadocDeps 'com.google.code.gson:gson:2.6.2'
+    javadocDeps 'com.squareup.okhttp3:okhttp:3.4.1'
+    javadocDeps 'com.launchdarkly:okhttp-eventsource:0.2.2'
 }
 
 repositories {
@@ -70,9 +79,10 @@ task sourcesJar(type: Jar) {
 }
 
 task javadoc(type: Javadoc) {
-    failOnError  false
-    source = android.sourceSets.main.java.sourceFiles
+    failOnError false
+    source = android.sourceSets.main.java.srcDirs
     classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
+    classpath += configurations.javadocDeps
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {

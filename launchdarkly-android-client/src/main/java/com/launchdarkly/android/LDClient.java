@@ -220,9 +220,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * 1. Flag is missing
-     * 2. The flag is not of a boolean type.
-     * 3. Any other error.
+     * <ol>
+     *     <li>Flag is missing</li>
+     *     <li>The flag is not of a boolean type</li>
+     *     <li>Any other error</li>
+     * </ol>
      *
      * @param flagKey
      * @param fallback
@@ -243,9 +245,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * 1. Flag is missing
-     * 2. The flag is not of a int type.
-     * 3. Any other error.
+     * <ol>
+     *     <li>Flag is missing</li>
+     *     <li>The flag is not of a boolean type</li>
+     *     <li>Any other error</li>
+     * </ol>
      *
      * @param flagKey
      * @param fallback
@@ -266,9 +270,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * 1. Flag is missing
-     * 2. The flag is not of a float type.
-     * 3. Any other error.
+     * <ol>
+     *     <li>Flag is missing</li>
+     *     <li>The flag is not of a float type</li>
+     *     <li>Any other error</li>
+     * </ol>
      *
      * @param flagKey
      * @param fallback
@@ -289,9 +295,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * 1. Flag is missing
-     * 2. The flag is not of a String type.
-     * 3. Any other error.
+     * <ol>
+     *     <li>Flag is missing</li>
+     *     <li>The flag is not of a String type</li>
+     *     <li>Any other error</li>
+     * </ol>
      *
      * @param flagKey
      * @param fallback
@@ -312,9 +320,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * 1. Flag is missing
-     * 2. The flag is not valid JSON.
-     * 3. Any other error.
+     * <ol>
+     *     <li>Flag is missing</li>
+     *     <li>The flag is not valid JSON</li>
+     *     <li>Any other error</li>
+     * </ol>
      *
      * @param flagKey
      * @param fallback
