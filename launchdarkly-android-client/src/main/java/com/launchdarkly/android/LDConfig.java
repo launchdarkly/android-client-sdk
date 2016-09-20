@@ -3,16 +3,16 @@ package com.launchdarkly.android;
 import android.net.Uri;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import okhttp3.MediaType;
 import okhttp3.Request;
 
 public class LDConfig {
     private static final String TAG = "LDConfig";
-    public static final String VERSION = "0.0.1-SNAPSHOT";
-    public static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + VERSION;
+    public static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-    static final Gson GSON = new Gson();
+    static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
     private static final Uri DEFAULT_BASE_Uri = Uri.parse("https://app.launchdarkly.com");
     private static final Uri DEFAULT_EVENTS_Uri = Uri.parse("https://mobile.launchdarkly.com/mobile");

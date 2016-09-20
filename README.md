@@ -12,7 +12,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:0.0.2-SNAPSHOT'
+	compile 'com.launchdarkly:launchdarkly-android-client:1.0.0-SNAPSHOT'
 	```  
 1. In your application configure and initialize the client:
 

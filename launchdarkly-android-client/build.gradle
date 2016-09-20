@@ -2,6 +2,13 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven'
 apply plugin: 'signing'
 
+allprojects {
+    group = 'com.launchdarkly'
+    version = '1.0.0-SNAPSHOT'
+    sourceCompatibility = 1.7
+    targetCompatibility = 1.7
+}
+
 android {
     compileSdkVersion 24
     buildToolsVersion "24.0.2"
@@ -10,7 +17,7 @@ android {
         minSdkVersion 15
         targetSdkVersion 24
         versionCode 1
-        versionName "1.0"
+        versionName version
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
     }
     lintOptions {
@@ -37,13 +44,6 @@ dependencies {
     androidTestCompile 'junit:junit:4.12'
 }
 
-
-allprojects {
-    group = 'com.launchdarkly'
-    version = "0.0.2-SNAPSHOT"
-    sourceCompatibility = 1.7
-    targetCompatibility = 1.7
-}
 repositories {
     mavenLocal()
     // Before LaunchDarkly release artifacts get synced to Maven Central they are here along with snapshots:
