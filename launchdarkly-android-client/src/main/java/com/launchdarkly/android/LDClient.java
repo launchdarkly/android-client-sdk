@@ -247,7 +247,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
      * <ol>
      *     <li>Flag is missing</li>
-     *     <li>The flag is not of a boolean type</li>
+     *     <li>The flag is not of an integer type</li>
      *     <li>Any other error</li>
      * </ol>
      *
