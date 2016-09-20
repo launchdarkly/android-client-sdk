@@ -62,8 +62,9 @@ public class LDUser {
 
     protected LDUser(Builder builder) {
         if (builder.key == null || builder.key.equals("")) {
-            logger.warn("User was created with null/empty key. Using device-unique anonymous user key: " + LDClient.INSTANCE_ID);
-            this.key = new JsonPrimitive(LDClient.INSTANCE_ID);
+            logger.warn("User was created with null/empty key. " +
+                    "Using device-unique anonymous user key: " + LDClient.getInstanceId());
+            this.key = new JsonPrimitive(LDClient.getInstanceId());
             this.anonymous = new JsonPrimitive(true);
         } else {
             this.key = new JsonPrimitive(builder.key);

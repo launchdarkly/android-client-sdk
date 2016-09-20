@@ -30,8 +30,10 @@ import static com.launchdarkly.android.Util.isInternetConnected;
  */
 public class LDClient implements LDClientInterface, Closeable {
     private static final String TAG = "LaunchDarkly";
+
+    private static final String INSTANCE_ID_KEY = "instanceId";
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
-    static String INSTANCE_ID = "UNKNOWN_ANDROID";
+    private static String instanceId = "UNKNOWN_ANDROID";
     private static LDClient instance = null;
 
     private final UserManager userManager;
@@ -124,20 +126,21 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @VisibleForTesting
     protected LDClient(final Application application, LDConfig config) {
-        Log.i(TAG, "Starting LaunchDarkly client");
+        Log.i(TAG, "Creating LaunchDarkly client. Version: " + BuildConfig.VERSION_NAME);
         this.isOffline = config.isOffline();
 
         SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("id", Context.MODE_PRIVATE);
-        if (!instanceIdSharedPrefs.contains("instanceId")) {
+
+        if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
             String uuid = UUID.randomUUID().toString();
             Log.i(TAG, "Did not find existing instance id. Saving a new one");
             SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
-            editor.putString("instanceId", uuid);
+            editor.putString(INSTANCE_ID_KEY, uuid);
             editor.apply();
         }
 
-        INSTANCE_ID = instanceIdSharedPrefs.getString("anonUserKey", "unknown");
-        Log.i(TAG, "Using instance id: " + INSTANCE_ID);
+        instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
+        Log.i(TAG, "Using instance id: " + instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.init(application, config);
         this.userManager = UserManager.init(application, fetcher);
@@ -401,6 +404,10 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
         userManager.unregisterListener(flagKey, listener);
+    }
+
+    static String getInstanceId() {
+        return instanceId;
     }
 
     void stopStreaming() {

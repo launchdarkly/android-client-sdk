@@ -10,8 +10,7 @@ import okhttp3.Request;
 
 public class LDConfig {
     private static final String TAG = "LDConfig";
-    public static final String VERSION = "0.0.1-SNAPSHOT";
-    public static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + VERSION;
+    public static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
