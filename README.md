@@ -60,6 +60,11 @@ If you're using ProGuard add these lines to your config:
 ## Known Issues/Features not yet implemented:
 - Make Android linter happy
 
+Learn more
+----------
+
+Check out our [documentation](http://docs.launchdarkly.com) for in-depth instructions on configuring and using LaunchDarkly. You can also head straight to the [complete reference guide for this SDK](https://dash.readme.io/project/launchdarkly/v2.0/docs/android-sdk-reference) or our [Javadocs](http://launchdarkly.github.io/android-client/).
+
 ## Testing
 Much of the behavior we want to assert is around complicated device state changes such as
 app backgrounding, loss of internet connection. These are problematic to test in a programmatic way,
