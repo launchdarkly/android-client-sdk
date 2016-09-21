@@ -92,6 +92,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * until the client has been initialized. If the client does not initialize within
      * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
      * have fetched the most recent feature flag values.
+     *
      * @param application
      * @param config
      * @param user
@@ -221,9 +222,9 @@ public class LDClient implements LDClientInterface, Closeable {
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
      * <ol>
-     *     <li>Flag is missing</li>
-     *     <li>The flag is not of a boolean type</li>
-     *     <li>Any other error</li>
+     * <li>Flag is missing</li>
+     * <li>The flag is not of a boolean type</li>
+     * <li>Any other error</li>
      * </ol>
      *
      * @param flagKey
@@ -240,15 +241,16 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, cce);
         }
         sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        Log.d(TAG, "boolVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
      * <ol>
-     *     <li>Flag is missing</li>
-     *     <li>The flag is not of an integer type</li>
-     *     <li>Any other error</li>
+     * <li>Flag is missing</li>
+     * <li>The flag is not of an integer type</li>
+     * <li>Any other error</li>
      * </ol>
      *
      * @param flagKey
@@ -265,15 +267,16 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, cce);
         }
         sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        Log.d(TAG, "intVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
      * <ol>
-     *     <li>Flag is missing</li>
-     *     <li>The flag is not of a float type</li>
-     *     <li>Any other error</li>
+     * <li>Flag is missing</li>
+     * <li>The flag is not of a float type</li>
+     * <li>Any other error</li>
      * </ol>
      *
      * @param flagKey
@@ -290,15 +293,16 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, cce);
         }
         sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        Log.d(TAG, "floatVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
      * <ol>
-     *     <li>Flag is missing</li>
-     *     <li>The flag is not of a String type</li>
-     *     <li>Any other error</li>
+     * <li>Flag is missing</li>
+     * <li>The flag is not of a String type</li>
+     * <li>Any other error</li>
      * </ol>
      *
      * @param flagKey
@@ -315,15 +319,16 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, cce);
         }
         sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        Log.d(TAG, "stringVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
      * <ol>
-     *     <li>Flag is missing</li>
-     *     <li>The flag is not valid JSON</li>
-     *     <li>Any other error</li>
+     * <li>Flag is missing</li>
+     * <li>The flag is not valid JSON</li>
+     * <li>Any other error</li>
      * </ol>
      *
      * @param flagKey
@@ -343,6 +348,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, cce);
         }
         sendFlagRequestEvent(flagKey, result, fallback);
+        Log.d(TAG, "jsonVariation: returning variation: " + result.getAsString() + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 

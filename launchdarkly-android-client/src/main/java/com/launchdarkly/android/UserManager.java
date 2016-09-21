@@ -188,6 +188,7 @@ class UserManager {
      * @param flags
      */
     private void saveFlagSettings(JsonObject flags) {
+        Log.d(TAG, "saveFlagSettings for user key: "+ currentUser.getKey());
         SharedPreferences.Editor currentEditor = currentUserSharedPrefs.edit();
         currentEditor.clear();
 
