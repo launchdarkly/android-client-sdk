@@ -348,7 +348,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, cce);
         }
         sendFlagRequestEvent(flagKey, result, fallback);
-        Log.d(TAG, "jsonVariation: returning variation: " + result.getAsString() + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Log.d(TAG, "jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
