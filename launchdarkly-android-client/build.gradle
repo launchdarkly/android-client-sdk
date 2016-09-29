@@ -29,6 +29,11 @@ android {
     configurations {
         javadocDeps
     }
+
+    packagingOptions {
+        exclude 'META-INF/**'
+        exclude 'META-INF/**'
+    }
 }
 
 dependencies {
