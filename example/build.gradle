@@ -35,5 +35,5 @@ dependencies {
     compile 'com.android.support:appcompat-v7:24.1.1'
     compile project(path: ':launchdarkly-android-client')
     // Comment the previous line and uncomment this one to depend on the published artifact:
-    //    compile 'com.launchdarkly:launchdarkly-android-client:0.0.2-SNAPSHOT'
+    //    compile 'com.launchdarkly:launchdarkly-android-client:1.0.0'
 }

@@ -16,7 +16,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:1.0.0-RC1'
+	compile 'com.launchdarkly:launchdarkly-android-client:1.0.0'
 	```  
 1. In your application configure and initialize the client:
 
@@ -25,7 +25,7 @@ Check out the included example app, or follow things here:
     	.setMobileKey("YOUR_MOBILE_KEY")
     	.build();
 
-   user = new LDUser.Builder("user key")
+   LDUser user = new LDUser.Builder("user key")
        .email("fake@example.com")
        .build();
 
