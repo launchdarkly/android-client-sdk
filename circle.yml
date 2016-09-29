@@ -15,7 +15,6 @@ test:
     - emulator -avd circleci-android23 -no-audio -no-window:
         background: true
         parallel: true
-    - ./gradlew clean
     - ./gradlew :launchdarkly-android-client:assembleDebug --console=plain -PdisablePreDex
     - ./gradlew :launchdarkly-android-client:test --console=plain -PdisablePreDex
     - circle-android wait-for-boot
