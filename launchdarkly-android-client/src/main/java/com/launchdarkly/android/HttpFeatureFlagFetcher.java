@@ -80,11 +80,16 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
                 @Override
                 public void onResponse(Call call, final Response response) throws IOException {
+                    String body = "";
                     try {
+                        body = response.body().string();
                         if (!response.isSuccessful()) {
-                            throw new IOException("Unexpected response when retrieving Feature Flags:  " + response + " using url: " + request.url());
+                            if (response.code() == 400) {
+                                Log.e(TAG, "Received 400 response when fetching flag values. Please check recommended ProGuard settings");
+                            }
+                            throw new IOException("Unexpected response when retrieving Feature Flags: " + response + " using url: "
+                                    + request.url() + " with body: " + body);
                         }
-                        String body = response.body().string();
                         Log.d(TAG, body);
                         Log.d(TAG, "Cache hit count: " + client.cache().hitCount() + " Cache network Count: " + client.cache().networkCount());
                         Log.d(TAG, "Cache response: " + response.cacheResponse());
@@ -94,7 +99,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                         JsonObject jsonObject = parser.parse(body).getAsJsonObject();
                         doneFuture.set(jsonObject);
                     } catch (Exception e) {
-                        Log.e(TAG, "Exception when handling response for url: " + request.url(), e);
+                        Log.e(TAG, "Exception when handling response for url: " + request.url() + " with body: " + body, e);
                         doneFuture.setException(e);
                     } finally {
                         if (response != null) {
