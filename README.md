@@ -1,9 +1,6 @@
 # Prerelease LaunchDarkly Android SDK
 This library is compatible with Android SDK versions 15 and up (4.0.3 Ice Cream Sandwich)
 
-NOTE: This is an early build and should not be used in production!
-
-
 
 How to use:
 Check out the included example app, or follow things here:
@@ -16,7 +13,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:1.0.0'
+	compile 'com.launchdarkly:launchdarkly-android-client:1.0.1'
 	```  
 1. In your application configure and initialize the client:
 
