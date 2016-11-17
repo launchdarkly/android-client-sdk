@@ -5,7 +5,7 @@ apply plugin: 'org.ajoberstar.github-pages'
 
 allprojects {
     group = 'com.launchdarkly'
-    version = '1.0.0'
+    version = '1.0.1-SNAPSHOT'
     sourceCompatibility = 1.7
     targetCompatibility = 1.7
 }
@@ -54,9 +54,9 @@ dependencies {
     androidTestCompile 'junit:junit:4.12'
 
     javadocDeps 'com.google.guava:guava:19.0'
-    javadocDeps 'com.google.code.gson:gson:2.6.2'
+    javadocDeps 'com.google.code.gson:gson:2.7'
     javadocDeps 'com.squareup.okhttp3:okhttp:3.4.1'
-    javadocDeps 'com.launchdarkly:okhttp-eventsource:0.2.2'
+    javadocDeps 'com.launchdarkly:okhttp-eventsource:1.0.0'
 }
 
 repositories {
