@@ -5,11 +5,6 @@ This library is compatible with Android SDK versions 15 and up (4.0.3 Ice Cream 
 How to use:
 Check out the included example app, or follow things here:
 
-1. Add the Maven snapshots repo to your repositories:
-	
-	```
-   maven { url "https://oss.sonatype.org/content/groups/public/" }
-	```
 1. Declare this dependency:
 
 	```
@@ -26,7 +21,8 @@ Check out the included example app, or follow things here:
        .email("fake@example.com")
        .build();
 
-   // NOTE: This method blocks for up to 5 seconds. See Javadoc for nonblocking options.
+   // NOTE: This method blocks for up to 5 seconds. See Javadoc or http://docs.launchdarkly.com/docs/android-sdk-reference
+   // for nonblocking options.
    LDClient ldClient = LDClient.init(this.getApplication(), ldConfig, user, 5);
    ```
 1. Evaluation example:
