@@ -1,4 +1,4 @@
-# Prerelease LaunchDarkly Android SDK
+# LaunchDarkly Android SDK
 This library is compatible with Android SDK versions 15 and up (4.0.3 Ice Cream Sandwich)
 
 
