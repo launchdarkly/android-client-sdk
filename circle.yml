@@ -6,16 +6,15 @@ machine:
 dependencies:
   pre:
     - unset ANDROID_NDK_HOME
-    - export BUILDTOOLS_VERSION=25.0.0
     # Android SDK Platform 24
     - if [ ! -d "/usr/local/android-sdk-linux/platforms/android-24" ]; then echo y | android update sdk --no-ui --all --filter "android-24"; fi
     # Android SDK Build-tools
-    - if [ ! -d "/usr/local/android-sdk-linux/build-tools/$BUILDTOOLS_VERSION" ]; then echo y | android update sdk --no-ui --all --filter "build-tools-$BUILDTOOLS_VERSION"; fi
+    - if [ ! -d "/usr/local/android-sdk-linux/build-tools/25.0.0" ]; then echo y | android update sdk --no-ui --all --filter "build-tools-25.0.0"; fi
     # brings in appcompat
     - if [ ! -d "/usr/local/android-sdk-linux/extras/android/m2repository" ]; then echo y | android update sdk --no-ui --all --filter "extra-android-m2repository"; fi
   cache_directories:
     - /usr/local/android-sdk-linux/platforms/android-24
-    - /usr/local/android-sdk-linux/build-tools/$BUILDTOOLS_VERSION
+    - /usr/local/android-sdk-linux/build-tools/25.0.0
     - /usr/local/android-sdk-linux/extras/android/m2repository
 test:
   override:
