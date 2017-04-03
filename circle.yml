@@ -25,6 +25,5 @@ test:
     - ./gradlew :launchdarkly-android-client:assembleDebug --console=plain -PdisablePreDex
     - ./gradlew :launchdarkly-android-client:test --console=plain -PdisablePreDex
     - ./gradlew :launchdarkly-android-client:connectedAndroidTest --console=plain -PdisablePreDex
-    - ls -latrh
     - cp -r launchdarkly-android-client/build/reports/* $CIRCLE_TEST_REPORTS
     - ./gradlew packageRelease --console=plain -PdisablePreDex
