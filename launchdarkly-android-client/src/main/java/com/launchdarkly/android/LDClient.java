@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -44,21 +45,21 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isOffline = false;
 
     /**
-     * Initializes the singleton instance. The result is a {@link ListenableFuture} which
+     * Initializes the singleton instance. The result is a {@link Future} which
      * will complete once the client has been initialized with the latest feature flag values. For
      * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
      * the return value of this method, and afterward call {@link #get()}
      * <p/>
      * If the client has already been initialized, is configured for offline mode, or the device is
-     * not connected to the internet, this method will return a {@link ListenableFuture} that is
+     * not connected to the internet, this method will return a {@link Future} that is
      * already in the completed state.
      *
      * @param application Your Android application.
      * @param config      Configuration used to set up the client
      * @param user        The user used in evaluating feature flags
-     * @return a {@link ListenableFuture} which will complete once the client has been initialized.
+     * @return a {@link Future} which will complete once the client has been initialized.
      */
-    public static synchronized ListenableFuture<LDClient> init(Application application, LDConfig config, LDUser user) {
+    public static synchronized Future<LDClient> init(Application application, LDConfig config, LDUser user) {
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
         if (instance != null) {
@@ -101,7 +102,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
         Log.i(TAG, "Initializing Client and waiting up to " + startWaitSeconds + " for initialization to complete");
-        ListenableFuture<LDClient> initFuture = init(application, config, user);
+        Future<LDClient> initFuture = init(application, config, user);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
@@ -196,7 +197,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
      */
     @Override
-    public synchronized ListenableFuture<Void> identify(LDUser user) {
+    public synchronized Future<Void> identify(LDUser user) {
         if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
         }
@@ -204,7 +205,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             Log.w(TAG, "identify called with null user or null user key!");
         }
-        ListenableFuture<Void> doneFuture = userManager.setCurrentUser(user);
+        Future<Void> doneFuture = userManager.setCurrentUser(user);
         sendEvent(new IdentifyEvent(user));
         return doneFuture;
     }

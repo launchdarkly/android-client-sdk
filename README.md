@@ -46,10 +46,7 @@ If you're using ProGuard add these lines to your config:
 ```
 -keep class com.launchdarkly.android.** { *; }
 -keep class org.apache.http.** { *; }
--keep class com.google.common.** { *; }
--keep class org.slf4j.** { *; }
 -dontwarn org.apache.http.**
--dontwarn org.slf4j.**
 -dontwarn java.nio.file.*
 -dontwarn javax.annotation.**
 -dontwarn sun.misc.Unsafe
