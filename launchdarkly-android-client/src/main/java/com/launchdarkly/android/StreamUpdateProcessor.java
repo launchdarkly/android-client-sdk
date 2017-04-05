@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Headers;
 
-class StreamProcessor implements Closeable {
+class StreamUpdateProcessor implements UpdateProcessor {
     private static final String TAG = "LDStreamProcessor";
 
     private EventSource es;
@@ -27,18 +27,18 @@ class StreamProcessor implements Closeable {
     private volatile boolean running = false;
     private final URI uri;
 
-    StreamProcessor(LDConfig config, UserManager userManager) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager) {
         this.config = config;
         this.userManager = userManager;
         uri = URI.create(config.getStreamUri().toString() + "/mping");
     }
 
-    synchronized ListenableFuture<Void> start() {
+    public synchronized ListenableFuture<Void> start() {
         final SettableFuture<Void> initFuture = SettableFuture.create();
         initialized.set(false);
 
         if (!running) {
-            close();
+            stop();
             Headers headers = new Headers.Builder()
                     .add("Authorization", config.getMobileKey())
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
@@ -98,14 +98,7 @@ class StreamProcessor implements Closeable {
         return initFuture;
     }
 
-    synchronized void stop() {
-        close();
-        running = false;
-    }
-
-
-    @Override
-    public void close() {
+    public synchronized void stop() {
         if (es != null) {
             try {
                 es.close();
@@ -113,9 +106,10 @@ class StreamProcessor implements Closeable {
                 Log.e(TAG, "Exception caught when closing stream.", e);
             }
         }
+        running = false;
     }
 
-    boolean isInitialized() {
+    public boolean isInitialized() {
         return initialized.get();
     }
 }

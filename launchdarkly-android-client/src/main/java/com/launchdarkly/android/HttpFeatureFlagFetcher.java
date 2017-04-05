@@ -22,7 +22,7 @@ import okhttp3.Response;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
-    private static final String TAG = "LDFeatureFlagUpdater";
+    private static final String TAG = "LDFeatureFlagFetcher";
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
     private static HttpFeatureFlagFetcher instance;
 

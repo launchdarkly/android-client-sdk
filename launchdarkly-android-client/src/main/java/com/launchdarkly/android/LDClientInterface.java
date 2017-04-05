@@ -1,6 +1,8 @@
 package com.launchdarkly.android;
 
 
+import android.content.Context;
+
 import com.google.gson.JsonElement;
 
 import java.io.Closeable;

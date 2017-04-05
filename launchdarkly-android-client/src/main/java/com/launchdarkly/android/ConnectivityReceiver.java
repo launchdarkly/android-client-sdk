@@ -17,18 +17,20 @@ public class ConnectivityReceiver extends BroadcastReceiver {
             try {
                 LDClient ldClient = LDClient.get();
                 if (Foreground.get(context).isForeground()) {
-                    ldClient.startStreaming();
+                    ldClient.startForegroundUpdating();
+                } else {
+                    PollingUpdater.startBackgroundPolling(context);
                 }
             } catch (LaunchDarklyException e) {
-                Log.e(TAG, "Tried to restart stream, but LDClient has not yet been initialized.");
+                Log.e(TAG, "Tried to restart foreground updating, but LDClient has not yet been initialized.");
             }
         } else {
             Log.d(TAG, "Not Connected to the internet");
             try {
                 LDClient ldClient = LDClient.get();
-                ldClient.stopStreaming();
+                ldClient.stopForegroundUpdating();
             } catch (LaunchDarklyException e) {
-                Log.e(TAG, "Tried to stop stream, but LDClient has not yet been initialized.");
+                Log.e(TAG, "Tried to stop foreground updating, but LDClient has not yet been initialized.");
             }
         }
     }

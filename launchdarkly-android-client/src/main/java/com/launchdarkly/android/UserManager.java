@@ -39,6 +39,7 @@ class UserManager {
     private static UserManager instance;
     private final FeatureFlagFetcher fetcher;
     private final String sharedPrefsBaseKey;
+    private volatile boolean initialized = false;
 
     // The active user is the one that we track for changes to enable listeners.
     // Its values will mirror the current user, but it is a different SharedPreferences
@@ -135,6 +136,7 @@ class UserManager {
         Futures.addCallback(fetchFuture, new FutureCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
+                initialized = true;
                 saveFlagSettings(result);
             }
 
@@ -320,6 +322,10 @@ class UserManager {
 
     private static String userBase64ToJson(String base64) {
         return new String(Base64.decode(base64, Base64.URL_SAFE));
+    }
+
+    boolean isInitialized() {
+        return initialized;
     }
 
     class EntryComparator implements Comparator<Map.Entry<String, Long>> {

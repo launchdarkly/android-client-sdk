@@ -14,7 +14,7 @@ import java.util.concurrent.TimeoutException;
 
 import static com.launchdarkly.android.Util.isInternetConnected;
 
-public class BackgroundUpdater extends BroadcastReceiver {
+public class PollingUpdater extends BroadcastReceiver {
     private static final String TAG = "LDBackgroundUpdater";
     private static final int BACKGROUND_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -42,18 +42,25 @@ public class BackgroundUpdater extends BroadcastReceiver {
         }
     }
 
-    static void start(Context context) {
+    synchronized static void startBackgroundPolling(Context context) {
+        startPolling(context, BACKGROUND_INTERVAL_MS, BACKGROUND_INTERVAL_MS);
+    }
+
+    synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {
+        stop(context);
+        Log.d(TAG, "startPolling with initialDelayMillis: " + initialDelayMillis + " intervalMillis:" + intervalMillis);
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
         alarmMgr.setInexactRepeating(
                 AlarmManager.ELAPSED_REALTIME,
-                SystemClock.elapsedRealtime() + BACKGROUND_INTERVAL_MS,
-                BACKGROUND_INTERVAL_MS,
+                SystemClock.elapsedRealtime() + initialDelayMillis,
+                intervalMillis,
                 pendingIntent);
     }
 
-    static void stop(Context context) {
+    synchronized static void stop(Context context) {
+        Log.d(TAG, "Stopping pollingUpdater");
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
@@ -61,7 +68,7 @@ public class BackgroundUpdater extends BroadcastReceiver {
     }
 
     private static Intent getAlarmIntent(Context context) {
-        return new Intent(context, BackgroundUpdater.class);
+        return new Intent(context, PollingUpdater.class);
     }
 
     private static PendingIntent getPendingIntent(Context context) {

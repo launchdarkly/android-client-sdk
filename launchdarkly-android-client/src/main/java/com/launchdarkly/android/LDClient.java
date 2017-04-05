@@ -39,7 +39,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
-    private final StreamProcessor streamProcessor;
+    private final UpdateProcessor updateProcessor;
     private final FeatureFlagFetcher fetcher;
 
     private volatile boolean isOffline = false;
@@ -76,11 +76,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
         }
         instance.eventProcessor.start();
-        ListenableFuture<Void> streamingFuture = instance.streamProcessor.start();
+
+        ListenableFuture<Void> initFuture = instance.updateProcessor.start();
         instance.sendEvent(new IdentifyEvent(user));
 
-        // Transform the StreamProcessor's initialization Future so its result is the instance:
-        return Futures.transform(streamingFuture, new Function<Void, LDClient>() {
+        // Transform initFuture so its result is the instance:
+        return Futures.transform(initFuture, new Function<Void, LDClient>() {
             @Override
             public LDClient apply(Void input) {
                 return instance;
@@ -150,21 +151,26 @@ public class LDClient implements LDClientInterface, Closeable {
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
             public void onBecameForeground() {
-                BackgroundUpdater.stop(application);
+                PollingUpdater.stop(application);
                 if (isInternetConnected(application)) {
-                    startStreaming();
+                    startForegroundUpdating();
                 }
             }
 
             @Override
             public void onBecameBackground() {
-                BackgroundUpdater.start(application);
-                stopStreaming();
+                stopForegroundUpdating();
+                PollingUpdater.startBackgroundPolling(application);
             }
         };
         foreground.addListener(foregroundListener);
 
-        this.streamProcessor = new StreamProcessor(config, userManager);
+        if (config.isStream()) {
+            this.updateProcessor = new StreamUpdateProcessor(config, userManager);
+        } else {
+            Log.i(TAG, "Streaming is disabled. Starting LaunchDarkly Client in polling mode");
+            this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
+        }
         eventProcessor = new EventProcessor(application, config);
     }
 
@@ -360,7 +366,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
-        streamProcessor.close();
+        updateProcessor.stop();
         eventProcessor.close();
     }
 
@@ -374,7 +380,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean isInitialized() {
-        return isOffline() || streamProcessor.isInitialized();
+        return isOffline() || updateProcessor.isInitialized();
     }
 
     @Override
@@ -387,7 +393,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.d(TAG, "Setting isOffline = true");
         isOffline = true;
         fetcher.setOffline();
-        stopStreaming();
+        stopForegroundUpdating();
         eventProcessor.stop();
     }
 
@@ -396,7 +402,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.d(TAG, "Setting isOffline = false");
         this.isOffline = false;
         fetcher.setOnline();
-        startStreaming();
+        startForegroundUpdating();
         eventProcessor.start();
     }
 
@@ -427,16 +433,12 @@ public class LDClient implements LDClientInterface, Closeable {
         return instanceId;
     }
 
-    void stopStreaming() {
-        if (streamProcessor != null) {
-            streamProcessor.stop();
-        }
+    void stopForegroundUpdating() {
+        updateProcessor.stop();
     }
 
-    void startStreaming() {
-        if (!isOffline && streamProcessor != null) {
-            streamProcessor.start();
-        }
+    void startForegroundUpdating() {
+        updateProcessor.start();
     }
 
     private void sendFlagRequestEvent(String flagKey, JsonElement value, JsonElement fallback) {
