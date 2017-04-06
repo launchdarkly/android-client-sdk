@@ -52,6 +52,11 @@ class StreamProcessor implements Closeable {
                 }
 
                 @Override
+                public void onClosed() throws Exception {
+
+                }
+
+                @Override
                 public void onMessage(String name, MessageEvent event) throws Exception {
                     Log.d(TAG, "onMessage: name: " + name + " event: " + event.getData());
                     if (!initialized.getAndSet(true)) {
@@ -60,6 +65,11 @@ class StreamProcessor implements Closeable {
                     } else {
                         userManager.updateCurrentUser();
                     }
+                }
+
+                @Override
+                public void onComment(String comment) throws Exception {
+
                 }
 
                 @Override

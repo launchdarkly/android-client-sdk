@@ -3,14 +3,12 @@ package com.launchdarkly.android;
 
 import android.os.Build;
 import android.util.Base64;
+import android.util.Log;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.annotations.Expose;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.List;
@@ -32,7 +30,7 @@ import static com.launchdarkly.android.LDConfig.GSON;
  * launch a feature to the top 10% of users on a site.
  */
 public class LDUser {
-    private static final Logger logger = LoggerFactory.getLogger(LDUser.class);
+    private static final String TAG = "LDUser";
 
     @Expose
     private final JsonPrimitive key;
@@ -62,7 +60,7 @@ public class LDUser {
 
     protected LDUser(Builder builder) {
         if (builder.key == null || builder.key.equals("")) {
-            logger.warn("User was created with null/empty key. " +
+            Log.w(TAG, "User was created with null/empty key. " +
                     "Using device-unique anonymous user key: " + LDClient.getInstanceId());
             this.key = new JsonPrimitive(LDClient.getInstanceId());
             this.anonymous = new JsonPrimitive(true);
@@ -227,7 +225,7 @@ public class LDUser {
                 List<LDCountryCode> codes = LDCountryCode.findByName("^" + Pattern.quote(s) + ".*");
 
                 if (codes.isEmpty()) {
-                    logger.warn("Invalid country. Expected valid ISO-3166-1 code: " + s);
+                    Log.w(TAG, "Invalid country. Expected valid ISO-3166-1 code: " + s);
                 } else if (codes.size() > 1) {
                     // See if any of the codes is an exact match
                     for (LDCountryCode c : codes) {
@@ -236,7 +234,7 @@ public class LDUser {
                             return this;
                         }
                     }
-                    logger.warn("Ambiguous country. Provided code matches multiple countries: " + s);
+                    Log.w(TAG, "Ambiguous country. Provided code matches multiple countries: " + s);
                     country = codes.get(0);
                 } else {
                     country = codes.get(0);
@@ -434,7 +432,7 @@ public class LDUser {
         private void checkCustomAttribute(String key) {
             for (UserAttribute a : UserAttribute.values()) {
                 if (a.name().equals(key)) {
-                    logger.warn("Built-in attribute key: " + key + " added as custom attribute! This custom attribute will be ignored during Feature Flag evaluation");
+                    Log.w(TAG, "Built-in attribute key: " + key + " added as custom attribute! This custom attribute will be ignored during Feature Flag evaluation");
                     return;
                 }
             }

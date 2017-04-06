@@ -12,7 +12,6 @@ import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonNull;
 import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.LDClient;
@@ -20,6 +19,7 @@ import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
 
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -47,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
                 .email("fake@example.com")
                 .build();
 
-        ListenableFuture<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
+        Future<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
         try {
             ldClient = initFuture.get(10, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {

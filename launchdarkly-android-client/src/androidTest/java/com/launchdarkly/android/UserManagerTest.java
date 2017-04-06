@@ -20,6 +20,7 @@ import org.junit.runner.RunWith;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
 import static junit.framework.Assert.assertEquals;
@@ -60,7 +61,7 @@ public class UserManagerTest extends EasyMockSupport {
         jsonObject.addProperty("boolFlag1", expectedBoolFlagValue);
         jsonObject.addProperty("stringFlag1", expectedStringFlagValue);
 
-        ListenableFuture<Void> future = setUser("userKey", jsonObject);
+        Future<Void> future = setUser("userKey", jsonObject);
         future.get();
 
         SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
@@ -109,12 +110,12 @@ public class UserManagerTest extends EasyMockSupport {
         assertFlagValue(flagKey, user5);
     }
 
-    private ListenableFuture<Void> setUser(String userKey, JsonObject flags) {
+    private Future<Void> setUser(String userKey, JsonObject flags) {
         LDUser user = new LDUser.Builder(userKey).build();
         ListenableFuture<JsonObject> jsonObjectFuture = Futures.immediateFuture(flags);
         expect(fetcher.fetch(user)).andReturn(jsonObjectFuture);
         replayAll();
-        ListenableFuture<Void> future = userManager.setCurrentUser(user);
+        Future<Void> future = userManager.setCurrentUser(user);
         reset(fetcher);
         return future;
     }
@@ -128,7 +129,7 @@ public class UserManagerTest extends EasyMockSupport {
         expect(fetcher.fetch(user)).andReturn(failedFuture);
         replayAll();
 
-        ListenableFuture<Void> future = userManager.setCurrentUser(user);
+        Future<Void> future = userManager.setCurrentUser(user);
         try {
             future.get();
         } catch (ExecutionException e) {
