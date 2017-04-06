@@ -1,24 +1,29 @@
+# Disable emulator audio
+machine:
+  environment:
+    QEMU_AUDIO_DRV: none
+
 dependencies:
   pre:
+    - unset ANDROID_NDK_HOME
     # Android SDK Platform 24
     - if [ ! -d "/usr/local/android-sdk-linux/platforms/android-24" ]; then echo y | android update sdk --no-ui --all --filter "android-24"; fi
-    # Android SDK Build-tools, revision 24.0.2
-    - if [ ! -d "/usr/local/android-sdk-linux/build-tools/24.0.2" ]; then echo y | android update sdk --no-ui --all --filter "build-tools-24.0.2"; fi
+    # Android SDK Build-tools
+    - if [ ! -d "/usr/local/android-sdk-linux/build-tools/25.0.0" ]; then echo y | android update sdk --no-ui --all --filter "build-tools-25.0.0"; fi
     # brings in appcompat
     - if [ ! -d "/usr/local/android-sdk-linux/extras/android/m2repository" ]; then echo y | android update sdk --no-ui --all --filter "extra-android-m2repository"; fi
   cache_directories:
     - /usr/local/android-sdk-linux/platforms/android-24
-    - /usr/local/android-sdk-linux/build-tools/24.0.2
+    - /usr/local/android-sdk-linux/build-tools/25.0.0
     - /usr/local/android-sdk-linux/extras/android/m2repository
 test:
   override:
-    - emulator -avd circleci-android23 -no-audio -no-window:
+    - emulator -avd circleci-android24 -no-audio -no-window:
         background: true
         parallel: true
+    - circle-android wait-for-boot
     - ./gradlew :launchdarkly-android-client:assembleDebug --console=plain -PdisablePreDex
     - ./gradlew :launchdarkly-android-client:test --console=plain -PdisablePreDex
-    - circle-android wait-for-boot
     - ./gradlew :launchdarkly-android-client:connectedAndroidTest --console=plain -PdisablePreDex
-    - ls -latrh
     - cp -r launchdarkly-android-client/build/reports/* $CIRCLE_TEST_REPORTS
     - ./gradlew packageRelease --console=plain -PdisablePreDex
