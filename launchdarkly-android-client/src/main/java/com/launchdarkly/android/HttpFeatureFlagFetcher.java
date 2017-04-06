@@ -11,10 +11,12 @@ import com.google.gson.JsonParser;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -60,6 +62,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         if (!isOffline && isInternetConnected(context)) {
             final OkHttpClient client = new OkHttpClient.Builder()
                     .cache(cache)
+                    .connectionPool(new ConnectionPool(1, 5, TimeUnit.MINUTES))
                     .retryOnConnectionFailure(true)
                     .build();
 

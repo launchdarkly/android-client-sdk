@@ -43,6 +43,7 @@ public class PollingUpdater extends BroadcastReceiver {
     }
 
     synchronized static void startBackgroundPolling(Context context) {
+        Log.d(TAG, "Starting background polling");
         startPolling(context, BACKGROUND_INTERVAL_MS, BACKGROUND_INTERVAL_MS);
     }
 

@@ -2,10 +2,12 @@ package com.launchdarkly.android;
 
 
 import android.content.Context;
+import android.util.Log;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
 class PollingUpdateProcessor implements UpdateProcessor {
+    private final String TAG = "LDPollingUpdater";
     private final Context context;
     private final UserManager userManager;
     private final LDConfig config;
@@ -18,12 +20,14 @@ class PollingUpdateProcessor implements UpdateProcessor {
 
     @Override
     public ListenableFuture<Void> start() {
+        Log.d(TAG, "Starting PollingUpdateProcessor");
         PollingUpdater.startPolling(context, config.getPollingIntervalMillis(), config.getPollingIntervalMillis());
         return userManager.updateCurrentUser();
     }
 
     @Override
     public void stop() {
+        Log.d(TAG, "Stopping PollingUpdateProcessor");
         PollingUpdater.stop(context);
     }
 

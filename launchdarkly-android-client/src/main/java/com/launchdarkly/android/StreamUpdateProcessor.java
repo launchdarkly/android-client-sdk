@@ -39,6 +39,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
         if (!running) {
             stop();
+            Log.d(TAG, "Starting.");
             Headers headers = new Headers.Builder()
                     .add("Authorization", config.getMobileKey())
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
