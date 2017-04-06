@@ -15,7 +15,7 @@ import java.util.concurrent.TimeoutException;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 public class PollingUpdater extends BroadcastReceiver {
-    private static final String TAG = "LDBackgroundUpdater";
+    private static final String TAG = "LDPollingUpdater";
     private static final int BACKGROUND_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
     @Override
@@ -48,7 +48,7 @@ public class PollingUpdater extends BroadcastReceiver {
 
     synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {
         stop(context);
-        Log.d(TAG, "startPolling with initialDelayMillis: " + initialDelayMillis + " intervalMillis:" + intervalMillis);
+        Log.d(TAG, "startPolling with initialDelayMillis: " + initialDelayMillis + " intervalMillis: " + intervalMillis);
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 

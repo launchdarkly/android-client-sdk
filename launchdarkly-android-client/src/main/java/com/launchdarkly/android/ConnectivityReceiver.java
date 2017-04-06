@@ -16,10 +16,12 @@ public class ConnectivityReceiver extends BroadcastReceiver {
             Log.d(TAG, "Connected to the internet");
             try {
                 LDClient ldClient = LDClient.get();
-                if (Foreground.get(context).isForeground()) {
-                    ldClient.startForegroundUpdating();
-                } else {
-                    PollingUpdater.startBackgroundPolling(context);
+                if (!ldClient.isOffline()) {
+                    if (Foreground.get(context).isForeground()) {
+                        ldClient.startForegroundUpdating();
+                    } else {
+                        PollingUpdater.startBackgroundPolling(context);
+                    }
                 }
             } catch (LaunchDarklyException e) {
                 Log.e(TAG, "Tried to restart foreground updating, but LDClient has not yet been initialized.");

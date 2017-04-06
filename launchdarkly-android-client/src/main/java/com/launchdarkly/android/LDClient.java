@@ -152,7 +152,7 @@ public class LDClient implements LDClientInterface, Closeable {
             @Override
             public void onBecameForeground() {
                 PollingUpdater.stop(application);
-                if (isInternetConnected(application)) {
+                if (!isOffline() && isInternetConnected(application)) {
                     startForegroundUpdating();
                 }
             }
@@ -160,7 +160,9 @@ public class LDClient implements LDClientInterface, Closeable {
             @Override
             public void onBecameBackground() {
                 stopForegroundUpdating();
-                PollingUpdater.startBackgroundPolling(application);
+                if (!isOffline() && isInternetConnected(application)) {
+                    PollingUpdater.startBackgroundPolling(application);
+                }
             }
         };
         foreground.addListener(foregroundListener);
@@ -438,7 +440,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     void startForegroundUpdating() {
-        updateProcessor.start();
+        if (!isOffline()) {
+            updateProcessor.start();
+        }
     }
 
     private void sendFlagRequestEvent(String flagKey, JsonElement value, JsonElement fallback) {

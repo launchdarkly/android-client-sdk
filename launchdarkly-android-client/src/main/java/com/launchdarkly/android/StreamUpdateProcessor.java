@@ -53,7 +53,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
                 @Override
                 public void onClosed() throws Exception {
-
+                    Log.i(TAG, "Closed LaunchDarkly EventStream");
                 }
 
                 @Override
@@ -99,6 +99,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
     }
 
     public synchronized void stop() {
+        Log.d(TAG, "Stopping.");
         if (es != null) {
             try {
                 es.close();
@@ -107,6 +108,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
             }
         }
         running = false;
+        Log.d(TAG, "Stopped.");
     }
 
     public boolean isInitialized() {
