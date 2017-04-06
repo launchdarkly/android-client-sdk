@@ -22,7 +22,7 @@ public class LDConfig {
     private static final int DEFAULT_EVENTS_CAPACITY = 100;
     private static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 5000;
     private static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10000;
-    private static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 1 hour
+    private static final int DEFAULT_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
     private static final int MIN_POLLING_INTERVAL_MILLIS = 60_000; // 1 minute
 
     private final String mobileKey;
