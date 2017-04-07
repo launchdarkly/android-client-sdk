@@ -19,7 +19,7 @@ public class ConnectivityReceiver extends BroadcastReceiver {
                 if (!ldClient.isOffline()) {
                     if (Foreground.get(context).isForeground()) {
                         ldClient.startForegroundUpdating();
-                    } else {
+                    } else if (!ldClient.isDisableBackgroundPolling()){
                         PollingUpdater.startBackgroundPolling(context);
                     }
                 }

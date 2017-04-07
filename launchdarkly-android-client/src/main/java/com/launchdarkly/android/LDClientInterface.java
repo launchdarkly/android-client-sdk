@@ -41,4 +41,6 @@ public interface LDClientInterface extends Closeable {
     void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 
     void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
+
+    boolean isDisableBackgroundPolling();
 }

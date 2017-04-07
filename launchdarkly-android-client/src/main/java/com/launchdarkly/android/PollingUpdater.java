@@ -16,7 +16,7 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 
 public class PollingUpdater extends BroadcastReceiver {
     private static final String TAG = "LDPollingUpdater";
-    private static final int BACKGROUND_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+    static int backgroundPollingIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -44,7 +44,7 @@ public class PollingUpdater extends BroadcastReceiver {
 
     synchronized static void startBackgroundPolling(Context context) {
         Log.d(TAG, "Starting background polling");
-        startPolling(context, BACKGROUND_INTERVAL_MS, BACKGROUND_INTERVAL_MS);
+        startPolling(context, backgroundPollingIntervalMillis, backgroundPollingIntervalMillis);
     }
 
     synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {

@@ -37,6 +37,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static String instanceId = "UNKNOWN_ANDROID";
     private static LDClient instance = null;
 
+    private final LDConfig config;
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
     private final UpdateProcessor updateProcessor;
@@ -128,8 +129,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    protected LDClient(final Application application, LDConfig config) {
+    protected LDClient(final Application application, final LDConfig config) {
         Log.i(TAG, "Creating LaunchDarkly client. Version: " + BuildConfig.VERSION_NAME);
+        this.config = config;
         this.isOffline = config.isOffline();
 
         SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("id", Context.MODE_PRIVATE);
@@ -160,7 +162,7 @@ public class LDClient implements LDClientInterface, Closeable {
             @Override
             public void onBecameBackground() {
                 stopForegroundUpdating();
-                if (!isOffline() && isInternetConnected(application)) {
+                if (!config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
                     PollingUpdater.startBackgroundPolling(application);
                 }
             }
@@ -429,6 +431,11 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
         userManager.unregisterListener(flagKey, listener);
+    }
+
+    @Override
+    public boolean isDisableBackgroundPolling() {
+        return config.isDisableBackgroundPolling();
     }
 
     static String getInstanceId() {
