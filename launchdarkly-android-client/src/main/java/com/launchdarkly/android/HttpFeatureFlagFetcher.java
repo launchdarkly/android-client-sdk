@@ -62,7 +62,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         if (!isOffline && isInternetConnected(context)) {
             final OkHttpClient client = new OkHttpClient.Builder()
                     .cache(cache)
-                    .connectionPool(new ConnectionPool(1, 5, TimeUnit.MINUTES))
+                    .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis(), TimeUnit.MILLISECONDS))
                     .retryOnConnectionFailure(true)
                     .build();
 
