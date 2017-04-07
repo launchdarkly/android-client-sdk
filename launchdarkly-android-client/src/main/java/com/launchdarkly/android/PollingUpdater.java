@@ -16,6 +16,8 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 
 public class PollingUpdater extends BroadcastReceiver {
     private static final String TAG = "LDPollingUpdater";
+
+    // This is set in com.launchdarkly.android.LDConfig.Builder.build()
     static int backgroundPollingIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
 
     @Override
