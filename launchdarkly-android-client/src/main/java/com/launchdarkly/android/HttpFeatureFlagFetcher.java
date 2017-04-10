@@ -11,10 +11,12 @@ import com.google.gson.JsonParser;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -22,7 +24,7 @@ import okhttp3.Response;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
-    private static final String TAG = "LDFeatureFlagUpdater";
+    private static final String TAG = "LDFeatureFlagFetcher";
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
     private static HttpFeatureFlagFetcher instance;
 
@@ -60,6 +62,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         if (!isOffline && isInternetConnected(context)) {
             final OkHttpClient client = new OkHttpClient.Builder()
                     .cache(cache)
+                    .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis(), TimeUnit.MILLISECONDS))
                     .retryOnConnectionFailure(true)
                     .build();
 

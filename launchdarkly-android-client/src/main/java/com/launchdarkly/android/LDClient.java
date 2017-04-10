@@ -37,9 +37,10 @@ public class LDClient implements LDClientInterface, Closeable {
     private static String instanceId = "UNKNOWN_ANDROID";
     private static LDClient instance = null;
 
+    private final LDConfig config;
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
-    private final StreamProcessor streamProcessor;
+    private final UpdateProcessor updateProcessor;
     private final FeatureFlagFetcher fetcher;
 
     private volatile boolean isOffline = false;
@@ -76,11 +77,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
         }
         instance.eventProcessor.start();
-        ListenableFuture<Void> streamingFuture = instance.streamProcessor.start();
+
+        ListenableFuture<Void> initFuture = instance.updateProcessor.start();
         instance.sendEvent(new IdentifyEvent(user));
 
-        // Transform the StreamProcessor's initialization Future so its result is the instance:
-        return Futures.transform(streamingFuture, new Function<Void, LDClient>() {
+        // Transform initFuture so its result is the instance:
+        return Futures.transform(initFuture, new Function<Void, LDClient>() {
             @Override
             public LDClient apply(Void input) {
                 return instance;
@@ -127,8 +129,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    protected LDClient(final Application application, LDConfig config) {
+    protected LDClient(final Application application, final LDConfig config) {
         Log.i(TAG, "Creating LaunchDarkly client. Version: " + BuildConfig.VERSION_NAME);
+        this.config = config;
         this.isOffline = config.isOffline();
 
         SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("id", Context.MODE_PRIVATE);
@@ -150,21 +153,28 @@ public class LDClient implements LDClientInterface, Closeable {
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
             public void onBecameForeground() {
-                BackgroundUpdater.stop(application);
-                if (isInternetConnected(application)) {
-                    startStreaming();
+                PollingUpdater.stop(application);
+                if (!isOffline() && isInternetConnected(application)) {
+                    startForegroundUpdating();
                 }
             }
 
             @Override
             public void onBecameBackground() {
-                BackgroundUpdater.start(application);
-                stopStreaming();
+                stopForegroundUpdating();
+                if (!config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
+                    PollingUpdater.startBackgroundPolling(application);
+                }
             }
         };
         foreground.addListener(foregroundListener);
 
-        this.streamProcessor = new StreamProcessor(config, userManager);
+        if (config.isStream()) {
+            this.updateProcessor = new StreamUpdateProcessor(config, userManager);
+        } else {
+            Log.i(TAG, "Streaming is disabled. Starting LaunchDarkly Client in polling mode");
+            this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
+        }
         eventProcessor = new EventProcessor(application, config);
     }
 
@@ -360,7 +370,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
-        streamProcessor.close();
+        updateProcessor.stop();
         eventProcessor.close();
     }
 
@@ -374,7 +384,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean isInitialized() {
-        return isOffline() || streamProcessor.isInitialized();
+        return isOffline() || updateProcessor.isInitialized();
     }
 
     @Override
@@ -387,7 +397,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.d(TAG, "Setting isOffline = true");
         isOffline = true;
         fetcher.setOffline();
-        stopStreaming();
+        stopForegroundUpdating();
         eventProcessor.stop();
     }
 
@@ -396,7 +406,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.d(TAG, "Setting isOffline = false");
         this.isOffline = false;
         fetcher.setOnline();
-        startStreaming();
+        startForegroundUpdating();
         eventProcessor.start();
     }
 
@@ -423,19 +433,22 @@ public class LDClient implements LDClientInterface, Closeable {
         userManager.unregisterListener(flagKey, listener);
     }
 
+    @Override
+    public boolean isDisableBackgroundPolling() {
+        return config.isDisableBackgroundPolling();
+    }
+
     static String getInstanceId() {
         return instanceId;
     }
 
-    void stopStreaming() {
-        if (streamProcessor != null) {
-            streamProcessor.stop();
-        }
+    void stopForegroundUpdating() {
+        updateProcessor.stop();
     }
 
-    void startStreaming() {
-        if (!isOffline && streamProcessor != null) {
-            streamProcessor.start();
+    void startForegroundUpdating() {
+        if (!isOffline()) {
+            updateProcessor.start();
         }
     }
 

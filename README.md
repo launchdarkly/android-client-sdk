@@ -59,6 +59,35 @@ If you're using ProGuard add these lines to your config:
 -dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
 ```
 
+## Feature Flag Updating
+The LaunchDarkly Android SDK defaults to what we have found to be the best combination of low latency updates and minimal battery drain:
+
+1. When the app is foregrounded an Server-Sent Events streaming connection is made to LaunchDarkly. This streaming connection stays open as long as your app is in the foreground and is connected to the internet.
+1. When the app is backgrounded, the stream connection is terminated and the SDK will poll (with caching) for flag updates every 5 minutes.
+1. When the app is foregrounded, we fetch the latest flags and reconnect to the stream. 
+1. In either the foreground or background, we don't try to update unless your device has internet connectivity.
+
+This configuration means that you will get near real-time updates for your feature flag values when the app is in the foreground.
+
+###Other Options
+If you prefer other options, here they are:
+
+1. Streaming can be disabled in favor of polling updates. To disable streaming call `.setStream(false)` on the `LDConfig.Builder` object.
+1. The default polling interval is 5 minutes. To change it call `.setPollingIntervalMillis()` on the `LDConfig.Builder` object.
+1. Background polling can be disabled (the app will only receive updates when the app is in the foreground). To disable background updating call `.setDisableBackgroundUpdating(true)` on the `LDConfig.Builder` object.
+1. The background polling interval can be adjusted (with the same minimum of 60 seconds). To change it call `.setBackgroundPollingIntervalMillis()` on the `LDConfig.Builder` object.
+
+Example config with streaming disabled and custom polling intervals:
+
+```
+ LDConfig config = new LDConfig.Builder()
+                .setStream(false)
+                .setPollingIntervalMillis(600_000) // 10 minutes
+                .setBackgroundPollingIntervalMillis(3_600_000) // 1 hour
+                .build();
+```
+ 
+
 ## Known Issues/Features not yet implemented:
 - Make Android linter happy
 

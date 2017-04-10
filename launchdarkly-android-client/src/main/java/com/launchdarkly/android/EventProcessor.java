@@ -17,6 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -41,6 +42,7 @@ class EventProcessor implements Closeable {
         this.consumer = new Consumer(config);
 
         client = new OkHttpClient.Builder()
+                .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS))
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
                 .build();
