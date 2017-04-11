@@ -10,7 +10,6 @@ import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -102,14 +101,30 @@ class StreamUpdateProcessor implements UpdateProcessor {
     public synchronized void stop() {
         Log.d(TAG, "Stopping.");
         if (es != null) {
-            try {
-                es.close();
-            } catch (IOException e) {
-                Log.e(TAG, "Exception caught when closing stream.", e);
-            }
+            // We do this in a separate thread because closing the stream involves a network operation and we don't want to do a network operation on the main thread.
+            new Thread(
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            // Moves the current Thread into the background
+                            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                            stopSync();
+                        }
+                    }).start();
         }
-        running = false;
-        Log.d(TAG, "Stopped.");
+    }
+
+    private synchronized void stopSync() {
+        try {
+            if (es != null) {
+                es.close();
+            }
+            running = false;
+            es = null;
+            Log.d(TAG, "Stopped.");
+        } catch (IOException e) {
+            Log.e(TAG, "Exception caught when closing stream.", e);
+        }
     }
 
     public boolean isInitialized() {

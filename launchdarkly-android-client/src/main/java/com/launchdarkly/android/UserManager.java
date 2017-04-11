@@ -198,7 +198,9 @@ class UserManager {
         for (Map.Entry<String, JsonElement> entry : flags.entrySet()) {
             JsonElement v = entry.getValue();
             String key = entry.getKey();
-            if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isBoolean()) {
+            if (v.isJsonObject() || v.isJsonArray()) {
+                currentEditor.putString(key, v.toString());
+            } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isBoolean()) {
                 currentEditor.putBoolean(key, v.getAsBoolean());
             } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isNumber()) {
                 currentEditor.putFloat(key, v.getAsFloat());

@@ -62,8 +62,8 @@ If you're using ProGuard add these lines to your config:
 ## Feature Flag Updating
 The LaunchDarkly Android SDK defaults to what we have found to be the best combination of low latency updates and minimal battery drain:
 
-1. When the app is foregrounded an Server-Sent Events streaming connection is made to LaunchDarkly. This streaming connection stays open as long as your app is in the foreground and is connected to the internet.
-1. When the app is backgrounded, the stream connection is terminated and the SDK will poll (with caching) for flag updates every 5 minutes.
+1. When the app is foregrounded a [Server-Sent Events](https://en.wikipedia.org/wiki/Server-sent_events) streaming connection is made to LaunchDarkly. This streaming connection stays open as long as your app is in the foreground and is connected to the internet.
+1. When the app is backgrounded, the stream connection is terminated and the SDK will poll (with caching) for flag updates every 15 minutes.
 1. When the app is foregrounded, we fetch the latest flags and reconnect to the stream. 
 1. In either the foreground or background, we don't try to update unless your device has internet connectivity.
 
