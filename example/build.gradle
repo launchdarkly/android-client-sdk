@@ -1,4 +1,6 @@
 apply plugin: 'com.android.application'
+// make sure this line comes *after* you apply the Android plugin
+apply plugin: 'com.getkeepsafe.dexcount'
 
 repositories {
     mavenLocal()
@@ -9,7 +11,7 @@ repositories {
 
 android {
     compileSdkVersion 24
-    buildToolsVersion "24.0.2"
+    buildToolsVersion '25.0.2'
     defaultConfig {
         applicationId "com.launchdarkly.example"
         minSdkVersion 15

@@ -1,6 +1,8 @@
 package com.launchdarkly.android;
 
 
+import android.content.Context;
+
 import com.google.gson.JsonElement;
 
 import java.io.Closeable;
@@ -39,4 +41,6 @@ public interface LDClientInterface extends Closeable {
     void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 
     void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
+
+    boolean isDisableBackgroundPolling();
 }

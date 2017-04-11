@@ -10,14 +10,13 @@ import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Headers;
 
-class StreamProcessor implements Closeable {
+class StreamUpdateProcessor implements UpdateProcessor {
     private static final String TAG = "LDStreamProcessor";
 
     private EventSource es;
@@ -27,18 +26,19 @@ class StreamProcessor implements Closeable {
     private volatile boolean running = false;
     private final URI uri;
 
-    StreamProcessor(LDConfig config, UserManager userManager) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager) {
         this.config = config;
         this.userManager = userManager;
         uri = URI.create(config.getStreamUri().toString() + "/mping");
     }
 
-    synchronized ListenableFuture<Void> start() {
+    public synchronized ListenableFuture<Void> start() {
         final SettableFuture<Void> initFuture = SettableFuture.create();
         initialized.set(false);
 
         if (!running) {
-            close();
+            stop();
+            Log.d(TAG, "Starting.");
             Headers headers = new Headers.Builder()
                     .add("Authorization", config.getMobileKey())
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
@@ -52,6 +52,11 @@ class StreamProcessor implements Closeable {
                 }
 
                 @Override
+                public void onClosed() throws Exception {
+                    Log.i(TAG, "Closed LaunchDarkly EventStream");
+                }
+
+                @Override
                 public void onMessage(String name, MessageEvent event) throws Exception {
                     Log.d(TAG, "onMessage: name: " + name + " event: " + event.getData());
                     if (!initialized.getAndSet(true)) {
@@ -60,6 +65,11 @@ class StreamProcessor implements Closeable {
                     } else {
                         userManager.updateCurrentUser();
                     }
+                }
+
+                @Override
+                public void onComment(String comment) throws Exception {
+
                 }
 
                 @Override
@@ -88,24 +98,36 @@ class StreamProcessor implements Closeable {
         return initFuture;
     }
 
-    synchronized void stop() {
-        close();
-        running = false;
-    }
-
-
-    @Override
-    public void close() {
+    public synchronized void stop() {
+        Log.d(TAG, "Stopping.");
         if (es != null) {
-            try {
-                es.close();
-            } catch (IOException e) {
-                Log.e(TAG, "Exception caught when closing stream.", e);
-            }
+            // We do this in a separate thread because closing the stream involves a network operation and we don't want to do a network operation on the main thread.
+            new Thread(
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            // Moves the current Thread into the background
+                            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                            stopSync();
+                        }
+                    }).start();
         }
     }
 
-    boolean isInitialized() {
+    private synchronized void stopSync() {
+        try {
+            if (es != null) {
+                es.close();
+            }
+            running = false;
+            es = null;
+            Log.d(TAG, "Stopped.");
+        } catch (IOException e) {
+            Log.e(TAG, "Exception caught when closing stream.", e);
+        }
+    }
+
+    public boolean isInitialized() {
         return initialized.get();
     }
 }

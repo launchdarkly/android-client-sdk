@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Future;
 
 /**
  * Persists and retrieves feature flag values for different {@link LDUser}s.
@@ -38,6 +39,7 @@ class UserManager {
     private static UserManager instance;
     private final FeatureFlagFetcher fetcher;
     private final String sharedPrefsBaseKey;
+    private volatile boolean initialized = false;
 
     // The active user is the one that we track for changes to enable listeners.
     // Its values will mirror the current user, but it is a different SharedPreferences
@@ -89,12 +91,12 @@ class UserManager {
      *
      * @param user
      */
-    ListenableFuture<Void> setCurrentUser(final LDUser user) {
+    Future<Void> setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
         Log.d(TAG, "Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
         currentUser = user;
         currentUserSharedPrefs = loadSharedPrefsForUser(userBase64);
-        ListenableFuture<Void> updateFuture = updateCurrentUser();
+        Future<Void> updateFuture = updateCurrentUser();
         usersSharedPrefs.edit()
                 .putLong(userBase64, System.currentTimeMillis())
                 .apply();
@@ -134,6 +136,7 @@ class UserManager {
         Futures.addCallback(fetchFuture, new FutureCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
+                initialized = true;
                 saveFlagSettings(result);
             }
 
@@ -195,7 +198,9 @@ class UserManager {
         for (Map.Entry<String, JsonElement> entry : flags.entrySet()) {
             JsonElement v = entry.getValue();
             String key = entry.getKey();
-            if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isBoolean()) {
+            if (v.isJsonObject() || v.isJsonArray()) {
+                currentEditor.putString(key, v.toString());
+            } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isBoolean()) {
                 currentEditor.putBoolean(key, v.getAsBoolean());
             } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isNumber()) {
                 currentEditor.putFloat(key, v.getAsFloat());
@@ -319,6 +324,10 @@ class UserManager {
 
     private static String userBase64ToJson(String base64) {
         return new String(Base64.decode(base64, Base64.URL_SAFE));
+    }
+
+    boolean isInitialized() {
+        return initialized;
     }
 
     class EntryComparator implements Comparator<Map.Entry<String, Long>> {

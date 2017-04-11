@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -36,29 +37,30 @@ public class LDClient implements LDClientInterface, Closeable {
     private static String instanceId = "UNKNOWN_ANDROID";
     private static LDClient instance = null;
 
+    private final LDConfig config;
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
-    private final StreamProcessor streamProcessor;
+    private final UpdateProcessor updateProcessor;
     private final FeatureFlagFetcher fetcher;
 
     private volatile boolean isOffline = false;
 
     /**
-     * Initializes the singleton instance. The result is a {@link ListenableFuture} which
+     * Initializes the singleton instance. The result is a {@link Future} which
      * will complete once the client has been initialized with the latest feature flag values. For
      * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
      * the return value of this method, and afterward call {@link #get()}
      * <p/>
      * If the client has already been initialized, is configured for offline mode, or the device is
-     * not connected to the internet, this method will return a {@link ListenableFuture} that is
+     * not connected to the internet, this method will return a {@link Future} that is
      * already in the completed state.
      *
      * @param application Your Android application.
      * @param config      Configuration used to set up the client
      * @param user        The user used in evaluating feature flags
-     * @return a {@link ListenableFuture} which will complete once the client has been initialized.
+     * @return a {@link Future} which will complete once the client has been initialized.
      */
-    public static synchronized ListenableFuture<LDClient> init(Application application, LDConfig config, LDUser user) {
+    public static synchronized Future<LDClient> init(Application application, LDConfig config, LDUser user) {
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
         if (instance != null) {
@@ -75,11 +77,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
         }
         instance.eventProcessor.start();
-        ListenableFuture<Void> streamingFuture = instance.streamProcessor.start();
+
+        ListenableFuture<Void> initFuture = instance.updateProcessor.start();
         instance.sendEvent(new IdentifyEvent(user));
 
-        // Transform the StreamProcessor's initialization Future so its result is the instance:
-        return Futures.transform(streamingFuture, new Function<Void, LDClient>() {
+        // Transform initFuture so its result is the instance:
+        return Futures.transform(initFuture, new Function<Void, LDClient>() {
             @Override
             public LDClient apply(Void input) {
                 return instance;
@@ -101,7 +104,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
         Log.i(TAG, "Initializing Client and waiting up to " + startWaitSeconds + " for initialization to complete");
-        ListenableFuture<LDClient> initFuture = init(application, config, user);
+        Future<LDClient> initFuture = init(application, config, user);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
@@ -126,8 +129,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    protected LDClient(final Application application, LDConfig config) {
+    protected LDClient(final Application application, final LDConfig config) {
         Log.i(TAG, "Creating LaunchDarkly client. Version: " + BuildConfig.VERSION_NAME);
+        this.config = config;
         this.isOffline = config.isOffline();
 
         SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("id", Context.MODE_PRIVATE);
@@ -149,21 +153,28 @@ public class LDClient implements LDClientInterface, Closeable {
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
             public void onBecameForeground() {
-                BackgroundUpdater.stop(application);
-                if (isInternetConnected(application)) {
-                    startStreaming();
+                PollingUpdater.stop(application);
+                if (!isOffline() && isInternetConnected(application)) {
+                    startForegroundUpdating();
                 }
             }
 
             @Override
             public void onBecameBackground() {
-                BackgroundUpdater.start(application);
-                stopStreaming();
+                stopForegroundUpdating();
+                if (!config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
+                    PollingUpdater.startBackgroundPolling(application);
+                }
             }
         };
         foreground.addListener(foregroundListener);
 
-        this.streamProcessor = new StreamProcessor(config, userManager);
+        if (config.isStream()) {
+            this.updateProcessor = new StreamUpdateProcessor(config, userManager);
+        } else {
+            Log.i(TAG, "Streaming is disabled. Starting LaunchDarkly Client in polling mode");
+            this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
+        }
         eventProcessor = new EventProcessor(application, config);
     }
 
@@ -196,7 +207,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
      */
     @Override
-    public synchronized ListenableFuture<Void> identify(LDUser user) {
+    public synchronized Future<Void> identify(LDUser user) {
         if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
         }
@@ -204,7 +215,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             Log.w(TAG, "identify called with null user or null user key!");
         }
-        ListenableFuture<Void> doneFuture = userManager.setCurrentUser(user);
+        Future<Void> doneFuture = userManager.setCurrentUser(user);
         sendEvent(new IdentifyEvent(user));
         return doneFuture;
     }
@@ -359,7 +370,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
-        streamProcessor.close();
+        updateProcessor.stop();
         eventProcessor.close();
     }
 
@@ -373,7 +384,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean isInitialized() {
-        return isOffline() || streamProcessor.isInitialized();
+        return isOffline() || updateProcessor.isInitialized();
     }
 
     @Override
@@ -386,7 +397,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.d(TAG, "Setting isOffline = true");
         isOffline = true;
         fetcher.setOffline();
-        stopStreaming();
+        stopForegroundUpdating();
         eventProcessor.stop();
     }
 
@@ -395,7 +406,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.d(TAG, "Setting isOffline = false");
         this.isOffline = false;
         fetcher.setOnline();
-        startStreaming();
+        startForegroundUpdating();
         eventProcessor.start();
     }
 
@@ -422,19 +433,22 @@ public class LDClient implements LDClientInterface, Closeable {
         userManager.unregisterListener(flagKey, listener);
     }
 
+    @Override
+    public boolean isDisableBackgroundPolling() {
+        return config.isDisableBackgroundPolling();
+    }
+
     static String getInstanceId() {
         return instanceId;
     }
 
-    void stopStreaming() {
-        if (streamProcessor != null) {
-            streamProcessor.stop();
-        }
+    void stopForegroundUpdating() {
+        updateProcessor.stop();
     }
 
-    void startStreaming() {
-        if (!isOffline && streamProcessor != null) {
-            streamProcessor.start();
+    void startForegroundUpdating() {
+        if (!isOffline()) {
+            updateProcessor.start();
         }
     }
 
