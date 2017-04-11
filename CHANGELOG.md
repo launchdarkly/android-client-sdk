@@ -14,6 +14,9 @@ All notable changes to the LaunchDarkly Android SDK will be documented in this f
 - Removed SLF4J logger in LDUser.
 - Updated suggested Proguard rules for a smaller footprint.
 
+### Fixed
+- [Update to Latest version of OkHttp](https://github.com/launchdarkly/android-client/issues/20)
+
 ## [1.0.1] - 2016-11-17
 ### Added
 - Suggested Proguard rules now include keep instructions. This should help with some GSON serialization issues. 
