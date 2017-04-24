@@ -18,6 +18,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -69,7 +70,7 @@ public class LDClient implements LDClientInterface, Closeable {
             return settableFuture;
         }
         instance = new LDClient(application, config);
-        instance.userManager.setCurrentUser(user);
+        ListenableFuture<Void> userFuture = instance.userManager.setCurrentUser(user);
 
         if (instance.isOffline() || !isInternetConnected(application)) {
             settableFuture.set(instance);
@@ -81,10 +82,9 @@ public class LDClient implements LDClientInterface, Closeable {
         ListenableFuture<Void> initFuture = instance.updateProcessor.start();
         instance.sendEvent(new IdentifyEvent(user));
 
-        // Transform initFuture so its result is the instance:
-        return Futures.transform(initFuture, new Function<Void, LDClient>() {
+        return Futures.whenAllComplete(userFuture, initFuture).call(new Callable<LDClient>() {
             @Override
-            public LDClient apply(Void input) {
+            public LDClient call() throws Exception {
                 return instance;
             }
         });
