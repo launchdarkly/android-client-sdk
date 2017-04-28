@@ -2,6 +2,11 @@
 
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
+
+## [2.0.1] - 2017-04-28
+### Fixed
+- The `Future<LDClient>` returned from `LDClient.init` now also waits for the feature flag rules to be retrieved.
+
 ## [2.0.0] - 2017-04-10
 ### Added
 - More configurable flag update mechanisms including the ability to disable streaming. See README.md for details.
