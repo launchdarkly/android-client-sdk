@@ -91,12 +91,12 @@ class UserManager {
      *
      * @param user
      */
-    Future<Void> setCurrentUser(final LDUser user) {
+    ListenableFuture<Void> setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
         Log.d(TAG, "Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
         currentUser = user;
         currentUserSharedPrefs = loadSharedPrefsForUser(userBase64);
-        Future<Void> updateFuture = updateCurrentUser();
+        ListenableFuture<Void> updateFuture = updateCurrentUser();
         usersSharedPrefs.edit()
                 .putLong(userBase64, System.currentTimeMillis())
                 .apply();
