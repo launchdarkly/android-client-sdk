@@ -26,7 +26,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Future;
 
 /**
  * Persists and retrieves feature flag values for different {@link LDUser}s.
@@ -57,7 +56,7 @@ class UserManager {
     private SharedPreferences currentUserSharedPrefs;
     private LDUser currentUser;
 
-    static UserManager init(Application application, FeatureFlagFetcher fetcher) {
+    static synchronized UserManager init(Application application, FeatureFlagFetcher fetcher) {
         if (instance != null) {
             return instance;
         }
@@ -91,12 +90,12 @@ class UserManager {
      *
      * @param user
      */
-    ListenableFuture<Void> setCurrentUser(final LDUser user) {
+    void setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
         Log.d(TAG, "Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
         currentUser = user;
         currentUserSharedPrefs = loadSharedPrefsForUser(userBase64);
-        ListenableFuture<Void> updateFuture = updateCurrentUser();
+
         usersSharedPrefs.edit()
                 .putLong(userBase64, System.currentTimeMillis())
                 .apply();
@@ -111,8 +110,6 @@ class UserManager {
                     .remove(removed)
                     .apply();
         }
-
-        return updateFuture;
     }
 
     /**
@@ -130,7 +127,7 @@ class UserManager {
         file.delete();
     }
 
-    synchronized ListenableFuture<Void> updateCurrentUser() {
+    ListenableFuture<Void> updateCurrentUser() {
         ListenableFuture<JsonObject> fetchFuture = fetcher.fetch(currentUser);
 
         Futures.addCallback(fetchFuture, new FutureCallback<JsonObject>() {
