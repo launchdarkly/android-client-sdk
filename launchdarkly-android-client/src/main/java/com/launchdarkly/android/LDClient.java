@@ -18,7 +18,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -70,7 +69,7 @@ public class LDClient implements LDClientInterface, Closeable {
             return settableFuture;
         }
         instance = new LDClient(application, config);
-        ListenableFuture<Void> userFuture = instance.userManager.setCurrentUser(user);
+        instance.userManager.setCurrentUser(user);
 
         if (instance.isOffline() || !isInternetConnected(application)) {
             settableFuture.set(instance);
@@ -82,9 +81,10 @@ public class LDClient implements LDClientInterface, Closeable {
         ListenableFuture<Void> initFuture = instance.updateProcessor.start();
         instance.sendEvent(new IdentifyEvent(user));
 
-        return Futures.whenAllComplete(userFuture, initFuture).call(new Callable<LDClient>() {
+        // Transform initFuture so its result is the instance:
+        return Futures.transform(initFuture, new Function<Void, LDClient>() {
             @Override
-            public LDClient call() throws Exception {
+            public LDClient apply(Void input) {
                 return instance;
             }
         });
@@ -134,7 +134,7 @@ public class LDClient implements LDClientInterface, Closeable {
         this.config = config;
         this.isOffline = config.isOffline();
 
-        SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("id", Context.MODE_PRIVATE);
+        SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("LaunchDarkly-id", Context.MODE_PRIVATE);
 
         if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
             String uuid = UUID.randomUUID().toString();
@@ -215,7 +215,8 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             Log.w(TAG, "identify called with null user or null user key!");
         }
-        Future<Void> doneFuture = userManager.setCurrentUser(user);
+        userManager.setCurrentUser(user);
+        Future<Void> doneFuture = userManager.updateCurrentUser();
         sendEvent(new IdentifyEvent(user));
         return doneFuture;
     }

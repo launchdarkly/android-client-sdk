@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.0.2] - 2017-05-03
+### Changed
+- Improved thread safety in UserManager when removing change listeners.
+- Streamlined SDK initialization.
+
 ## [2.0.1] - 2017-04-28
 ### Fixed
 - The `Future<LDClient>` returned from `LDClient.init` now also waits for the feature flag rules to be retrieved.
