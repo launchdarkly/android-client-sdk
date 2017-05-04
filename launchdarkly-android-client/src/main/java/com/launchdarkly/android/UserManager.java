@@ -12,6 +12,7 @@ import android.util.Pair;
 import com.google.common.base.Function;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Multimaps;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -26,7 +27,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Future;
 
 /**
  * Persists and retrieves feature flag values for different {@link LDUser}s.
@@ -51,13 +51,14 @@ class UserManager {
 
     private final Application application;
     // Maintains references enabling (de)registration of listeners for realtime updates
-    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners = ArrayListMultimap.create();
+    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners =
+            Multimaps.synchronizedMultimap(ArrayListMultimap.<String, Pair<FeatureFlagChangeListener,OnSharedPreferenceChangeListener>>create());
 
     // The current user- we'll always fetch this user from the response we get from the api
     private SharedPreferences currentUserSharedPrefs;
     private LDUser currentUser;
 
-    static UserManager init(Application application, FeatureFlagFetcher fetcher) {
+    static synchronized UserManager init(Application application, FeatureFlagFetcher fetcher) {
         if (instance != null) {
             return instance;
         }
@@ -91,12 +92,12 @@ class UserManager {
      *
      * @param user
      */
-    ListenableFuture<Void> setCurrentUser(final LDUser user) {
+    void setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
         Log.d(TAG, "Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
         currentUser = user;
         currentUserSharedPrefs = loadSharedPrefsForUser(userBase64);
-        ListenableFuture<Void> updateFuture = updateCurrentUser();
+
         usersSharedPrefs.edit()
                 .putLong(userBase64, System.currentTimeMillis())
                 .apply();
@@ -111,8 +112,6 @@ class UserManager {
                     .remove(removed)
                     .apply();
         }
-
-        return updateFuture;
     }
 
     /**
@@ -130,7 +129,7 @@ class UserManager {
         file.delete();
     }
 
-    synchronized ListenableFuture<Void> updateCurrentUser() {
+    ListenableFuture<Void> updateCurrentUser() {
         ListenableFuture<JsonObject> fetchFuture = fetcher.fetch(currentUser);
 
         Futures.addCallback(fetchFuture, new FutureCallback<JsonObject>() {

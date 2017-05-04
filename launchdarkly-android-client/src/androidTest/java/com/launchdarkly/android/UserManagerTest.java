@@ -115,7 +115,8 @@ public class UserManagerTest extends EasyMockSupport {
         ListenableFuture<JsonObject> jsonObjectFuture = Futures.immediateFuture(flags);
         expect(fetcher.fetch(user)).andReturn(jsonObjectFuture);
         replayAll();
-        Future<Void> future = userManager.setCurrentUser(user);
+        userManager.setCurrentUser(user);
+        Future<Void> future = userManager.updateCurrentUser();
         reset(fetcher);
         return future;
     }
@@ -128,8 +129,8 @@ public class UserManagerTest extends EasyMockSupport {
 
         expect(fetcher.fetch(user)).andReturn(failedFuture);
         replayAll();
-
-        Future<Void> future = userManager.setCurrentUser(user);
+        userManager.setCurrentUser(user);
+        Future<Void> future = userManager.updateCurrentUser();
         try {
             future.get();
         } catch (ExecutionException e) {
