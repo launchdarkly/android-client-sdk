@@ -12,6 +12,7 @@ import android.util.Pair;
 import com.google.common.base.Function;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Multimaps;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -50,7 +51,8 @@ class UserManager {
 
     private final Application application;
     // Maintains references enabling (de)registration of listeners for realtime updates
-    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners = ArrayListMultimap.create();
+    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners =
+            Multimaps.synchronizedMultimap(ArrayListMultimap.<String, Pair<FeatureFlagChangeListener,OnSharedPreferenceChangeListener>>create());
 
     // The current user- we'll always fetch this user from the response we get from the api
     private SharedPreferences currentUserSharedPrefs;
