@@ -18,6 +18,7 @@ import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
 
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -40,18 +41,26 @@ public class MainActivity extends AppCompatActivity {
         setupOfflineSwitch();
 
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("MOBILE_KEY")
+                .setMobileKey("mob-83f98fe6-7918-49c9-bfdc-4c2be017499d")
+//                .setStream(false)
+//                .setPollingIntervalMillis(1000 * 60 * 60)
                 .build();
 
-        LDUser user = new LDUser.Builder("user key")
-                .email("fake@example.com")
+        LDUser user = new LDUser.Builder("ca2ce07d-3174-42ed-9f02-863d9ef473c6")
+//                .email("fake@example.com")
                 .build();
 
         Future<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
         try {
             ldClient = initFuture.get(10, TimeUnit.SECONDS);
+            Log.i(TAG, "got client ok");
+
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
            Log.e(TAG, "Exception when awaiting LaunchDarkly Client initialization", e);
+        }
+        Map<String, ?> allFlags = ldClient.allFlags();
+        for (Map.Entry<String, ?> stringEntry : allFlags.entrySet()) {
+            Log.d(TAG, "allFlags entry: " + stringEntry.getKey() + " " + stringEntry.getValue());
         }
     }
 
