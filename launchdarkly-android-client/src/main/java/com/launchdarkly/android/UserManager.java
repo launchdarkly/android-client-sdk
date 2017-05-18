@@ -51,8 +51,7 @@ class UserManager {
 
     private final Application application;
     // Maintains references enabling (de)registration of listeners for realtime updates
-    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners =
-            Multimaps.synchronizedMultimap(ArrayListMultimap.<String, Pair<FeatureFlagChangeListener,OnSharedPreferenceChangeListener>>create());
+    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners = ArrayListMultimap.create();
 
     // The current user- we'll always fetch this user from the response we get from the api
     private SharedPreferences currentUserSharedPrefs;
@@ -116,6 +115,7 @@ class UserManager {
 
     /**
      * Completely deletes a user's saved flag settings and the remaining empty SharedPreferences xml file.
+     *
      * @param userKey
      */
     private void deleteSharedPreferences(String userKey) {
@@ -166,17 +166,21 @@ class UserManager {
                 }
             }
         };
-        listeners.put(key, new Pair<>(listener, sharedPrefsListener));
+        synchronized (listeners) {
+            listeners.put(key, new Pair<>(listener, sharedPrefsListener));
+        }
         activeUserSharedPrefs.registerOnSharedPreferenceChangeListener(sharedPrefsListener);
         Log.d(TAG, "Added listener. Total count: [" + listeners.size() + "]");
     }
 
     void unregisterListener(String key, FeatureFlagChangeListener listener) {
-        for (Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener> pair : listeners.get(key)) {
-            if (pair.first.equals(listener)) {
-                Log.d(TAG, "Removing listener for key: [" + key + "]");
-                activeUserSharedPrefs.unregisterOnSharedPreferenceChangeListener(pair.second);
-                listeners.remove(key, pair);
+        synchronized (listeners) {
+            for (Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener> pair : listeners.get(key)) {
+                if (pair.first.equals(listener)) {
+                    Log.d(TAG, "Removing listener for key: [" + key + "]");
+                    activeUserSharedPrefs.unregisterOnSharedPreferenceChangeListener(pair.second);
+                    listeners.remove(key, pair);
+                }
             }
         }
     }
@@ -190,7 +194,7 @@ class UserManager {
      * @param flags
      */
     private void saveFlagSettings(JsonObject flags) {
-        Log.d(TAG, "saveFlagSettings for user key: "+ currentUser.getKey());
+        Log.d(TAG, "saveFlagSettings for user key: " + currentUser.getKey());
         SharedPreferences.Editor currentEditor = currentUserSharedPrefs.edit();
         currentEditor.clear();
 
@@ -260,7 +264,9 @@ class UserManager {
             if (current.get(key) == null) {
                 Log.d(tag, "Deleting value and listeners for key: [" + key + "]");
                 activeEditor.remove(key);
-                listeners.removeAll(key);
+                synchronized (listeners) {
+                    listeners.removeAll(key);
+                }
             }
         }
         activeEditor.apply();
