@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.0.3] - 2017-05-18
+### Changed
+- Even better thread safety in UserManager when removing change listeners.
+
 ## [2.0.2] - 2017-05-03
 ### Changed
 - Improved thread safety in UserManager when removing change listeners.

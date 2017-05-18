@@ -7,14 +7,14 @@ apply plugin: 'com.getkeepsafe.dexcount'
 
 allprojects {
     group = 'com.launchdarkly'
-    version = '2.0.2'
+    version = '2.0.3'
     sourceCompatibility = 1.7
     targetCompatibility = 1.7
 }
 
 android {
     compileSdkVersion 24
-    buildToolsVersion '25.0.2'
+    buildToolsVersion '25.0.3'
 
     defaultConfig {
         minSdkVersion 15
