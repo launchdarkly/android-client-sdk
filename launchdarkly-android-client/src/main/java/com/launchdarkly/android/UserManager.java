@@ -37,7 +37,6 @@ class UserManager {
     private static final int MAX_USERS = 5;
     private static UserManager instance;
     private final FeatureFlagFetcher fetcher;
-    private final String sharedPrefsBaseKey;
     private volatile boolean initialized = false;
 
     // The active user is the one that we track for changes to enable listeners.
@@ -71,8 +70,7 @@ class UserManager {
     UserManager(Application application, FeatureFlagFetcher fetcher) {
         this.application = application;
         this.fetcher = fetcher;
-        this.sharedPrefsBaseKey = "LaunchDarkly-" + application.getPackageName();
-        this.usersSharedPrefs = application.getSharedPreferences(sharedPrefsBaseKey + "-users", Context.MODE_PRIVATE);
+        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE);
         this.activeUserSharedPrefs = loadSharedPrefsForActiveUser();
     }
 
@@ -277,11 +275,11 @@ class UserManager {
     }
 
     private String sharedPrefsKeyForUser(String user) {
-        return sharedPrefsBaseKey + "-" + user;
+        return LDConfig.SHARED_PREFS_BASE_KEY + user;
     }
 
     private SharedPreferences loadSharedPrefsForActiveUser() {
-        String sharedPrefsKey = sharedPrefsBaseKey + "-active";
+        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + "active";
         Log.d(TAG, "Using SharedPreferences key for active user: [" + sharedPrefsKey + "]");
         return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
     }
