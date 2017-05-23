@@ -31,6 +31,7 @@ import static com.launchdarkly.android.LDConfig.GSON;
  */
 public class LDUser {
     private static final String TAG = "LDUser";
+    private static final UserHasher USER_HASHER = new UserHasher();
 
     @Expose
     private final JsonPrimitive key;
@@ -80,8 +81,9 @@ public class LDUser {
         this.name = builder.name == null ? null : new JsonPrimitive(builder.name);
         this.avatar = builder.avatar == null ? null : new JsonPrimitive(builder.avatar);
         this.custom = new HashMap<>(builder.custom);
-        this.urlSafeBase64 = Base64.encodeToString(GSON.toJson(this).getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
-        this.sharedPrefsKey = String.valueOf(this.urlSafeBase64.hashCode());
+        String userJson = GSON.toJson(this);
+        this.urlSafeBase64 = Base64.encodeToString(userJson.getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
+        this.sharedPrefsKey = USER_HASHER.hash(userJson);
     }
 
     String getAsUrlSafeBase64() {
