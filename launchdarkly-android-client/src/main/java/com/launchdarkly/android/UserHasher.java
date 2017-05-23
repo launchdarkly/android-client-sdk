@@ -14,7 +14,7 @@ import com.google.common.hash.Hashing;
  * produce the same output given the same input.
  */
 class UserHasher {
-    private final HashFunction HashFunction = Hashing.md5();
+    private final HashFunction HashFunction = Hashing.sha256();
 
     String hash(String toHash) {
         byte[] hash = HashFunction
