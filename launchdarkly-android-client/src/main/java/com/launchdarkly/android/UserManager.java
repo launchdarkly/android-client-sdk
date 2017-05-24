@@ -12,7 +12,6 @@ import android.util.Pair;
 import com.google.common.base.Function;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Multimaps;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -38,7 +37,6 @@ class UserManager {
     private static final int MAX_USERS = 5;
     private static UserManager instance;
     private final FeatureFlagFetcher fetcher;
-    private final String sharedPrefsBaseKey;
     private volatile boolean initialized = false;
 
     // The active user is the one that we track for changes to enable listeners.
@@ -72,8 +70,7 @@ class UserManager {
     UserManager(Application application, FeatureFlagFetcher fetcher) {
         this.application = application;
         this.fetcher = fetcher;
-        this.sharedPrefsBaseKey = "LaunchDarkly-" + application.getPackageName();
-        this.usersSharedPrefs = application.getSharedPreferences(sharedPrefsBaseKey + "-users", Context.MODE_PRIVATE);
+        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE);
         this.activeUserSharedPrefs = loadSharedPrefsForActiveUser();
     }
 
@@ -95,17 +92,17 @@ class UserManager {
         String userBase64 = user.getAsUrlSafeBase64();
         Log.d(TAG, "Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
         currentUser = user;
-        currentUserSharedPrefs = loadSharedPrefsForUser(userBase64);
+        currentUserSharedPrefs = loadSharedPrefsForUser(user.getSharedPrefsKey());
 
         usersSharedPrefs.edit()
-                .putLong(userBase64, System.currentTimeMillis())
+                .putLong(user.getSharedPrefsKey(), System.currentTimeMillis())
                 .apply();
 
         while (usersSharedPrefs.getAll().size() > MAX_USERS) {
             List<String> allUsers = getAllUsers();
             String removed = allUsers.get(0);
             Log.d(TAG, "Exceeded max # of users: [" + MAX_USERS + "] Removing user: [" + removed
-                    + "] [" + userBase64ToJson(removed) + "]");
+                    + "] [" + removed + "]");
             deleteSharedPreferences(removed);
             usersSharedPrefs.edit()
                     .remove(removed)
@@ -122,7 +119,7 @@ class UserManager {
         SharedPreferences sharedPrefsToDelete = loadSharedPrefsForUser(userKey);
         sharedPrefsToDelete.edit()
                 .clear()
-                .apply();
+                .commit();
 
         File file = new File(application.getFilesDir().getParent() + "/shared_prefs/" + sharedPrefsKeyForUser(userKey) + ".xml");
         Log.i(TAG, "Deleting SharedPrefs file:" + file.getAbsolutePath());
@@ -278,11 +275,11 @@ class UserManager {
     }
 
     private String sharedPrefsKeyForUser(String user) {
-        return sharedPrefsBaseKey + "-" + user;
+        return LDConfig.SHARED_PREFS_BASE_KEY + user;
     }
 
     private SharedPreferences loadSharedPrefsForActiveUser() {
-        String sharedPrefsKey = sharedPrefsBaseKey + "-active";
+        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + "active";
         Log.d(TAG, "Using SharedPreferences key for active user: [" + sharedPrefsKey + "]");
         return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
     }
@@ -323,8 +320,8 @@ class UserManager {
         return results;
     }
 
-    private static String userAndTimeStampToHumanReadableString(String base64, Long timestamp) {
-        return base64 + " [" + userBase64ToJson(base64) + "] timestamp: [" + timestamp + "] [" + new Date(timestamp) + "]";
+    private static String userAndTimeStampToHumanReadableString(String userSharedPrefsKey, Long timestamp) {
+        return userSharedPrefsKey + " [" + userSharedPrefsKey + "] timestamp: [" + timestamp + "] [" + new Date(timestamp) + "]";
     }
 
     private static String userBase64ToJson(String base64) {

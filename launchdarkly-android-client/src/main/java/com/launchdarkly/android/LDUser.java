@@ -31,32 +31,36 @@ import static com.launchdarkly.android.LDConfig.GSON;
  */
 public class LDUser {
     private static final String TAG = "LDUser";
+    private static final UserHasher USER_HASHER = new UserHasher();
 
     @Expose
     private final JsonPrimitive key;
     @Expose
-    private JsonPrimitive secondary;
+    private final JsonPrimitive secondary;
     @Expose
-    private JsonPrimitive ip;
+    private final JsonPrimitive ip;
     @Expose
-    private JsonPrimitive email;
+    private final JsonPrimitive email;
     @Expose
-    private JsonPrimitive name;
+    private final JsonPrimitive name;
     @Expose
-    private JsonPrimitive avatar;
+    private final JsonPrimitive avatar;
     @Expose
-    private JsonPrimitive firstName;
+    private final JsonPrimitive firstName;
     @Expose
-    private JsonPrimitive lastName;
+    private final JsonPrimitive lastName;
     @Expose
-    private JsonPrimitive anonymous;
+    private final JsonPrimitive anonymous;
     @Expose
-    private JsonPrimitive country;
+    private final JsonPrimitive country;
     @Expose
-    private Map<String, JsonElement> custom;
+    private final Map<String, JsonElement> custom;
 
     @Expose(deserialize = false, serialize = false)
     private final String urlSafeBase64;
+
+    @Expose(deserialize = false, serialize = false)
+    private final String sharedPrefsKey;
 
     protected LDUser(Builder builder) {
         if (builder.key == null || builder.key.equals("")) {
@@ -77,7 +81,9 @@ public class LDUser {
         this.name = builder.name == null ? null : new JsonPrimitive(builder.name);
         this.avatar = builder.avatar == null ? null : new JsonPrimitive(builder.avatar);
         this.custom = new HashMap<>(builder.custom);
-        this.urlSafeBase64 = Base64.encodeToString(GSON.toJson(this).getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
+        String userJson = GSON.toJson(this);
+        this.urlSafeBase64 = Base64.encodeToString(userJson.getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
+        this.sharedPrefsKey = USER_HASHER.hash(userJson);
     }
 
     String getAsUrlSafeBase64() {
@@ -137,6 +143,10 @@ public class LDUser {
             return custom.get(key);
         }
         return null;
+    }
+
+    String getSharedPrefsKey() {
+        return sharedPrefsKey;
     }
 
     /**

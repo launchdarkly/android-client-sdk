@@ -134,7 +134,7 @@ public class LDClient implements LDClientInterface, Closeable {
         this.config = config;
         this.isOffline = config.isOffline();
 
-        SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences("LaunchDarkly-id", Context.MODE_PRIVATE);
+        SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
 
         if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
             String uuid = UUID.randomUUID().toString();
