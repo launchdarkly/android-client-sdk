@@ -25,7 +25,8 @@ public class LDConfig {
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10000;
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
     static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
-    static final int MIN_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
+    static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
+    static final int MIN_POLLING_INTERVAL_MILLIS = 60_000; // 1 minute
 
     private final String mobileKey;
 
@@ -280,14 +281,7 @@ public class LDConfig {
         }
 
         public LDConfig build() {
-            if (stream && !disableBackgroundUpdating) {
-                if (backgroundPollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    Log.w(TAG, "BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
-                            " was set below the minimum allowed: " + MIN_POLLING_INTERVAL_MILLIS + ". Ignoring and using minimum value.");
-                    backgroundPollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
-                }
-            } else
-            {
+            if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
                     Log.w(TAG, "setPollingIntervalMillis: " + pollingIntervalMillis
                             + " was set below the allowed minimum of: " + MIN_POLLING_INTERVAL_MILLIS + ". Ignoring and using minimum value.");
@@ -296,13 +290,21 @@ public class LDConfig {
 
                 if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
                     Log.w(TAG, "BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
-                            " was set below the foreground polling interval: " + pollingIntervalMillis + ". Ignoring and using polling interval value for background polling.");
-                    backgroundPollingIntervalMillis = pollingIntervalMillis;
+                            " was set below the foreground polling interval: " + pollingIntervalMillis + ". Ignoring and using minimum value for background polling.");
+                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (eventsFlushIntervalMillis == 0) {
                     eventsFlushIntervalMillis = pollingIntervalMillis;
                     Log.d(TAG, "Streaming is disabled, so we're setting the events flush interval to the polling interval value: " + pollingIntervalMillis);
+                }
+            }
+
+            if (!disableBackgroundUpdating) {
+                if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
+                    Log.w(TAG, "BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
+                            " was set below the minimum allowed: " + MIN_BACKGROUND_POLLING_INTERVAL_MILLIS + ". Ignoring and using minimum value.");
+                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
             }
 
