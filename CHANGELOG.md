@@ -3,6 +3,12 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.0.4] - 2017-05-26
+### Changed
+- Modified default and minimum background polling intervals.
+- Improved http client lifecycle management.
+- Improved offline saving of flags when switching users.
+
 ## [2.0.3] - 2017-05-18
 ### Changed
 - Even better thread safety in UserManager when removing change listeners.
