@@ -42,7 +42,7 @@ class EventProcessor implements Closeable {
         this.consumer = new Consumer(config);
 
         client = new OkHttpClient.Builder()
-                .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS))
+                .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
                 .build();
@@ -58,7 +58,9 @@ class EventProcessor implements Closeable {
     }
 
     void stop() {
-        scheduler.shutdown();
+        if (scheduler != null) {
+            scheduler.shutdown();
+        }
     }
 
     boolean sendEvent(Event e) {
@@ -67,7 +69,7 @@ class EventProcessor implements Closeable {
 
     @Override
     public void close() throws IOException {
-        scheduler.shutdown();
+        stop();
         flush();
     }
 
