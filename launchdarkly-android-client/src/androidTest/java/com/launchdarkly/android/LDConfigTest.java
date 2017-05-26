@@ -93,14 +93,14 @@ public class LDConfigTest {
     public void TestBuilderStreamDisabledBackgroundPollingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
                 .setStream(false)
-                .setBackgroundPollingIntervalMillis(LDConfig.MIN_POLLING_INTERVAL_MILLIS - 1)
+                .setBackgroundPollingIntervalMillis(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS - 1)
                 .build();
 
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
         assertFalse(config.isDisableBackgroundPolling());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, PollingUpdater.backgroundPollingIntervalMillis);
+        assertEquals(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS, PollingUpdater.backgroundPollingIntervalMillis);
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 }
