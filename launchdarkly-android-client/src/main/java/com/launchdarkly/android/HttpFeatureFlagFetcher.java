@@ -31,6 +31,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     private final LDConfig config;
     private final Context context;
     private final Cache cache;
+    private final OkHttpClient client;
 
     private volatile boolean isOffline = false;
 
@@ -53,6 +54,11 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         Log.d(TAG, "Using cache at: " + cacheDir.getAbsolutePath());
 
         cache = new Cache(cacheDir, MAX_CACHE_SIZE_BYTES);
+        client = new OkHttpClient.Builder()
+                .cache(cache)
+                .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
+                .retryOnConnectionFailure(true)
+                .build();
     }
 
     @Override
@@ -60,12 +66,6 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         final SettableFuture<JsonObject> doneFuture = SettableFuture.create();
 
         if (!isOffline && isInternetConnected(context)) {
-            final OkHttpClient client = new OkHttpClient.Builder()
-                    .cache(cache)
-                    .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis(), TimeUnit.MILLISECONDS))
-                    .retryOnConnectionFailure(true)
-                    .build();
-
             String uri = config.getBaseUri() + "/msdk/eval/users/" + user.getAsUrlSafeBase64();
             Log.d(TAG, "Attempting to fetch Feature flags using uri: " + uri);
             final Request request = config.getRequestBuilder()
