@@ -4,6 +4,7 @@ apply plugin: 'signing'
 apply plugin: 'org.ajoberstar.github-pages'
 // make sure this line comes *after* you apply the Android plugin
 apply plugin: 'com.getkeepsafe.dexcount'
+apply plugin: 'io.codearte.nexus-staging'
 
 allprojects {
     group = 'com.launchdarkly'
@@ -77,6 +78,7 @@ buildscript {
         classpath 'org.ajoberstar:gradle-git:1.5.0-rc.1'
         classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.3'
         classpath 'com.getkeepsafe.dexcount:dexcount-gradle-plugin:0.6.3'
+        classpath "io.codearte.gradle.nexus:gradle-nexus-staging-plugin:0.8.0"
     }
 }
 
@@ -115,6 +117,10 @@ githubPages {
 
 signing {
     sign configurations.archives
+}
+
+nexusStaging {
+    packageGroup = "com.launchdarkly"
 }
 
 uploadArchives {
