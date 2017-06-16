@@ -10,7 +10,7 @@ import android.util.Log;
 import android.util.Pair;
 
 import com.google.common.base.Function;
-import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -19,10 +19,13 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.io.File;
+
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +52,7 @@ class UserManager {
 
     private final Application application;
     // Maintains references enabling (de)registration of listeners for realtime updates
-    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners = ArrayListMultimap.create();
+    private final Multimap<String, Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> listeners = HashMultimap.create();
 
     // The current user- we'll always fetch this user from the response we get from the api
     private SharedPreferences currentUserSharedPrefs;
@@ -153,6 +156,10 @@ class UserManager {
         });
     }
 
+    Collection<Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> getListenersByKey(String key) {
+        return listeners.get(key);
+    }
+
     void registerListener(final String key, final FeatureFlagChangeListener listener) {
         OnSharedPreferenceChangeListener sharedPrefsListener = new OnSharedPreferenceChangeListener() {
             @Override
@@ -172,11 +179,13 @@ class UserManager {
 
     void unregisterListener(String key, FeatureFlagChangeListener listener) {
         synchronized (listeners) {
-            for (Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener> pair : listeners.get(key)) {
+            Iterator<Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> it = listeners.get(key).iterator();
+            while (it.hasNext()) {
+                Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener> pair = it.next();
                 if (pair.first.equals(listener)) {
                     Log.d(TAG, "Removing listener for key: [" + key + "]");
                     activeUserSharedPrefs.unregisterOnSharedPreferenceChangeListener(pair.second);
-                    listeners.remove(key, pair);
+                    it.remove();
                 }
             }
         }

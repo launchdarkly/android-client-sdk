@@ -3,6 +3,7 @@ package com.launchdarkly.android;
 import android.content.SharedPreferences;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
+import android.util.Pair;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -18,12 +19,16 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
 import static junit.framework.Assert.assertEquals;
+import static junit.framework.Assert.assertNotNull;
+import static junit.framework.Assert.assertFalse;
+import static junit.framework.Assert.assertTrue;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.reset;
 
@@ -108,6 +113,42 @@ public class UserManagerTest extends EasyMockSupport {
         // user5 should still be saved:
         setUserAndFailToFetchFlags(user5);
         assertFlagValue(flagKey, user5);
+    }
+
+    @Test
+    public void TestRegisterUnregisterListener() {
+        FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
+            @Override
+            public void onFeatureFlagChange(String flagKey) {
+            }
+        };
+
+        userManager.registerListener("key", listener);
+        Collection<Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> listeners = userManager.getListenersByKey("key");
+        assertNotNull(listeners);
+        assertFalse(listeners.isEmpty());
+
+        userManager.unregisterListener("key", listener);
+        listeners = userManager.getListenersByKey("key");
+        assertNotNull(listeners);
+        assertTrue(listeners.isEmpty());
+    }
+
+    @Test
+    public void TestUnregisterListenerWithDuplicates() {
+        FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
+            @Override
+            public void onFeatureFlagChange(String flagKey) {
+            }
+        };
+
+        userManager.registerListener("key", listener);
+        userManager.registerListener("key", listener);
+        userManager.unregisterListener("key", listener);
+
+        Collection<Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> listeners = userManager.getListenersByKey("key");
+        assertNotNull(listeners);
+        assertTrue(listeners.isEmpty());
     }
 
     private Future<Void> setUser(String userKey, JsonObject flags) {
