@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.0.5] - 2017-06-18
+### Fixed
+- Potential `ConcurrentModificationException` with `LDClient#unregisterFeatureFlagListener`
+
 ## [2.0.4] - 2017-05-26
 ### Changed
 - Modified default and minimum background polling intervals.
