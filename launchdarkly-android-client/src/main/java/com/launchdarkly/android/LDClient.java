@@ -3,6 +3,7 @@ package com.launchdarkly.android;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.support.annotation.NonNull;
 import android.util.Log;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -129,7 +130,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    protected LDClient(final Application application, final LDConfig config) {
+    protected LDClient(final Application application, @NonNull final LDConfig config) {
         Log.i(TAG, "Creating LaunchDarkly client. Version: " + BuildConfig.VERSION_NAME);
         this.config = config;
         this.isOffline = config.isOffline();
@@ -244,8 +245,8 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public Boolean boolVariation(String flagKey, Boolean fallback) {
-        boolean result = fallback;
+    public Boolean boolVariation(String flagKey, @NonNull Boolean fallback) {
+        Boolean result = fallback;
         try {
             result = userManager.getCurrentUserSharedPrefs().getBoolean(flagKey, fallback);
         } catch (ClassCastException cce) {
@@ -270,7 +271,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public Integer intVariation(String flagKey, Integer fallback) {
+    public Integer intVariation(String flagKey, @NonNull Integer fallback) {
         Integer result = fallback;
         try {
             result = (int) userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
@@ -296,7 +297,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public Float floatVariation(String flagKey, Float fallback) {
+    public Float floatVariation(String flagKey, @NonNull Float fallback) {
         float result = fallback;
         try {
             result = userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
@@ -322,7 +323,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public String stringVariation(String flagKey, String fallback) {
+    public String stringVariation(String flagKey, @NonNull String fallback) {
         String result = fallback;
         try {
             result = userManager.getCurrentUserSharedPrefs().getString(flagKey, fallback);
@@ -348,7 +349,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public JsonElement jsonVariation(String flagKey, JsonElement fallback) {
+    public JsonElement jsonVariation(String flagKey, @NonNull JsonElement fallback) {
         JsonElement result = fallback;
         try {
             String stringResult = userManager.getCurrentUserSharedPrefs().getString(flagKey, null);
