@@ -9,13 +9,13 @@ apply plugin: 'io.codearte.nexus-staging'
 allprojects {
     group = 'com.launchdarkly'
     version = '2.0.5'
-    sourceCompatibility = 1.7
-    targetCompatibility = 1.7
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
 }
 
 android {
     compileSdkVersion 26
-    buildToolsVersion '26.0.0'
+    buildToolsVersion '26.0.1'
 
     defaultConfig {
         minSdkVersion 15
