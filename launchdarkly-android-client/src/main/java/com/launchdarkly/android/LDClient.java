@@ -245,6 +245,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param fallback
      * @return
      */
+    @SuppressWarnings("ConstantConditions")
     @Override
     public Boolean boolVariation(String flagKey, Boolean fallback) {
         Boolean result = fallback;
