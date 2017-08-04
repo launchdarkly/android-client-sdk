@@ -12,6 +12,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
@@ -245,15 +246,26 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public Boolean boolVariation(String flagKey, @NonNull Boolean fallback) {
+    public Boolean boolVariation(String flagKey, Boolean fallback) {
         Boolean result = fallback;
         try {
             result = userManager.getCurrentUserSharedPrefs().getBoolean(flagKey, fallback);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get boolean flag that exists as another type for key: "
                     + flagKey + " Returning fallback: " + fallback, cce);
+        } catch (NullPointerException npe) {
+            Log.e(TAG, "Attempted to get boolean flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback, npe);
         }
-        sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        if (result == null && fallback == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+        } else if (result == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+        } else if (fallback == null) {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+        } else {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        }
         Log.d(TAG, "boolVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
@@ -271,15 +283,26 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public Integer intVariation(String flagKey, @NonNull Integer fallback) {
+    public Integer intVariation(String flagKey, Integer fallback) {
         Integer result = fallback;
         try {
             result = (int) userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get integer flag that exists as another type for key: "
                     + flagKey + " Returning fallback: " + fallback, cce);
+        } catch (NullPointerException npe) {
+            Log.e(TAG, "Attempted to get integer flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback, npe);
         }
-        sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        if (result == null && fallback == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+        } else if (result == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+        } else if (fallback == null) {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+        } else {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        }
         Log.d(TAG, "intVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
@@ -297,15 +320,26 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public Float floatVariation(String flagKey, @NonNull Float fallback) {
-        float result = fallback;
+    public Float floatVariation(String flagKey, Float fallback) {
+        Float result = fallback;
         try {
             result = userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get float flag that exists as another type for key: "
                     + flagKey + " Returning fallback: " + fallback, cce);
+        } catch (NullPointerException npe) {
+            Log.e(TAG, "Attempted to get float flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback, npe);
         }
-        sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        if (result == null && fallback == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+        } else if (result == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+        } else if (fallback == null) {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+        } else {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        }
         Log.d(TAG, "floatVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
@@ -323,15 +357,26 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public String stringVariation(String flagKey, @NonNull String fallback) {
+    public String stringVariation(String flagKey, String fallback) {
         String result = fallback;
         try {
             result = userManager.getCurrentUserSharedPrefs().getString(flagKey, fallback);
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get string flag that exists as another type for key: "
                     + flagKey + " Returning fallback: " + fallback, cce);
+        } catch (NullPointerException npe) {
+            Log.e(TAG, "Attempted to get string flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback, npe);
         }
-        sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        if (result == null && fallback == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+        } else if (result == null) {
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+        } else if (fallback == null) {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+        } else {
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+        }
         Log.d(TAG, "stringVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
@@ -349,7 +394,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     @Override
-    public JsonElement jsonVariation(String flagKey, @NonNull JsonElement fallback) {
+    public JsonElement jsonVariation(String flagKey, JsonElement fallback) {
         JsonElement result = fallback;
         try {
             String stringResult = userManager.getCurrentUserSharedPrefs().getString(flagKey, null);
@@ -359,6 +404,9 @@ public class LDClient implements LDClientInterface, Closeable {
         } catch (ClassCastException cce) {
             Log.e(TAG, "Attempted to get json (string) flag that exists as another type for key: "
                     + flagKey + " Returning fallback: " + fallback, cce);
+        } catch (NullPointerException npe) {
+            Log.e(TAG, "Attempted to get json (string flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback, npe);
         }
         sendFlagRequestEvent(flagKey, result, fallback);
         Log.d(TAG, "jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
