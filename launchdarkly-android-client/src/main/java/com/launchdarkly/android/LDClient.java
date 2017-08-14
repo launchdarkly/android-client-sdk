@@ -15,6 +15,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSyntaxException;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -408,6 +409,9 @@ public class LDClient implements LDClientInterface, Closeable {
         } catch (NullPointerException npe) {
             Log.e(TAG, "Attempted to get json (string flag with a default null value for key: "
                     + flagKey + " Returning fallback: " + fallback, npe);
+        } catch (JsonSyntaxException jse) {
+            Log.e(TAG, "Attempted to get json (string flag that exists as another type for key: " +
+            flagKey + " Returning fallback: " + fallback, jse);
         }
         sendFlagRequestEvent(flagKey, result, fallback);
         Log.d(TAG, "jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
