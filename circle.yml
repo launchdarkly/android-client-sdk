@@ -24,7 +24,7 @@ dependencies:
 test:
   override:
     - unset ANDROID_NDK_HOME
-    - emulator -avd circleci-android25 -no-audio -no-window:
+    - emulator -avd circleci-android24 -no-audio -no-window:
         background: true
         parallel: true
     - circle-android wait-for-boot
