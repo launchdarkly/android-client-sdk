@@ -3,17 +3,14 @@ package com.launchdarkly.example;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
-import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 
 import com.google.gson.JsonNull;
-import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
@@ -56,35 +53,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupFlushButton() {
-        Button flushButton = (Button) findViewById(R.id.flush_button);
-        flushButton.setOnClickListener(new View.OnClickListener() {
-
-            @Override
-            public void onClick(View v) {
-                Log.i(TAG, "flush onClick");
-                ldClient.flush();
-            }
+        Button flushButton = findViewById(R.id.flush_button);
+        flushButton.setOnClickListener(v -> {
+            Log.i(TAG, "flush onClick");
+            ldClient.flush();
         });
     }
 
     private void setupTrackButton() {
-        Button trackButton = (Button) findViewById(R.id.track_button);
-        trackButton.setOnClickListener(new View.OnClickListener() {
-
-            @Override
-            public void onClick(View v) {
-                Log.i(TAG, "track onClick");
-                ldClient.track("Android event name");
-            }
+        Button trackButton = findViewById(R.id.track_button);
+        trackButton.setOnClickListener(v -> {
+            Log.i(TAG, "track onClick");
+            ldClient.track("Android event name");
         });
     }
 
     private void setupIdentifyButton() {
-        Button identify = (Button) findViewById(R.id.identify_button);
-        identify.setOnClickListener(new View.OnClickListener() {
-
-            @Override
-            public void onClick(View v) {
+        Button identify = findViewById(R.id.identify_button);
+        identify.setOnClickListener(v -> {
                 Log.i(TAG, "identify onClick");
                 String userKey = ((EditText) findViewById(R.id.userKey_editText)).getText().toString();
 
@@ -92,75 +78,62 @@ public class MainActivity extends AppCompatActivity {
                         .build();
 
                 ldClient.identify(updatedUser);
-            }
-        });
+            });
     }
 
     private void setupOfflineSwitch() {
-        Switch offlineSwitch = (Switch) findViewById(R.id.offlineSwitch);
-        offlineSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
-                if (isChecked) {
-                    ldClient.setOffline();
-                } else {
-                    ldClient.setOnline();
-                }
+        Switch offlineSwitch = findViewById(R.id.offlineSwitch);
+        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) -> {
+            if (isChecked) {
+                ldClient.setOffline();
+            } else {
+                ldClient.setOnline();
             }
         });
     }
 
     private void setupEval() {
-        final Spinner spinner = (Spinner) findViewById(R.id.type_spinner);
+        final Spinner spinner = findViewById(R.id.type_spinner);
         ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this,
                 R.array.types_array, android.R.layout.simple_spinner_item);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
 
-        Button evalButton = (Button) findViewById(R.id.eval_button);
-        evalButton.setOnClickListener(new View.OnClickListener() {
+        Button evalButton = findViewById(R.id.eval_button);
+        evalButton.setOnClickListener(v -> {
+            Log.i(TAG, "eval onClick");
+            final String flagKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString();
 
-            @Override
-            public void onClick(View v) {
-                Log.i(TAG, "eval onClick");
-                final String flagKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString();
-
-                String type = spinner.getSelectedItem().toString();
-                final String result;
-                switch (type) {
-                    case "String":
-                        result = ldClient.stringVariation(flagKey, "default");
-                        Log.i(TAG, result);
-                        ((TextView) findViewById(R.id.result_textView)).setText(result);
-                        ldClient.registerFeatureFlagListener(flagKey, new FeatureFlagChangeListener() {
-                            @Override
-                            public void onFeatureFlagChange(String flagKey) {
-                                ((TextView) findViewById(R.id.result_textView))
-                                        .setText(ldClient.stringVariation(flagKey, "default"));
-                            }
-                        });
-                        break;
-                    case "Boolean":
-                        result = ldClient.boolVariation(flagKey, false).toString();
-                        Log.i(TAG, result);
-                        ((TextView) findViewById(R.id.result_textView)).setText(result);
-                        break;
-                    case "Integer":
-                        result = ldClient.intVariation(flagKey, 0).toString();
-                        Log.i(TAG, result);
-                        ((TextView) findViewById(R.id.result_textView)).setText(result);
-                        break;
-                    case "Float":
-                        result = ldClient.floatVariation(flagKey, 0F).toString();
-                        Log.i(TAG, result);
-                        ((TextView) findViewById(R.id.result_textView)).setText(result);
-                        break;
-                    case "Json":
-                        result = ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString();
-                        Log.i(TAG, result);
-                        ((TextView) findViewById(R.id.result_textView)).setText(result);
-                        break;
-                }
+            String type = spinner.getSelectedItem().toString();
+            final String result;
+            switch (type) {
+                case "String":
+                    result = ldClient.stringVariation(flagKey, "default");
+                    Log.i(TAG, result);
+                    ((TextView) findViewById(R.id.result_textView)).setText(result);
+                    ldClient.registerFeatureFlagListener(flagKey, flagKey1 -> ((TextView) findViewById(R.id.result_textView))
+                            .setText(ldClient.stringVariation(flagKey1, "default")));
+                    break;
+                case "Boolean":
+                    result = ldClient.boolVariation(flagKey, false).toString();
+                    Log.i(TAG, result);
+                    ((TextView) findViewById(R.id.result_textView)).setText(result);
+                    break;
+                case "Integer":
+                    result = ldClient.intVariation(flagKey, 0).toString();
+                    Log.i(TAG, result);
+                    ((TextView) findViewById(R.id.result_textView)).setText(result);
+                    break;
+                case "Float":
+                    result = ldClient.floatVariation(flagKey, 0F).toString();
+                    Log.i(TAG, result);
+                    ((TextView) findViewById(R.id.result_textView)).setText(result);
+                    break;
+                case "Json":
+                    result = ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString();
+                    Log.i(TAG, result);
+                    ((TextView) findViewById(R.id.result_textView)).setText(result);
+                    break;
             }
         });
     }
