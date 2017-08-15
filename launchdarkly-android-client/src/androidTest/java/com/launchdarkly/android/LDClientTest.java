@@ -53,4 +53,24 @@ public class LDClientTest {
         expectedJson.addProperty("field", "value");
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
     }
+
+    @UiThreadTest // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
+    @Test
+    public void GivenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() throws ExecutionException, InterruptedException {
+        LDConfig config = new LDConfig.Builder()
+                .setOffline(true)
+                .build();
+
+        LDUser user = new LDUser.Builder("userKey").build();
+        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), config, user, 1);
+
+        assertTrue(ldClient.isInitialized());
+        assertTrue(ldClient.isOffline());
+        assertEquals(null, ldClient.jsonVariation("jsonFlag", null));
+
+        assertEquals(null, ldClient.boolVariation("boolFlag", null));
+        assertEquals(null, ldClient.floatVariation("floatFlag", null));
+        assertEquals(null, ldClient.intVariation("intFlag", null));
+        assertEquals(null, ldClient.stringVariation("stringFlag", null));
+    }
 }
