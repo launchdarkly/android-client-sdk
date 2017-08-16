@@ -13,6 +13,12 @@ allprojects {
     targetCompatibility = 1.8
 }
 
+gradle.projectsEvaluated {
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xbootclasspath/a:" + System.properties.get("java.home") + "/lib/rt.jar"
+    }
+}
+
 android {
     compileSdkVersion 26
     buildToolsVersion '26.0.1'
