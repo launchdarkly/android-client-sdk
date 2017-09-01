@@ -141,6 +141,10 @@ class UserManager {
 
             @Override
             public void onFailure(Throwable t) {
+                if (Util.isInternetConnected(application)) {
+                    Log.e(TAG, "Error when attempting to set user: [" + currentUser.getAsUrlSafeBase64()
+                            + "] [" + userBase64ToJson(currentUser.getAsUrlSafeBase64()) + "]", t);
+                }
                 syncCurrentUserToActiveUser();
             }
         });
