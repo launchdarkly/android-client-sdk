@@ -2,23 +2,25 @@
 machine:
   environment:
     QEMU_AUDIO_DRV: none
+    version: oraclejdk8
 
 dependencies:
   pre:
     - unset ANDROID_NDK_HOME
-    # Android SDK Platform 24
-    - if [ ! -d "/usr/local/android-sdk-linux/platforms/android-24" ]; then echo y | android update sdk --no-ui --all --filter "android-24"; fi
     # Android SDK Build-tools
-    - if [ ! -d "/usr/local/android-sdk-linux/build-tools/25.0.2" ]; then echo y | android update sdk --no-ui --all --filter "build-tools-25.0.3"; fi
+    - if [ ! -d "/usr/local/android-sdk-linux/build-tools/26.0.1" ]; then echo y | android update sdk --no-ui --all --filter "build-tools-26.0.1"; fi
+    # Android SDK Platform 26
+    - if [ ! -d "/usr/local/android-sdk-linux/platforms/android-26" ]; then echo y | android update sdk --no-ui --all --filter "android-26"; fi
     # brings in appcompat
     - if [ ! -d "/usr/local/android-sdk-linux/extras/android/m2repository" ]; then echo y | android update sdk --no-ui --all --filter "extra-android-m2repository"; fi
     - mkdir -p /usr/local/android-sdk-linux/licenses
     - aws s3 cp s3://launchdarkly-pastebin/ci/android/licenses/android-sdk-license /usr/local/android-sdk-linux/licenses/android-sdk-license
     - aws s3 cp s3://launchdarkly-pastebin/ci/android/licenses/intel-android-extra-license /usr/local/android-sdk-linux/licenses/intel-android-extra-license
   cache_directories:
-    - /usr/local/android-sdk-linux/platforms/android-24
-    - /usr/local/android-sdk-linux/build-tools/25.0.3
+    - /usr/local/android-sdk-linux/platforms/android-26
+    - /usr/local/android-sdk-linux/build-tools/26.0.1
     - /usr/local/android-sdk-linux/extras/android/m2repository
+
 test:
   override:
     - unset ANDROID_NDK_HOME
