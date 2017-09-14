@@ -103,4 +103,22 @@ public class LDConfigTest {
         assertEquals(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS, PollingUpdater.backgroundPollingIntervalMillis);
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
+
+    @Test
+    public void TestBuilderUseReportSetToDefaultGet() {
+        LDConfig config = new LDConfig.Builder()
+                .setUseReport(false)
+                .build();
+
+        assertFalse(config.isUseReport());
+    }
+
+    @Test
+    public void TestBuilderUseReportSetToReport() {
+        LDConfig config = new LDConfig.Builder()
+                .setUseReport(true)
+                .build();
+
+        assertTrue(config.isUseReport());
+    }
 }

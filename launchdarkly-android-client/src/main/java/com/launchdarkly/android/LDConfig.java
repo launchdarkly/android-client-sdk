@@ -43,7 +43,7 @@ public class LDConfig {
     private final boolean stream;
     private final boolean offline;
     private final boolean disableBackgroundUpdating;
-
+    private final boolean useReport;
 
     public LDConfig(String mobileKey,
                     Uri baseUri,
@@ -56,7 +56,8 @@ public class LDConfig {
                     boolean stream,
                     int pollingIntervalMillis,
                     int backgroundPollingIntervalMillis,
-                    boolean disableBackgroundUpdating) {
+                    boolean disableBackgroundUpdating,
+                    boolean useReport) {
         this.mobileKey = mobileKey;
         this.baseUri = baseUri;
         this.eventsUri = eventsUri;
@@ -69,6 +70,7 @@ public class LDConfig {
         this.pollingIntervalMillis = pollingIntervalMillis;
         this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
+        this.useReport = useReport;
     }
 
     public Request.Builder getRequestBuilder() {
@@ -113,6 +115,10 @@ public class LDConfig {
         return stream;
     }
 
+    public boolean isUseReport() {
+        return useReport;
+    }
+
     public int getPollingIntervalMillis() {
         return pollingIntervalMillis;
     }
@@ -141,7 +147,7 @@ public class LDConfig {
         private boolean offline = false;
         private boolean stream = true;
         private boolean disableBackgroundUpdating = false;
-
+        private boolean useReport = false;
 
         /**
          * Sets the key for authenticating with LaunchDarkly. This is required unless you're using the client in offline mode.
@@ -151,6 +157,14 @@ public class LDConfig {
          */
         public LDConfig.Builder setMobileKey(String mobileKey) {
             this.mobileKey = mobileKey;
+            return this;
+        }
+
+        /**
+         * Sets the flag for choosing the REPORT api call.  The default is GET.
+         */
+        public LDConfig.Builder setUseReport(boolean useReport) {
+            this.useReport = useReport;
             return this;
         }
 
@@ -326,7 +340,8 @@ public class LDConfig {
                     stream,
                     pollingIntervalMillis,
                     backgroundPollingIntervalMillis,
-                    disableBackgroundUpdating);
+                    disableBackgroundUpdating,
+                    useReport);
         }
     }
 }

@@ -38,6 +38,7 @@ public class MainActivity extends AppCompatActivity {
 
         LDConfig ldConfig = new LDConfig.Builder()
                 .setMobileKey("MOBILE_KEY")
+                .setUseReport(false)
                 .build();
 
         LDUser user = new LDUser.Builder("user key")
