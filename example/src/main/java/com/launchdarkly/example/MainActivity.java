@@ -1,8 +1,10 @@
 package com.launchdarkly.example;
 
 import android.os.Bundle;
+import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -48,46 +50,65 @@ public class MainActivity extends AppCompatActivity {
         try {
             ldClient = initFuture.get(10, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
-           Log.e(TAG, "Exception when awaiting LaunchDarkly Client initialization", e);
+            Log.e(TAG, "Exception when awaiting LaunchDarkly Client initialization", e);
         }
     }
 
     private void setupFlushButton() {
         Button flushButton = findViewById(R.id.flush_button);
-        flushButton.setOnClickListener(v -> {
+        flushButton.setOnClickListener((View v) -> {
             Log.i(TAG, "flush onClick");
-            ldClient.flush();
+            doSafeClientAction(() -> ldClient.flush());
         });
+    }
+
+    private interface LDClientFunction {
+        void call();
+    }
+
+    private interface LDClientGetFunction<V> {
+        V get();
+    }
+
+    private void doSafeClientAction(LDClientFunction function) {
+        if (ldClient != null) {
+            function.call();
+        }
+    }
+
+    @Nullable
+    private <V> V doSafeClientGet(LDClientGetFunction<V> function) {
+        if (ldClient != null) {
+            return function.get();
+        }
+        return null;
     }
 
     private void setupTrackButton() {
         Button trackButton = findViewById(R.id.track_button);
         trackButton.setOnClickListener(v -> {
             Log.i(TAG, "track onClick");
-            ldClient.track("Android event name");
+            doSafeClientAction(() -> ldClient.track("Android event name"));
         });
     }
 
     private void setupIdentifyButton() {
         Button identify = findViewById(R.id.identify_button);
         identify.setOnClickListener(v -> {
-                Log.i(TAG, "identify onClick");
-                String userKey = ((EditText) findViewById(R.id.userKey_editText)).getText().toString();
-
-                LDUser updatedUser = new LDUser.Builder(userKey)
-                        .build();
-
-                ldClient.identify(updatedUser);
-            });
+            Log.i(TAG, "identify onClick");
+            String userKey = ((EditText) findViewById(R.id.userKey_editText)).getText().toString();
+            LDUser updatedUser = new LDUser.Builder(userKey).build();
+            doSafeClientAction(() -> ldClient.identify(updatedUser));
+        });
     }
 
     private void setupOfflineSwitch() {
         Switch offlineSwitch = findViewById(R.id.offlineSwitch);
         offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             if (isChecked) {
-                ldClient.setOffline();
+                doSafeClientAction(() -> ldClient.setOffline());
             } else {
-                ldClient.setOnline();
+                doSafeClientAction(() -> ldClient.setOnline());
             }
         });
     }
@@ -100,38 +121,44 @@ public class MainActivity extends AppCompatActivity {
         spinner.setAdapter(adapter);
 
         Button evalButton = findViewById(R.id.eval_button);
-        evalButton.setOnClickListener(v -> {
+        evalButton.setOnClickListener((View v) -> {
             Log.i(TAG, "eval onClick");
             final String flagKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString();
 
             String type = spinner.getSelectedItem().toString();
             final String result;
+            String logResult = "no result";
             switch (type) {
                 case "String":
-                    result = ldClient.stringVariation(flagKey, "default");
-                    Log.i(TAG, result);
+                    result = doSafeClientGet(() -> ldClient.stringVariation(flagKey, "default"));
+                    logResult = result == null ? "no result" : result;
+                    Log.i(TAG, logResult);
                     ((TextView) findViewById(R.id.result_textView)).setText(result);
-                    ldClient.registerFeatureFlagListener(flagKey, flagKey1 -> ((TextView) findViewById(R.id.result_textView))
-                            .setText(ldClient.stringVariation(flagKey1, "default")));
+                    doSafeClientAction(() -> ldClient.registerFeatureFlagListener(flagKey, flagKey1 -> ((TextView) findViewById(R.id.result_textView))
+                            .setText(ldClient.stringVariation(flagKey1, "default"))));
                     break;
                 case "Boolean":
-                    result = ldClient.boolVariation(flagKey, false).toString();
-                    Log.i(TAG, result);
+                    result = doSafeClientGet(() -> ldClient.boolVariation(flagKey, false).toString());
+                    logResult = result == null ? "no result" : result;
+                    Log.i(TAG, logResult);
                     ((TextView) findViewById(R.id.result_textView)).setText(result);
                     break;
                 case "Integer":
-                    result = ldClient.intVariation(flagKey, 0).toString();
-                    Log.i(TAG, result);
+                    result = doSafeClientGet(() -> ldClient.intVariation(flagKey, 0).toString());
+                    logResult = result == null ? "no result" : result;
+                    Log.i(TAG, logResult);
                     ((TextView) findViewById(R.id.result_textView)).setText(result);
                     break;
                 case "Float":
-                    result = ldClient.floatVariation(flagKey, 0F).toString();
-                    Log.i(TAG, result);
+                    result = doSafeClientGet(() -> ldClient.floatVariation(flagKey, 0F).toString());
+                    logResult = result == null ? "no result" : result;
+                    Log.i(TAG, logResult);
                     ((TextView) findViewById(R.id.result_textView)).setText(result);
                     break;
                 case "Json":
-                    result = ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString();
-                    Log.i(TAG, result);
+                    result = doSafeClientGet(() -> ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString());
+                    logResult = result == null ? "no result" : result;
+                    Log.i(TAG, logResult);
                     ((TextView) findViewById(R.id.result_textView)).setText(result);
                     break;
             }
