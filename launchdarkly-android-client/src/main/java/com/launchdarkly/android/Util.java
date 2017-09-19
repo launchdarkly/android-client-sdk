@@ -48,7 +48,7 @@ public class Util {
         }
     }
 
-    static boolean queue(Runnable consumeFunction) {
+    static synchronized boolean queue(Runnable consumeFunction) {
         boolean scheduled = false;
         boolean cancelledPreviousHandler = functionHandler.cancel(true);
         if (cancelledPreviousHandler || functionHandler.isDone()) {
