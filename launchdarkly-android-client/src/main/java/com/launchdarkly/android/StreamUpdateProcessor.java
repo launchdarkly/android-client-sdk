@@ -12,11 +12,8 @@ import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import io.reactivex.functions.Consumer;
-import io.reactivex.subjects.PublishSubject;
 import okhttp3.Headers;
 
 class StreamUpdateProcessor implements UpdateProcessor {
@@ -28,24 +25,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private final AtomicBoolean initialized = new AtomicBoolean(false);
     private volatile boolean running = false;
     private final URI uri;
-    private PublishSubject<MessageEvent> eventPublishSubject;
     private SettableFuture<Void> initFuture;
 
     StreamUpdateProcessor(LDConfig config, UserManager userManager) {
         this.config = config;
         this.userManager = userManager;
         uri = URI.create(config.getStreamUri().toString() + "/mping");
-        eventPublishSubject = PublishSubject.create();
-    }
-
-    private void consumeThis(MessageEvent lastEvent) {
-        Log.d(TAG, "consumeThis: event: " + lastEvent.getData());
-        if (!initialized.getAndSet(true)) {
-            initFuture.setFuture(userManager.updateCurrentUser());
-            Log.i(TAG, "Initialized LaunchDarkly streaming connection");
-        } else {
-            userManager.updateCurrentUser();
-        }
     }
 
     public synchronized ListenableFuture<Void> start() {
@@ -61,15 +46,6 @@ class StreamUpdateProcessor implements UpdateProcessor {
                     .add("Accept", "text/event-stream")
                     .build();
 
-            eventPublishSubject
-                    .debounce(config.DEFAULT_CONNECTION_TIMEOUT_MILLIS , TimeUnit.MILLISECONDS)
-                    .subscribe(new Consumer<MessageEvent>() {
-                        @Override
-                        public void accept(MessageEvent lastEvent) throws Exception {
-                            StreamUpdateProcessor.this.consumeThis(lastEvent);
-                        }
-                    });
-
             EventHandler handler = new EventHandler() {
                 @Override
                 public void onOpen() throws Exception {
@@ -84,7 +60,23 @@ class StreamUpdateProcessor implements UpdateProcessor {
                 @Override
                 public void onMessage(String name, MessageEvent event) throws Exception {
                     Log.d(TAG, "onMessage: name: " + name);
-                    eventPublishSubject.onNext(event);
+                    final String eventData = event.getData();
+                    Runnable updateCurrentUserFunction = new Runnable() {
+                        @Override
+                        public void run() {
+                            Log.d(TAG, "consumeThis: event: " + eventData);
+                            if (!initialized.getAndSet(true)) {
+                                initFuture.setFuture(userManager.updateCurrentUser());
+                                Log.i(TAG, "Initialized LaunchDarkly streaming connection");
+                            } else {
+                                userManager.updateCurrentUser();
+                            }
+                        }
+                    };
+
+                    boolean scheduled = Util.queue(updateCurrentUserFunction);
+                    String result = scheduled ? "scheduled" : "not scheduled";
+                    Log.i(TAG, "Updating the current user was " + result);
                 }
 
                 @Override
@@ -138,9 +130,6 @@ class StreamUpdateProcessor implements UpdateProcessor {
         try {
             if (es != null) {
                 es.close();
-            }
-            if (eventPublishSubject != null) {
-                eventPublishSubject = null;
             }
             running = false;
             es = null;
