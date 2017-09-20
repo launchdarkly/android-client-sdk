@@ -17,10 +17,13 @@ import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.ConnectionPool;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 
+import static com.launchdarkly.android.LDConfig.GSON;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
@@ -61,16 +64,14 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                 .build();
     }
 
+
     @Override
     public synchronized ListenableFuture<JsonObject> fetch(LDUser user) {
         final SettableFuture<JsonObject> doneFuture = SettableFuture.create();
 
         if (!isOffline && isInternetConnected(context)) {
-            String uri = config.getBaseUri() + "/msdk/eval/users/" + user.getAsUrlSafeBase64();
-            Log.d(TAG, "Attempting to fetch Feature flags using uri: " + uri);
-            final Request request = config.getRequestBuilder()
-                    .url(uri)
-                    .build();
+
+            final Request request = config.isUseReport() ? getReportRequest(user) : getDefaultRequest(user);
 
             Log.d(TAG, request.toString());
             Call call = client.newCall(request);
@@ -115,6 +116,27 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
             doneFuture.setException(new LaunchDarklyException("Update was attempted without an internet connection"));
         }
         return doneFuture;
+    }
+
+    private Request getDefaultRequest(LDUser user) {
+        String uri = config.getBaseUri() + "/msdk/eval/users/" + user.getAsUrlSafeBase64();
+        Log.d(TAG, "Attempting to fetch Feature flags using uri: " + uri);
+        final Request request = config.getRequestBuilder() // default GET verb
+                .url(uri)
+                .build();
+        return request;
+    }
+
+    private Request getReportRequest(LDUser user) {
+        String reportUri = config.getBaseUri() + "/msdk/eval/user";
+        Log.d(TAG, "Attempting to report user using uri: " + reportUri);
+        String userJson = GSON.toJson(user);
+        RequestBody reportBody = RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), userJson);
+        final Request report = config.getRequestBuilder()
+                .method("REPORT", reportBody) // custom REPORT verb
+                .url(reportUri)
+                .build();
+        return report;
     }
 
     @Override
