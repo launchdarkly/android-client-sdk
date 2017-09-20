@@ -48,16 +48,4 @@ public class Util {
         }
     }
 
-    static synchronized boolean queue(Runnable consumeFunction) {
-        boolean scheduled = false;
-        boolean interruptRunningTask = false;
-        boolean cancelledPreviousHandler = functionHandler.cancel(interruptRunningTask);
-        if (cancelledPreviousHandler || functionHandler.isDone()) {
-            Log.i(TAG, "Put function in queue");
-            functionHandler = functionScheduler.schedule(consumeFunction, LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
-            scheduled = true;
-        }
-        return scheduled;
-    }
-
 }
