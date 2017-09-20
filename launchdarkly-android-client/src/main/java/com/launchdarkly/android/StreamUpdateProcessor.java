@@ -12,6 +12,7 @@ import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Headers;
@@ -26,11 +27,13 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private volatile boolean running = false;
     private final URI uri;
     private SettableFuture<Void> initFuture;
+    private Debounce queue;
 
     StreamUpdateProcessor(LDConfig config, UserManager userManager) {
         this.config = config;
         this.userManager = userManager;
         uri = URI.create(config.getStreamUri().toString() + "/mping");
+        queue = new Debounce();
     }
 
     public synchronized ListenableFuture<Void> start() {
@@ -61,9 +64,9 @@ class StreamUpdateProcessor implements UpdateProcessor {
                 public void onMessage(String name, MessageEvent event) throws Exception {
                     Log.d(TAG, "onMessage: name: " + name);
                     final String eventData = event.getData();
-                    Runnable updateCurrentUserFunction = new Runnable() {
+                    Callable<Void> updateCurrentUserFunction = new Callable<Void>() {
                         @Override
-                        public void run() {
+                        public Void call() throws Exception {
                             Log.d(TAG, "consumeThis: event: " + eventData);
                             if (!initialized.getAndSet(true)) {
                                 initFuture.setFuture(userManager.updateCurrentUser());
@@ -71,12 +74,11 @@ class StreamUpdateProcessor implements UpdateProcessor {
                             } else {
                                 userManager.updateCurrentUser();
                             }
+                            return null;
                         }
                     };
 
-                    boolean scheduled = Util.queue(updateCurrentUserFunction);
-                    String result = scheduled ? "scheduled" : "not scheduled";
-                    Log.i(TAG, "Updating the current user was " + result);
+                    queue.call(updateCurrentUserFunction);
                 }
 
                 @Override

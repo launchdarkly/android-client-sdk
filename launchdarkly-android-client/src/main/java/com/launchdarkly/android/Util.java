@@ -26,7 +26,7 @@ public class Util {
                 Log.i(TAG, "Started function queue");
             }
         };
-        functionScheduler = Executors.newScheduledThreadPool(1);
+        functionScheduler = Executors.newSingleThreadScheduledExecutor();
         functionHandler = functionScheduler.schedule(initialEvent, 1, TimeUnit.MILLISECONDS);
     }
 
