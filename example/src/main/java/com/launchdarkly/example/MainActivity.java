@@ -38,7 +38,7 @@ public class MainActivity extends AppCompatActivity {
 
         LDConfig ldConfig = new LDConfig.Builder()
                 .setMobileKey("MOBILE_KEY")
-                .setUseReport(false)
+                .setUseReport(false) // change to `true` if the request is to be REPORT'ed instead of GET'ed
                 .build();
 
         LDUser user = new LDUser.Builder("user key")

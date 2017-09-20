@@ -64,7 +64,6 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                 .build();
     }
 
-
     @Override
     public synchronized ListenableFuture<JsonObject> fetch(LDUser user) {
         final SettableFuture<JsonObject> doneFuture = SettableFuture.create();
