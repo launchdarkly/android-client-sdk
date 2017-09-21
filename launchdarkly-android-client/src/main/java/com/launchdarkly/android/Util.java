@@ -5,19 +5,8 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.util.Log;
 
-import com.launchdarkly.eventsource.MessageEvent;
-
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-
 public class Util {
     private static final String TAG = "LDUtil";
-    private static ScheduledFuture<?> functionHandler;
-    private static ScheduledExecutorService functionScheduler;
 
     static {
         Runnable initialEvent = new Runnable() {
@@ -26,8 +15,6 @@ public class Util {
                 Log.i(TAG, "Started function queue");
             }
         };
-        functionScheduler = Executors.newSingleThreadScheduledExecutor();
-        functionHandler = functionScheduler.schedule(initialEvent, 1, TimeUnit.MILLISECONDS);
     }
 
     /**
