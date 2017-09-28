@@ -59,7 +59,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             ldClient.close();
         } catch (IOException e) {
-            Log.e(TAG, "Exception when closing LaunchDarkly Client stoppage", e);
+            Log.e(TAG, "Exception when closing LaunchDarkly Client", e);
         }
     }
 

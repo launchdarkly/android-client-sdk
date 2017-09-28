@@ -8,15 +8,6 @@ import android.util.Log;
 public class Util {
     private static final String TAG = "LDUtil";
 
-    static {
-        Runnable initialEvent = new Runnable() {
-            @Override
-            public void run() {
-                Log.i(TAG, "Started function queue");
-            }
-        };
-    }
-
     /**
      * Looks at both the Android device status and the {@link LDClient} to determine if any network calls should be made.
      *
