@@ -7,6 +7,7 @@ import android.util.Log;
 
 public class Util {
     private static final String TAG = "LDUtil";
+    public static enum ParameterValidity {UNCHECKED, OK, INVALID}
 
     /**
      * Looks at both the Android device status and the {@link LDClient} to determine if any network calls should be made.

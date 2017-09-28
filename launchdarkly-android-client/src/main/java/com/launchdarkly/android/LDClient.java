@@ -8,6 +8,7 @@ import android.util.Log;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
@@ -16,6 +17,7 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
+import com.launchdarkly.android.Util.ParameterValidity;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -26,6 +28,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static com.launchdarkly.android.Util.ParameterValidity.*;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 /**
@@ -63,7 +66,45 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param user        The user used in evaluating feature flags
      * @return a {@link Future} which will complete once the client has been initialized.
      */
-    public static synchronized Future<LDClient> init(Application application, LDConfig config, LDUser user) {
+    public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
+
+        ParameterValidity applicationValidity = UNCHECKED;
+        ParameterValidity configValidity = UNCHECKED;
+        ParameterValidity userValidity = UNCHECKED;
+
+        try {
+            Preconditions.checkNotNull(application);
+            applicationValidity = OK;
+        } catch (NullPointerException e) {
+            applicationValidity = INVALID;
+        } finally {
+            if(INVALID.equals(applicationValidity)) {
+                return Futures.immediateFailedCheckedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
+            }
+        }
+
+        try {
+            Preconditions.checkNotNull(config);
+            configValidity = OK;
+        } catch (NullPointerException e) {
+            configValidity = INVALID;
+        } finally {
+            if(INVALID.equals(configValidity)) {
+                return Futures.immediateFailedCheckedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
+            }
+        }
+
+        try {
+            Preconditions.checkNotNull(user);
+            userValidity = OK;
+        } catch (NullPointerException e) {
+            userValidity = INVALID;
+        } finally {
+            if(INVALID.equals(userValidity)) {
+                return Futures.immediateFailedCheckedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
+            }
+        }
+
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
         if (instance != null) {
