@@ -162,6 +162,7 @@ public class LDConfig {
 
         /**
          * Sets the flag for choosing the REPORT api call.  The default is GET.
+         * Do not use unless advised by LaunchDarkly.
          */
         public LDConfig.Builder setUseReport(boolean useReport) {
             this.useReport = useReport;

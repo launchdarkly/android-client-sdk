@@ -105,7 +105,15 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderUseReportSetToDefaultGet() {
+    public void TestBuilderUseReportDefaultGet() {
+        LDConfig config = new LDConfig.Builder()
+                .build();
+
+        assertFalse(config.isUseReport());
+    }
+
+    @Test
+    public void TestBuilderUseReporSetToGet() {
         LDConfig config = new LDConfig.Builder()
                 .setUseReport(false)
                 .build();
