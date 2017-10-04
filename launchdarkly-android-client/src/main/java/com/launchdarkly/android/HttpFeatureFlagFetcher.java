@@ -68,7 +68,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     public synchronized ListenableFuture<JsonObject> fetch(LDUser user) {
         final SettableFuture<JsonObject> doneFuture = SettableFuture.create();
 
-        if (!isOffline && isInternetConnected(context)) {
+        if (user != null && !isOffline && isInternetConnected(context)) {
 
             final Request request = config.isUseReport() ? getReportRequest(user) : getDefaultRequest(user);
 
@@ -112,7 +112,11 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                 }
             });
         } else {
-            doneFuture.setException(new LaunchDarklyException("Update was attempted without an internet connection"));
+            if (user == null) {
+                doneFuture.setException(new LaunchDarklyException("Update was attempted without a user"));
+            } else {
+                doneFuture.setException(new LaunchDarklyException("Update was attempted without an internet connection"));
+            }
         }
         return doneFuture;
     }

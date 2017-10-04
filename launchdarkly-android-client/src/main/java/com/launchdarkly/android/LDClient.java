@@ -8,6 +8,7 @@ import android.util.Log;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
@@ -63,7 +64,21 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param user        The user used in evaluating feature flags
      * @return a {@link Future} which will complete once the client has been initialized.
      */
-    public static synchronized Future<LDClient> init(Application application, LDConfig config, LDUser user) {
+    public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
+
+        boolean applicationValid = validateParameter(application);
+        boolean configValid = validateParameter(config);
+        boolean userValid = validateParameter(user);
+        if (!applicationValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
+        }
+        if (!configValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
+        }
+        if (!userValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
+        }
+
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
         if (instance != null) {
@@ -91,6 +106,17 @@ public class LDClient implements LDClientInterface, Closeable {
                 return instance;
             }
         });
+    }
+
+    private static <T> boolean validateParameter(T parameter) {
+        boolean parameterValid;
+        try {
+            Preconditions.checkNotNull(parameter);
+            parameterValid = true;
+        } catch (NullPointerException e) {
+            parameterValid = false;
+        }
+        return parameterValid;
     }
 
     /**
@@ -411,7 +437,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, npe);
         } catch (JsonSyntaxException jse) {
             Log.e(TAG, "Attempted to get json (string flag that exists as another type for key: " +
-            flagKey + " Returning fallback: " + fallback, jse);
+                    flagKey + " Returning fallback: " + fallback, jse);
         }
         sendFlagRequestEvent(flagKey, result, fallback);
         Log.d(TAG, "jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
