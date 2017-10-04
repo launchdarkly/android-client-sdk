@@ -79,7 +79,7 @@ public class LDClient implements LDClientInterface, Closeable {
             applicationValidity = INVALID;
         } finally {
             if(INVALID.equals(applicationValidity)) {
-                return Futures.immediateFailedCheckedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
+                return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
             }
         }
 
@@ -90,7 +90,7 @@ public class LDClient implements LDClientInterface, Closeable {
             configValidity = INVALID;
         } finally {
             if(INVALID.equals(configValidity)) {
-                return Futures.immediateFailedCheckedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
+                return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
             }
         }
 
@@ -101,7 +101,7 @@ public class LDClient implements LDClientInterface, Closeable {
             userValidity = INVALID;
         } finally {
             if(INVALID.equals(userValidity)) {
-                return Futures.immediateFailedCheckedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
+                return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
             }
         }
 
