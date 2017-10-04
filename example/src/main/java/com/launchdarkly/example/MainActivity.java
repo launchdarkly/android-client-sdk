@@ -17,6 +17,7 @@ import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
 
+import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -51,6 +52,16 @@ public class MainActivity extends AppCompatActivity {
             ldClient = initFuture.get(10, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "Exception when awaiting LaunchDarkly Client initialization", e);
+        }
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        try {
+            ldClient.close();
+        } catch (IOException e) {
+            Log.e(TAG, "Exception when closing LaunchDarkly Client", e);
         }
     }
 

@@ -10,6 +10,7 @@ public class Util {
 
     /**
      * Looks at both the Android device status and the {@link LDClient} to determine if any network calls should be made.
+     *
      * @param context
      * @return
      */
@@ -24,4 +25,5 @@ public class Util {
             return false;
         }
     }
+
 }
