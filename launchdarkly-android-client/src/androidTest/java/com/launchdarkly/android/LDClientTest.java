@@ -5,6 +5,7 @@ import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.google.common.util.concurrent.CheckedFuture;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
 
@@ -93,14 +94,7 @@ public class LDClientTest {
             fail();
         } catch (ExecutionException e) {
             actualFutureException = e;
-        }
-
-        try {
-            ((CheckedFuture<LDClient,LaunchDarklyException>)ldClientFuture).checkedGet();
-        } catch (LaunchDarklyException e) {
-            actualProvidedException = e;
-        } catch (Exception e) {
-            fail();
+            actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
         assertThat(actualFutureException, instanceOf(ExecutionException.class));
@@ -123,14 +117,7 @@ public class LDClientTest {
             fail();
         } catch (ExecutionException e) {
             actualFutureException = e;
-        }
-
-        try {
-            ((CheckedFuture<LDClient,LaunchDarklyException>)ldClientFuture).checkedGet();
-        } catch (LaunchDarklyException e) {
-            actualProvidedException = e;
-        } catch (Exception e) {
-            fail();
+            actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
         assertThat(actualFutureException, instanceOf(ExecutionException.class));
@@ -153,14 +140,7 @@ public class LDClientTest {
             fail();
         } catch (ExecutionException e) {
             actualFutureException = e;
-        }
-
-        try {
-            ((CheckedFuture<LDClient,LaunchDarklyException>)ldClientFuture).checkedGet();
-        } catch (LaunchDarklyException e) {
-            actualProvidedException = e;
-        } catch (Exception e) {
-            fail();
+            actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
         assertThat(actualFutureException, instanceOf(ExecutionException.class));

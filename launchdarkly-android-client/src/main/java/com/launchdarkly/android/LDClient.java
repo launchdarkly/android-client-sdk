@@ -75,7 +75,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (!configValid) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
-        if (userValid) {
+        if (!userValid) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
         }
 
