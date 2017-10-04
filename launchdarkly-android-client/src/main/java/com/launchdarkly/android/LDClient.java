@@ -17,7 +17,6 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
-import com.launchdarkly.android.Util.ParameterValidity;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -28,7 +27,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import static com.launchdarkly.android.Util.ParameterValidity.*;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 /**
@@ -68,41 +66,17 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
 
-        ParameterValidity applicationValidity = UNCHECKED;
-        ParameterValidity configValidity = UNCHECKED;
-        ParameterValidity userValidity = UNCHECKED;
-
-        try {
-            Preconditions.checkNotNull(application);
-            applicationValidity = OK;
-        } catch (NullPointerException e) {
-            applicationValidity = INVALID;
-        } finally {
-            if(INVALID.equals(applicationValidity)) {
-                return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
-            }
+        boolean applicationValid = validateParameter(application);
+        boolean configValid = validateParameter(config);
+        boolean userValid = validateParameter(user);
+        if (!applicationValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
         }
-
-        try {
-            Preconditions.checkNotNull(config);
-            configValidity = OK;
-        } catch (NullPointerException e) {
-            configValidity = INVALID;
-        } finally {
-            if(INVALID.equals(configValidity)) {
-                return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
-            }
+        if (!configValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
-
-        try {
-            Preconditions.checkNotNull(user);
-            userValidity = OK;
-        } catch (NullPointerException e) {
-            userValidity = INVALID;
-        } finally {
-            if(INVALID.equals(userValidity)) {
-                return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
-            }
+        if (userValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
         }
 
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
@@ -132,6 +106,17 @@ public class LDClient implements LDClientInterface, Closeable {
                 return instance;
             }
         });
+    }
+
+    private static <T> boolean validateParameter(T parameter) {
+        boolean parameterValid;
+        try {
+            Preconditions.checkNotNull(parameter);
+            parameterValid = true;
+        } catch (NullPointerException e) {
+            parameterValid = false;
+        }
+        return parameterValid;
     }
 
     /**
@@ -452,7 +437,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     + flagKey + " Returning fallback: " + fallback, npe);
         } catch (JsonSyntaxException jse) {
             Log.e(TAG, "Attempted to get json (string flag that exists as another type for key: " +
-            flagKey + " Returning fallback: " + fallback, jse);
+                    flagKey + " Returning fallback: " + fallback, jse);
         }
         sendFlagRequestEvent(flagKey, result, fallback);
         Log.d(TAG, "jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
