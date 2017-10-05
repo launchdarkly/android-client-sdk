@@ -129,16 +129,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
     }
 
     private synchronized void stopSync() {
-        try {
-            if (es != null) {
-                es.close();
-            }
-            running = false;
-            es = null;
-            Log.d(TAG, "Stopped.");
-        } catch (IOException e) {
-            Log.e(TAG, "Exception caught when closing stream.", e);
+        if (es != null) {
+            es.close();
         }
+        running = false;
+        es = null;
+        Log.d(TAG, "Stopped.");
     }
 
     public boolean isInitialized() {

@@ -48,7 +48,7 @@ android {
 ext {
     supportVersion = "26.0.1"
     okhttpVersion = "3.6.0"
-    eventsourceVersion = "1.3.2"
+    eventsourceVersion = "1.5.3"
     gsonVersion = "2.7"
     testRunnerVersion = "0.5"
 }
