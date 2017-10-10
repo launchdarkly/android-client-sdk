@@ -28,6 +28,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private final URI uri;
     private SettableFuture<Void> initFuture;
     private Debounce queue;
+    private boolean connection401Error = false;
 
     StreamUpdateProcessor(LDConfig config, UserManager userManager) {
         this.config = config;
@@ -40,7 +41,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
         initFuture = SettableFuture.create();
         initialized.set(false);
 
-        if (!running) {
+        if (!running && !connection401Error) {
             stop();
             Log.d(TAG, "Starting.");
             Headers headers = new Headers.Builder()
@@ -96,6 +97,16 @@ class StreamUpdateProcessor implements UpdateProcessor {
                             running = false;
                             if (!initialized.getAndSet(true)) {
                                 initFuture.setException(t);
+                            }
+                            if (code == 401) {
+                                connection401Error = true;
+                                try {
+                                    LDClient clientSingleton = LDClient.get();
+                                    clientSingleton.setOffline();
+                                    clientSingleton.setConnection401Error();
+                                } catch (LaunchDarklyException e) {
+                                    Log.e(TAG, "Client unavailable to be set offline", e);
+                                }
                             }
                             stop();
                         }

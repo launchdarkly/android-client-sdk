@@ -1,8 +1,6 @@
 package com.launchdarkly.android;
 
 
-import android.content.Context;
-
 import com.google.gson.JsonElement;
 
 import java.io.Closeable;
@@ -17,6 +15,8 @@ public interface LDClientInterface extends Closeable {
     void setOffline();
 
     void setOnline();
+
+    boolean isConnection401Error();
 
     void track(String eventName, JsonElement data);
 

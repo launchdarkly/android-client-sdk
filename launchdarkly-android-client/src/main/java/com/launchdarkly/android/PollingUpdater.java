@@ -51,7 +51,7 @@ public class PollingUpdater extends BroadcastReceiver {
 
     synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {
         stop(context);
-        Log.d(TAG, "startPolling with initialDelayMillis: " + initialDelayMillis + " intervalMillis: " + intervalMillis);
+        Log.d(TAG,  String.format("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis));
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
