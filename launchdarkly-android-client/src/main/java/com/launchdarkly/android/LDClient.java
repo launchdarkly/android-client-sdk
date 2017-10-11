@@ -49,8 +49,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private volatile boolean isOffline = false;
 
-    private boolean connection401Error = false;
-
     /**
      * Initializes the singleton instance. The result is a {@link Future} which
      * will complete once the client has been initialized with the latest feature flag values. For
@@ -486,21 +484,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public synchronized void setOnline() {
-        if (isConnection401Error()) return;
         Log.d(TAG, "Setting isOffline = false");
         this.isOffline = false;
         fetcher.setOnline();
         startForegroundUpdating();
         eventProcessor.start();
-    }
-
-    @Override
-    public boolean isConnection401Error() {
-        return this.connection401Error;
-    }
-
-    void setConnection401Error() {
-        this.connection401Error = true;
     }
 
     /**

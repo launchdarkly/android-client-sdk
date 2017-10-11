@@ -103,7 +103,6 @@ class StreamUpdateProcessor implements UpdateProcessor {
                                 try {
                                     LDClient clientSingleton = LDClient.get();
                                     clientSingleton.setOffline();
-                                    clientSingleton.setConnection401Error();
                                 } catch (LaunchDarklyException e) {
                                     Log.e(TAG, "Client unavailable to be set offline", e);
                                 }

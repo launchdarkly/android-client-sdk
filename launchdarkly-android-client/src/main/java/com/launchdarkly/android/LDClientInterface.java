@@ -16,8 +16,6 @@ public interface LDClientInterface extends Closeable {
 
     void setOnline();
 
-    boolean isConnection401Error();
-
     void track(String eventName, JsonElement data);
 
     void track(String eventName);
