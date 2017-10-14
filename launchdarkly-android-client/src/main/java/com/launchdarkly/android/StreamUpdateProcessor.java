@@ -12,6 +12,7 @@ import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Headers;
@@ -25,15 +26,18 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private final AtomicBoolean initialized = new AtomicBoolean(false);
     private volatile boolean running = false;
     private final URI uri;
+    private SettableFuture<Void> initFuture;
+    private Debounce queue;
 
     StreamUpdateProcessor(LDConfig config, UserManager userManager) {
         this.config = config;
         this.userManager = userManager;
         uri = URI.create(config.getStreamUri().toString() + "/mping");
+        queue = new Debounce();
     }
 
     public synchronized ListenableFuture<Void> start() {
-        final SettableFuture<Void> initFuture = SettableFuture.create();
+        initFuture = SettableFuture.create();
         initialized.set(false);
 
         if (!running) {
@@ -58,13 +62,23 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
                 @Override
                 public void onMessage(String name, MessageEvent event) throws Exception {
-                    Log.d(TAG, "onMessage: name: " + name + " event: " + event.getData());
-                    if (!initialized.getAndSet(true)) {
-                        initFuture.setFuture(userManager.updateCurrentUser());
-                        Log.i(TAG, "Initialized LaunchDarkly streaming connection");
-                    } else {
-                        userManager.updateCurrentUser();
-                    }
+                    Log.d(TAG, "onMessage: name: " + name);
+                    final String eventData = event.getData();
+                    Callable<Void> updateCurrentUserFunction = new Callable<Void>() {
+                        @Override
+                        public Void call() throws Exception {
+                            Log.d(TAG, "consumeThis: event: " + eventData);
+                            if (!initialized.getAndSet(true)) {
+                                initFuture.setFuture(userManager.updateCurrentUser());
+                                Log.i(TAG, "Initialized LaunchDarkly streaming connection");
+                            } else {
+                                userManager.updateCurrentUser();
+                            }
+                            return null;
+                        }
+                    };
+
+                    queue.call(updateCurrentUserFunction);
                 }
 
                 @Override
@@ -115,16 +129,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
     }
 
     private synchronized void stopSync() {
-        try {
-            if (es != null) {
-                es.close();
-            }
-            running = false;
-            es = null;
-            Log.d(TAG, "Stopped.");
-        } catch (IOException e) {
-            Log.e(TAG, "Exception caught when closing stream.", e);
+        if (es != null) {
+            es.close();
         }
+        running = false;
+        es = null;
+        Log.d(TAG, "Stopped.");
     }
 
     public boolean isInitialized() {

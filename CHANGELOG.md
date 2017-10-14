@@ -3,6 +3,19 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.1.0] - 2017-10-13
+### Added
+- `LDConfig.Builder#setUseReport` method to allow switching the request verb from `GET` to `REPORT`. Do not use unless advised by LaunchDarkly.
+
+### Changed
+- `LDClient.init` validates that its arguments are non-null.
+
+### Fixed
+- Stream connections are closed completely when the app enters background mode.
+- Fewer HTTP requests are made to the LaunchDarkly service when feature flags are updated frequently.
+- Potential `NullPointerException` in the `variation` methods.
+- Removed spurious error when `LDClient` is initialized while the device is offline.
+
 ## [2.0.5] - 2017-06-18
 ### Fixed
 - Potential `ConcurrentModificationException` with `LDClient#unregisterFeatureFlagListener`

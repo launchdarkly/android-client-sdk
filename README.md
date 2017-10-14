@@ -101,6 +101,11 @@ Much of the behavior we want to assert is around complicated device state change
 app backgrounding, loss of internet connection. These are problematic to test in a programmatic way,
 so we rely on a combination of automated emulator tests and manual tests.
 
+If, when running tests, the Android Studio build starts throwing countDebugDexMethods and countReleaseDexMethods errors
+using the run configuration dropdown, then switch to the command-line and exclude the two DEX methods causing the trouble.
+
+> ./gradlew -x :launchdarkly-android-client:countDebugDexMethods -x :launchdarkly-android-client:countReleaseDexMethods -x :launchdarkly-android-client:signArchives --stacktrace clean build test cAT
+
 About LaunchDarkly
 -----------
 
