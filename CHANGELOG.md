@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.1.1] - 2017-10-26
+### Fixed
+- `AndroidManifest.xml` no longer enforces `supportsRtl="true"`
+- Client no longer reconnects after detecting an invalidated mobile key
+
 ## [2.1.0] - 2017-10-13
 ### Added
 - `LDConfig.Builder#setUseReport` method to allow switching the request verb from `GET` to `REPORT`. Do not use unless advised by LaunchDarkly.
