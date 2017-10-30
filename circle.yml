@@ -1,6 +1,7 @@
 # Disable emulator audio
 machine:
   environment:
+    GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx2048m -XX:+HeapDumpOnOutOfMemoryError"'
     QEMU_AUDIO_DRV: none
     version: oraclejdk8
 
