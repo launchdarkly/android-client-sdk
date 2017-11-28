@@ -59,11 +59,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onStop() {
         super.onStop();
-        try {
-            ldClient.close();
-        } catch (IOException e) {
-            Log.e(TAG, "Exception when closing LaunchDarkly Client", e);
-        }
+        doSafeClientAction(() -> {
+            try {
+                ldClient.close();
+            } catch (IOException e) {
+                Log.e(TAG, "Exception when closing LaunchDarkly Client", e);
+            }
+        });
     }
 
     private void setupFlushButton() {
