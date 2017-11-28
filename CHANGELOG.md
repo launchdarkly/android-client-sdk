@@ -3,10 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.1.1] - 2017-10-26
+## [2.1.1] - 2017-11-27
 ### Fixed
 - `AndroidManifest.xml` no longer enforces `supportsRtl="true"`
 - Client no longer reconnects after detecting an invalidated mobile key
+- Client can be initialized outside the main thread. Thanks @jonathanmgrimm!
 
 ## [2.1.0] - 2017-10-13
 ### Added
