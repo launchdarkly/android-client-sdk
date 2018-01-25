@@ -5,13 +5,17 @@ import android.support.test.runner.AndroidJUnit4;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import static org.junit.Assert.*;
+import java.util.HashSet;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class LDConfigTest {
 
     @Test
-    public void TestBuilderDefaults(){
+    public void TestBuilderDefaults() {
         LDConfig config = new LDConfig.Builder().build();
         assertTrue(config.isStream());
         assertFalse(config.isOffline());
@@ -129,4 +133,38 @@ public class LDConfigTest {
 
         assertTrue(config.isUseReport());
     }
+
+    @Test
+    public void TestBuilderAllAttributesPrivate() {
+        LDConfig config = new LDConfig.Builder()
+                .build();
+
+        assertFalse(config.allAttributesPrivate());
+
+        config = new LDConfig.Builder()
+                .allAttributesPrivate()
+                .build();
+
+        assertTrue(config.allAttributesPrivate());
+    }
+
+    @Test
+    public void TestBuilderPrivateAttributesList() {
+        LDConfig config = new LDConfig.Builder()
+                .build();
+
+        assertEquals(config.getPrivateAttributeNames().size(), 0);
+
+        config = new LDConfig.Builder()
+                .setPrivateAttributeNames(new HashSet<String>() {
+                    {
+                        add("email");
+                        add("name");
+                    }
+                })
+                .build();
+
+        assertEquals(config.getPrivateAttributeNames().size(), 2);
+    }
+
 }

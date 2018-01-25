@@ -4,8 +4,6 @@ import android.support.test.annotation.UiThreadTest;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
-import com.google.common.util.concurrent.CheckedFuture;
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
 
@@ -20,9 +18,8 @@ import java.util.concurrent.Future;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertTrue;
 import static junit.framework.Assert.fail;
-import static org.hamcrest.MatcherAssert.assertThat;
-
 import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.MatcherAssert.assertThat;
 
 @RunWith(AndroidJUnit4.class)
 public class LDClientTest {
@@ -46,7 +43,8 @@ public class LDClientTest {
 
     }
 
-    @UiThreadTest // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
+    @UiThreadTest
+    // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
     public void TestOfflineClientReturnsFallbacks() throws ExecutionException, InterruptedException {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
@@ -64,7 +62,8 @@ public class LDClientTest {
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
     }
 
-    @UiThreadTest // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
+    @UiThreadTest
+    // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
     public void GivenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() throws ExecutionException, InterruptedException {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);

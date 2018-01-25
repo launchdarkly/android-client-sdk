@@ -11,16 +11,13 @@ repositories {
 
 android {
     compileSdkVersion 26
-    buildToolsVersion '26.0.1'
+    buildToolsVersion '26.0.2'
     defaultConfig {
         applicationId "com.launchdarkly.example"
         minSdkVersion 15
         targetSdkVersion 26
         versionCode 1
         versionName "1.0"
-        jackOptions {
-            enabled = true
-        }
     }
     buildTypes {
         release {
@@ -31,17 +28,26 @@ android {
     lintOptions {
         abortOnError false
     }
+
     compileOptions {
-        targetCompatibility '1.8'
-        sourceCompatibility '1.8'
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
+
+    dexOptions {
+        javaMaxHeapSize "4g"
+    }
+
 }
 
 dependencies {
-    compile fileTree(include: ['*.jar'], dir: 'libs')
-    testCompile 'junit:junit:4.12'
-    compile 'com.android.support:appcompat-v7:26.0.1'
-    compile project(path: ':launchdarkly-android-client')
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "com.google.code.gson:gson:2.8.2"
+    implementation 'com.android.support:appcompat-v7:26.0.1'
+    implementation project(path: ':launchdarkly-android-client')
+    implementation 'com.android.support:multidex:1.0.2'
     // Comment the previous line and uncomment this one to depend on the published artifact:
     //    compile 'com.launchdarkly:launchdarkly-android-client:1.0.1'
+
+    testImplementation 'junit:junit:4.12'
 }

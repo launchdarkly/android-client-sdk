@@ -2,20 +2,28 @@ package com.launchdarkly.android;
 
 
 import android.os.Build;
+import android.support.annotation.NonNull;
+import android.support.annotation.VisibleForTesting;
 import android.util.Base64;
 import android.util.Log;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
+import com.google.gson.TypeAdapter;
 import com.google.gson.annotations.Expose;
+import com.google.gson.internal.Streams;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
+import java.io.IOException;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
-
-import static com.launchdarkly.android.LDConfig.GSON;
 
 /**
  * A {@code LDUser} object contains specific attributes of a user browsing your site. The only mandatory property property is the {@code key},
@@ -33,8 +41,26 @@ public class LDUser {
     private static final String TAG = "LDUser";
     private static final UserHasher USER_HASHER = new UserHasher();
 
+    private static final String KEY = "key";
+    private static final String ANONYMOUS = "anonymous";
+    private static final String CUSTOM = "custom";
+    private static final String DEVICE = "device";
+    private static final String OS = "os";
+
+    static final String IP = "ip";
+    static final String COUNTRY = "country";
+    static final String SECONDARY = "secondary";
+    static final String FIRST_NAME = "firstName";
+    static final String LAST_NAME = "lastName";
+    static final String EMAIL = "email";
+    static final String NAME = "name";
+    static final String AVATAR = "avatar";
+
     @Expose
     private final JsonPrimitive key;
+    @Expose
+    private final JsonPrimitive anonymous;
+
     @Expose
     private final JsonPrimitive secondary;
     @Expose
@@ -50,17 +76,20 @@ public class LDUser {
     @Expose
     private final JsonPrimitive lastName;
     @Expose
-    private final JsonPrimitive anonymous;
-    @Expose
     private final JsonPrimitive country;
     @Expose
     private final Map<String, JsonElement> custom;
+
+    @NonNull
+    @Expose(deserialize = false, serialize = false)
+    private final Set<String> privateAttributeNames;
 
     @Expose(deserialize = false, serialize = false)
     private final String urlSafeBase64;
 
     @Expose(deserialize = false, serialize = false)
     private final String sharedPrefsKey;
+
 
     protected LDUser(Builder builder) {
         if (builder.key == null || builder.key.equals("")) {
@@ -72,6 +101,7 @@ public class LDUser {
             this.key = new JsonPrimitive(builder.key);
             this.anonymous = builder.anonymous == null ? null : new JsonPrimitive(builder.anonymous);
         }
+
         this.ip = builder.ip == null ? null : new JsonPrimitive(builder.ip);
         this.country = builder.country == null ? null : new JsonPrimitive(builder.country.getAlpha2());
         this.secondary = builder.secondary == null ? null : new JsonPrimitive(builder.secondary);
@@ -80,10 +110,19 @@ public class LDUser {
         this.email = builder.email == null ? null : new JsonPrimitive(builder.email);
         this.name = builder.name == null ? null : new JsonPrimitive(builder.name);
         this.avatar = builder.avatar == null ? null : new JsonPrimitive(builder.avatar);
-        this.custom = new HashMap<>(builder.custom);
-        String userJson = GSON.toJson(this);
+        this.custom = Collections.unmodifiableMap(builder.custom);
+
+        this.privateAttributeNames = builder.privateAttributeNames;
+
+        String userJson = getJson();
         this.urlSafeBase64 = Base64.encodeToString(userJson.getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
         this.sharedPrefsKey = USER_HASHER.hash(userJson);
+
+    }
+
+    @VisibleForTesting
+    String getJson() {
+        return LDConfig.GSON.toJson(this);
     }
 
     String getAsUrlSafeBase64() {
@@ -145,6 +184,11 @@ public class LDUser {
         return null;
     }
 
+    @NonNull
+    Set<String> getPrivateAttributeNames() {
+        return Collections.unmodifiableSet(privateAttributeNames);
+    }
+
     String getSharedPrefsKey() {
         return sharedPrefsKey;
     }
@@ -161,7 +205,10 @@ public class LDUser {
      * </pre>
      */
     public static class Builder {
+
         private String key;
+        private Boolean anonymous;
+
         private String secondary;
         private String ip;
         private String firstName;
@@ -169,9 +216,12 @@ public class LDUser {
         private String email;
         private String name;
         private String avatar;
-        private Boolean anonymous;
         private LDCountryCode country;
-        private Map<String, JsonElement> custom;
+
+        private final Map<String, JsonElement> custom;
+
+        @NonNull
+        private final Set<String> privateAttributeNames;
 
         /**
          * Create a builder with the specified key
@@ -181,8 +231,10 @@ public class LDUser {
         public Builder(String key) {
             this.key = key;
             this.custom = new HashMap<>();
-            custom.put("os", new JsonPrimitive(Build.VERSION.SDK_INT));
-            custom.put("device", new JsonPrimitive(Build.MODEL + " " + Build.PRODUCT));
+
+            custom.put(LDUser.OS, new JsonPrimitive(Build.VERSION.SDK_INT));
+            custom.put(LDUser.DEVICE, new JsonPrimitive(Build.MODEL + " " + Build.PRODUCT));
+            privateAttributeNames = new HashSet<>();
         }
 
         public Builder(LDUser user) {
@@ -192,6 +244,8 @@ public class LDUser {
             } else {
                 this.key = user.getKeyAsString();
             }
+            this.anonymous = user.getAnonymous() != null ? user.getAnonymous().getAsBoolean() : null;
+
             this.secondary = user.getSecondary() != null ? user.getSecondary().getAsString() : null;
             this.ip = user.getIp() != null ? user.getIp().getAsString() : null;
             this.firstName = user.getFirstName() != null ? user.getFirstName().getAsString() : null;
@@ -199,9 +253,10 @@ public class LDUser {
             this.email = user.getEmail() != null ? user.getEmail().getAsString() : null;
             this.name = user.getName() != null ? user.getName().getAsString() : null;
             this.avatar = user.getAvatar() != null ? user.getAvatar().getAsString() : null;
-            this.anonymous = user.getAnonymous() != null ? user.getAnonymous().getAsBoolean() : null;
             this.country = user.getCountry() != null ? LDCountryCode.valueOf(user.getCountry().getAsString()) : null;
             this.custom = user.custom;
+
+            this.privateAttributeNames = new HashSet<>(user.getPrivateAttributeNames());
         }
 
         /**
@@ -215,9 +270,26 @@ public class LDUser {
             return this;
         }
 
+        /**
+         * Set the IP for a user
+         * Private attributes are not sent to the server.
+         *
+         * @param s the IP address for the user
+         * @return the builder
+         */
+        public Builder privateIp(String s) {
+            privateAttributeNames.add(IP);
+            return ip(s);
+        }
+
         public Builder secondary(String s) {
             this.secondary = s;
             return this;
+        }
+
+        public Builder privateSecondary(String s) {
+            privateAttributeNames.add(SECONDARY);
+            return secondary(s);
         }
 
         /**
@@ -229,9 +301,29 @@ public class LDUser {
          * @return the builder
          */
         public Builder country(String s) {
-            country = LDCountryCode.getByCode(s, false);
+            this.country = countryCode(s);
+            return this;
+        }
 
-            if (country == null) {
+
+        /**
+         * Set the country for a user. The country should be a valid <a href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a>
+         * alpha-2 or alpha-3 code. If it is not a valid ISO-3166-1 code, an attempt will be made to look up the country by its name.
+         * If that fails, a warning will be logged, and the country will not be set.
+         * Private attributes are not sent to the server.
+         *
+         * @param s the country for the user
+         * @return the builder
+         */
+        public Builder privateCountry(String s) {
+            privateAttributeNames.add(COUNTRY);
+            return country(s);
+        }
+
+        private LDCountryCode countryCode(String s) {
+            LDCountryCode countryCode = LDCountryCode.getByCode(s, false);
+
+            if (countryCode == null) {
                 List<LDCountryCode> codes = LDCountryCode.findByName("^" + Pattern.quote(s) + ".*");
 
                 if (codes.isEmpty()) {
@@ -240,18 +332,18 @@ public class LDUser {
                     // See if any of the codes is an exact match
                     for (LDCountryCode c : codes) {
                         if (c.getName().equals(s)) {
-                            country = c;
-                            return this;
+                            countryCode = c;
+                            return countryCode;
                         }
                     }
                     Log.w(TAG, "Ambiguous country. Provided code matches multiple countries: " + s);
-                    country = codes.get(0);
+                    countryCode = codes.get(0);
                 } else {
-                    country = codes.get(0);
+                    countryCode = codes.get(0);
                 }
 
             }
-            return this;
+            return countryCode;
         }
 
         /**
@@ -266,6 +358,18 @@ public class LDUser {
         }
 
         /**
+         * Set the country for a user.
+         * Private attributes are not sent to the server.
+         *
+         * @param country the country for the user
+         * @return the builder
+         */
+        public Builder privateCountry(LDCountryCode country) {
+            privateAttributeNames.add(COUNTRY);
+            return country(country);
+        }
+
+        /**
          * Sets the user's first name
          *
          * @param firstName the user's first name
@@ -274,6 +378,18 @@ public class LDUser {
         public Builder firstName(String firstName) {
             this.firstName = firstName;
             return this;
+        }
+
+        /**
+         * Sets the user's first name
+         * Private attributes are not sent to the server.
+         *
+         * @param firstName the user's first name
+         * @return the builder
+         */
+        public Builder privateFirstName(String firstName) {
+            privateAttributeNames.add(FIRST_NAME);
+            return firstName(firstName);
         }
 
         /**
@@ -299,6 +415,18 @@ public class LDUser {
         }
 
         /**
+         * Sets the user's last name
+         * Private attributes are not sent to the server.
+         *
+         * @param lastName the user's last name
+         * @return the builder
+         */
+        public Builder privateLastName(String lastName) {
+            privateAttributeNames.add(LAST_NAME);
+            return lastName(lastName);
+        }
+
+        /**
          * Sets the user's full name
          *
          * @param name the user's full name
@@ -307,6 +435,18 @@ public class LDUser {
         public Builder name(String name) {
             this.name = name;
             return this;
+        }
+
+        /**
+         * Sets the user's full name
+         * Private attributes are not sent to the server.
+         *
+         * @param name the user's full name
+         * @return the builder
+         */
+        public Builder privateName(String name) {
+            privateAttributeNames.add(NAME);
+            return name(name);
         }
 
         /**
@@ -321,6 +461,18 @@ public class LDUser {
         }
 
         /**
+         * Sets the user's avatar
+         * Private attributes are not sent to the server.
+         *
+         * @param avatar the user's avatar
+         * @return the builder
+         */
+        public Builder privateAvatar(String avatar) {
+            privateAttributeNames.add(AVATAR);
+            return avatar(avatar);
+        }
+
+        /**
          * Sets the user's e-mail address
          *
          * @param email the e-mail address
@@ -332,7 +484,19 @@ public class LDUser {
         }
 
         /**
-         * Add a {@link java.lang.String}-valued custom attribute. When set to one of the
+         * Sets the user's e-mail address
+         * Private attributes are not sent to the server.
+         *
+         * @param email the e-mail address
+         * @return the builder
+         */
+        public Builder privateEmail(String email) {
+            privateAttributeNames.add(EMAIL);
+            return email(email);
+        }
+
+        /**
+         * Add a {@link String}-valued custom attribute. When set to one of the
          * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
          * built-in user attribute keys</a>, this custom attribute will be ignored.
          *
@@ -341,15 +505,34 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, String v) {
+            return custom(custom, k, new JsonPrimitive(v));
+        }
+
+        /**
+         * Add a {@link String}-valued custom attribute. When set to one of the
+         * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
+         * built-in user attribute keys</a>, this custom attribute will be ignored.
+         * Private attributes are not sent to the server.
+         *
+         * @param k the key for the custom attribute.
+         * @param v the value for the custom attribute
+         * @return the builder
+         */
+        public Builder privateCustom(String k, String v) {
+            privateAttributeNames.add(k);
+            return custom(k, v);
+        }
+
+        private <T> Builder custom(Map<String, T> map, String k, T v) {
             checkCustomAttribute(k);
             if (k != null && v != null) {
-                custom.put(k, new JsonPrimitive(v));
+                map.put(k, v);
             }
             return this;
         }
 
         /**
-         * Add a {@link java.lang.Number}-valued custom attribute. When set to one of the
+         * Add a {@link Number}-valued custom attribute. When set to one of the
          * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
          * built-in user attribute keys</a>, this custom attribute will be ignored.
          *
@@ -358,15 +541,26 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, Number n) {
-            checkCustomAttribute(k);
-            if (k != null && n != null) {
-                custom.put(k, new JsonPrimitive(n));
-            }
-            return this;
+            return custom(custom, k, new JsonPrimitive(n));
         }
 
         /**
-         * Add a {@link java.lang.Boolean}-valued custom attribute. When set to one of the
+         * Add a {@link Number}-valued custom attribute. When set to one of the
+         * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
+         * built-in user attribute keys</a>, this custom attribute will be ignored.
+         * Private attributes are not sent to the server.
+         *
+         * @param k the key for the custom attribute. When set to one of the built-in user attribute keys, this custom attribute will be ignored.
+         * @param n the value for the custom attribute
+         * @return the builder
+         */
+        public Builder privateCustom(String k, Number n) {
+            privateAttributeNames.add(k);
+            return custom(k, n);
+        }
+
+        /**
+         * Add a {@link Boolean}-valued custom attribute. When set to one of the
          * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
          * built-in user attribute keys</a>, this custom attribute will be ignored.
          *
@@ -375,15 +569,26 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, Boolean b) {
-            checkCustomAttribute(k);
-            if (k != null && b != null) {
-                custom.put(k, new JsonPrimitive(b));
-            }
-            return this;
+            return custom(custom, k, new JsonPrimitive(b));
         }
 
         /**
-         * Add a list of {@link java.lang.String}-valued custom attributes. When set to one of the
+         * Add a {@link Boolean}-valued custom attribute. When set to one of the
+         * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
+         * built-in user attribute keys</a>, this custom attribute will be ignored.
+         * Private attributes are not sent to the server.
+         *
+         * @param k the key for the custom attribute. When set to one of the built-in user attribute keys, this custom attribute will be ignored.
+         * @param b the value for the custom attribute
+         * @return the builder
+         */
+        public Builder privateCustom(String k, Boolean b) {
+            privateAttributeNames.add(k);
+            return custom(k, b);
+        }
+
+        /**
+         * Add a list of {@link String}-valued custom attributes. When set to one of the
          * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
          * built-in user attribute keys</a>, this custom attribute will be ignored.
          *
@@ -393,12 +598,11 @@ public class LDUser {
          * @deprecated As of version 0.16.0, renamed to {@link #customString(String, List) customString}
          */
         public Builder custom(String k, List<String> vs) {
-            checkCustomAttribute(k);
-            return this.customString(k, vs);
+            return custom(custom, k, vs);
         }
 
         /**
-         * Add a list of {@link java.lang.String}-valued custom attributes. When set to one of the
+         * Add a list of {@link String}-valued custom attributes. When set to one of the
          * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
          * built-in user attribute keys</a>, this custom attribute will be ignored.
          *
@@ -407,6 +611,25 @@ public class LDUser {
          * @return the builder
          */
         public Builder customString(String k, List<String> vs) {
+            return custom(custom, k, vs);
+        }
+
+        /**
+         * Add a list of {@link String}-valued custom attributes. When set to one of the
+         * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
+         * built-in user attribute keys</a>, this custom attribute will be ignored.
+         * Private attributes are not sent to the server.
+         *
+         * @param k  the key for the list. When set to one of the built-in user attribute keys, this custom attribute will be ignored.
+         * @param vs the values for the attribute
+         * @return the builder
+         */
+        public Builder privateCustomString(String k, List<String> vs) {
+            privateAttributeNames.add(k);
+            return customString(k, vs);
+        }
+
+        private Builder custom(Map<String, JsonElement> map, String k, List<String> vs) {
             checkCustomAttribute(k);
             JsonArray array = new JsonArray();
             for (String v : vs) {
@@ -419,7 +642,7 @@ public class LDUser {
         }
 
         /**
-         * Add a list of {@link java.lang.Integer}-valued custom attributes. When set to one of the
+         * Add a list of {@link Integer}-valued custom attributes. When set to one of the
          * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
          * built-in user attribute keys</a>, this custom attribute will be ignored.
          *
@@ -428,6 +651,25 @@ public class LDUser {
          * @return the builder
          */
         public Builder customNumber(String k, List<Number> vs) {
+            return customNumber(custom, k, vs);
+        }
+
+        /**
+         * Add a list of {@link Integer}-valued custom attributes. When set to one of the
+         * <a href="http://docs.launchdarkly.com/docs/targeting-users#targeting-based-on-user-attributes">
+         * built-in user attribute keys</a>, this custom attribute will be ignored.
+         * Private attributes are not sent to the server.
+         *
+         * @param k  the key for the list. When set to one of the built-in user attribute keys, this custom attribute will be ignored.
+         * @param vs the values for the attribute
+         * @return the builder
+         */
+        public Builder privateCustomNumber(String k, List<Number> vs) {
+            privateAttributeNames.add(k);
+            return customNumber(k, vs);
+        }
+
+        private Builder customNumber(Map<String, JsonElement> map, String k, List<Number> vs) {
             checkCustomAttribute(k);
             JsonArray array = new JsonArray();
             for (Number v : vs) {
@@ -435,7 +677,7 @@ public class LDUser {
                     array.add(new JsonPrimitive(v));
                 }
             }
-            custom.put(k, array);
+            map.put(k, array);
             return this;
         }
 
@@ -448,13 +690,144 @@ public class LDUser {
             }
         }
 
+        @VisibleForTesting
+        @NonNull
+        Set<String> getPrivateAttributeNames() {
+            return privateAttributeNames;
+        }
+
         /**
-         * Build the configured {@link com.launchdarkly.android.LDUser} object
+         * Build the configured {@link LDUser} object
          *
-         * @return the {@link com.launchdarkly.android.LDUser} configured by this builder
+         * @return the {@link LDUser} configured by this builder
          */
         public LDUser build() {
             return new LDUser(this);
         }
+
+    }
+
+    static class LDUserPrivateAttributesTypeAdapter extends TypeAdapter<LDUser> {
+
+        static final String PRIVATE_ATTRS = "privateAttrs";
+
+        private final LDConfig config;
+
+        LDUserPrivateAttributesTypeAdapter(LDConfig config) {
+            this.config = config;
+        }
+
+        @Override
+        public void write(JsonWriter out, LDUser user) throws IOException {
+            // Collect the private attribute names
+            Set<String> privateAttributeNames = new HashSet<>(config.getPrivateAttributeNames());
+
+            out.beginObject();
+            // The key can never be private
+            out.name(LDUser.KEY).value(user.getKeyAsString());
+
+            if (user.getSecondary() != null) {
+                if (!checkAndAddPrivate(LDUser.SECONDARY, user, privateAttributeNames)) {
+                    out.name(LDUser.SECONDARY).value(user.getSecondary().getAsString());
+                }
+            }
+            if (user.getIp() != null) {
+                if (!checkAndAddPrivate(LDUser.IP, user, privateAttributeNames)) {
+                    out.name(LDUser.IP).value(user.getIp().getAsString());
+                }
+            }
+            if (user.getEmail() != null) {
+                if (!checkAndAddPrivate(LDUser.EMAIL, user, privateAttributeNames)) {
+                    out.name(LDUser.EMAIL).value(user.getEmail().getAsString());
+                }
+            }
+            if (user.getName() != null) {
+                if (!checkAndAddPrivate(LDUser.NAME, user, privateAttributeNames)) {
+                    out.name(LDUser.NAME).value(user.getName().getAsString());
+                }
+            }
+            if (user.getAvatar() != null) {
+                if (!checkAndAddPrivate(LDUser.AVATAR, user, privateAttributeNames)) {
+                    out.name(LDUser.AVATAR).value(user.getAvatar().getAsString());
+                }
+            }
+            if (user.getFirstName() != null) {
+                if (!checkAndAddPrivate(LDUser.FIRST_NAME, user, privateAttributeNames)) {
+                    out.name(LDUser.FIRST_NAME).value(user.getFirstName().getAsString());
+                }
+            }
+            if (user.getLastName() != null) {
+                if (!checkAndAddPrivate(LDUser.LAST_NAME, user, privateAttributeNames)) {
+                    out.name(LDUser.LAST_NAME).value(user.getLastName().getAsString());
+                }
+            }
+            if (user.getAnonymous() != null) {
+                out.name(LDUser.ANONYMOUS).value(user.getAnonymous().getAsBoolean());
+            }
+            if (user.getCountry() != null) {
+                if (!checkAndAddPrivate(LDUser.COUNTRY, user, privateAttributeNames)) {
+                    out.name(LDUser.COUNTRY).value(user.getCountry().getAsString());
+                }
+            }
+            writeCustomAttrs(out, user, privateAttributeNames);
+            writePrivateAttrNames(out, privateAttributeNames);
+
+            out.endObject();
+
+        }
+
+        @Override
+        public LDUser read(JsonReader in) throws IOException {
+            return LDConfig.GSON.fromJson(in, LDUser.class);
+        }
+
+        private void writeCustomAttrs(JsonWriter out, LDUser user, Set<String> privateAttributeNames) throws IOException {
+            boolean beganObject = false;
+            if (user.custom == null) {
+                return;
+            }
+            for (Map.Entry<String, JsonElement> entry : user.custom.entrySet()) {
+                if (!checkAndAddPrivate(entry.getKey(), user, privateAttributeNames)) {
+                    if (!beganObject) {
+                        out.name(LDUser.CUSTOM);
+                        out.beginObject();
+                        beganObject = true;
+                    }
+                    out.name(entry.getKey());
+                    // this accesses part of the internal GSON api. However, it's likely
+                    // the only way to write a JsonElement directly:
+                    // https://groups.google.com/forum/#!topic/google-gson/JpHbpZ9mTOk
+                    Streams.write(entry.getValue(), out);
+                }
+            }
+            if (beganObject) {
+                out.endObject();
+            }
+        }
+
+        private void writePrivateAttrNames(JsonWriter out, Set<String> names) throws IOException {
+            if (names.isEmpty()) {
+                return;
+            }
+            out.name(PRIVATE_ATTRS);
+            out.beginArray();
+            for (String name : names) {
+                out.value(name);
+            }
+            out.endArray();
+        }
+
+        private boolean checkAndAddPrivate(String key, LDUser user, Set<String> privateAttrs) {
+            boolean result = config.allAttributesPrivate()
+                    || config.getPrivateAttributeNames().contains(key)
+                    || user.getPrivateAttributeNames().contains(key);
+            result = result && (!key.equals(LDUser.DEVICE) && !key.equals(LDUser.OS));
+
+            if (result) {
+                privateAttrs.add(key);
+            }
+            return result;
+        }
+
     }
 }
