@@ -545,4 +545,5 @@ public class LDClient implements LDClientInterface, Closeable {
             }
         }
     }
+
 }

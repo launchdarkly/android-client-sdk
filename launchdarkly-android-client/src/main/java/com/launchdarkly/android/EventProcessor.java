@@ -101,7 +101,7 @@ class EventProcessor implements Closeable {
         }
 
         private void postEvents(List<Event> events) {
-            String content = LDConfig.GSON.toJson(events);
+            String content = config.getFilteredEventGson().toJson(events);
             Request request = config.getRequestBuilder()
                     .url(config.getEventsUri().toString())
                     .post(RequestBody.create(JSON, content))

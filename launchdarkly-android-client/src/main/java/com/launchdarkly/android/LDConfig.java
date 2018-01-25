@@ -6,10 +6,15 @@ import android.util.Log;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 import okhttp3.MediaType;
 import okhttp3.Request;
 
 public class LDConfig {
+
     private static final String TAG = "LDConfig";
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
@@ -45,6 +50,11 @@ public class LDConfig {
     private final boolean disableBackgroundUpdating;
     private final boolean useReport;
 
+    private final boolean allAttributesPrivate;
+    private final Set<String> privateAttributeNames;
+
+    private final Gson filteredEventGson;
+
     public LDConfig(String mobileKey,
                     Uri baseUri,
                     Uri eventsUri,
@@ -57,7 +67,10 @@ public class LDConfig {
                     int pollingIntervalMillis,
                     int backgroundPollingIntervalMillis,
                     boolean disableBackgroundUpdating,
-                    boolean useReport) {
+                    boolean useReport,
+                    boolean allAttributesPrivate,
+                    Set<String> privateAttributeNames) {
+
         this.mobileKey = mobileKey;
         this.baseUri = baseUri;
         this.eventsUri = eventsUri;
@@ -71,6 +84,13 @@ public class LDConfig {
         this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
         this.useReport = useReport;
+        this.allAttributesPrivate = allAttributesPrivate;
+        this.privateAttributeNames = privateAttributeNames;
+
+        this.filteredEventGson = new GsonBuilder()
+                .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
+                .excludeFieldsWithoutExposeAnnotation().create();
+
     }
 
     public Request.Builder getRequestBuilder() {
@@ -131,6 +151,18 @@ public class LDConfig {
         return disableBackgroundUpdating;
     }
 
+    public boolean allAttributesPrivate() {
+        return allAttributesPrivate;
+    }
+
+    public Set<String> getPrivateAttributeNames() {
+        return Collections.unmodifiableSet(privateAttributeNames);
+    }
+
+    public Gson getFilteredEventGson() {
+        return filteredEventGson;
+    }
+
     public static class Builder {
         private String mobileKey;
 
@@ -148,6 +180,26 @@ public class LDConfig {
         private boolean stream = true;
         private boolean disableBackgroundUpdating = false;
         private boolean useReport = false;
+
+        private boolean allAttributesPrivate = false;
+        private Set<String> privateAttributeNames = new HashSet<>();
+
+        /**
+         * Sets the flag for making all attributes private. The default is false.
+         */
+        public Builder allAttributesPrivate() {
+            this.allAttributesPrivate = true;
+            return this;
+        }
+
+        /**
+         * Sets the name of private attributes.
+         * Private attributes are not sent to LaunchDarkly.
+         */
+        public Builder setPrivateAttributeNames(Set<String> privateAttributeNames) {
+            this.privateAttributeNames = Collections.unmodifiableSet(privateAttributeNames);
+            return this;
+        }
 
         /**
          * Sets the key for authenticating with LaunchDarkly. This is required unless you're using the client in offline mode.
@@ -342,7 +394,9 @@ public class LDConfig {
                     pollingIntervalMillis,
                     backgroundPollingIntervalMillis,
                     disableBackgroundUpdating,
-                    useReport);
+                    useReport,
+                    allAttributesPrivate,
+                    privateAttributeNames);
         }
     }
 }
