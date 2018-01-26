@@ -14,10 +14,12 @@ echo "Starting android-client release."
 VERSION=$1
 
 # Update version in gradle.properties file:
-sed -e "s/version[ ]*=.*$/version = '${VERSION}'/" -i '' launchdarkly-android-client/build.gradle
+sed -i.bak "s/version[ ]*=.*$/version = '${VERSION}'/" launchdarkly-android-client/build.gradle
+rm -f launchdarkly-android-client/build.gradle.bak
 
 # Update version in README.md:
-sed -e "s/com.launchdarkly:launchdarkly-android-client:[^']*/com.launchdarkly:launchdarkly-android-client:${VERSION}/" -i '' README.md
+sed -i.bak "s/com.launchdarkly:launchdarkly-android-client:[^']*/com.launchdarkly:launchdarkly-android-client:${VERSION}/" README.md
+rm -f README.md.bak
 
 ./gradlew test sourcesJar javadocJar packageRelease uploadArchives closeAndReleaseRepository
 ./gradlew publishGhPages
