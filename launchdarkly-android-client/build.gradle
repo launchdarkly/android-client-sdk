@@ -1,5 +1,5 @@
 apply plugin: 'com.android.library'
-apply plugin: 'maven'
+apply plugin: 'com.github.dcendents.android-maven'
 apply plugin: 'signing'
 apply plugin: 'org.ajoberstar.github-pages'
 // make sure this line comes *after* you apply the Android plugin
@@ -8,7 +8,7 @@ apply plugin: 'io.codearte.nexus-staging'
 
 allprojects {
     group = 'com.launchdarkly'
-    version = '2.1.1'
+    version = '2.2.0'
 }
 
 gradle.projectsEvaluated {
@@ -105,6 +105,7 @@ buildscript {
         classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.3'
         classpath 'com.getkeepsafe.dexcount:dexcount-gradle-plugin:0.8.2'
         classpath "io.codearte.gradle.nexus:gradle-nexus-staging-plugin:0.8.0"
+        classpath 'com.github.dcendents:android-maven-gradle-plugin:2.0'
     }
 }
 
