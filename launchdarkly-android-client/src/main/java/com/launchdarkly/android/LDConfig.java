@@ -26,7 +26,7 @@ public class LDConfig {
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
     static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
     static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
-    static final int MIN_POLLING_INTERVAL_MILLIS = 60_000; // 1 minute
+    static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
     private final String mobileKey;
 
