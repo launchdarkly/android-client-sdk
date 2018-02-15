@@ -30,8 +30,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
     }
 
     dexOptions {
@@ -43,7 +43,7 @@ android {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "com.google.code.gson:gson:2.8.2"
-    implementation 'com.android.support:appcompat-v7:26.0.1'
+    implementation 'com.android.support:appcompat-v7:26.1.0'
     implementation project(path: ':launchdarkly-android-client')
     implementation 'com.android.support:multidex:1.0.2'
     // Comment the previous line and uncomment this one to depend on the published artifact:
