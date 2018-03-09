@@ -22,6 +22,4 @@
 -dontwarn com.google.j2objc.annotations.Weak
 -dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
 
--dontwarn afu.org.checkerframework.**
--dontwarn org.checkerframework.**
 -dontwarn com.google.errorprone.annotations.**
