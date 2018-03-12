@@ -8,7 +8,9 @@ apply plugin: 'io.codearte.nexus-staging'
 
 allprojects {
     group = 'com.launchdarkly'
-    version = '2.2.0'
+    version = '2.2.1'
+    sourceCompatibility = 1.7
+    targetCompatibility = 1.7
 }
 
 gradle.projectsEvaluated {
@@ -39,8 +41,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
     }
 
     packagingOptions {
