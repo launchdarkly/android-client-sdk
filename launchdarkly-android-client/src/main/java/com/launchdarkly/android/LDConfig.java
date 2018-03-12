@@ -26,12 +26,12 @@ public class LDConfig {
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
     static final int DEFAULT_EVENTS_CAPACITY = 100;
-    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 5000;
+    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30000;
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10000;
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
     static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
     static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
-    static final int MIN_POLLING_INTERVAL_MILLIS = 60_000; // 1 minute
+    static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
     private final String mobileKey;
 
