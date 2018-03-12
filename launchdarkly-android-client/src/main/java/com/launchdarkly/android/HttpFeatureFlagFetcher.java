@@ -22,18 +22,20 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 import static com.launchdarkly.android.LDConfig.GSON;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
+
     private static final String TAG = "LDFeatureFlagFetcher";
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
+
     private static HttpFeatureFlagFetcher instance;
 
     private final LDConfig config;
     private final Context context;
-    private final Cache cache;
     private final OkHttpClient client;
 
     private volatile boolean isOffline = false;
@@ -52,13 +54,11 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         this.context = context;
         this.isOffline = config.isOffline();
 
-        File cacheDir = context.getDir("launchdarkly_api_cache", Context.MODE_PRIVATE);
-        deleteRecursive(cacheDir);
+        File cacheDir = context.getCacheDir();
         Log.d(TAG, "Using cache at: " + cacheDir.getAbsolutePath());
 
-        cache = new Cache(cacheDir, MAX_CACHE_SIZE_BYTES);
         client = new OkHttpClient.Builder()
-                .cache(cache)
+                .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
                 .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .retryOnConnectionFailure(true)
                 .build();
@@ -85,7 +85,10 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                 public void onResponse(Call call, final Response response) throws IOException {
                     String body = "";
                     try {
-                        body = response.body().string();
+                        ResponseBody responseBody = response.body();
+                        if (responseBody != null) {
+                            body = responseBody.string();
+                        }
                         if (!response.isSuccessful()) {
                             if (response.code() == 400) {
                                 Log.e(TAG, "Received 400 response when fetching flag values. Please check recommended ProGuard settings");
@@ -152,12 +155,4 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         isOffline = false;
     }
 
-    private void deleteRecursive(File fileOrDirectory) {
-        if (fileOrDirectory.isDirectory()) {
-            for (File child : fileOrDirectory.listFiles()) {
-                deleteRecursive(child);
-            }
-        }
-        fileOrDirectory.delete();
-    }
 }
