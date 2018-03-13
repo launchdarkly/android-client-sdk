@@ -22,8 +22,8 @@ public class UserFlagVersionSharedPreferencesTest {
 
     @Test
     public void savesFlagVersions() {
-        UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
-        UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true));
+        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
+        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true));
 
         VersionSharedPreferences versionSharedPreferences
                 = new UserFlagVersionSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
@@ -40,7 +40,7 @@ public class UserFlagVersionSharedPreferencesTest {
 
     @Test
     public void deletesFlagVersions() {
-        UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
+        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
 
         VersionSharedPreferences versionSharedPreferences
                 = new UserFlagVersionSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
@@ -56,7 +56,7 @@ public class UserFlagVersionSharedPreferencesTest {
 
     @Test
     public void updatesFlagVersions() {
-        UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
+        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
         UserFlagResponse updatedKey1 = new UserFlagResponse(key1.getKey(), key1.getValue(), 15.0f);
 
         VersionSharedPreferences versionSharedPreferences
@@ -74,8 +74,8 @@ public class UserFlagVersionSharedPreferencesTest {
 
     @Test
     public void clearsFlagVersions() {
-        UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
-        UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14.0f);
+        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12.0f);
+        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14.0f);
 
         VersionSharedPreferences versionSharedPreferences
                 = new UserFlagVersionSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");

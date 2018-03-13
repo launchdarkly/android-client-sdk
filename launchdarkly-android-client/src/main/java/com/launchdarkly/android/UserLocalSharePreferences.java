@@ -140,11 +140,14 @@ class UserLocalSharedPreferences {
         return listeners.get(key);
     }
 
-    void registerListener(String key, FeatureFlagChangeListener listener) {
-        SharedPreferences.OnSharedPreferenceChangeListener sharedPrefsListener = (sharedPreferences, s) -> {
-            if (s.equals(key)) {
-                Timber.d("Found changed flag: [" + key + "]");
-                listener.onFeatureFlagChange(s);
+    void registerListener(final String key, final FeatureFlagChangeListener listener) {
+        SharedPreferences.OnSharedPreferenceChangeListener sharedPrefsListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
+            @Override
+            public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String s) {
+                if (s.equals(key)) {
+                    Timber.d("Found changed flag: [" + key + "]");
+                    listener.onFeatureFlagChange(s);
+                }
             }
         };
         synchronized (listeners) {

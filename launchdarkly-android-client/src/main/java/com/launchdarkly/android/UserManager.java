@@ -11,6 +11,7 @@ import android.support.annotation.VisibleForTesting;
 import android.util.Base64;
 import android.util.Pair;
 
+import com.google.common.base.Function;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -33,6 +34,7 @@ import com.launchdarkly.android.response.interpreter.PutFlagResponseInterpreter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
 import timber.log.Timber;
@@ -75,7 +77,12 @@ class UserManager {
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
         this.versionSharedPreferences = new UserFlagVersionSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
 
-        jsonParser = new Util.LazySingleton<>(JsonParser::new);
+        jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
+            @Override
+            public JsonParser get() {
+                return new JsonParser();
+            }
+        });
     }
 
     LDUser getCurrentUser() {
@@ -121,7 +128,13 @@ class UserManager {
         });
 
         // Transform the Future<JsonObject> to Future<Void> since the caller doesn't care about the result.
-        return Futures.transform(fetchFuture, input -> null);
+        return Futures.transform(fetchFuture, new Function<JsonObject, Void>() {
+            @javax.annotation.Nullable
+            @Override
+            public Void apply(@javax.annotation.Nullable JsonObject input) {
+                return null;
+            }
+        });
     }
 
     @SuppressWarnings("SameParameterValue")
@@ -171,77 +184,86 @@ class UserManager {
         return initialized;
     }
 
-    ListenableFuture<Void> deleteCurrentUserFlag(@NonNull String json) {
+    ListenableFuture<Void> deleteCurrentUserFlag(@NonNull final String json) {
 
         JsonObject jsonObject = parseJson(json);
-        FlagResponseStore<FlagResponse> responseStore
+        final FlagResponseStore<FlagResponse> responseStore
                 = new UserFlagResponseStore<>(jsonObject, new DeleteFlagResponseInterpreter());
 
         ListeningExecutorService service = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
-        return service.submit(() -> {
-            initialized = true;
-            FlagResponse flagResponse = responseStore.getFlagResponse();
-            if (flagResponse != null) {
-                if (versionSharedPreferences.isVersionValid(flagResponse)) {
-                    versionSharedPreferences.deleteStoredVersion(flagResponse);
+        return service.submit(new Callable<Void>() {
+            @Override
+            public Void call() throws Exception {
+                initialized = true;
+                FlagResponse flagResponse = responseStore.getFlagResponse();
+                if (flagResponse != null) {
+                    if (versionSharedPreferences.isVersionValid(flagResponse)) {
+                        versionSharedPreferences.deleteStoredVersion(flagResponse);
 
-                    userLocalSharedPreferences.deleteCurrentUserFlag(flagResponse.getKey());
-                    syncCurrentUserToActiveUserAndLog();
+                        userLocalSharedPreferences.deleteCurrentUserFlag(flagResponse.getKey());
+                        UserManager.this.syncCurrentUserToActiveUserAndLog();
+                    }
+                } else {
+                    Timber.d("Invalid DELETE payload: %s", json);
                 }
-            } else {
-                Timber.d("Invalid DELETE payload: %s", json);
+                return null;
             }
-            return null;
         });
     }
 
-    ListenableFuture<Void> putCurrentUserFlags(String json) {
+    ListenableFuture<Void> putCurrentUserFlags(final String json) {
 
         JsonObject jsonObject = parseJson(json);
-        FlagResponseStore<List<FlagResponse>> responseStore =
+        final FlagResponseStore<List<FlagResponse>> responseStore =
                 new UserFlagResponseStore<>(jsonObject, new PutFlagResponseInterpreter());
 
         ListeningExecutorService service = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
-        return service.submit(() -> {
-            initialized = true;
-            Timber.d("PUT for user key: %s", currentUser.getKey());
+        return service.submit(new Callable<Void>() {
+            @Override
+            public Void call() throws Exception {
+                initialized = true;
+                Timber.d("PUT for user key: %s", currentUser.getKey());
 
-            List<FlagResponse> flagResponseList = responseStore.getFlagResponse();
-            if (flagResponseList != null) {
-                versionSharedPreferences.clear();
-                versionSharedPreferences.saveAll(flagResponseList);
+                List<FlagResponse> flagResponseList = responseStore.getFlagResponse();
+                if (flagResponseList != null) {
+                    versionSharedPreferences.clear();
+                    versionSharedPreferences.saveAll(flagResponseList);
 
-                userLocalSharedPreferences.saveCurrentUserFlags(getSharedPreferencesEntries(flagResponseList));
-                syncCurrentUserToActiveUserAndLog();
-            } else {
-                Timber.d("Invalid PUT payload: %s", json);
+                    userLocalSharedPreferences.saveCurrentUserFlags(UserManager.this.getSharedPreferencesEntries(flagResponseList));
+                    UserManager.this.syncCurrentUserToActiveUserAndLog();
+                } else {
+                    Timber.d("Invalid PUT payload: %s", json);
+                }
+                return null;
             }
-            return null;
         });
     }
 
-    ListenableFuture<Void> patchCurrentUserFlags(@NonNull String json) {
+    ListenableFuture<Void> patchCurrentUserFlags(@NonNull final String json) {
 
         JsonObject jsonObject = parseJson(json);
-        FlagResponseStore<FlagResponse> responseStore
+        final FlagResponseStore<FlagResponse> responseStore
                 = new UserFlagResponseStore<>(jsonObject, new PatchFlagResponseInterpreter());
 
         ListeningExecutorService service = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
-        return service.submit(() -> {
-            initialized = true;
-            FlagResponse flagResponse = responseStore.getFlagResponse();
-            if (flagResponse != null) {
-                if (versionSharedPreferences.isVersionValid(flagResponse)) {
-                    versionSharedPreferences.updateStoredVersion(flagResponse);
+        return service.submit(new Callable<Void>() {
+            @Override
+            public Void call() throws Exception {
+                initialized = true;
+                FlagResponse flagResponse = responseStore.getFlagResponse();
+                if (flagResponse != null) {
+                    if (versionSharedPreferences.isVersionValid(flagResponse)) {
+                        versionSharedPreferences.updateStoredVersion(flagResponse);
 
-                    UserLocalSharedPreferences.SharedPreferencesEntries sharedPreferencesEntries = getSharedPreferencesEntries(flagResponse);
-                    userLocalSharedPreferences.patchCurrentUserFlags(sharedPreferencesEntries);
-                    syncCurrentUserToActiveUserAndLog();
+                        UserLocalSharedPreferences.SharedPreferencesEntries sharedPreferencesEntries = UserManager.this.getSharedPreferencesEntries(flagResponse);
+                        userLocalSharedPreferences.patchCurrentUserFlags(sharedPreferencesEntries);
+                        UserManager.this.syncCurrentUserToActiveUserAndLog();
+                    }
+                } else {
+                    Timber.d("Invalid PATCH payload: %s", json);
                 }
-            } else {
-                Timber.d("Invalid PATCH payload: %s", json);
+                return null;
             }
-            return null;
         });
 
     }

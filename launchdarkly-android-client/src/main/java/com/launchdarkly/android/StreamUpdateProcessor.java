@@ -74,18 +74,21 @@ class StreamUpdateProcessor implements UpdateProcessor {
                 }
 
                 @Override
-                public void onMessage(String name, MessageEvent event) throws Exception {
+                public void onMessage(final String name, MessageEvent event) throws Exception {
                     Timber.d("onMessage: name: %s", name);
                     final String eventData = event.getData();
-                    Callable<Void> updateCurrentUserFunction = () -> {
-                        Timber.d("consumeThis: event: %s", eventData);
-                        if (!initialized.getAndSet(true)) {
-                            initFuture.setFuture(handle(name, eventData));
-                            Timber.i("Initialized LaunchDarkly streaming connection");
-                        } else {
-                            handle(name, eventData);
+                    Callable<Void> updateCurrentUserFunction = new Callable<Void>() {
+                        @Override
+                        public Void call() throws Exception {
+                            Timber.d("consumeThis: event: %s", eventData);
+                            if (!initialized.getAndSet(true)) {
+                                initFuture.setFuture(handle(name, eventData));
+                                Timber.i("Initialized LaunchDarkly streaming connection");
+                            } else {
+                                handle(name, eventData);
+                            }
+                            return null;
                         }
-                        return null;
                     };
 
                     queue.call(updateCurrentUserFunction);
@@ -176,7 +179,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
         Timber.d("Stopping.");
         if (es != null) {
             // We do this in a separate thread because closing the stream involves a network operation and we don't want to do a network operation on the main thread.
-            executor.execute(this::stopSync);
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    stopSync();
+                }
+            });
         }
     }
 
@@ -195,9 +203,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
     @Override
     public synchronized void restart() {
-        executor.execute(() -> {
-            stopSync();
-            start();
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                StreamUpdateProcessor.this.stopSync();
+                StreamUpdateProcessor.this.start();
+            }
         });
     }
 

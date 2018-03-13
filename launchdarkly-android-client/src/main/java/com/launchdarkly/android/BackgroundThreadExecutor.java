@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Farhan
  * 2018-01-15
- *
+ * <p>
  * Executes all threads with priority android.os.Process.THREAD_PRIORITY_BACKGROUND.
  */
 class BackgroundThreadExecutor {
@@ -24,10 +24,8 @@ class BackgroundThreadExecutor {
 
     @SuppressWarnings("SameParameterValue")
     ExecutorService newFixedThreadPool(int nThreads) {
-        return new ThreadPoolExecutor(nThreads, nThreads,
-                0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(),
-                threadFactory);
+        return new ThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<Runnable>(), threadFactory);
     }
 
     private static class PriorityThreadFactory implements ThreadFactory {
@@ -40,12 +38,15 @@ class BackgroundThreadExecutor {
 
         @Override
         public Thread newThread(@NonNull final Runnable runnable) {
-            Runnable wrapperRunnable = () -> {
-                try {
-                    android.os.Process.setThreadPriority(threadPriority);
-                } catch (Throwable ignored) {
+            Runnable wrapperRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        android.os.Process.setThreadPriority(threadPriority);
+                    } catch (Throwable ignored) {
+                    }
+                    runnable.run();
                 }
-                runnable.run();
             };
             return new Thread(wrapperRunnable);
         }
