@@ -22,6 +22,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -252,9 +253,12 @@ public class LDClient implements LDClientInterface, Closeable {
         if (!config.isStream()) {
             doneFuture = userManager.updateCurrentUser();
         } else {
-            doneFuture = Executors.newSingleThreadExecutor().submit(() -> {
-                updateProcessor.restart();
-                return null;
+            doneFuture = Executors.newSingleThreadExecutor().submit(new Callable<Void>() {
+                @Override
+                public Void call() throws Exception {
+                    updateProcessor.restart();
+                    return null;
+                }
             });
         }
 

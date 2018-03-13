@@ -117,7 +117,10 @@ public class UserManagerTest extends EasyMockSupport {
 
     @Test
     public void TestRegisterUnregisterListener() {
-        FeatureFlagChangeListener listener = flagKey -> {
+        FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
+            @Override
+            public void onFeatureFlagChange(String flagKey) {
+            }
         };
 
         userManager.registerListener("key", listener);
@@ -133,7 +136,10 @@ public class UserManagerTest extends EasyMockSupport {
 
     @Test
     public void TestUnregisterListenerWithDuplicates() {
-        FeatureFlagChangeListener listener = flagKey -> {
+        FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
+            @Override
+            public void onFeatureFlagChange(String flagKey) {
+            }
         };
 
         userManager.registerListener("key", listener);
