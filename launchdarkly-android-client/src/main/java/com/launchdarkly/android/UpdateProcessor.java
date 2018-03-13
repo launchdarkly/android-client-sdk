@@ -23,4 +23,9 @@ interface UpdateProcessor {
      * @return
      */
     boolean isInitialized();
+
+    /**
+     * Restarts the UpdateProcessor.
+     */
+    void restart();
 }

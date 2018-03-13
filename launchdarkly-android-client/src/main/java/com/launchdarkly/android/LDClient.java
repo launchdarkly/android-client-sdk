@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -244,9 +245,21 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             Log.w(TAG, "identify called with null user or null user key!");
         }
+
+        Future<Void> doneFuture;
         userManager.setCurrentUser(user);
-        Future<Void> doneFuture = userManager.updateCurrentUser();
+
+        if (!config.isStream()) {
+            doneFuture = userManager.updateCurrentUser();
+        } else {
+            doneFuture = Executors.newSingleThreadExecutor().submit(() -> {
+                updateProcessor.restart();
+                return null;
+            });
+        }
+
         sendEvent(new IdentifyEvent(user));
+
         return doneFuture;
     }
 
