@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.3.0] - 2018-03-21
+### Added
+- Support for enhanced feature streams, facilitating reduced SDK initialization times.
+
 ## [2.2.1] - 2018-03-11
 ### Changed
 - The minimum polling interval is now 5 minutes, and the default event publishing interval is 30 seconds.

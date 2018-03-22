@@ -2,9 +2,10 @@ package com.launchdarkly.android;
 
 
 import android.content.Context;
-import android.util.Log;
 
 import com.google.common.util.concurrent.ListenableFuture;
+
+import timber.log.Timber;
 
 class PollingUpdateProcessor implements UpdateProcessor {
     private final String TAG = "LDPollingUpdater";
@@ -20,19 +21,25 @@ class PollingUpdateProcessor implements UpdateProcessor {
 
     @Override
     public ListenableFuture<Void> start() {
-        Log.d(TAG, "Starting PollingUpdateProcessor");
+        Timber.d("Starting PollingUpdateProcessor");
         PollingUpdater.startPolling(context, config.getPollingIntervalMillis(), config.getPollingIntervalMillis());
         return userManager.updateCurrentUser();
     }
 
     @Override
     public void stop() {
-        Log.d(TAG, "Stopping PollingUpdateProcessor");
+        Timber.d("Stopping PollingUpdateProcessor");
         PollingUpdater.stop(context);
     }
 
     @Override
     public boolean isInitialized() {
         return userManager.isInitialized();
+    }
+
+    @Override
+    public void restart() {
+        stop();
+        start();
     }
 }

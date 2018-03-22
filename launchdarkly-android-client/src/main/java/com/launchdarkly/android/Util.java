@@ -5,7 +5,7 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.util.Log;
 
-public class Util {
+class Util {
     private static final String TAG = "LDUtil";
 
     /**
@@ -26,4 +26,25 @@ public class Util {
         }
     }
 
+    static class LazySingleton<T> {
+
+        private final Provider<T> provider;
+        private T instance;
+
+        LazySingleton(Provider<T> provider) {
+            this.provider = provider;
+        }
+
+        public T get() {
+            if (instance == null) {
+                instance = provider.get();
+            }
+            return instance;
+        }
+    }
+
+    interface Provider<T> {
+
+        T get();
+    }
 }
