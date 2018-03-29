@@ -3,6 +3,7 @@ package com.launchdarkly.android;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.util.Log;
 
@@ -21,6 +22,7 @@ import com.google.gson.JsonSyntaxException;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -28,6 +30,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.launchdarkly.android.Util.isInternetConnected;
 
@@ -50,6 +54,89 @@ public class LDClient implements LDClientInterface, Closeable {
     private final FeatureFlagFetcher fetcher;
 
     private volatile boolean isOffline = false;
+
+    private final Throttler setOnlineThrottler = new Throttler(new Runnable() {
+        @Override
+        public void run() {
+            setOnlineStatus();
+        }
+    });
+
+    /**
+     * Throttler class used to rate-limit invocations of a {@link Runnable}.
+     * Uses exponential backoff with random jitter to determine delay between multiple calls.
+     */
+    private class Throttler {
+        private static final long MAX_RETRY_TIME_MS = 600000; // 10 minutes
+        private static final long RETRY_TIME_MS = 1000; // 1 second
+        private final Random jitter = new Random();
+        private AtomicInteger attempts = new AtomicInteger(0);
+        private AtomicBoolean maxAttemptsReached = new AtomicBoolean(false);
+        private final Handler handler = new Handler();
+        @NonNull private final Runnable runnable;
+        private final Runnable attemptsResetRunnable = new Runnable() {
+            @Override
+            public void run() {
+                runnable.run();
+                attempts.set(0);
+            }
+        };
+
+        private Throttler(@NonNull Runnable runnable) {
+            this.runnable = runnable;
+        }
+
+        private void attemptRun() {
+            // First invocation is instant, as is the first invocation after throttling has ended
+            if (attempts.get() == 0) {
+                runnable.run();
+                attempts.getAndIncrement();
+                return;
+            }
+
+            long jitterVal = calculateJitterVal(attempts.getAndIncrement());
+
+            // Once the max retry time is reached, just let it run out
+            if (!maxAttemptsReached.get()) {
+                if (jitterVal == MAX_RETRY_TIME_MS) {
+                    maxAttemptsReached.set(true);
+                }
+                long sleepTimeMs = backoffWithJitter(jitterVal);
+                handler.removeCallbacks(attemptsResetRunnable);
+                handler.postDelayed(attemptsResetRunnable, sleepTimeMs);
+            }
+        }
+
+        private long calculateJitterVal(int reconnectAttempts) {
+            return Math.min(MAX_RETRY_TIME_MS, RETRY_TIME_MS * pow2(reconnectAttempts));
+        }
+
+        private long backoffWithJitter(long jitterVal) {
+            return jitterVal / 2 + nextLong(jitter, jitterVal) / 2;
+        }
+
+        // Returns 2**k, or Integer.MAX_VALUE if 2**k would overflow
+        private int pow2(int k) {
+            return (k < Integer.SIZE - 1) ? (1 << k) : Integer.MAX_VALUE;
+        }
+
+        // Adapted from http://stackoverflow.com/questions/2546078/java-random-long-number-in-0-x-n-range
+        // Since ThreadLocalRandom.current().nextLong(n) requires Android 5
+        private long nextLong(Random rand, long bound) {
+            if (bound <= 0) {
+                throw new IllegalArgumentException("bound must be positive");
+            }
+
+            long r = rand.nextLong() & Long.MAX_VALUE;
+            long m = bound - 1L;
+            if ((bound & m) == 0) { // i.e., bound is a power of 2
+                r = (bound * r) >> (Long.SIZE - 1);
+            } else {
+                for (long u = r; u - (r = u % bound) + m < 0L; u = rand.nextLong() & Long.MAX_VALUE) ;
+            }
+            return r;
+        }
+    }
 
     /**
      * Initializes the singleton instance. The result is a {@link Future} which
@@ -501,8 +588,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public synchronized void setOnline() {
+        setOnlineThrottler.attemptRun();
+    }
+
+    private void setOnlineStatus() {
         Log.d(TAG, "Setting isOffline = false");
-        this.isOffline = false;
+        isOffline = false;
         fetcher.setOnline();
         startForegroundUpdating();
         eventProcessor.start();
