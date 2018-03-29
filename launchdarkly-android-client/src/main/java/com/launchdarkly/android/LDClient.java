@@ -79,6 +79,7 @@ public class LDClient implements LDClientInterface, Closeable {
             public void run() {
                 runnable.run();
                 attempts.set(0);
+                maxAttemptsReached.set(false);
             }
         };
 
