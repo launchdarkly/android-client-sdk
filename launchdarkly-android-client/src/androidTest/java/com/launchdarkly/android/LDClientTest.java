@@ -147,4 +147,17 @@ public class LDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
+    @UiThreadTest
+    @Test
+    public void TestSetOnlineThrottler() throws InterruptedException {
+        LDConfig testConfig = new LDConfig.Builder().setMobileKey("MOBILE_KEY").setOffline(false).build();
+        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), testConfig, ldUser, 1);
+        ldClient.setOnline();
+        assertEquals(false, ldClient.isOffline());
+        ldClient.setOffline();
+        ldClient.setOnline();
+        // Will still be offline because of 1 second delay
+        assertEquals(true, ldClient.isOffline());
+    }
+
 }
