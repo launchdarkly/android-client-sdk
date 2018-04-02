@@ -37,6 +37,7 @@ public class LDClientTest {
     public void setUp() {
         ldConfig = new LDConfig.Builder()
                 .setOffline(true)
+                .setMobileKey("MOBILE_KEY")
                 .build();
 
         ldUser = new LDUser.Builder("userKey").build();
@@ -149,7 +150,7 @@ public class LDClientTest {
 
     @UiThreadTest
     @Test
-    public void TestSetOnlineThrottler() throws InterruptedException {
+    public void TestSetOnlineThrottler() {
         LDConfig testConfig = new LDConfig.Builder().setMobileKey("MOBILE_KEY").setOffline(false).build();
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), testConfig, ldUser, 1);
         ldClient.setOnline();
