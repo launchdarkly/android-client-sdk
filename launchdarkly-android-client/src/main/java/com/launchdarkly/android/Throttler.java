@@ -69,11 +69,11 @@ class Throttler {
         }
     }
 
-    private long calculateJitterVal(int reconnectAttempts) {
+    long calculateJitterVal(int reconnectAttempts) {
         return Math.min(maxRetryTimeMs, retryTimeMs * pow2(reconnectAttempts));
     }
 
-    private long backoffWithJitter(long jitterVal) {
+    long backoffWithJitter(long jitterVal) {
         return jitterVal / 2 + nextLong(jitter, jitterVal) / 2;
     }
 
