@@ -20,6 +20,7 @@ import com.google.gson.JsonSyntaxException;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -46,15 +47,16 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final long MAX_RETRY_TIME_MS = 600000; // 10 minutes
     private static final long RETRY_TIME_MS = 1000; // 1 second
 
+    private final WeakReference<Application> application;
     private final LDConfig config;
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
     private final UpdateProcessor updateProcessor;
     private final FeatureFlagFetcher fetcher;
+    private final Throttler throttler;
 
     private volatile boolean isOffline = false;
-
-    private final Throttler throttler;
+    private volatile boolean isAppForegrounded = true;
 
     /**
      * Initializes the singleton instance. The result is a {@link Future} which
@@ -169,6 +171,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.i(TAG, "Creating LaunchDarkly client. Version: " + BuildConfig.VERSION_NAME);
         this.config = config;
         this.isOffline = config.isOffline();
+        this.application = new WeakReference<>(application);
 
         SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
 
@@ -190,7 +193,8 @@ public class LDClient implements LDClientInterface, Closeable {
             @Override
             public void onBecameForeground() {
                 PollingUpdater.stop(application);
-                if (!isOffline() && isInternetConnected(application)) {
+                isAppForegrounded = true;
+                if (isInternetConnected(application)) {
                     startForegroundUpdating();
                 }
             }
@@ -198,9 +202,8 @@ public class LDClient implements LDClientInterface, Closeable {
             @Override
             public void onBecameBackground() {
                 stopForegroundUpdating();
-                if (!config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
-                    PollingUpdater.startBackgroundPolling(application);
-                }
+                isAppForegrounded = false;
+                startBackgroundPolling();
             }
         };
         foreground.addListener(foregroundListener);
@@ -521,7 +524,11 @@ public class LDClient implements LDClientInterface, Closeable {
         Log.d(TAG, "Setting isOffline = false");
         isOffline = false;
         fetcher.setOnline();
-        startForegroundUpdating();
+        if (isAppForegrounded) {
+            startForegroundUpdating();
+        } else {
+            startBackgroundPolling();
+        }
         eventProcessor.start();
     }
 
@@ -564,6 +571,13 @@ public class LDClient implements LDClientInterface, Closeable {
     void startForegroundUpdating() {
         if (!isOffline()) {
             updateProcessor.start();
+        }
+    }
+
+    void startBackgroundPolling() {
+        Application application = this.application.get();
+        if (application != null && !config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
+            PollingUpdater.startBackgroundPolling(application);
         }
     }
 
