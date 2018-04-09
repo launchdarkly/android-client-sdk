@@ -69,7 +69,7 @@ class Throttler {
         }
     }
 
-    void cancelWithoutResetting() {
+    void cancel() {
         handler.removeCallbacks(attemptsResetRunnable);
     }
 
