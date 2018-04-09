@@ -505,6 +505,7 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public synchronized void setOffline() {
         Log.d(TAG, "Setting isOffline = true");
+        throttler.cancelWithoutResetting();
         isOffline = true;
         fetcher.setOffline();
         stopForegroundUpdating();

@@ -69,6 +69,10 @@ class Throttler {
         }
     }
 
+    void cancelWithoutResetting() {
+        handler.removeCallbacks(attemptsResetRunnable);
+    }
+
     long calculateJitterVal(int reconnectAttempts) {
         return Math.min(maxRetryTimeMs, retryTimeMs * pow2(reconnectAttempts));
     }
