@@ -4,7 +4,6 @@ import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.support.annotation.NonNull;
-import android.util.Log;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -29,6 +28,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import timber.log.Timber;
+
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 /**
@@ -36,7 +37,6 @@ import static com.launchdarkly.android.Util.isInternetConnected;
  * The main entry point is the {@link #init(Application, LDConfig, LDUser)} method.
  */
 public class LDClient implements LDClientInterface, Closeable {
-    private static final String TAG = "LaunchDarkly";
 
     private static final String INSTANCE_ID_KEY = "instanceId";
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
@@ -84,7 +84,7 @@ public class LDClient implements LDClientInterface, Closeable {
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
         if (instance != null) {
-            Log.w(TAG, "LDClient.init() was called more than once! returning existing instance.");
+            Timber.w( "LDClient.init() was called more than once! returning existing instance.");
             settableFuture.set(instance);
             return settableFuture;
         }
@@ -134,14 +134,14 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
-        Log.i(TAG, "Initializing Client and waiting up to " + startWaitSeconds + " for initialization to complete");
+        Timber.i("Initializing Client and waiting up to " + startWaitSeconds + " for initialization to complete");
         Future<LDClient> initFuture = init(application, config, user);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
-            Log.e(TAG, "Exception during Client initialization", e);
+            Timber.e(e, "Exception during Client initialization");
         } catch (TimeoutException e) {
-            Log.w(TAG, "Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
+            Timber.w("Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
                     "It could be taking longer than expected to start up");
         }
         return instance;
@@ -153,7 +153,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     public static LDClient get() throws LaunchDarklyException {
         if (instance == null) {
-            Log.e(TAG, "LDClient.get() was called before init()!");
+            Timber.e("LDClient.get() was called before init()!");
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
         return instance;
@@ -161,7 +161,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @VisibleForTesting
     protected LDClient(final Application application, @NonNull final LDConfig config) {
-        Log.i(TAG, "Creating LaunchDarkly client. Version: " + BuildConfig.VERSION_NAME);
+        Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.isOffline = config.isOffline();
 
@@ -169,14 +169,14 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
             String uuid = UUID.randomUUID().toString();
-            Log.i(TAG, "Did not find existing instance id. Saving a new one");
+            Timber.i("Did not find existing instance id. Saving a new one");
             SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
             editor.putString(INSTANCE_ID_KEY, uuid);
             editor.apply();
         }
 
         instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
-        Log.i(TAG, "Using instance id: " + instanceId);
+        Timber.i("Using instance id: " + instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.init(application, config);
         this.userManager = UserManager.init(application, fetcher);
@@ -203,7 +203,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (config.isStream()) {
             this.updateProcessor = new StreamUpdateProcessor(config, userManager);
         } else {
-            Log.i(TAG, "Streaming is disabled. Starting LaunchDarkly Client in polling mode");
+            Timber.i("Streaming is disabled. Starting LaunchDarkly Client in polling mode");
             this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
         }
         eventProcessor = new EventProcessor(application, config);
@@ -244,7 +244,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         if (user.getKey() == null) {
-            Log.w(TAG, "identify called with null user or null user key!");
+            Timber.w("identify called with null user or null user key!");
         }
 
         Future<Void> doneFuture;
@@ -296,11 +296,11 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getBoolean(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Log.e(TAG, "Attempted to get boolean flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback, cce);
+            Timber.e(cce, "Attempted to get boolean flag that exists as another type for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         } catch (NullPointerException npe) {
-            Log.e(TAG, "Attempted to get boolean flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback, npe);
+            Timber.e(npe, "Attempted to get boolean flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         }
         if (result == null && fallback == null) {
             sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
@@ -311,7 +311,7 @@ public class LDClient implements LDClientInterface, Closeable {
         } else {
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
-        Log.d(TAG, "boolVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("boolVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -333,11 +333,11 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = (int) userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Log.e(TAG, "Attempted to get integer flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback, cce);
+            Timber.e(cce, "Attempted to get integer flag that exists as another type for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         } catch (NullPointerException npe) {
-            Log.e(TAG, "Attempted to get integer flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback, npe);
+            Timber.e(npe, "Attempted to get integer flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         }
         if (result == null && fallback == null) {
             sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
@@ -348,7 +348,7 @@ public class LDClient implements LDClientInterface, Closeable {
         } else {
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
-        Log.d(TAG, "intVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("intVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -370,11 +370,11 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Log.e(TAG, "Attempted to get float flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback, cce);
+            Timber.e(cce, "Attempted to get float flag that exists as another type for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         } catch (NullPointerException npe) {
-            Log.e(TAG, "Attempted to get float flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback, npe);
+            Timber.e(npe, "Attempted to get float flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         }
         if (result == null && fallback == null) {
             sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
@@ -385,7 +385,7 @@ public class LDClient implements LDClientInterface, Closeable {
         } else {
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
-        Log.d(TAG, "floatVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("floatVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -407,11 +407,11 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getString(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Log.e(TAG, "Attempted to get string flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback, cce);
+            Timber.e(cce, "Attempted to get string flag that exists as another type for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         } catch (NullPointerException npe) {
-            Log.e(TAG, "Attempted to get string flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback, npe);
+            Timber.e(npe, "Attempted to get string flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         }
         if (result == null && fallback == null) {
             sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
@@ -422,7 +422,7 @@ public class LDClient implements LDClientInterface, Closeable {
         } else {
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
-        Log.d(TAG, "stringVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("stringVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -447,17 +447,17 @@ public class LDClient implements LDClientInterface, Closeable {
                 result = new JsonParser().parse(stringResult);
             }
         } catch (ClassCastException cce) {
-            Log.e(TAG, "Attempted to get json (string) flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback, cce);
+            Timber.e(cce, "Attempted to get json (string) flag that exists as another type for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         } catch (NullPointerException npe) {
-            Log.e(TAG, "Attempted to get json (string flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback, npe);
+            Timber.e(npe, "Attempted to get json (string flag with a default null value for key: "
+                    + flagKey + " Returning fallback: " + fallback);
         } catch (JsonSyntaxException jse) {
-            Log.e(TAG, "Attempted to get json (string flag that exists as another type for key: " +
-                    flagKey + " Returning fallback: " + fallback, jse);
+            Timber.e(jse, "Attempted to get json (string flag that exists as another type for key: " +
+                    flagKey + " Returning fallback: " + fallback);
         }
         sendFlagRequestEvent(flagKey, result, fallback);
-        Log.d(TAG, "jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -492,7 +492,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public synchronized void setOffline() {
-        Log.d(TAG, "Setting isOffline = true");
+        Timber.d("Setting isOffline = true");
         isOffline = true;
         fetcher.setOffline();
         stopForegroundUpdating();
@@ -501,7 +501,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public synchronized void setOnline() {
-        Log.d(TAG, "Setting isOffline = false");
+        Timber.d("Setting isOffline = false");
         this.isOffline = false;
         fetcher.setOnline();
         startForegroundUpdating();
@@ -558,7 +558,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (!isOffline()) {
             boolean processed = eventProcessor.sendEvent(event);
             if (!processed) {
-                Log.w(TAG, "Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+                Timber.w("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
             }
         }
     }
