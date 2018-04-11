@@ -1,7 +1,6 @@
 package com.launchdarkly.android;
 
 import android.net.Uri;
-import android.util.Log;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -12,10 +11,10 @@ import java.util.Set;
 
 import okhttp3.MediaType;
 import okhttp3.Request;
+import timber.log.Timber;
 
 public class LDConfig {
 
-    private static final String TAG = "LDConfig";
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
@@ -350,26 +349,26 @@ public class LDConfig {
         public LDConfig build() {
             if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    Log.w(TAG, "setPollingIntervalMillis: " + pollingIntervalMillis
+                    Timber.w("setPollingIntervalMillis: " + pollingIntervalMillis
                             + " was set below the allowed minimum of: " + MIN_POLLING_INTERVAL_MILLIS + ". Ignoring and using minimum value.");
                     pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                    Log.w(TAG, "BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
+                    Timber.w("BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
                             " was set below the foreground polling interval: " + pollingIntervalMillis + ". Ignoring and using minimum value for background polling.");
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (eventsFlushIntervalMillis == 0) {
                     eventsFlushIntervalMillis = pollingIntervalMillis;
-                    Log.d(TAG, "Streaming is disabled, so we're setting the events flush interval to the polling interval value: " + pollingIntervalMillis);
+                    Timber.d("Streaming is disabled, so we're setting the events flush interval to the polling interval value: %s", pollingIntervalMillis);
                 }
             }
 
             if (!disableBackgroundUpdating) {
                 if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
-                    Log.w(TAG, "BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
+                    Timber.w("BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
                             " was set below the minimum allowed: " + MIN_BACKGROUND_POLLING_INTERVAL_MILLIS + ". Ignoring and using minimum value.");
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }

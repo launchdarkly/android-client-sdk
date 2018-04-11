@@ -8,7 +8,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import timber.log.Timber;
 
 class PollingUpdateProcessor implements UpdateProcessor {
-    private final String TAG = "LDPollingUpdater";
     private final Context context;
     private final UserManager userManager;
     private final LDConfig config;

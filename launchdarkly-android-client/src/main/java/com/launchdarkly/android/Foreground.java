@@ -7,10 +7,11 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import timber.log.Timber;
 
 // From: https://gist.github.com/steveliles/11116937
 
@@ -48,7 +49,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 class Foreground implements Application.ActivityLifecycleCallbacks {
 
     static final long CHECK_DELAY = 500;
-    static final String TAG = Foreground.class.getName();
 
     interface Listener {
 
@@ -137,16 +137,16 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
             handler.removeCallbacks(check);
 
         if (wasBackground) {
-            Log.d(TAG, "went foreground");
+            Timber.d("went foreground");
             for (Listener l : listeners) {
                 try {
                     l.onBecameForeground();
                 } catch (Exception exc) {
-                    Log.e(TAG, "Listener threw exception!", exc);
+                    Timber.e(exc, "Listener threw exception!");
                 }
             }
         } else {
-            Log.d(TAG, "still foreground");
+            Timber.d("still foreground");
         }
     }
 
@@ -162,16 +162,16 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
             public void run() {
                 if (foreground && paused) {
                     foreground = false;
-                    Log.d(TAG, "went background");
+                    Timber.d("went background");
                     for (Listener l : listeners) {
                         try {
                             l.onBecameBackground();
                         } catch (Exception exc) {
-                            Log.e(TAG, "Listener threw exception!", exc);
+                            Timber.e(exc, "Listener threw exception!");
                         }
                     }
                 } else {
-                    Log.d(TAG, "still foreground");
+                    Timber.d("still foreground");
                 }
             }
         }, CHECK_DELAY);

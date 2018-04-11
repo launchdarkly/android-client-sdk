@@ -5,7 +5,6 @@ import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import android.util.Base64;
-import android.util.Log;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -25,6 +24,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import timber.log.Timber;
+
 /**
  * A {@code LDUser} object contains specific attributes of a user browsing your site. The only mandatory property property is the {@code key},
  * which must uniquely identify each user. For authenticated users, this may be a username or e-mail address. For anonymous users,
@@ -38,7 +39,6 @@ import java.util.regex.Pattern;
  * launch a feature to the top 10% of users on a site.
  */
 public class LDUser {
-    private static final String TAG = "LDUser";
     private static final UserHasher USER_HASHER = new UserHasher();
 
     private static final String KEY = "key";
@@ -93,7 +93,7 @@ public class LDUser {
 
     protected LDUser(Builder builder) {
         if (builder.key == null || builder.key.equals("")) {
-            Log.w(TAG, "User was created with null/empty key. " +
+            Timber.w("User was created with null/empty key. " +
                     "Using device-unique anonymous user key: " + LDClient.getInstanceId());
             this.key = new JsonPrimitive(LDClient.getInstanceId());
             this.anonymous = new JsonPrimitive(true);
@@ -327,7 +327,7 @@ public class LDUser {
                 List<LDCountryCode> codes = LDCountryCode.findByName("^" + Pattern.quote(s) + ".*");
 
                 if (codes.isEmpty()) {
-                    Log.w(TAG, "Invalid country. Expected valid ISO-3166-1 code: " + s);
+                    Timber.w("Invalid country. Expected valid ISO-3166-1 code: %s", s);
                 } else if (codes.size() > 1) {
                     // See if any of the codes is an exact match
                     for (LDCountryCode c : codes) {
@@ -336,7 +336,7 @@ public class LDUser {
                             return countryCode;
                         }
                     }
-                    Log.w(TAG, "Ambiguous country. Provided code matches multiple countries: " + s);
+                    Timber.w("Ambiguous country. Provided code matches multiple countries: %s", s);
                     countryCode = codes.get(0);
                 } else {
                     countryCode = codes.get(0);
@@ -684,7 +684,7 @@ public class LDUser {
         private void checkCustomAttribute(String key) {
             for (UserAttribute a : UserAttribute.values()) {
                 if (a.name().equals(key)) {
-                    Log.w(TAG, "Built-in attribute key: " + key + " added as custom attribute! This custom attribute will be ignored during Feature Flag evaluation");
+                    Timber.w("Built-in attribute key: " + key + " added as custom attribute! This custom attribute will be ignored during Feature Flag evaluation");
                     return;
                 }
             }
