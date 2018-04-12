@@ -44,7 +44,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static String instanceId = "UNKNOWN_ANDROID";
     private static LDClient instance = null;
 
-    private static final long MAX_RETRY_TIME_MS = 600000; // 10 minutes
+    private static final long MAX_RETRY_TIME_MS = 3600000; // 1 hour
     private static final long RETRY_TIME_MS = 1000; // 1 second
 
     private final WeakReference<Application> application;
