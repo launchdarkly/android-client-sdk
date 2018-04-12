@@ -2,7 +2,6 @@ package com.launchdarkly.android;
 
 
 import android.content.Context;
-import android.util.Log;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
@@ -23,13 +22,13 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.GSON;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
-    private static final String TAG = "LDFeatureFlagFetcher";
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
     private static HttpFeatureFlagFetcher instance;
@@ -55,7 +54,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         this.isOffline = config.isOffline();
 
         File cacheDir = context.getCacheDir();
-        Log.d(TAG, "Using cache at: " + cacheDir.getAbsolutePath());
+        Timber.d("Using cache at: %s", cacheDir.getAbsolutePath());
 
         client = new OkHttpClient.Builder()
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
@@ -72,12 +71,12 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
             final Request request = config.isUseReport() ? getReportRequest(user) : getDefaultRequest(user);
 
-            Log.d(TAG, request.toString());
+            Timber.d(request.toString());
             Call call = client.newCall(request);
             call.enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {
-                    Log.e(TAG, "Exception when fetching flags.", e);
+                    Timber.e(e, "Exception when fetching flags.");
                     doneFuture.setException(e);
                 }
 
@@ -91,21 +90,21 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                         }
                         if (!response.isSuccessful()) {
                             if (response.code() == 400) {
-                                Log.e(TAG, "Received 400 response when fetching flag values. Please check recommended ProGuard settings");
+                                Timber.e("Received 400 response when fetching flag values. Please check recommended ProGuard settings");
                             }
                             throw new IOException("Unexpected response when retrieving Feature Flags: " + response + " using url: "
                                     + request.url() + " with body: " + body);
                         }
-                        Log.d(TAG, body);
-                        Log.d(TAG, "Cache hit count: " + client.cache().hitCount() + " Cache network Count: " + client.cache().networkCount());
-                        Log.d(TAG, "Cache response: " + response.cacheResponse());
-                        Log.d(TAG, "Network response: " + response.networkResponse());
+                        Timber.d(body);
+                        Timber.d("Cache hit count: " + client.cache().hitCount() + " Cache network Count: " + client.cache().networkCount());
+                        Timber.d("Cache response: %s", response.cacheResponse());
+                        Timber.d("Network response: %s", response.networkResponse());
 
                         JsonParser parser = new JsonParser();
                         JsonObject jsonObject = parser.parse(body).getAsJsonObject();
                         doneFuture.set(jsonObject);
                     } catch (Exception e) {
-                        Log.e(TAG, "Exception when handling response for url: " + request.url() + " with body: " + body, e);
+                        Timber.e(e, "Exception when handling response for url: " + request.url() + " with body: " + body);
                         doneFuture.setException(e);
                     } finally {
                         if (response != null) {
@@ -126,7 +125,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
     private Request getDefaultRequest(LDUser user) {
         String uri = config.getBaseUri() + "/msdk/eval/users/" + user.getAsUrlSafeBase64();
-        Log.d(TAG, "Attempting to fetch Feature flags using uri: " + uri);
+        Timber.d("Attempting to fetch Feature flags using uri: %s", uri);
         final Request request = config.getRequestBuilder() // default GET verb
                 .url(uri)
                 .build();
@@ -135,7 +134,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
     private Request getReportRequest(LDUser user) {
         String reportUri = config.getBaseUri() + "/msdk/eval/user";
-        Log.d(TAG, "Attempting to report user using uri: " + reportUri);
+        Timber.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), userJson);
         final Request report = config.getRequestBuilder()
