@@ -31,6 +31,8 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private static final String PATCH = "patch";
     private static final String DELETE = "delete";
 
+    private static final long MAX_RECONNECT_TIME_MS = 3600000; // 1 hour
+
     private EventSource es;
     private final LDConfig config;
     private final UserManager userManager;
@@ -132,6 +134,8 @@ class StreamUpdateProcessor implements UpdateProcessor {
                 builder.method(METHOD_REPORT);
                 builder.body(getRequestBody(userManager.getCurrentUser()));
             }
+
+            builder.maxReconnectTimeMs(MAX_RECONNECT_TIME_MS);
 
             es = builder.build();
             es.start();

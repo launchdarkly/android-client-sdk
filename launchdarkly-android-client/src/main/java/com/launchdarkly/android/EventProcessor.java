@@ -2,7 +2,6 @@ package com.launchdarkly.android;
 
 
 import android.content.Context;
-import android.util.Log;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
@@ -22,12 +21,12 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 class EventProcessor implements Closeable {
-    private static final String TAG = "LDEventProcessor";
     private final BlockingQueue<Event> queue;
     private final Consumer consumer;
     private final OkHttpClient client;
@@ -108,14 +107,14 @@ class EventProcessor implements Closeable {
                     .addHeader("Content-Type", "application/json")
                     .build();
 
-            Log.d(TAG, "Posting " + events.size() + " event(s) to " + request.url());
+            Timber.d("Posting " + events.size() + " event(s) to " + request.url());
 
             Response response = null;
             try {
                 response = client.newCall(request).execute();
-                Log.d(TAG, "Events Response: " + response.code());
+                Timber.d("Events Response: %s", response.code());
             } catch (IOException e) {
-                Log.e(TAG, "Unhandled exception in LaunchDarkly client attempting to connect to URI: " + request.url(), e);
+                Timber.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
             } finally {
                 if (response != null) response.close();
             }
