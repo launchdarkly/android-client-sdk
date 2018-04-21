@@ -3,6 +3,12 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.3.1] - 2018-04-20
+### Changed
+- SDK logging is now using [Timber](https://github.com/JakeWharton/timber).
+- Increased the maximum backoff time for stream reconnection to 1 hour.
+- The `setOnline()` method may be throttled if called too frequently.
+
 ## [2.3.0] - 2018-03-21
 ### Added
 - Support for enhanced feature streams, facilitating reduced SDK initialization times.

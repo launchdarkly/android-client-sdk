@@ -3,10 +3,10 @@ package com.launchdarkly.android;
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
-import android.util.Log;
+
+import timber.log.Timber;
 
 class Util {
-    private static final String TAG = "LDUtil";
 
     /**
      * Looks at both the Android device status and the {@link LDClient} to determine if any network calls should be made.
@@ -21,7 +21,7 @@ class Util {
         try {
             return deviceConnected && !LDClient.get().isOffline();
         } catch (LaunchDarklyException e) {
-            Log.e(TAG, "Exception caught when getting LDClient", e);
+            Timber.e(e,"Exception caught when getting LDClient");
             return false;
         }
     }

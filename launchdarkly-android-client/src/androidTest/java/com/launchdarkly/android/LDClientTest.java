@@ -146,5 +146,4 @@ public class LDClientTest {
         assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
-
 }
