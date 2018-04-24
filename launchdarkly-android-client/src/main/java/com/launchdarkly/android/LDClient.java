@@ -95,6 +95,9 @@ public class LDClient implements LDClientInterface, Closeable {
             settableFuture.set(instance);
             return settableFuture;
         }
+        if (BuildConfig.DEBUG) {
+            Timber.plant(new Timber.DebugTree());
+        }
         instance = new LDClient(application, config);
         instance.userManager.setCurrentUser(user);
 
