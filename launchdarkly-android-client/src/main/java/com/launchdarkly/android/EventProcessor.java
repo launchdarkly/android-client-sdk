@@ -2,11 +2,16 @@ package com.launchdarkly.android;
 
 
 import android.content.Context;
+import android.os.Build;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.launchdarkly.android.tls.ModernTLSSocketFactory;
+import com.launchdarkly.android.tls.SSLHandshakeInterceptor;
+import com.launchdarkly.android.tls.TLSUtils;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -29,7 +34,7 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 class EventProcessor implements Closeable {
     private final BlockingQueue<Event> queue;
     private final Consumer consumer;
-    private final OkHttpClient client;
+    private OkHttpClient client;
     private final Context context;
     private final LDConfig config;
     private ScheduledExecutorService scheduler;
@@ -40,11 +45,22 @@ class EventProcessor implements Closeable {
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
 
-        client = new OkHttpClient.Builder()
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
-                .build();
+                .addInterceptor(new SSLHandshakeInterceptor());
+
+        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
+            try {
+                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
+            } catch (GeneralSecurityException ignored) {
+                // TLS is not available, so don't set up the socket factory, swallow the exception
+            }
+        }
+
+        client = builder.build();
+
     }
 
     void start() {
