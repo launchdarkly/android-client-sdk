@@ -34,7 +34,7 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 class EventProcessor implements Closeable {
     private final BlockingQueue<Event> queue;
     private final Consumer consumer;
-    private OkHttpClient client;
+    private final OkHttpClient client;
     private final Context context;
     private final LDConfig config;
     private ScheduledExecutorService scheduler;
