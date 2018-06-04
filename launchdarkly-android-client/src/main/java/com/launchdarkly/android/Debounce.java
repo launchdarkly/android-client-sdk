@@ -41,7 +41,7 @@ public class Debounce {
                     inFlight = null;
                     schedulePending();
                 }
-            });
+            }, MoreExecutors.directExecutor());
 
         }
     }

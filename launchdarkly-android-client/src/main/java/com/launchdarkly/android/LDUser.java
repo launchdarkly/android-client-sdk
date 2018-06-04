@@ -719,6 +719,12 @@ public class LDUser {
 
         @Override
         public void write(JsonWriter out, LDUser user) throws IOException {
+            // Unless `inlineUsersInEvents` is true, there may be no user to write.
+            if (user == null) {
+                out.nullValue();
+                return;
+            }
+
             // Collect the private attribute names
             Set<String> privateAttributeNames = new HashSet<>(config.getPrivateAttributeNames());
 

@@ -33,6 +33,7 @@ public class LDConfigTest {
         assertEquals(false, config.isDisableBackgroundPolling());
 
         assertEquals(null, config.getMobileKey());
+        assertFalse(config.inlineUsersInEvents());
     }
 
 

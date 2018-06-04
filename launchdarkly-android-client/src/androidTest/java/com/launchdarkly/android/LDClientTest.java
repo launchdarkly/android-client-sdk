@@ -48,6 +48,7 @@ public class LDClientTest {
     @Test
     public void TestOfflineClientReturnsFallbacks() throws ExecutionException, InterruptedException {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        ldClient.clearSummaryEventSharedPreferences();
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -60,6 +61,8 @@ public class LDClientTest {
         JsonObject expectedJson = new JsonObject();
         expectedJson.addProperty("field", "value");
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+
+        ldClient.clearSummaryEventSharedPreferences();
     }
 
     @UiThreadTest
@@ -67,6 +70,7 @@ public class LDClientTest {
     @Test
     public void GivenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() throws ExecutionException, InterruptedException {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        ldClient.clearSummaryEventSharedPreferences();
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -76,6 +80,8 @@ public class LDClientTest {
         assertEquals(null, ldClient.floatVariation("floatFlag", null));
         assertEquals(null, ldClient.intVariation("intFlag", null));
         assertEquals(null, ldClient.stringVariation("stringFlag", null));
+
+        ldClient.clearSummaryEventSharedPreferences();
     }
 
     @UiThreadTest
