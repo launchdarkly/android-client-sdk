@@ -22,10 +22,12 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import com.launchdarkly.android.response.FlagResponse;
+import com.launchdarkly.android.response.FlagResponseSharedPreferences;
 import com.launchdarkly.android.response.FlagResponseStore;
+import com.launchdarkly.android.response.SummaryEventSharedPreferences;
+import com.launchdarkly.android.response.UserFlagResponseSharedPreferences;
 import com.launchdarkly.android.response.UserFlagResponseStore;
-import com.launchdarkly.android.response.UserFlagVersionSharedPreferences;
-import com.launchdarkly.android.response.VersionSharedPreferences;
+import com.launchdarkly.android.response.UserSummaryEventSharedPreferences;
 import com.launchdarkly.android.response.interpreter.DeleteFlagResponseInterpreter;
 import com.launchdarkly.android.response.interpreter.PatchFlagResponseInterpreter;
 import com.launchdarkly.android.response.interpreter.PingFlagResponseInterpreter;
@@ -35,7 +37,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 
 import timber.log.Timber;
 
@@ -54,10 +56,13 @@ class UserManager {
 
     private final Application application;
     private final UserLocalSharedPreferences userLocalSharedPreferences;
-    private final VersionSharedPreferences versionSharedPreferences;
+    private final FlagResponseSharedPreferences flagResponseSharedPreferences;
+    private final SummaryEventSharedPreferences summaryEventSharedPreferences;
 
     private LDUser currentUser;
     private final Util.LazySingleton<JsonParser> jsonParser;
+
+    private final ExecutorService executor;
 
     static synchronized UserManager init(Application application, FeatureFlagFetcher fetcher) {
         if (instance != null) {
@@ -75,7 +80,8 @@ class UserManager {
         this.application = application;
         this.fetcher = fetcher;
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
-        this.versionSharedPreferences = new UserFlagVersionSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
+        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
+        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents");
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
             @Override
@@ -83,6 +89,7 @@ class UserManager {
                 return new JsonParser();
             }
         });
+        executor = new BackgroundThreadExecutor().newFixedThreadPool(1);
     }
 
     LDUser getCurrentUser() {
@@ -92,6 +99,15 @@ class UserManager {
     SharedPreferences getCurrentUserSharedPrefs() {
         return userLocalSharedPreferences.getCurrentUserSharedPrefs();
     }
+
+    FlagResponseSharedPreferences getFlagResponseSharedPreferences() {
+        return flagResponseSharedPreferences;
+    }
+
+    SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
+        return summaryEventSharedPreferences;
+    }
+
 
     /**
      * Sets the current user. If there are more than MAX_USERS stored in shared preferences,
@@ -125,7 +141,7 @@ class UserManager {
                 }
                 syncCurrentUserToActiveUserAndLog();
             }
-        });
+        }, MoreExecutors.directExecutor());
 
         // Transform the Future<JsonObject> to Future<Void> since the caller doesn't care about the result.
         return Futures.transform(fetchFuture, new Function<JsonObject, Void>() {
@@ -134,7 +150,7 @@ class UserManager {
             public Void apply(@javax.annotation.Nullable JsonObject input) {
                 return null;
             }
-        });
+        }, MoreExecutors.directExecutor());
     }
 
     @SuppressWarnings("SameParameterValue")
@@ -153,7 +169,7 @@ class UserManager {
     /**
      * Saves the flags param to {@link SharedPreferences} for the current user.
      * Completely overwrites all values in the current user's {@link SharedPreferences} and
-     * saves those values to the active user, triggering any regjh;m,istered {@link FeatureFlagChangeListener}
+     * saves those values to the active user, triggering any registered {@link FeatureFlagChangeListener}
      * objects.
      *
      * @param flags
@@ -166,6 +182,8 @@ class UserManager {
         FlagResponseStore<List<FlagResponse>> responseStore = new UserFlagResponseStore<>(flags, new PingFlagResponseInterpreter());
         List<FlagResponse> flagResponseList = responseStore.getFlagResponse();
         if (flagResponseList != null) {
+            flagResponseSharedPreferences.clear();
+            flagResponseSharedPreferences.saveAll(flagResponseList);
             userLocalSharedPreferences.saveCurrentUserFlags(getSharedPreferencesEntries(flagResponseList));
             syncCurrentUserToActiveUserAndLog();
         }
@@ -190,15 +208,15 @@ class UserManager {
         final FlagResponseStore<FlagResponse> responseStore
                 = new UserFlagResponseStore<>(jsonObject, new DeleteFlagResponseInterpreter());
 
-        ListeningExecutorService service = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+        ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
         return service.submit(new Callable<Void>() {
             @Override
             public Void call() throws Exception {
                 initialized = true;
                 FlagResponse flagResponse = responseStore.getFlagResponse();
                 if (flagResponse != null) {
-                    if (versionSharedPreferences.isVersionValid(flagResponse)) {
-                        versionSharedPreferences.deleteStoredVersion(flagResponse);
+                    if (flagResponseSharedPreferences.isVersionValid(flagResponse)) {
+                        flagResponseSharedPreferences.deleteStoredFlagResponse(flagResponse);
 
                         userLocalSharedPreferences.deleteCurrentUserFlag(flagResponse.getKey());
                         UserManager.this.syncCurrentUserToActiveUserAndLog();
@@ -217,7 +235,7 @@ class UserManager {
         final FlagResponseStore<List<FlagResponse>> responseStore =
                 new UserFlagResponseStore<>(jsonObject, new PutFlagResponseInterpreter());
 
-        ListeningExecutorService service = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+        ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
         return service.submit(new Callable<Void>() {
             @Override
             public Void call() throws Exception {
@@ -226,8 +244,8 @@ class UserManager {
 
                 List<FlagResponse> flagResponseList = responseStore.getFlagResponse();
                 if (flagResponseList != null) {
-                    versionSharedPreferences.clear();
-                    versionSharedPreferences.saveAll(flagResponseList);
+                    flagResponseSharedPreferences.clear();
+                    flagResponseSharedPreferences.saveAll(flagResponseList);
 
                     userLocalSharedPreferences.saveCurrentUserFlags(UserManager.this.getSharedPreferencesEntries(flagResponseList));
                     UserManager.this.syncCurrentUserToActiveUserAndLog();
@@ -245,15 +263,15 @@ class UserManager {
         final FlagResponseStore<FlagResponse> responseStore
                 = new UserFlagResponseStore<>(jsonObject, new PatchFlagResponseInterpreter());
 
-        ListeningExecutorService service = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+        ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
         return service.submit(new Callable<Void>() {
             @Override
             public Void call() throws Exception {
                 initialized = true;
                 FlagResponse flagResponse = responseStore.getFlagResponse();
                 if (flagResponse != null) {
-                    if (versionSharedPreferences.isVersionValid(flagResponse)) {
-                        versionSharedPreferences.updateStoredVersion(flagResponse);
+                    if (flagResponse.isVersionMissing() || flagResponseSharedPreferences.isVersionValid(flagResponse)) {
+                        flagResponseSharedPreferences.updateStoredFlagResponse(flagResponse);
 
                         UserLocalSharedPreferences.SharedPreferencesEntries sharedPreferencesEntries = UserManager.this.getSharedPreferencesEntries(flagResponse);
                         userLocalSharedPreferences.patchCurrentUserFlags(sharedPreferencesEntries);
@@ -341,9 +359,9 @@ class UserManager {
         return null;
     }
 
-    @VisibleForTesting()
-    void clearVersionSharedPreferences() {
-        this.versionSharedPreferences.clear();
+    @VisibleForTesting
+    void clearFlagResponseSharedPreferences() {
+        this.flagResponseSharedPreferences.clear();
     }
 
 }

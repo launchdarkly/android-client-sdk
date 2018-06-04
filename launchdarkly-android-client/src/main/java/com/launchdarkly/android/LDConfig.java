@@ -54,6 +54,8 @@ public class LDConfig {
 
     private final Gson filteredEventGson;
 
+    private final boolean inlineUsersInEvents;
+
     public LDConfig(String mobileKey,
                     Uri baseUri,
                     Uri eventsUri,
@@ -68,7 +70,8 @@ public class LDConfig {
                     boolean disableBackgroundUpdating,
                     boolean useReport,
                     boolean allAttributesPrivate,
-                    Set<String> privateAttributeNames) {
+                    Set<String> privateAttributeNames,
+                    boolean inlineUsersInEvents) {
 
         this.mobileKey = mobileKey;
         this.baseUri = baseUri;
@@ -85,6 +88,7 @@ public class LDConfig {
         this.useReport = useReport;
         this.allAttributesPrivate = allAttributesPrivate;
         this.privateAttributeNames = privateAttributeNames;
+        this.inlineUsersInEvents = inlineUsersInEvents;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -162,6 +166,10 @@ public class LDConfig {
         return filteredEventGson;
     }
 
+    public boolean inlineUsersInEvents() {
+        return inlineUsersInEvents;
+    }
+
     public static class Builder {
         private String mobileKey;
 
@@ -182,6 +190,8 @@ public class LDConfig {
 
         private boolean allAttributesPrivate = false;
         private Set<String> privateAttributeNames = new HashSet<>();
+
+        private boolean inlineUsersInEvents = false;
 
         /**
          * Sets the flag for making all attributes private. The default is false.
@@ -346,6 +356,19 @@ public class LDConfig {
             return this;
         }
 
+        /**
+         * If enabled, events to the server will be created containing the entire User object.
+         * If disabled, events to the server will be created without the entire User object, including only the userKey instead.
+         * Defaults to false in order to reduce network bandwidth.
+         *
+         * @param inlineUsersInEvents
+         * @return
+         */
+        public LDConfig.Builder setInlineUsersInEvents(boolean inlineUsersInEvents) {
+            this.inlineUsersInEvents = inlineUsersInEvents;
+            return this;
+        }
+
         public LDConfig build() {
             if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
@@ -395,7 +418,8 @@ public class LDConfig {
                     disableBackgroundUpdating,
                     useReport,
                     allAttributesPrivate,
-                    privateAttributeNames);
+                    privateAttributeNames,
+                    inlineUsersInEvents);
         }
     }
 }

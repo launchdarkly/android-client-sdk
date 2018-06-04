@@ -1,6 +1,7 @@
 package com.launchdarkly.android.response;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 /**
  * Farhan
@@ -12,5 +13,17 @@ public interface FlagResponse {
 
     JsonElement getValue();
 
-    float getVersion();
+    int getVersion();
+
+    int getFlagVersion();
+
+    Integer getVariation();
+
+    Boolean getTrackEvents();
+
+    Long getDebugEventsUntilDate();
+
+    JsonObject getAsJsonObject();
+
+    boolean isVersionMissing();
 }

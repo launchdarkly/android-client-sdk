@@ -5,6 +5,7 @@ import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Assert;
@@ -45,7 +46,7 @@ public class EventTest {
                 })
                 .build();
 
-        final Event event = new Event("kind1", "key1", user);
+        final Event event = new GenericEvent("kind1", "key1", user);
 
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().get("user").getAsJsonObject().getAsJsonArray(LDUser.LDUserPrivateAttributesTypeAdapter.PRIVATE_ATTRS);
@@ -73,7 +74,7 @@ public class EventTest {
         LDConfig config = new LDConfig.Builder()
                 .build();
 
-        final Event event = new Event("kind1", "key1", user);
+        final Event event = new GenericEvent("kind1", "key1", user);
 
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
 
@@ -98,7 +99,7 @@ public class EventTest {
                 })
                 .build();
 
-        final Event event = new Event("kind1", "key1", user);
+        final Event event = new GenericEvent("kind1", "key1", user);
 
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().get("user").getAsJsonObject().getAsJsonArray(LDUser.LDUserPrivateAttributesTypeAdapter.PRIVATE_ATTRS);
@@ -121,7 +122,7 @@ public class EventTest {
         LDConfig config = new LDConfig.Builder()
                 .build();
 
-        final Event event = new Event("kind1", "key1", user);
+        final Event event = new GenericEvent("kind1", "key1", user);
 
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
 
@@ -143,7 +144,7 @@ public class EventTest {
                 .allAttributesPrivate()
                 .build();
 
-        final Event event = new Event("kind1", "key1", user);
+        final Event event = new GenericEvent("kind1", "key1", user);
 
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().get("user").getAsJsonObject().getAsJsonArray(LDUser.LDUserPrivateAttributesTypeAdapter.PRIVATE_ATTRS);
@@ -159,7 +160,7 @@ public class EventTest {
     }
 
     @Test
-    public void testKeyAndAnanoymousAreNotFilteredWithAllAttributesPrivate() {
+    public void testKeyAndAnonymousAreNotFilteredWithAllAttributesPrivate() {
         LDUser.Builder builder = new LDUser.Builder("1")
                 .email("email@server.net")
                 .anonymous(true);
@@ -170,7 +171,7 @@ public class EventTest {
                 .allAttributesPrivate()
                 .build();
 
-        final Event event = new Event("kind1", "key1", user);
+        final Event event = new GenericEvent("kind1", "key1", user);
 
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().get("user").getAsJsonObject().getAsJsonArray(LDUser.LDUserPrivateAttributesTypeAdapter.PRIVATE_ATTRS);
@@ -182,6 +183,76 @@ public class EventTest {
 
         Assert.assertTrue(jsonElement.toString().contains("key"));
         Assert.assertTrue(jsonElement.toString().contains("anonymous"));
+    }
+
+    @Test
+    public void testUserObjectRemovedFromFeatureEvent() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .email("email@server.net");
+
+        LDUser user = builder.build();
+
+        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user.getKeyAsString(), JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1);
+
+        Assert.assertNull(event.user);
+        Assert.assertEquals(user.getKeyAsString(), event.userKey);
+    }
+
+    @Test
+    public void testFullUserObjectIncludedInFeatureEvent() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .email("email@server.net");
+
+        LDUser user = builder.build();
+
+        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1);
+
+        Assert.assertEquals(user, event.user);
+        Assert.assertNull(event.userKey);
+    }
+
+    @Test
+    public void testUserObjectRemovedFromCustomEvent() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .email("email@server.net");
+
+        LDUser user = builder.build();
+
+        final CustomEvent event = new CustomEvent("key1", user.getKeyAsString(), null);
+
+        Assert.assertNull(event.user);
+        Assert.assertEquals(user.getKeyAsString(), event.userKey);
+    }
+
+    @Test
+    public void testFullUserObjectIncludedInCustomEvent() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .email("email@server.net");
+
+        LDUser user = builder.build();
+
+        final CustomEvent event = new CustomEvent("key1", user, null);
+
+        Assert.assertEquals(user, event.user);
+        Assert.assertNull(event.userKey);
+    }
+
+    @Test
+    public void testOptionalFieldsAreExcludedAppropriately() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .email("email@server.net");
+
+        LDUser user = builder.build();
+
+        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, -1);
+        final FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, 20);
+
+        Assert.assertEquals(5, hasVersionEvent.version, 0.0f);
+        Assert.assertNull(hasVersionEvent.variation);
+
+        Assert.assertEquals(20, hasVariationEvent.variation, 0);
+        Assert.assertNull(hasVariationEvent.version);
+
     }
 
 
