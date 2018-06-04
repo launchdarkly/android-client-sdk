@@ -3,6 +3,14 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.4.0] - 2018-06-03
+### Added
+- To reduce the network bandwidth used for analytics events, feature request events are now sent as counters rather than individual events, and user details are now sent only at intervals rather than in each event. These behaviors can be modified through the LaunchDarkly UI and with the new configuration option `inlineUsersInEvents`. For more details, see [Analytics Data Stream Reference](https://docs.launchdarkly.com/v2.0/docs/analytics-data-stream-reference).
+- New method `setInlineUsersInEvents` in `LDConfig`. When `true` includes the full user (excluding private attributes) in analytics `feature` and `custom` events. When `false` includes only the `userKey`. Default: `false`.
+
+### Changed
+- Updated `Timber` dependency to version `4.7.0`.
+
 ## [2.3.2] - 2018-05-02
 ### Fixed
 - Application class removed from SDK, to avoid conflict with apps
