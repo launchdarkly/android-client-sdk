@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.4.1] - 2018-06-06
+### Fixed
+- Removed the unused `com.noveogroup.android:android-logger` dependency that prevented some consuming apps from assembling.
+
 ## [2.4.0] - 2018-06-03
 ### Added
 - To reduce the network bandwidth used for analytics events, feature request events are now sent as counters rather than individual events, and user details are now sent only at intervals rather than in each event. These behaviors can be modified through the LaunchDarkly UI and with the new configuration option `inlineUsersInEvents`. For more details, see [Analytics Data Stream Reference](https://docs.launchdarkly.com/v2.0/docs/analytics-data-stream-reference).
