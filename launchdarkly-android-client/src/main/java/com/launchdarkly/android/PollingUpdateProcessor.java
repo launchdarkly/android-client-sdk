@@ -37,8 +37,8 @@ class PollingUpdateProcessor implements UpdateProcessor {
     }
 
     @Override
-    public void restart() {
+    public ListenableFuture<Void> restart() {
         stop();
-        start();
+        return start();
     }
 }

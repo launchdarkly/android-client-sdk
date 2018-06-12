@@ -27,5 +27,5 @@ interface UpdateProcessor {
     /**
      * Restarts the UpdateProcessor.
      */
-    void restart();
+    ListenableFuture<Void> restart();
 }

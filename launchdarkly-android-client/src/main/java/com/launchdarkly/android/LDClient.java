@@ -25,9 +25,7 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -276,19 +274,13 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.w("identify called with null user or null user key!");
         }
 
-        Future<Void> doneFuture;
+        ListenableFuture<Void> doneFuture;
         userManager.setCurrentUser(user);
 
         if (!config.isStream()) {
             doneFuture = userManager.updateCurrentUser();
         } else {
-            doneFuture = Executors.newSingleThreadExecutor().submit(new Callable<Void>() {
-                @Override
-                public Void call() throws Exception {
-                    updateProcessor.restart();
-                    return null;
-                }
-            });
+            doneFuture = updateProcessor.restart();
         }
 
         sendEvent(new IdentifyEvent(user));
