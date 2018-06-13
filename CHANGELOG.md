@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.5.0] - 2018-06-12
+### Changed
+- `LDClient#identify(LDUser)` now returns a `Future<Void>` so that the app can be notified when flag values have been refreshed for the updated user.
+
 ## [2.4.1] - 2018-06-06
 ### Fixed
 - Removed the unused `com.noveogroup.android:android-logger` dependency that prevented some consuming apps from assembling.
