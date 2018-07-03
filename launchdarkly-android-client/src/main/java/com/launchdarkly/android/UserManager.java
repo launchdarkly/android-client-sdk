@@ -3,6 +3,7 @@ package com.launchdarkly.android;
 
 import android.annotation.SuppressLint;
 import android.app.Application;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.support.annotation.NonNull;
@@ -80,7 +81,9 @@ class UserManager {
         this.application = application;
         this.fetcher = fetcher;
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
-        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
+        //cleanup any obsolete preferences
+        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE).edit().clear().apply();
+        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "flagresponse");
         this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents");
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
