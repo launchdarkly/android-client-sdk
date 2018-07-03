@@ -254,7 +254,7 @@ public class LDUser {
             this.name = user.getName() != null ? user.getName().getAsString() : null;
             this.avatar = user.getAvatar() != null ? user.getAvatar().getAsString() : null;
             this.country = user.getCountry() != null ? LDCountryCode.valueOf(user.getCountry().getAsString()) : null;
-            this.custom = user.custom;
+            this.custom = new HashMap<>(user.custom);
 
             this.privateAttributeNames = new HashSet<>(user.getPrivateAttributeNames());
         }
