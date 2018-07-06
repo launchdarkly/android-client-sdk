@@ -81,9 +81,7 @@ class UserManager {
         this.application = application;
         this.fetcher = fetcher;
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
-        //cleanup any obsolete preferences
-        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE).edit().clear().apply();
-        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "flagresponse");
+        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
         this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents");
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
