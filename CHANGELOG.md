@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.5.1] - 2018-08-13
+### Fixed
+- `ClassCastException` when calling `variation` methods due to internal storage schema changes between releases 2.3.x and 2.4.0.
+- `LDUser.Builder.custom()` no longer returns `UnsupportedOperationException`.
+
 ## [2.5.0] - 2018-06-12
 ### Changed
 - `LDClient#identify(LDUser)` now returns a `Future<Void>` so that the app can be notified when flag values have been refreshed for the updated user.
