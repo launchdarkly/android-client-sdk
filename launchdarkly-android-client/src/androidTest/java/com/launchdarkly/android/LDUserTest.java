@@ -58,4 +58,15 @@ public class LDUserTest {
         Assert.assertEquals(privateAttributeNames.size(), 0);
     }
 
+    @Test
+    public void testModifyExistingUserPrivateAttributes() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .custom("k1", "v1");
+        LDUser user = builder.build();
+        LDUser.Builder existingUserBuilder = new LDUser.Builder(user);
+
+        // An UnsupportedOperationException was previously being thrown in this case
+        existingUserBuilder.custom("k2", "v2");
+    }
+
 }
