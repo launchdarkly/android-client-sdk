@@ -10,21 +10,22 @@ import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
+import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -95,6 +96,9 @@ public class LDClient implements LDClientInterface, Closeable {
             settableFuture.set(instance);
             return settableFuture;
         }
+        if (BuildConfig.DEBUG) {
+            Timber.plant(new Timber.DebugTree());
+        }
         instance = new LDClient(application, config);
         instance.userManager.setCurrentUser(user);
 
@@ -114,7 +118,7 @@ public class LDClient implements LDClientInterface, Closeable {
             public LDClient apply(Void input) {
                 return instance;
             }
-        });
+        }, MoreExecutors.directExecutor());
     }
 
     private static <T> boolean validateParameter(T parameter) {
@@ -214,7 +218,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.i("Streaming is disabled. Starting LaunchDarkly Client in polling mode");
             this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
         }
-        eventProcessor = new EventProcessor(application, config);
+        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences());
 
         throttler = new Throttler(new Runnable() {
             @Override
@@ -232,7 +236,11 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void track(String eventName, JsonElement data) {
-        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data));
+        if (config.inlineUsersInEvents()) {
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data));
+        } else {
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKeyAsString(), data));
+        }
     }
 
     /**
@@ -242,7 +250,11 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void track(String eventName) {
-        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), null));
+        if (config.inlineUsersInEvents()) {
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), null));
+        } else {
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKeyAsString(), null));
+        }
     }
 
     /**
@@ -262,19 +274,13 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.w("identify called with null user or null user key!");
         }
 
-        Future<Void> doneFuture;
+        ListenableFuture<Void> doneFuture;
         userManager.setCurrentUser(user);
 
         if (!config.isStream()) {
             doneFuture = userManager.updateCurrentUser();
         } else {
-            doneFuture = Executors.newSingleThreadExecutor().submit(new Callable<Void>() {
-                @Override
-                public Void call() throws Exception {
-                    updateProcessor.restart();
-                    return null;
-                }
-            });
+            doneFuture = updateProcessor.restart();
         }
 
         sendEvent(new IdentifyEvent(user));
@@ -317,14 +323,20 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.e(npe, "Attempted to get boolean flag with a default null value for key: "
                     + flagKey + " Returning fallback: " + fallback);
         }
+        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
+        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
         if (result == null && fallback == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, null, null);
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
         } else if (result == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
         } else if (fallback == null) {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
         } else {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
         Timber.d("boolVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -354,14 +366,20 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.e(npe, "Attempted to get integer flag with a default null value for key: "
                     + flagKey + " Returning fallback: " + fallback);
         }
+        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
+        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
         if (result == null && fallback == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, null, null);
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
         } else if (result == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
         } else if (fallback == null) {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
         } else {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
         Timber.d("intVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -391,14 +409,20 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.e(npe, "Attempted to get float flag with a default null value for key: "
                     + flagKey + " Returning fallback: " + fallback);
         }
+        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
+        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
         if (result == null && fallback == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, null, null);
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
         } else if (result == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
         } else if (fallback == null) {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
         } else {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
         Timber.d("floatVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -428,14 +452,20 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.e(npe, "Attempted to get string flag with a default null value for key: "
                     + flagKey + " Returning fallback: " + fallback);
         }
+        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
+        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
         if (result == null && fallback == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, null, null);
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
         } else if (result == null) {
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
         } else if (fallback == null) {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE);
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
         } else {
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
         Timber.d("stringVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -471,7 +501,10 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.e(jse, "Attempted to get json (string flag that exists as another type for key: " +
                     flagKey + " Returning fallback: " + fallback);
         }
-        sendFlagRequestEvent(flagKey, result, fallback);
+        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
+        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
+        updateSummaryEvents(flagKey, result, fallback);
+        sendFlagRequestEvent(flagKey, result, fallback, version, variation);
         Timber.d("jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
         return result;
     }
@@ -591,15 +624,31 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
+    private void sendFlagRequestEvent(String flagKey, JsonElement value, JsonElement fallback, int version, int variation) {
+        if (userManager.getFlagResponseSharedPreferences().getStoredTrackEvents(flagKey)) {
+            if (config.inlineUsersInEvents()) {
+                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation));
+            } else {
+                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKeyAsString(), value, fallback, version, variation));
+            }
+        } else {
+            Long debugEventsUntilDate = userManager.getFlagResponseSharedPreferences().getStoredDebugEventsUntilDate(flagKey);
+            if (debugEventsUntilDate != null) {
+                long serverTimeMs = eventProcessor.getCurrentTimeMs();
+                if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
+                    sendEvent(new DebugEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation));
+                }
+            }
+        }
+
+        sendSummaryEvent();
+    }
+
     void startBackgroundPolling() {
         Application application = this.application.get();
         if (application != null && !config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
             PollingUpdater.startBackgroundPolling(application);
         }
-    }
-
-    private void sendFlagRequestEvent(String flagKey, JsonElement value, JsonElement fallback) {
-        sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback));
     }
 
     private void sendEvent(Event event) {
@@ -611,4 +660,51 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
+    /**
+     * Updates the internal representation of a summary event, either adding a new field or updating the existing count.
+     * Nothing is sent to the server.
+     *
+     * @param flagKey  The flagKey that will be updated
+     * @param result   The value that was returned in the evaluation of the flagKey
+     * @param fallback The fallback value used in the evaluation of the flagKey
+     */
+    private void updateSummaryEvents(String flagKey, JsonElement result, JsonElement fallback) {
+        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
+        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
+        boolean isUnknown = !userManager.getFlagResponseSharedPreferences().containsKey(flagKey);
+
+        userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation, isUnknown);
+    }
+
+    /**
+     * Updates the cached summary event that will be sent to the server with the next batch of events.
+     */
+    private void sendSummaryEvent() {
+        JsonObject features = userManager.getSummaryEventSharedPreferences().getFeaturesJsonObject();
+        if (features.keySet().size() == 0) {
+            return;
+        }
+        Long startDate = null;
+        for (String key : features.keySet()) {
+            JsonObject asJsonObject = features.get(key).getAsJsonObject();
+            if (asJsonObject.has("startDate")) {
+                startDate = asJsonObject.get("startDate").getAsLong();
+                asJsonObject.remove("startDate");
+                break;
+            }
+        }
+        SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
+        Timber.d("Sending Summary Event: %s", summaryEvent.toString());
+        eventProcessor.setSummaryEvent(summaryEvent);
+    }
+
+    @VisibleForTesting
+    public void clearSummaryEventSharedPreferences() {
+        userManager.getSummaryEventSharedPreferences().clear();
+    }
+
+    @VisibleForTesting
+    public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
+        return userManager.getSummaryEventSharedPreferences();
+    }
 }

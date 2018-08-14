@@ -206,14 +206,16 @@ class StreamUpdateProcessor implements UpdateProcessor {
     }
 
     @Override
-    public synchronized void restart() {
+    public synchronized ListenableFuture<Void> restart() {
+        final SettableFuture<Void> returnFuture = SettableFuture.create();
         executor.execute(new Runnable() {
             @Override
             public void run() {
                 StreamUpdateProcessor.this.stopSync();
-                StreamUpdateProcessor.this.start();
+                returnFuture.setFuture(StreamUpdateProcessor.this.start());
             }
         });
+        return returnFuture;
     }
 
 }

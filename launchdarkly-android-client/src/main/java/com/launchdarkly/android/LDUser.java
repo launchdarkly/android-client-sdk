@@ -254,7 +254,7 @@ public class LDUser {
             this.name = user.getName() != null ? user.getName().getAsString() : null;
             this.avatar = user.getAvatar() != null ? user.getAvatar().getAsString() : null;
             this.country = user.getCountry() != null ? LDCountryCode.valueOf(user.getCountry().getAsString()) : null;
-            this.custom = user.custom;
+            this.custom = new HashMap<>(user.custom);
 
             this.privateAttributeNames = new HashSet<>(user.getPrivateAttributeNames());
         }
@@ -719,6 +719,12 @@ public class LDUser {
 
         @Override
         public void write(JsonWriter out, LDUser user) throws IOException {
+            // Unless `inlineUsersInEvents` is true, there may be no user to write.
+            if (user == null) {
+                out.nullValue();
+                return;
+            }
+
             // Collect the private attribute names
             Set<String> privateAttributeNames = new HashSet<>(config.getPrivateAttributeNames());
 

@@ -3,6 +3,31 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.5.1] - 2018-08-13
+### Fixed
+- `ClassCastException` when calling `variation` methods due to internal storage schema changes between releases 2.3.x and 2.4.0.
+- `LDUser.Builder.custom()` no longer returns `UnsupportedOperationException`.
+
+## [2.5.0] - 2018-06-12
+### Changed
+- `LDClient#identify(LDUser)` now returns a `Future<Void>` so that the app can be notified when flag values have been refreshed for the updated user.
+
+## [2.4.1] - 2018-06-06
+### Fixed
+- Removed the unused `com.noveogroup.android:android-logger` dependency that prevented some consuming apps from assembling.
+
+## [2.4.0] - 2018-06-03
+### Added
+- To reduce the network bandwidth used for analytics events, feature request events are now sent as counters rather than individual events, and user details are now sent only at intervals rather than in each event. These behaviors can be modified through the LaunchDarkly UI and with the new configuration option `inlineUsersInEvents`. For more details, see [Analytics Data Stream Reference](https://docs.launchdarkly.com/v2.0/docs/analytics-data-stream-reference).
+- New method `setInlineUsersInEvents` in `LDConfig`. When `true` includes the full user (excluding private attributes) in analytics `feature` and `custom` events. When `false` includes only the `userKey`. Default: `false`.
+
+### Changed
+- Updated `Timber` dependency to version `4.7.0`.
+
+## [2.3.2] - 2018-05-02
+### Fixed
+- Application class removed from SDK, to avoid conflict with apps
+
 ## [2.3.1] - 2018-04-20
 ### Changed
 - SDK logging is now using [Timber](https://github.com/JakeWharton/timber).

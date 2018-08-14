@@ -17,7 +17,7 @@ import javax.annotation.Nullable;
  * Farhan
  * 2018-01-30
  */
-public class PingFlagResponseInterpreter implements FlagResponseInterpreter<List<FlagResponse>> {
+public class PingFlagResponseInterpreter extends BaseFlagResponseInterpreter<List<FlagResponse>> {
 
     @NonNull
     @Override
@@ -25,9 +25,20 @@ public class PingFlagResponseInterpreter implements FlagResponseInterpreter<List
         List<FlagResponse> flagResponseList = new ArrayList<>();
         if (input != null) {
             for (Map.Entry<String, JsonElement> entry : input.entrySet()) {
-                JsonElement v = entry.getValue();
                 String key = entry.getKey();
-                flagResponseList.add(new UserFlagResponse(key, v));
+                JsonElement v = entry.getValue();
+
+                if (isValueInsideObject(v)) {
+                    JsonObject asJsonObject = v.getAsJsonObject();
+
+                    Integer variation = getVariation(asJsonObject);
+                    Boolean trackEvents = getTrackEvents(asJsonObject);
+                    Long debugEventsUntilDate = getDebugEventsUntilDate(asJsonObject);
+
+                    flagResponseList.add(new UserFlagResponse(key, asJsonObject.get("value"), variation, trackEvents, debugEventsUntilDate));
+                } else {
+                    flagResponseList.add(new UserFlagResponse(key, v));
+                }
             }
         }
         return flagResponseList;
