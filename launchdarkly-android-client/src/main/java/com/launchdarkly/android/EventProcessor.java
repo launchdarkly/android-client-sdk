@@ -1,13 +1,17 @@
 package com.launchdarkly.android;
 
-
 import android.content.Context;
+import android.os.Build;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.launchdarkly.android.response.SummaryEventSharedPreferences;
+import com.launchdarkly.android.tls.ModernTLSSocketFactory;
+import com.launchdarkly.android.tls.SSLHandshakeInterceptor;
+import com.launchdarkly.android.tls.TLSUtils;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -48,11 +52,22 @@ class EventProcessor implements Closeable {
         this.consumer = new Consumer(config);
         this.summaryEventSharedPreferences = summaryEventSharedPreferences;
 
-        client = new OkHttpClient.Builder()
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
-                .build();
+                .addInterceptor(new SSLHandshakeInterceptor());
+
+        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
+            try {
+                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
+            } catch (GeneralSecurityException ignored) {
+                // TLS is not available, so don't set up the socket factory, swallow the exception
+            }
+        }
+
+        client = builder.build();
+
     }
 
     void start() {

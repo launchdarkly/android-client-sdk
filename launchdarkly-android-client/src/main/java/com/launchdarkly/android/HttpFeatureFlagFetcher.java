@@ -2,14 +2,18 @@ package com.launchdarkly.android;
 
 
 import android.content.Context;
+import android.os.Build;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.launchdarkly.android.tls.ModernTLSSocketFactory;
+import com.launchdarkly.android.tls.TLSUtils;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cache;
@@ -56,11 +60,20 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         File cacheDir = context.getCacheDir();
         Timber.d("Using cache at: %s", cacheDir.getAbsolutePath());
 
-        client = new OkHttpClient.Builder()
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
                 .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
-                .retryOnConnectionFailure(true)
-                .build();
+                .retryOnConnectionFailure(true);
+
+        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
+            try {
+                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
+            } catch (GeneralSecurityException ignored) {
+                // TLS is not available, so don't set up the socket factory, swallow the exception
+            }
+        }
+
+        client = builder.build();
     }
 
     @Override
