@@ -17,6 +17,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -153,7 +154,7 @@ class EventProcessor implements Closeable {
                 Timber.d("Events Response Date: %s", response.header("Date"));
 
                 String dateString = response.header("Date");
-                SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz");
+                SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
                 try {
                     Date date = sdf.parse(dateString);
                     currentTimeMs =  date.getTime();
