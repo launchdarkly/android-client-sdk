@@ -52,10 +52,9 @@ class StreamUpdateProcessor implements UpdateProcessor {
     }
 
     public synchronized ListenableFuture<Void> start() {
-        initFuture = SettableFuture.create();
-        initialized.set(false);
-
         if (!running && !connection401Error) {
+            initFuture = SettableFuture.create();
+            initialized.set(false);
             stop();
             Timber.d("Starting.");
             Headers headers = new Headers.Builder()

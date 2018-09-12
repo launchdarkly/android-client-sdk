@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.5.2] - 2018-09-11
+### Fixed
+- Handling of `Future` returned by `LDClient.init()`
+- `Date` HTTP header parsing specifies US locale
+
 ## [2.5.1] - 2018-08-13
 ### Fixed
 - `ClassCastException` when calling `variation` methods due to internal storage schema changes between releases 2.3.x and 2.4.0.
