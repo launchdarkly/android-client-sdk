@@ -5,6 +5,7 @@ package com.launchdarkly.android;
  */
 
 import android.os.Handler;
+import android.os.Looper;
 import android.support.annotation.NonNull;
 
 import java.util.Random;
@@ -36,7 +37,7 @@ class Throttler {
         jitter = new Random();
         attempts = new AtomicInteger(0);
         maxAttemptsReached = new AtomicBoolean(false);
-        handler = new Handler();
+        handler = new Handler(Looper.getMainLooper());
 
         attemptsResetRunnable = new Runnable() {
             @Override
