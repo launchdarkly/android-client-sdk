@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.5.3] - 2018-09-27
+### Fixed
+- Restored support for initializing `LDClient` on non-main threads
+
 ## [2.5.2] - 2018-09-11
 ### Fixed
 - Handling of `Future` returned by `LDClient.init()`
