@@ -7,6 +7,7 @@ import com.google.gson.GsonBuilder;
 
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import okhttp3.MediaType;
@@ -33,6 +34,7 @@ public class LDConfig {
     static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
     private final String mobileKey;
+    private final Map<String, String> secondaryMobileKeys;
 
     private final Uri baseUri;
     private final Uri eventsUri;
@@ -57,6 +59,7 @@ public class LDConfig {
     private final boolean inlineUsersInEvents;
 
     public LDConfig(String mobileKey,
+                    Map<String, String> secondaryMobileKeys,
                     Uri baseUri,
                     Uri eventsUri,
                     Uri streamUri,
@@ -74,6 +77,7 @@ public class LDConfig {
                     boolean inlineUsersInEvents) {
 
         this.mobileKey = mobileKey;
+        this.secondaryMobileKeys = secondaryMobileKeys;
         this.baseUri = baseUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
@@ -104,6 +108,10 @@ public class LDConfig {
 
     public String getMobileKey() {
         return mobileKey;
+    }
+
+    public Map<String, String> getSecondaryMobileKeys() {
+        return secondaryMobileKeys;
     }
 
     public Uri getBaseUri() {
@@ -172,6 +180,7 @@ public class LDConfig {
 
     public static class Builder {
         private String mobileKey;
+        private Map<String, String> secondaryMobileKeys;
 
         private Uri baseUri = DEFAULT_BASE_URI;
         private Uri eventsUri = DEFAULT_EVENTS_URI;
@@ -217,7 +226,39 @@ public class LDConfig {
          * @return
          */
         public LDConfig.Builder setMobileKey(String mobileKey) {
+            if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
+                // Throw error about reuse of primary mobile key in secondary mobile keys
+            }
+
             this.mobileKey = mobileKey;
+            return this;
+        }
+
+        /**
+         * Sets the secondary keys for authenticating to additional LaunchDarkly environments
+         *
+         * @param secondaryMobileKeys A map of identifying names to unique mobile keys to access secondary environments
+         * @return
+         */
+        public LDConfig.Builder setSecondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
+            if (secondaryMobileKeys == null) {
+                this.secondaryMobileKeys = null;
+                return this;
+            }
+
+            Map<String, String> unmodifiable = Collections.unmodifiableMap(secondaryMobileKeys);
+            if (unmodifiable.containsKey(LDClient.primaryEnvironmentName)) {
+                // Throw error about primary environment name key reuse
+            }
+            Set<String> secondaryKeys = new HashSet<>(unmodifiable.values());
+            if (mobileKey != null && secondaryKeys.contains(mobileKey)) {
+                // Throw error about reuse of primary mobile key in secondary mobile keys
+            }
+            if (unmodifiable.values().size() != secondaryKeys.size()) {
+                // Throw error about key reuse within secondary mobile keys
+            }
+
+            this.secondaryMobileKeys = unmodifiable;
             return this;
         }
 
@@ -405,6 +446,7 @@ public class LDConfig {
 
             return new LDConfig(
                     mobileKey,
+                    secondaryMobileKeys,
                     baseUri,
                     eventsUri,
                     streamUri,
