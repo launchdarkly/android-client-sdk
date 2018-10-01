@@ -69,7 +69,7 @@ The LaunchDarkly Android SDK defaults to what we have found to be the best combi
 
 This configuration means that you will get near real-time updates for your feature flag values when the app is in the foreground.
 
-###Other Options
+### Other Options
 If you prefer other options, here they are:
 
 1. Streaming can be disabled in favor of polling updates. To disable streaming call `.setStream(false)` on the `LDConfig.Builder` object.
