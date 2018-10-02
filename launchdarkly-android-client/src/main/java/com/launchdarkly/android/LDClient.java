@@ -23,6 +23,7 @@ import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -43,7 +44,8 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final String INSTANCE_ID_KEY = "instanceId";
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
     private static String instanceId = "UNKNOWN_ANDROID";
-    private static LDClient instance = null;
+    private static LDClient primaryInstance = null;
+    private static Map<String, LDClient> secondaryInstances = new HashMap<>();
 
     private static final long MAX_RETRY_TIME_MS = 3600000; // 1 hour
     private static final long RETRY_TIME_MS = 1000; // 1 second
@@ -59,8 +61,10 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isOffline = false;
     private volatile boolean isAppForegrounded = true;
 
+    public static String primaryEnvironmentName = UUID.randomUUID().toString().replace("-", "");
+
     /**
-     * Initializes the singleton instance. The result is a {@link Future} which
+     * Initializes the singleton/primary instance. The result is a {@link Future} which
      * will complete once the client has been initialized with the latest feature flag values. For
      * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
      * the return value of this method, and afterward call {@link #get()}
@@ -75,7 +79,6 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return a {@link Future} which will complete once the client has been initialized.
      */
     public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
-
         boolean applicationValid = validateParameter(application);
         boolean configValid = validateParameter(config);
         boolean userValid = validateParameter(user);
@@ -91,32 +94,110 @@ public class LDClient implements LDClientInterface, Closeable {
 
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
-        if (instance != null) {
+        if (primaryInstance != null) {
             Timber.w( "LDClient.init() was called more than once! returning existing instance.");
-            settableFuture.set(instance);
+            settableFuture.set(primaryInstance);
             return settableFuture;
         }
         if (BuildConfig.DEBUG) {
             Timber.plant(new Timber.DebugTree());
         }
-        instance = new LDClient(application, config);
-        instance.userManager.setCurrentUser(user);
+        primaryInstance = new LDClient(application, config);
+        primaryInstance.userManager.setCurrentUser(user);
 
-        if (instance.isOffline() || !isInternetConnected(application)) {
-            settableFuture.set(instance);
+        if (primaryInstance.isOffline() || !isInternetConnected(application)) {
+            settableFuture.set(primaryInstance);
             return settableFuture;
-
         }
-        instance.eventProcessor.start();
+        primaryInstance.eventProcessor.start();
 
-        ListenableFuture<Void> initFuture = instance.updateProcessor.start();
-        instance.sendEvent(new IdentifyEvent(user));
+        ListenableFuture<Void> initFuture = primaryInstance.updateProcessor.start();
+        primaryInstance.sendEvent(new IdentifyEvent(user));
 
         // Transform initFuture so its result is the instance:
         return Futures.transform(initFuture, new Function<Void, LDClient>() {
             @Override
             public LDClient apply(Void input) {
-                return instance;
+                return primaryInstance;
+            }
+        }, MoreExecutors.directExecutor());
+    }
+
+    /**
+     * Initializes a secondary LDClient instance. The result is a {@link Future} which
+     * will complete once the client has been initialized with the latest feature flag values. For
+     * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
+     * the return value of this method, and afterward call {@link #get()}
+     * <p/>
+     * If the client has already been initialized, is configured for offline mode, or the device is
+     * not connected to the internet, this method will return a {@link Future} that is
+     * already in the completed state.
+     *
+     * @param application Your Android application.
+     * @param config      Configuration used to set up the client
+     * @param user        The user used in evaluating feature flags
+     * @param secondaryName Identifying name for the secondary LDClient instance
+     * @return a {@link Future} which will complete once the client has been initialized.
+     */
+    public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user, @NonNull String secondaryName) {
+        boolean applicationValid = validateParameter(application);
+        boolean configValid = validateParameter(config);
+        boolean userValid = validateParameter(user);
+        if (!applicationValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
+        }
+        if (!configValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
+        }
+        if (!userValid) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
+        }
+
+        SettableFuture<LDClient> settableFuture = SettableFuture.create();
+
+        if (primaryInstance != null) {
+            LDClient newSecondary = new LDClient(application, config);
+            newSecondary.userManager.setCurrentUser(user);
+
+            if (primaryInstance.isOffline() || newSecondary.isOffline() || !isInternetConnected(application)) {
+                secondaryInstances.put(secondaryName, newSecondary);
+                settableFuture.set(primaryInstance);
+                return settableFuture;
+            }
+            newSecondary.eventProcessor.start();
+
+            ListenableFuture<Void> secondaryFuture = newSecondary.updateProcessor.start();
+            newSecondary.sendEvent(new IdentifyEvent(user));
+
+            secondaryInstances.put(secondaryName, newSecondary);
+
+            return Futures.transform(secondaryFuture, new Function<Void, LDClient>() {
+                @Override
+                public LDClient apply(Void input) {
+                    return primaryInstance;
+                }
+            }, MoreExecutors.directExecutor());
+        }
+        if (BuildConfig.DEBUG) {
+            Timber.plant(new Timber.DebugTree());
+        }
+        primaryInstance = new LDClient(application, config);
+        primaryInstance.userManager.setCurrentUser(user);
+
+        if (primaryInstance.isOffline() || !isInternetConnected(application)) {
+            settableFuture.set(primaryInstance);
+            return settableFuture;
+        }
+        primaryInstance.eventProcessor.start();
+
+        ListenableFuture<Void> initFuture = primaryInstance.updateProcessor.start();
+        primaryInstance.sendEvent(new IdentifyEvent(user));
+
+        // Transform initFuture so its result is the instance:
+        return Futures.transform(initFuture, new Function<Void, LDClient>() {
+            @Override
+            public LDClient apply(Void input) {
+                return primaryInstance;
             }
         }, MoreExecutors.directExecutor());
     }
@@ -155,7 +236,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.w("Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
                     "It could be taking longer than expected to start up");
         }
-        return instance;
+        return primaryInstance;
     }
 
     /**
@@ -163,11 +244,11 @@ public class LDClient implements LDClientInterface, Closeable {
      * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
      */
     public static LDClient get() throws LaunchDarklyException {
-        if (instance == null) {
+        if (primaryInstance == null) {
             Timber.e("LDClient.get() was called before init()!");
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
-        return instance;
+        return primaryInstance;
     }
 
     @VisibleForTesting
@@ -706,5 +787,13 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return userManager.getSummaryEventSharedPreferences();
+    }
+
+    public static String getPrimaryEnvironmentName() {
+        return primaryEnvironmentName;
+    }
+
+    public static void setPrimaryEnvironmentName(String primaryEnvironmentName) {
+        LDClient.primaryEnvironmentName = primaryEnvironmentName;
     }
 }
