@@ -148,26 +148,4 @@ public class LDClientTest {
         assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
-
-    @UiThreadTest
-    @Test
-    public void TestInitSecondaryEnvironment() {
-        ExecutionException actualFutureException = null;
-        LaunchDarklyException actualProvidedException = null;
-
-        ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, null, "testSecondaryEnvironment");
-
-        try {
-            ldClientFuture.get();
-        } catch (InterruptedException e) {
-            fail();
-        } catch (ExecutionException e) {
-            actualFutureException = e;
-            actualProvidedException = (LaunchDarklyException) e.getCause();
-        }
-
-        assertThat(actualFutureException, instanceOf(ExecutionException.class));
-        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
-        assertTrue("No future task to run", ldClientFuture.isDone());
-    }
 }
