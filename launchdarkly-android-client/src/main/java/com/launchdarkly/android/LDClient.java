@@ -117,7 +117,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     continue;
 
                 secondaryInstance.eventProcessor.start();
-                ListenableFuture<Void> initFuture = secondaryInstance.updateProcessor.start();
+                secondaryInstance.updateProcessor.start();
                 secondaryInstance.sendEvent(new IdentifyEvent(user));
             }
         }
@@ -321,6 +321,10 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public synchronized Future<Void> identify(LDUser user) {
+        return identifyInstances(user);
+    }
+
+    private synchronized Future<Void> identifyInternal(LDUser user) {
         if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
         }
@@ -341,6 +345,15 @@ public class LDClient implements LDClientInterface, Closeable {
         sendEvent(new IdentifyEvent(user));
 
         return doneFuture;
+    }
+
+    private synchronized Future<Void> identifyInstances(LDUser user) {
+        SettableFuture<Void> voidFuture = SettableFuture.create();
+        for (LDClient client : instances.values()) {
+            client.identifyInternal(user);
+        }
+        voidFuture.set(null);
+        return voidFuture; //TODO(jcieslik) Null type checks for Future<Void>, that would be cleaner
     }
 
     /**
