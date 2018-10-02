@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -62,6 +63,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isAppForegrounded = true;
 
     public static String primaryEnvironmentName = UUID.randomUUID().toString().replace("-", "");
+    private String secondaryEnvironmentName;
 
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
@@ -158,6 +160,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (primaryInstance != null) {
             LDClient newSecondary = new LDClient(application, config);
             newSecondary.userManager.setCurrentUser(user);
+            newSecondary.setSecondaryEnvironmentName(secondaryName);
 
             if (primaryInstance.isOffline() || newSecondary.isOffline() || !isInternetConnected(application)) {
                 secondaryInstances.put(secondaryName, newSecondary);
@@ -209,9 +212,12 @@ public class LDClient implements LDClientInterface, Closeable {
         if (client != null) {
             settableFuture.set(client);
             return settableFuture;
+        } else if (keyName.equals(primaryEnvironmentName)) {
+            settableFuture.set(primaryInstance);
+            return settableFuture;
+        } else {
+            throw new NoSuchElementException();
         }
-        settableFuture.set(primaryInstance);
-        return settableFuture;
     }
 
     private static LDClient getForMobileKey(String keyName, int startWaitSeconds) {
@@ -657,6 +663,11 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public synchronized void setOffline() {
         Timber.d("Setting isOffline = true");
+        if (getSecondaryEnvironmentName() == null) {
+            for (LDClient client : secondaryInstances.values()) {
+                client.setOffline();
+            }
+        }
         throttler.cancel();
         isOffline = true;
         fetcher.setOffline();
@@ -679,6 +690,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void setOnlineStatus() {
         Timber.d("Setting isOffline = false");
+        if (getSecondaryEnvironmentName() == null) {
+            for (LDClient client : secondaryInstances.values()) {
+                client.setOnlineStatus();
+            }
+        }
         isOffline = false;
         fetcher.setOnline();
         if (isAppForegrounded) {
@@ -815,11 +831,11 @@ public class LDClient implements LDClientInterface, Closeable {
         return userManager.getSummaryEventSharedPreferences();
     }
 
-    public static String getPrimaryEnvironmentName() {
-        return primaryEnvironmentName;
+    public String getSecondaryEnvironmentName() {
+        return secondaryEnvironmentName;
     }
 
-    public static void setPrimaryEnvironmentName(String primaryEnvironmentName) {
-        LDClient.primaryEnvironmentName = primaryEnvironmentName;
+    public void setSecondaryEnvironmentName(String secondaryEnvironmentName) {
+        this.secondaryEnvironmentName = secondaryEnvironmentName;
     }
 }

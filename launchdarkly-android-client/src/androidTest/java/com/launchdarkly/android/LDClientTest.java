@@ -40,7 +40,6 @@ public class LDClientTest {
                 .build();
 
         ldUser = new LDUser.Builder("userKey").build();
-
     }
 
     @UiThreadTest
@@ -87,7 +86,6 @@ public class LDClientTest {
     @UiThreadTest
     @Test
     public void TestInitMissingApplication() {
-
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
@@ -110,7 +108,6 @@ public class LDClientTest {
     @UiThreadTest
     @Test
     public void TestInitMissingConfig() {
-
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
@@ -133,11 +130,32 @@ public class LDClientTest {
     @UiThreadTest
     @Test
     public void TestInitMissingUser() {
-
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
         ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, null);
+
+        try {
+            ldClientFuture.get();
+        } catch (InterruptedException e) {
+            fail();
+        } catch (ExecutionException e) {
+            actualFutureException = e;
+            actualProvidedException = (LaunchDarklyException) e.getCause();
+        }
+
+        assertThat(actualFutureException, instanceOf(ExecutionException.class));
+        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
+        assertTrue("No future task to run", ldClientFuture.isDone());
+    }
+
+    @UiThreadTest
+    @Test
+    public void TestInitSecondaryEnvironment() {
+        ExecutionException actualFutureException = null;
+        LaunchDarklyException actualProvidedException = null;
+
+        ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, null, "testSecondaryEnvironment");
 
         try {
             ldClientFuture.get();

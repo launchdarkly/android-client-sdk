@@ -248,14 +248,14 @@ public class LDConfig {
 
             Map<String, String> unmodifiable = Collections.unmodifiableMap(secondaryMobileKeys);
             if (unmodifiable.containsKey(LDClient.primaryEnvironmentName)) {
-                // Throw error about primary environment name key reuse
+                throw new IllegalArgumentException("The primary environment name is not a valid key.");
             }
             Set<String> secondaryKeys = new HashSet<>(unmodifiable.values());
             if (mobileKey != null && secondaryKeys.contains(mobileKey)) {
-                // Throw error about reuse of primary mobile key in secondary mobile keys
+                throw new IllegalArgumentException("The primary environment name is not a valid key.");
             }
             if (unmodifiable.values().size() != secondaryKeys.size()) {
-                // Throw error about key reuse within secondary mobile keys
+                throw new IllegalArgumentException("A key can only be used once.");
             }
 
             this.secondaryMobileKeys = unmodifiable;
