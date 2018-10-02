@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import static junit.framework.Assert.assertEquals;
+import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 import static junit.framework.Assert.fail;
 import static org.hamcrest.CoreMatchers.instanceOf;
@@ -45,7 +46,7 @@ public class LDClientTest {
     @UiThreadTest
     // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
-    public void TestOfflineClientReturnsFallbacks() throws ExecutionException, InterruptedException {
+    public void TestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
         ldClient.clearSummaryEventSharedPreferences();
 
@@ -67,18 +68,18 @@ public class LDClientTest {
     @UiThreadTest
     // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
-    public void GivenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() throws ExecutionException, InterruptedException {
+    public void GivenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
         ldClient.clearSummaryEventSharedPreferences();
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
-        assertEquals(null, ldClient.jsonVariation("jsonFlag", null));
+        assertNull(ldClient.jsonVariation("jsonFlag", null));
 
-        assertEquals(null, ldClient.boolVariation("boolFlag", null));
-        assertEquals(null, ldClient.floatVariation("floatFlag", null));
-        assertEquals(null, ldClient.intVariation("intFlag", null));
-        assertEquals(null, ldClient.stringVariation("stringFlag", null));
+        assertNull(ldClient.boolVariation("boolFlag", null));
+        assertNull(ldClient.floatVariation("floatFlag", null));
+        assertNull(ldClient.intVariation("intFlag", null));
+        assertNull(ldClient.stringVariation("stringFlag", null));
 
         ldClient.clearSummaryEventSharedPreferences();
     }

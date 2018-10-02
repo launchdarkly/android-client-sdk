@@ -106,18 +106,20 @@ public class LDClient implements LDClientInterface, Closeable {
         boolean internetConnected = isInternetConnected(application);
         instances = new HashMap<>();
 
-        for (Map.Entry<String, String> secondaryKeys : config.getSecondaryMobileKeys().entrySet()) {
-            final LDClient secondaryInstance = new LDClient(application, config, secondaryKeys.getKey());
-            secondaryInstance.userManager.setCurrentUser(user);
+        if (config.getSecondaryMobileKeys() != null) {
+            for (Map.Entry<String, String> secondaryKeys : config.getSecondaryMobileKeys().entrySet()) {
+                final LDClient secondaryInstance = new LDClient(application, config, secondaryKeys.getKey());
+                secondaryInstance.userManager.setCurrentUser(user);
 
-            instances.put(secondaryKeys.getKey(), secondaryInstance);
+                instances.put(secondaryKeys.getKey(), secondaryInstance);
 
-            if (secondaryInstance.isOffline() || !internetConnected)
-                continue;
+                if (secondaryInstance.isOffline() || !internetConnected)
+                    continue;
 
-            secondaryInstance.eventProcessor.start();
-            ListenableFuture<Void> initFuture = secondaryInstance.updateProcessor.start();
-            secondaryInstance.sendEvent(new IdentifyEvent(user));
+                secondaryInstance.eventProcessor.start();
+                ListenableFuture<Void> initFuture = secondaryInstance.updateProcessor.start();
+                secondaryInstance.sendEvent(new IdentifyEvent(user));
+            }
         }
 
         final LDClient primaryInstance = new LDClient(application, config);
