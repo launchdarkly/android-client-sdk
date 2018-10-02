@@ -45,8 +45,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final String INSTANCE_ID_KEY = "instanceId";
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
     private static String instanceId = "UNKNOWN_ANDROID";
-    private static LDClient primaryInstance = null;
-    private static Map<String, LDClient> secondaryInstances = new HashMap<>();
+    private static Map<String, LDClient> instances = null;
 
     private static final long MAX_RETRY_TIME_MS = 3600000; // 1 hour
     private static final long RETRY_TIME_MS = 1000; // 1 second
@@ -62,8 +61,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isOffline = false;
     private volatile boolean isAppForegrounded = true;
 
-    public static String primaryEnvironmentName = UUID.randomUUID().toString().replace("-", "");
-    private String secondaryEnvironmentName;
+    public static final String primaryEnvironmentName = UUID.randomUUID().toString().replace("-", "");
 
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
@@ -96,18 +94,36 @@ public class LDClient implements LDClientInterface, Closeable {
 
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
-        if (primaryInstance != null) {
-            Timber.w( "LDClient.init() was called more than once! returning existing instance.");
-            settableFuture.set(primaryInstance);
+        if (instances != null) {
+            Timber.w("LDClient.init() was called more than once! returning existing instance.");
+            settableFuture.set(instances.get(primaryEnvironmentName));
             return settableFuture;
         }
         if (BuildConfig.DEBUG) {
             Timber.plant(new Timber.DebugTree());
         }
-        primaryInstance = new LDClient(application, config);
+
+        boolean internetConnected = isInternetConnected(application);
+        instances = new HashMap<>();
+
+        for (Map.Entry<String, String> secondaryKeys : config.getSecondaryMobileKeys().entrySet()) {
+            final LDClient secondaryInstance = new LDClient(application, config, secondaryKeys.getKey());
+            secondaryInstance.userManager.setCurrentUser(user);
+
+            instances.put(secondaryKeys.getKey(), secondaryInstance);
+
+            if (secondaryInstance.isOffline() || !internetConnected)
+                continue;
+
+            secondaryInstance.eventProcessor.start();
+            ListenableFuture<Void> initFuture = secondaryInstance.updateProcessor.start();
+            secondaryInstance.sendEvent(new IdentifyEvent(user));
+        }
+
+        final LDClient primaryInstance = new LDClient(application, config);
         primaryInstance.userManager.setCurrentUser(user);
 
-        if (primaryInstance.isOffline() || !isInternetConnected(application)) {
+        if (primaryInstance.isOffline() || !internetConnected) {
             settableFuture.set(primaryInstance);
             return settableFuture;
         }
@@ -115,6 +131,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
         ListenableFuture<Void> initFuture = primaryInstance.updateProcessor.start();
         primaryInstance.sendEvent(new IdentifyEvent(user));
+
+        instances.put(primaryEnvironmentName, primaryInstance);
 
         // Transform initFuture so its result is the instance:
         return Futures.transform(initFuture, new Function<Void, LDClient>() {
@@ -125,95 +143,12 @@ public class LDClient implements LDClientInterface, Closeable {
         }, MoreExecutors.directExecutor());
     }
 
-    /**
-     * Initializes a secondary LDClient instance. The result is a {@link Future} which
-     * will complete once the client has been initialized with the latest feature flag values. For
-     * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
-     * the return value of this method, and afterward call {@link #get()}
-     * <p/>
-     * If the client has already been initialized, is configured for offline mode, or the device is
-     * not connected to the internet, this method will return a {@link Future} that is
-     * already in the completed state.
-     *
-     * @param application Your Android application.
-     * @param config      Configuration used to set up the client
-     * @param user        The user used in evaluating feature flags
-     * @param secondaryName Identifying name for the secondary LDClient instance
-     * @return a {@link Future} which will complete once the client has been initialized.
-     */
-    public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user, @NonNull String secondaryName) {
-        boolean applicationValid = validateParameter(application);
-        boolean configValid = validateParameter(config);
-        boolean userValid = validateParameter(user);
-        if (!applicationValid) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
-        }
-        if (!configValid) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
-        }
-        if (!userValid) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
-        }
-
+    public static synchronized Future<LDClient> getForMobileKey(String keyName) {
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
-
-        if (primaryInstance != null) {
-            LDClient newSecondary = new LDClient(application, config);
-            newSecondary.userManager.setCurrentUser(user);
-            newSecondary.setSecondaryEnvironmentName(secondaryName);
-
-            if (primaryInstance.isOffline() || newSecondary.isOffline() || !isInternetConnected(application)) {
-                secondaryInstances.put(secondaryName, newSecondary);
-                settableFuture.set(primaryInstance);
-                return settableFuture;
-            }
-            newSecondary.eventProcessor.start();
-
-            ListenableFuture<Void> secondaryFuture = newSecondary.updateProcessor.start();
-            newSecondary.sendEvent(new IdentifyEvent(user));
-
-            secondaryInstances.put(secondaryName, newSecondary);
-
-            return Futures.transform(secondaryFuture, new Function<Void, LDClient>() {
-                @Override
-                public LDClient apply(Void input) {
-                    return primaryInstance;
-                }
-            }, MoreExecutors.directExecutor());
-        }
-        if (BuildConfig.DEBUG) {
-            Timber.plant(new Timber.DebugTree());
-        }
-        primaryInstance = new LDClient(application, config);
-        primaryInstance.userManager.setCurrentUser(user);
-
-        if (primaryInstance.isOffline() || !isInternetConnected(application)) {
-            settableFuture.set(primaryInstance);
-            return settableFuture;
-        }
-        primaryInstance.eventProcessor.start();
-
-        ListenableFuture<Void> initFuture = primaryInstance.updateProcessor.start();
-        primaryInstance.sendEvent(new IdentifyEvent(user));
-
-        // Transform initFuture so its result is the instance:
-        return Futures.transform(initFuture, new Function<Void, LDClient>() {
-            @Override
-            public LDClient apply(Void input) {
-                return primaryInstance;
-            }
-        }, MoreExecutors.directExecutor());
-    }
-
-    private static synchronized Future<LDClient> getForMobileKey(String keyName) {
-        SettableFuture<LDClient> settableFuture = SettableFuture.create();
-        LDClient client = secondaryInstances.get(keyName);
+        LDClient client = instances.get(keyName);
 
         if (client != null) {
             settableFuture.set(client);
-            return settableFuture;
-        } else if (keyName.equals(primaryEnvironmentName)) {
-            settableFuture.set(primaryInstance);
             return settableFuture;
         } else {
             throw new NoSuchElementException();
@@ -231,7 +166,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.w("Secondary instance was not retrieved within " + startWaitSeconds + " seconds. " +
                     "It could be taking longer than expected to start up");
         }
-        return primaryInstance;
+        return instances.get(keyName);
     }
 
     private static <T> boolean validateParameter(T parameter) {
@@ -268,7 +203,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.w("Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
                     "It could be taking longer than expected to start up");
         }
-        return primaryInstance;
+        return instances.get(primaryEnvironmentName);
     }
 
     /**
@@ -276,15 +211,20 @@ public class LDClient implements LDClientInterface, Closeable {
      * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
      */
     public static LDClient get() throws LaunchDarklyException {
-        if (primaryInstance == null) {
+        if (instances == null) {
             Timber.e("LDClient.get() was called before init()!");
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
-        return primaryInstance;
+        return instances.get(primaryEnvironmentName);
     }
 
     @VisibleForTesting
     protected LDClient(final Application application, @NonNull final LDConfig config) {
+        this(application, config, primaryEnvironmentName);
+    }
+
+    @VisibleForTesting
+    protected LDClient(final Application application, @NonNull final LDConfig config, String environmentName) {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.isOffline = config.isOffline();
@@ -629,8 +569,23 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
+        LDClient.closeInstances();
+    }
+
+    private void closeInternal() throws IOException {
         updateProcessor.stop();
         eventProcessor.close();
+    }
+
+    public static void closeInstances() {
+        for (LDClient client : instances.values()) {
+            try {
+                client.closeInternal();
+            } catch (IOException e) {
+                // TODO(gavwhela) handle IOException
+                e.printStackTrace();
+            }
+        }
     }
 
     /**
@@ -638,7 +593,18 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void flush() {
+        LDClient.flushInstances();
+    }
+
+    private void flushInternal() {
         eventProcessor.flush();
+    }
+
+    public static void flushInstances() {
+        for (LDClient client : instances.values()) {
+            client.flushInternal();
+        }
+
     }
 
     @Override
@@ -662,17 +628,22 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public synchronized void setOffline() {
+        LDClient.setInstancesOffline();
+    }
+
+    private synchronized void setOfflineInternal() {
         Timber.d("Setting isOffline = true");
-        if (getSecondaryEnvironmentName() == null) {
-            for (LDClient client : secondaryInstances.values()) {
-                client.setOffline();
-            }
-        }
         throttler.cancel();
         isOffline = true;
         fetcher.setOffline();
         stopForegroundUpdating();
         eventProcessor.stop();
+    }
+
+    public synchronized static void setInstancesOffline() {
+        for (LDClient client : instances.values()) {
+            client.setOfflineInternal();
+        }
     }
 
     /**
@@ -690,11 +661,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void setOnlineStatus() {
         Timber.d("Setting isOffline = false");
-        if (getSecondaryEnvironmentName() == null) {
-            for (LDClient client : secondaryInstances.values()) {
-                client.setOnlineStatus();
-            }
-        }
         isOffline = false;
         fetcher.setOnline();
         if (isAppForegrounded) {
@@ -829,13 +795,5 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return userManager.getSummaryEventSharedPreferences();
-    }
-
-    public String getSecondaryEnvironmentName() {
-        return secondaryEnvironmentName;
-    }
-
-    public void setSecondaryEnvironmentName(String secondaryEnvironmentName) {
-        this.secondaryEnvironmentName = secondaryEnvironmentName;
     }
 }
