@@ -61,7 +61,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isOffline = false;
     private volatile boolean isAppForegrounded = true;
 
-    public static final String primaryEnvironmentName = UUID.randomUUID().toString().replace("-", "");
+    static final String primaryEnvironmentName = "default";
 
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
@@ -675,6 +675,10 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void setOnlineStatus() {
+        LDClient.setOnlineStatusInstances();
+    }
+
+    private void setOnlineStatusInternal() {
         Timber.d("Setting isOffline = false");
         isOffline = false;
         fetcher.setOnline();
@@ -684,6 +688,12 @@ public class LDClient implements LDClientInterface, Closeable {
             startBackgroundPolling();
         }
         eventProcessor.start();
+    }
+
+    private static void setOnlineStatusInstances() {
+        for (LDClient client : instances.values()) {
+            client.setOnlineStatusInternal();
+        }
     }
 
     /**
