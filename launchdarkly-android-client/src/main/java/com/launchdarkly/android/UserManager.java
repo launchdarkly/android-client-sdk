@@ -63,6 +63,10 @@ class UserManager {
         return new UserManager(application, fetcher, environment);
     }
 
+    UserManager(Application application, FeatureFlagFetcher fetcher) {
+        this(application, fetcher, LDConfig.primaryEnvironmentName);
+    }
+
     UserManager(Application application, FeatureFlagFetcher fetcher, String environment) {
         this.application = application;
         this.fetcher = fetcher;
