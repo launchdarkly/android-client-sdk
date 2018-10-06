@@ -1,7 +1,5 @@
 package com.launchdarkly.android;
 
-
-import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
@@ -48,9 +46,6 @@ import timber.log.Timber;
  */
 class UserManager {
 
-    @SuppressLint("StaticFieldLeak")
-    private static UserManager instance;
-
     private final FeatureFlagFetcher fetcher;
     private volatile boolean initialized = false;
 
@@ -64,19 +59,11 @@ class UserManager {
 
     private final ExecutorService executor;
 
-    static synchronized UserManager init(Application application, FeatureFlagFetcher fetcher) {
-        if (instance != null) {
-            return instance;
-        }
-        instance = new UserManager(application, fetcher);
-        return instance;
+    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher, String environment) {
+        return new UserManager(application, fetcher, environment);
     }
 
-    static UserManager get() {
-        return instance;
-    }
-
-    UserManager(Application application, FeatureFlagFetcher fetcher) {
+    UserManager(Application application, FeatureFlagFetcher fetcher, String environment) {
         this.application = application;
         this.fetcher = fetcher;
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);

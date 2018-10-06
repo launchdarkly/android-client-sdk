@@ -26,6 +26,7 @@ import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -61,8 +62,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isOffline = false;
     private volatile boolean isAppForegrounded = true;
 
-    static final String primaryEnvironmentName = "default";
-
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
      * will complete once the client has been initialized with the latest feature flag values. For
@@ -96,7 +95,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (instances != null) {
             Timber.w("LDClient.init() was called more than once! returning existing instance.");
-            settableFuture.set(instances.get(primaryEnvironmentName));
+            settableFuture.set(instances.get(LDConfig.primaryEnvironmentName));
             return settableFuture;
         }
         if (BuildConfig.DEBUG) {
@@ -106,35 +105,32 @@ public class LDClient implements LDClientInterface, Closeable {
         boolean internetConnected = isInternetConnected(application);
         instances = new HashMap<>();
 
-        if (config.getSecondaryMobileKeys() != null) {
-            for (Map.Entry<String, String> secondaryKeys : config.getSecondaryMobileKeys().entrySet()) {
-                final LDClient secondaryInstance = new LDClient(application, config, secondaryKeys.getKey());
-                secondaryInstance.userManager.setCurrentUser(user);
+        // TODO(gavwhela) Handle futures merging
+        Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
 
-                instances.put(secondaryKeys.getKey(), secondaryInstance);
+        for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
+            final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
+            instance.userManager.setCurrentUser(user);
 
-                if (secondaryInstance.isOffline() || !internetConnected)
-                    continue;
+            instances.put(mobileKeys.getKey(), instance);
 
-                secondaryInstance.eventProcessor.start();
-                secondaryInstance.updateProcessor.start();
-                secondaryInstance.sendEvent(new IdentifyEvent(user));
-            }
+            if (instance.isOffline() || !internetConnected)
+                continue;
+
+            instance.eventProcessor.start();
+            updateFutures.put(mobileKeys.getKey(), instance.updateProcessor.start());
+            instance.sendEvent(new IdentifyEvent(user));
         }
 
-        final LDClient primaryInstance = new LDClient(application, config);
-        primaryInstance.userManager.setCurrentUser(user);
+        final LDClient primaryInstance = instances.get(LDConfig.primaryEnvironmentName);
 
         if (primaryInstance.isOffline() || !internetConnected) {
             settableFuture.set(primaryInstance);
             return settableFuture;
         }
-        primaryInstance.eventProcessor.start();
 
-        ListenableFuture<Void> initFuture = primaryInstance.updateProcessor.start();
         primaryInstance.sendEvent(new IdentifyEvent(user));
-
-        instances.put(primaryEnvironmentName, primaryInstance);
+        ListenableFuture<Void> initFuture = updateFutures.get(LDConfig.primaryEnvironmentName);
 
         // Transform initFuture so its result is the instance:
         return Futures.transform(initFuture, new Function<Void, LDClient>() {
@@ -143,6 +139,14 @@ public class LDClient implements LDClientInterface, Closeable {
                 return primaryInstance;
             }
         }, MoreExecutors.directExecutor());
+    }
+
+    public static Set<String> getEnvironmentNames() throws LaunchDarklyException{
+        if (instances == null) {
+            Timber.e("LDClient.getEnvironmentNames() was called before init()!");
+            throw new LaunchDarklyException("LDClient.getEnvironmentNames() was called before init()!");
+        }
+        return instances.keySet();
     }
 
     public static synchronized Future<LDClient> getForMobileKey(String keyName) {
@@ -205,7 +209,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.w("Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
                     "It could be taking longer than expected to start up");
         }
-        return instances.get(primaryEnvironmentName);
+        return instances.get(LDConfig.primaryEnvironmentName);
     }
 
     /**
@@ -217,12 +221,12 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.e("LDClient.get() was called before init()!");
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
-        return instances.get(primaryEnvironmentName);
+        return instances.get(LDConfig.primaryEnvironmentName);
     }
 
     @VisibleForTesting
     protected LDClient(final Application application, @NonNull final LDConfig config) {
-        this(application, config, primaryEnvironmentName);
+        this(application, config, LDConfig.primaryEnvironmentName);
     }
 
     @VisibleForTesting
@@ -246,7 +250,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Timber.i("Using instance id: " + instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.init(application, config);
-        this.userManager = UserManager.init(application, fetcher);
+        this.userManager = UserManager.newInstance(application, fetcher, environmentName);
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
@@ -820,5 +824,9 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return userManager.getSummaryEventSharedPreferences();
+    }
+
+    public UserManager getUserManager() {
+        return userManager;
     }
 }

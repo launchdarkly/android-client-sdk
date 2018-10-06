@@ -6,6 +6,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -21,20 +22,21 @@ public class LDConfig {
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
+    static final String primaryEnvironmentName = "default";
+
     static final Uri DEFAULT_BASE_URI = Uri.parse("https://app.launchdarkly.com");
     static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com/mobile");
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
     static final int DEFAULT_EVENTS_CAPACITY = 100;
-    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30000;
-    static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10000;
+    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
+    static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
     static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
     static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
     static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
-    private final String mobileKey;
-    private final Map<String, String> secondaryMobileKeys;
+    private final Map<String, String> mobileKeys;
 
     private final Uri baseUri;
     private final Uri eventsUri;
@@ -58,8 +60,7 @@ public class LDConfig {
 
     private final boolean inlineUsersInEvents;
 
-    public LDConfig(String mobileKey,
-                    Map<String, String> secondaryMobileKeys,
+    public LDConfig(Map<String, String> mobileKeys,
                     Uri baseUri,
                     Uri eventsUri,
                     Uri streamUri,
@@ -76,8 +77,7 @@ public class LDConfig {
                     Set<String> privateAttributeNames,
                     boolean inlineUsersInEvents) {
 
-        this.mobileKey = mobileKey;
-        this.secondaryMobileKeys = secondaryMobileKeys;
+        this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
@@ -102,16 +102,29 @@ public class LDConfig {
 
     public Request.Builder getRequestBuilder() {
         return new Request.Builder()
-                .addHeader("Authorization", mobileKey)
+                .addHeader("Authorization", getMobileKey())
+                .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
+    }
+
+    public Request.Builder getRequestBuilderFor(String environment) {
+        if (environment == null || environment.equals(primaryEnvironmentName))
+            return getRequestBuilder();
+
+        String key = mobileKeys.get(environment);
+        if (key == null)
+            throw new IllegalArgumentException("No environment by that name.");
+
+        return new Request.Builder()
+                .addHeader("Authorization", key)
                 .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
     }
 
     public String getMobileKey() {
-        return mobileKey;
+        return mobileKeys.get(primaryEnvironmentName);
     }
 
-    public Map<String, String> getSecondaryMobileKeys() {
-        return secondaryMobileKeys;
+    public Map<String, String> getMobileKeys() {
+        return mobileKeys;
     }
 
     public Uri getBaseUri() {
@@ -247,7 +260,7 @@ public class LDConfig {
             }
 
             Map<String, String> unmodifiable = Collections.unmodifiableMap(secondaryMobileKeys);
-            if (unmodifiable.containsKey(LDClient.primaryEnvironmentName)) {
+            if (unmodifiable.containsKey(primaryEnvironmentName)) {
                 throw new IllegalArgumentException("The primary environment name is not a valid key.");
             }
             Set<String> secondaryKeys = new HashSet<>(unmodifiable.values());
@@ -444,8 +457,12 @@ public class LDConfig {
 
             PollingUpdater.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
 
+            if (secondaryMobileKeys == null) {
+                secondaryMobileKeys = new HashMap<>();
+            }
+            secondaryMobileKeys.put(primaryEnvironmentName, mobileKey);
+
             return new LDConfig(
-                    mobileKey,
                     secondaryMobileKeys,
                     baseUri,
                     eventsUri,
