@@ -237,16 +237,39 @@ public class LDClient implements LDClientInterface, Closeable {
         this.application = new WeakReference<>(application);
 
         SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
+        SharedPreferences mobileKeySharedPrefs =
+                application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + config.getMobileKeys().get(environmentName), Context.MODE_PRIVATE);
 
-        if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
+        if (instanceIdSharedPrefs != null) {
+            SharedPreferences.Editor editor = mobileKeySharedPrefs.edit();
+
+            for (Map.Entry<String, ?> entry : instanceIdSharedPrefs.getAll().entrySet()) {
+                Object value = entry.getValue();
+                String key = entry.getKey();
+
+                if(value instanceof Boolean)
+                    editor.putBoolean(key, (Boolean) value);
+                else if(value instanceof Float)
+                    editor.putFloat(key, (Float) value);
+                else if(value instanceof Integer)
+                    editor.putInt(key, (Integer) value);
+                else if(value instanceof Long)
+                    editor.putLong(key, (Long) value);
+                else if(value instanceof String)
+                    editor.putString(key, ((String)value));
+                editor.apply();
+            }
+        }
+
+        if (!mobileKeySharedPrefs.contains(INSTANCE_ID_KEY)) {
             String uuid = UUID.randomUUID().toString();
             Timber.i("Did not find existing instance id. Saving a new one");
-            SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
+            SharedPreferences.Editor editor = mobileKeySharedPrefs.edit();
             editor.putString(INSTANCE_ID_KEY, uuid);
             editor.apply();
         }
 
-        instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
+        instanceId = mobileKeySharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
         Timber.i("Using instance id: " + instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.init(application, config);

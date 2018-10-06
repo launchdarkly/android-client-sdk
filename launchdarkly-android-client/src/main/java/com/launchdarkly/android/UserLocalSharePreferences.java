@@ -173,7 +173,6 @@ class UserLocalSharedPreferences {
     }
 
     void saveCurrentUserFlags(SharedPreferencesEntries sharedPreferencesEntries) {
-
         sharedPreferencesEntries.clearAndSave(currentUserSharedPrefs);
     }
 
@@ -289,7 +288,6 @@ class UserLocalSharedPreferences {
         }
 
         void clearAndSave(SharedPreferences sharedPreferences) {
-
             SharedPreferences.Editor editor = sharedPreferences.edit();
             editor.clear();
             for (SharedPreferencesEntry entry : sharedPreferencesEntryList) {

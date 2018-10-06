@@ -59,6 +59,8 @@ class UserManager {
 
     private final ExecutorService executor;
 
+    private final String environment;
+
     static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher, String environment) {
         return new UserManager(application, fetcher, environment);
     }
@@ -73,6 +75,7 @@ class UserManager {
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
         this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
         this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents");
+        this.environment = environment;
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
             @Override
