@@ -59,15 +59,11 @@ class UserManager {
 
     private final ExecutorService executor;
 
-    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher, String environment) {
-        return new UserManager(application, fetcher, environment);
+    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher) {
+        return new UserManager(application, fetcher);
     }
 
     UserManager(Application application, FeatureFlagFetcher fetcher) {
-        this(application, fetcher, LDConfig.primaryEnvironmentName);
-    }
-
-    UserManager(Application application, FeatureFlagFetcher fetcher, String environment) {
         this.application = application;
         this.fetcher = fetcher;
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
