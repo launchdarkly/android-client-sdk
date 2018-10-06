@@ -272,8 +272,8 @@ public class LDClient implements LDClientInterface, Closeable {
         instanceId = mobileKeySharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
         Timber.i("Using instance id: " + instanceId);
 
-        this.fetcher = HttpFeatureFlagFetcher.init(application, config);
-        this.userManager = UserManager.newInstance(application, fetcher, environmentName);
+        this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
+        this.userManager = UserManager.newInstance(application, fetcher);
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
