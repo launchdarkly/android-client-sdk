@@ -460,7 +460,7 @@ public class LDConfig {
             if (secondaryMobileKeys == null) {
                 secondaryMobileKeys = new HashMap<>();
             }
-            secondaryMobileKeys.put(primaryEnvironmentName, mobileKey);
+            //secondaryMobileKeys.put(primaryEnvironmentName, mobileKey); //TODO(jcieslik) primaryEnvironmentName cannot be in secondaryMobileKeys
 
             return new LDConfig(
                     secondaryMobileKeys,

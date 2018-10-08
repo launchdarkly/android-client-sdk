@@ -94,7 +94,7 @@ public class LDClient implements LDClientInterface, Closeable {
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
         if (instances != null) {
-            Timber.w("LDClient.init() was called more than once! returning existing instance.");
+            Timber.w("LDClient.init() was called more than once! returning primary instance.");
             settableFuture.set(instances.get(LDConfig.primaryEnvironmentName));
             return settableFuture;
         }
@@ -122,6 +122,9 @@ public class LDClient implements LDClientInterface, Closeable {
             instance.sendEvent(new IdentifyEvent(user));
         }
 
+        final LDClient storedPrimaryInstance = new LDClient(application, config);
+        storedPrimaryInstance.userManager.setCurrentUser(user);
+        instances.put(LDConfig.primaryEnvironmentName, storedPrimaryInstance);
         final LDClient primaryInstance = instances.get(LDConfig.primaryEnvironmentName);
 
         if (primaryInstance.isOffline() || !internetConnected) {
@@ -259,6 +262,8 @@ public class LDClient implements LDClientInterface, Closeable {
                     editor.putString(key, ((String)value));
                 editor.apply();
             }
+
+            instanceIdSharedPrefs.edit().clear().apply();
         }
 
         if (!mobileKeySharedPrefs.contains(INSTANCE_ID_KEY)) {
@@ -270,7 +275,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         instanceId = mobileKeySharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
-        Timber.i("Using instance id: " + instanceId);
+        Timber.i("Using instance id: %s", instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
         this.userManager = UserManager.newInstance(application, fetcher);
