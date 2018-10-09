@@ -48,8 +48,8 @@ public class LDClient implements LDClientInterface, Closeable {
     private static String instanceId = "UNKNOWN_ANDROID";
     private static Map<String, LDClient> instances = null;
 
-    private static final long MAX_RETRY_TIME_MS = 3600000; // 1 hour
-    private static final long RETRY_TIME_MS = 1000; // 1 second
+    private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
+    private static final long RETRY_TIME_MS = 1_000; // 1 second
 
     private final WeakReference<Application> application;
     private final LDConfig config;
@@ -300,7 +300,7 @@ public class LDClient implements LDClientInterface, Closeable {
         foreground.addListener(foregroundListener);
 
         if (config.isStream()) {
-            this.updateProcessor = new StreamUpdateProcessor(config, userManager);
+            this.updateProcessor = new StreamUpdateProcessor(config, userManager, environmentName);
         } else {
             Timber.i("Streaming is disabled. Starting LaunchDarkly Client in polling mode");
             this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
