@@ -457,13 +457,18 @@ public class LDConfig {
 
             PollingUpdater.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
 
+
+            HashMap<String, String> mobileKeys;
             if (secondaryMobileKeys == null) {
-                secondaryMobileKeys = new HashMap<>();
+                mobileKeys = new HashMap<>();
             }
-            //secondaryMobileKeys.put(primaryEnvironmentName, mobileKey); //TODO(jcieslik) primaryEnvironmentName cannot be in secondaryMobileKeys
+            else {
+                mobileKeys = new HashMap<>(secondaryMobileKeys);
+            }
+            mobileKeys.put(primaryEnvironmentName, mobileKey);
 
             return new LDConfig(
-                    secondaryMobileKeys,
+                    mobileKeys,
                     baseUri,
                     eventsUri,
                     streamUri,
