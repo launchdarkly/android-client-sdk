@@ -132,7 +132,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         ArrayList<ListenableFuture<Void>> online = new ArrayList<>();
 
-        for(Map.Entry<String, ListenableFuture<Void>> entry : updateFutures.entrySet()) {
+        for (Map.Entry<String, ListenableFuture<Void>> entry : updateFutures.entrySet()) {
             if (!instances.get(entry.getKey()).isOffline()) {
                 online.add(entry.getValue());
             }
@@ -149,7 +149,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }, MoreExecutors.directExecutor());
     }
 
-    public static Set<String> getEnvironmentNames() throws LaunchDarklyException{
+    public static Set<String> getEnvironmentNames() throws LaunchDarklyException {
         if (instances == null) {
             Timber.e("LDClient.getEnvironmentNames() was called before init()!");
             throw new LaunchDarklyException("LDClient.getEnvironmentNames() was called before init()!");
@@ -255,16 +255,16 @@ public class LDClient implements LDClientInterface, Closeable {
                 Object value = entry.getValue();
                 String key = entry.getKey();
 
-                if(value instanceof Boolean)
+                if (value instanceof Boolean)
                     editor.putBoolean(key, (Boolean) value);
-                else if(value instanceof Float)
+                else if (value instanceof Float)
                     editor.putFloat(key, (Float) value);
-                else if(value instanceof Integer)
+                else if (value instanceof Integer)
                     editor.putInt(key, (Integer) value);
-                else if(value instanceof Long)
+                else if (value instanceof Long)
                     editor.putLong(key, (Long) value);
-                else if(value instanceof String)
-                    editor.putString(key, ((String)value));
+                else if (value instanceof String)
+                    editor.putString(key, ((String) value));
                 editor.apply();
             }
 
@@ -358,10 +358,10 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public synchronized Future<Void> identify(LDUser user) {
-        return identifyInstances(user);
+        return LDClient.identifyInstances(user);
     }
 
-    private synchronized Future<Void> identifyInternal(LDUser user) {
+    private synchronized ListenableFuture<Void> identifyInternal(LDUser user) {
         if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
         }
@@ -384,13 +384,23 @@ public class LDClient implements LDClientInterface, Closeable {
         return doneFuture;
     }
 
-    private synchronized Future<Void> identifyInstances(LDUser user) {
-        SettableFuture<Void> voidFuture = SettableFuture.create();
-        for (LDClient client : instances.values()) {
-            client.identifyInternal(user);
+    private static synchronized Future<Void> identifyInstances(LDUser user) {
+        if (user == null) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
         }
-        voidFuture.set(null);
-        return voidFuture; //TODO(jcieslik) Null type checks for Future<Void>, that would be cleaner
+
+        ArrayList<ListenableFuture<Void>> futures = new ArrayList<>();
+
+        for (LDClient client : instances.values()) {
+            futures.add(client.identifyInternal(user));
+        }
+
+        return Futures.transform(Futures.allAsList(futures), new Function<List<Void>, Void>() {
+            @Override
+            public Void apply(List<Void> input) {
+                return null;
+            }
+        }, MoreExecutors.directExecutor());
     }
 
     /**
@@ -658,7 +668,6 @@ public class LDClient implements LDClientInterface, Closeable {
         for (LDClient client : instances.values()) {
             client.flushInternal();
         }
-
     }
 
     @Override
