@@ -629,15 +629,17 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.close();
     }
 
-    public static void closeInstances() {
+    public static void closeInstances() throws IOException {
+        IOException exception = null;
         for (LDClient client : instances.values()) {
             try {
                 client.closeInternal();
             } catch (IOException e) {
-                // TODO(gavwhela) handle IOException
-                e.printStackTrace();
+                exception = e;
             }
         }
+        if (exception != null)
+            throw exception;
     }
 
     /**
