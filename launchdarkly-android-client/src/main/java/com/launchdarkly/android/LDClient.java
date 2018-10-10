@@ -23,7 +23,9 @@ import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -105,7 +107,6 @@ public class LDClient implements LDClientInterface, Closeable {
         boolean internetConnected = isInternetConnected(application);
         instances = new HashMap<>();
 
-        // TODO(gavwhela) Handle futures merging
         Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
 
         for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
@@ -122,23 +123,27 @@ public class LDClient implements LDClientInterface, Closeable {
             instance.sendEvent(new IdentifyEvent(user));
         }
 
-        final LDClient storedPrimaryInstance = new LDClient(application, config);
-        storedPrimaryInstance.userManager.setCurrentUser(user);
-        instances.put(LDConfig.primaryEnvironmentName, storedPrimaryInstance);
         final LDClient primaryInstance = instances.get(LDConfig.primaryEnvironmentName);
 
-        if (primaryInstance.isOffline() || !internetConnected) {
+        if (!internetConnected) {
             settableFuture.set(primaryInstance);
             return settableFuture;
         }
 
-        primaryInstance.sendEvent(new IdentifyEvent(user));
-        ListenableFuture<Void> initFuture = updateFutures.get(LDConfig.primaryEnvironmentName);
+        ArrayList<ListenableFuture<Void>> online = new ArrayList<>();
+
+        for(Map.Entry<String, ListenableFuture<Void>> entry : updateFutures.entrySet()) {
+            if (!instances.get(entry.getKey()).isOffline()) {
+                online.add(entry.getValue());
+            }
+        }
+
+        ListenableFuture<List<Void>> allFuture = Futures.allAsList(online);
 
         // Transform initFuture so its result is the instance:
-        return Futures.transform(initFuture, new Function<Void, LDClient>() {
+        return Futures.transform(allFuture, new Function<List<Void>, LDClient>() {
             @Override
-            public LDClient apply(Void input) {
+            public LDClient apply(List<Void> input) {
                 return primaryInstance;
             }
         }, MoreExecutors.directExecutor());
