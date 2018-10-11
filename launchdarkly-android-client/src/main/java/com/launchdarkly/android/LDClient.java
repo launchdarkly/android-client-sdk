@@ -49,7 +49,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final String INSTANCE_CLEAR_KEY = "clear";
     private static int instanceClearCounter = 0;
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
-    private String instanceId = "UNKNOWN_ANDROID";
+    private static String instanceId = "UNKNOWN_ANDROID";
     private static Map<String, LDClient> instances = null;
 
     private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
@@ -780,7 +780,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return config.isDisableBackgroundPolling();
     }
 
-    String getInstanceId() {
+    static String getInstanceId() {
         return instanceId;
     }
 
