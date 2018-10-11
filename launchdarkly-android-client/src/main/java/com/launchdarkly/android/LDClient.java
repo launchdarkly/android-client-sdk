@@ -46,8 +46,10 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 public class LDClient implements LDClientInterface, Closeable {
 
     private static final String INSTANCE_ID_KEY = "instanceId";
+    private static final String INSTANCE_CLEAR_KEY = "clear";
+    private static int instanceClearCounter = 0;
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
-    private static String instanceId = "UNKNOWN_ANDROID";
+    private String instanceId = "UNKNOWN_ANDROID";
     private static Map<String, LDClient> instances = null;
 
     private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
@@ -248,7 +250,7 @@ public class LDClient implements LDClientInterface, Closeable {
         SharedPreferences mobileKeySharedPrefs =
                 application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + config.getMobileKeys().get(environmentName), Context.MODE_PRIVATE);
 
-        if (instanceIdSharedPrefs != null) {
+        if (!instanceIdSharedPrefs.contains(INSTANCE_CLEAR_KEY)) {
             SharedPreferences.Editor editor = mobileKeySharedPrefs.edit();
 
             for (Map.Entry<String, ?> entry : instanceIdSharedPrefs.getAll().entrySet()) {
@@ -268,7 +270,13 @@ public class LDClient implements LDClientInterface, Closeable {
                 editor.apply();
             }
 
-            instanceIdSharedPrefs.edit().clear().apply();
+            if (instanceClearCounter > config.getMobileKeys().size()) { //SharedPreferences will only be cleared if all environments have a copy
+                instanceIdSharedPrefs.edit().clear().commit();
+                instanceIdSharedPrefs.edit().putString(INSTANCE_CLEAR_KEY, INSTANCE_CLEAR_KEY).apply();
+            } else {
+                instanceClearCounter++;
+            }
+
         }
 
         if (!mobileKeySharedPrefs.contains(INSTANCE_ID_KEY)) {
@@ -772,7 +780,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return config.isDisableBackgroundPolling();
     }
 
-    static String getInstanceId() {
+    String getInstanceId() {
         return instanceId;
     }
 
