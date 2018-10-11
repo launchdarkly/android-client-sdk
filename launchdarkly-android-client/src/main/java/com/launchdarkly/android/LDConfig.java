@@ -107,8 +107,8 @@ public class LDConfig {
     }
 
     public Request.Builder getRequestBuilderFor(String environment) {
-        if (environment == null || environment.equals(primaryEnvironmentName))
-            return getRequestBuilder();
+        if (environment == null)
+            throw new IllegalArgumentException("null is not a valid environment");
 
         String key = mobileKeys.get(environment);
         if (key == null)
@@ -240,7 +240,7 @@ public class LDConfig {
          */
         public LDConfig.Builder setMobileKey(String mobileKey) {
             if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
-                // Throw error about reuse of primary mobile key in secondary mobile keys
+                throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
             }
 
             this.mobileKey = mobileKey;
@@ -456,7 +456,6 @@ public class LDConfig {
             }
 
             PollingUpdater.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
-
 
             HashMap<String, String> mobileKeys;
             if (secondaryMobileKeys == null) {

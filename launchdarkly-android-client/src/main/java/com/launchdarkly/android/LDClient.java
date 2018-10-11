@@ -310,7 +310,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.i("Streaming is disabled. Starting LaunchDarkly Client in polling mode");
             this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
         }
-        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences());
+        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
 
         throttler = new Throttler(new Runnable() {
             @Override

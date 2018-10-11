@@ -41,14 +41,16 @@ class EventProcessor implements Closeable {
     private final OkHttpClient client;
     private final Context context;
     private final LDConfig config;
+    private final String environmentName;
     private ScheduledExecutorService scheduler;
     private SummaryEvent summaryEvent = null;
     private final SummaryEventSharedPreferences summaryEventSharedPreferences;
     private long currentTimeMs = System.currentTimeMillis();
 
-    EventProcessor(Context context, LDConfig config, SummaryEventSharedPreferences summaryEventSharedPreferences) {
+    EventProcessor(Context context, LDConfig config, SummaryEventSharedPreferences summaryEventSharedPreferences, String environmentName) {
         this.context = context;
         this.config = config;
+        this.environmentName = environmentName;
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
         this.summaryEventSharedPreferences = summaryEventSharedPreferences;
@@ -138,7 +140,7 @@ class EventProcessor implements Closeable {
 
         private void postEvents(List<Event> events) {
             String content = config.getFilteredEventGson().toJson(events);
-            Request request = config.getRequestBuilder()
+            Request request = config.getRequestBuilderFor(environmentName)
                     .url(config.getEventsUri().toString())
                     .post(RequestBody.create(JSON, content))
                     .addHeader("Content-Type", "application/json")
