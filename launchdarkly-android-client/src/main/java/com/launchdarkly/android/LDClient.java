@@ -647,7 +647,7 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.close();
     }
 
-    public static void closeInstances() throws IOException {
+    private static void closeInstances() throws IOException {
         IOException exception = null;
         for (LDClient client : instances.values()) {
             try {
@@ -672,7 +672,7 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.flush();
     }
 
-    public static void flushInstances() {
+    private static void flushInstances() {
         for (LDClient client : instances.values()) {
             client.flushInternal();
         }
@@ -711,7 +711,7 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.stop();
     }
 
-    public synchronized static void setInstancesOffline() {
+    private synchronized static void setInstancesOffline() {
         for (LDClient client : instances.values()) {
             client.setOfflineInternal();
         }
@@ -878,7 +878,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return userManager.getSummaryEventSharedPreferences();
     }
 
-    public UserManager getUserManager() {
+    UserManager getUserManager() {
         return userManager;
     }
 }

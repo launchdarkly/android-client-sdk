@@ -265,7 +265,7 @@ public class LDConfig {
             }
             Set<String> secondaryKeys = new HashSet<>(unmodifiable.values());
             if (mobileKey != null && secondaryKeys.contains(mobileKey)) {
-                throw new IllegalArgumentException("The primary environment name is not a valid key.");
+                throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
             }
             if (unmodifiable.values().size() != secondaryKeys.size()) {
                 throw new IllegalArgumentException("A key can only be used once.");
