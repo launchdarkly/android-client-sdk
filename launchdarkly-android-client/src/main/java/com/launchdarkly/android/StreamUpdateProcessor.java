@@ -58,7 +58,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
             stop();
             Timber.d("Starting.");
             Headers headers = new Headers.Builder()
-                    .add("Authorization", config.getMobileKey())
+                    .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKey())
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
                     .add("Accept", "text/event-stream")
                     .build();
