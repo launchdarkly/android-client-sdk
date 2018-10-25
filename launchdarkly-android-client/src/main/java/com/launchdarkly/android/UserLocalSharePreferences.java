@@ -8,6 +8,7 @@ import android.util.Pair;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Multimaps;
 
 import java.io.File;
 import java.util.Collection;
@@ -36,17 +37,17 @@ class UserLocalSharedPreferences {
 
     private final Application application;
     // Maintains references enabling (de)registration of listeners for realtime updates
-    private final Multimap<String, Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> listeners = HashMultimap.create();
+    private final Multimap<String, Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> listeners;
 
     // The current user- we'll always fetch this user from the response we get from the api
     private SharedPreferences currentUserSharedPrefs;
 
     UserLocalSharedPreferences(Application application) {
         this.application = application;
-
         this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE);
         this.activeUserSharedPrefs = loadSharedPrefsForActiveUser();
-
+        HashMultimap<String, Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> multimap = HashMultimap.create();
+        listeners = Multimaps.synchronizedMultimap(multimap);
     }
 
     SharedPreferences getCurrentUserSharedPrefs() {
@@ -137,7 +138,9 @@ class UserLocalSharedPreferences {
     }
 
     Collection<Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> getListener(String key) {
-        return listeners.get(key);
+        synchronized (listeners) {
+            return listeners.get(key);
+        }
     }
 
     void registerListener(final String key, final FeatureFlagChangeListener listener) {
@@ -152,9 +155,9 @@ class UserLocalSharedPreferences {
         };
         synchronized (listeners) {
             listeners.put(key, new Pair<>(listener, sharedPrefsListener));
+            Timber.d("Added listener. Total count: [" + listeners.size() + "]");
         }
         activeUserSharedPrefs.registerOnSharedPreferenceChangeListener(sharedPrefsListener);
-        Timber.d("Added listener. Total count: [" + listeners.size() + "]");
 
     }
 

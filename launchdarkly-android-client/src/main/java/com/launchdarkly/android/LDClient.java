@@ -2,7 +2,9 @@ package com.launchdarkly.android;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.support.annotation.NonNull;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -55,6 +57,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final UpdateProcessor updateProcessor;
     private final FeatureFlagFetcher fetcher;
     private final Throttler throttler;
+    private ConnectivityReceiver connectivityReceiver;
 
     private volatile boolean isOffline = false;
     private volatile boolean isAppForegrounded = true;
@@ -226,6 +229,12 @@ public class LDClient implements LDClientInterface, Closeable {
                 setOnlineStatus();
             }
         }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            connectivityReceiver = new ConnectivityReceiver();
+            IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
+            application.registerReceiver(connectivityReceiver, filter);
+        }
     }
 
     /**
@@ -518,6 +527,9 @@ public class LDClient implements LDClientInterface, Closeable {
     public void close() throws IOException {
         updateProcessor.stop();
         eventProcessor.close();
+        if (connectivityReceiver != null && application.get() != null) {
+            application.get().unregisterReceiver(connectivityReceiver);
+        }
     }
 
     /**

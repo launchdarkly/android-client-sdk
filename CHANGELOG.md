@@ -3,6 +3,15 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.5.4] - 2018-10-25
+### Changed
+- Outbound HTTP requests now have an authentication scheme token in `Authorization` request headers
+
+### Fixed
+- Polling for flag updates might block the main thread
+- Refactored map synchronization to avoid crashes in apps build with Gradle 3.3.0-alpha11
+- Restored support for network connectivity detection in Android 7.0+ devices
+
 ## [2.5.3] - 2018-09-27
 ### Fixed
 - Restored support for initializing `LDClient` on non-main threads

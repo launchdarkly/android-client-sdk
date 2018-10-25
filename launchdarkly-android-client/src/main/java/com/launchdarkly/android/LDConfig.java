@@ -17,6 +17,7 @@ public class LDConfig {
 
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
+    static final String AUTH_SCHEME = "api_key ";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
@@ -98,7 +99,7 @@ public class LDConfig {
 
     public Request.Builder getRequestBuilder() {
         return new Request.Builder()
-                .addHeader("Authorization", mobileKey)
+                .addHeader("Authorization", LDConfig.AUTH_SCHEME + mobileKey)
                 .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
     }
 

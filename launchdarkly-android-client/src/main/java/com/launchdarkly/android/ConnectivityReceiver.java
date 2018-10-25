@@ -10,6 +10,8 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 
 public class ConnectivityReceiver extends BroadcastReceiver {
 
+    static final String CONNECTIVITY_CHANGE = "android.net.conn.CONNECTIVITY_CHANGE";
+
     @Override
     public void onReceive(Context context, Intent intent) {
         if (isInternetConnected(context)) {

@@ -1,0 +1,68 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/launchdarkly/android-client-private
+    docker:
+      - image: circleci/android:api-27-alpha
+    environment:
+      JVM_OPTS: -Xmx3200m
+      CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
+      CIRCLE_TEST_REPORTS: /tmp/circleci-test-results
+
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            # This branch if available
+              - v1-dep-{{ .Branch }}-
+            # Default branch if not
+              - v1-dep-master-
+                    # Any branch if there are none on the default branch - this should be unnecessary if you have your default branch configured correctly
+              - v1-dep-
+
+      - run:
+          name: Download Dependencies
+          command: ./gradlew androidDependencies
+      - run: sudo mkdir -p $CIRCLE_TEST_REPORTS
+      - run: sudo apt-get -y -qq install awscli
+      - run: sudo mkdir -p /usr/local/android-sdk-linux/licenses
+
+      - save_cache:
+              key: v1-dep-{{ .Branch }}-{{ epoch }}
+              paths:
+              # This is a broad list of cache paths to include many possible development environments
+              # You can probably delete some of these entries
+              - vendor/bundle
+              - ~/virtualenvs
+              - ~/.m2
+              - ~/.ivy2
+              - ~/.bundle
+              - ~/.go_workspace
+              - ~/.gradle
+              - ~/.cache/bower
+              # These cache paths were specified in the 1.0 config
+              - /usr/local/android-sdk-linux/platforms/android-26
+              - /usr/local/android-sdk-linux/build-tools/26.0.2
+              - /usr/local/android-sdk-linux/platforms/android-27
+              - /usr/local/android-sdk-linux/build-tools/27.0.3
+              - /usr/local/android-sdk-linux/extras/android/m2repository
+      - run: unset ANDROID_NDK_HOME
+
+      - run: ./gradlew :launchdarkly-android-client:assembleDebug --console=plain -PdisablePreDex
+      - run: ./gradlew :launchdarkly-android-client:test --console=plain -PdisablePreDex
+
+      - run: ./gradlew packageRelease --console=plain -PdisablePreDex
+      - run:
+          name: Run Tests
+          command: ./gradlew test
+
+      - run:
+          name: Save test results
+          command: |
+                mkdir -p ~/tests/test-results
+                find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} ~/tests/test-results/ \;
+          when: always
+      - store_test_results:
+            path: ~/tests
+      - store_artifacts:
+            path: ~/tests
