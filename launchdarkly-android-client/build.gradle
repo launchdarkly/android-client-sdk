@@ -7,7 +7,7 @@ apply plugin: 'io.codearte.nexus-staging'
 
 allprojects {
     group = 'com.launchdarkly'
-    version = '2.5.2'
+    version = '2.5.4'
     sourceCompatibility = 1.7
     targetCompatibility = 1.7
 }
@@ -96,10 +96,10 @@ repositories {
 
 buildscript {
     repositories {
-        jcenter()
         mavenCentral()
         mavenLocal()
         google()
+        jcenter()
     }
     dependencies {
         classpath 'org.ajoberstar:gradle-git:1.5.0-rc.1'

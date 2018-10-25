@@ -31,14 +31,10 @@ public class PollingUpdater extends BroadcastReceiver {
                     Timber.e("UserManager singleton was accessed before it was initialized! doing nothing");
                     return;
                 }
-                userManager.updateCurrentUser().get(15, TimeUnit.SECONDS);
+                userManager.updateCurrentUser();
             } else {
                 Timber.d("onReceive with no internet connection! Skipping fetch.");
             }
-        } catch (InterruptedException | ExecutionException e) {
-            Timber.e(e, "Exception caught when awaiting update");
-        } catch (TimeoutException e) {
-            Timber.e(e, "Feature Flag update timed out");
         } catch (LaunchDarklyException e) {
             Timber.e(e, "Exception when getting client");
         }

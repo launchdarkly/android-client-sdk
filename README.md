@@ -8,7 +8,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:2.5.2'
+	compile 'com.launchdarkly:launchdarkly-android-client:2.5.4'
 	```  
 1. In your application configure and initialize the client:
 
