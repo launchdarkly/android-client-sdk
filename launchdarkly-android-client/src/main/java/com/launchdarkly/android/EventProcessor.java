@@ -49,7 +49,7 @@ class EventProcessor implements Closeable {
         this.consumer = new Consumer(config);
         this.summaryEventSharedPreferences = summaryEventSharedPreferences;
 
-        client = new OkHttpClient.Builder()
+        client = HttpClientBuilderGenerator.getOkHttpClientBuilder()
                 .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)

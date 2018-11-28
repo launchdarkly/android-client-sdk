@@ -56,7 +56,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         File cacheDir = context.getCacheDir();
         Timber.d("Using cache at: %s", cacheDir.getAbsolutePath());
 
-        client = new OkHttpClient.Builder()
+        client = HttpClientBuilderGenerator.getOkHttpClientBuilder()
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
                 .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .retryOnConnectionFailure(true)
