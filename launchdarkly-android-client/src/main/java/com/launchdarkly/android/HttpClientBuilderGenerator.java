@@ -19,7 +19,8 @@ class HttpClientBuilderGenerator {
     private static OkHttpClient.Builder okHttpClientBuilder = new OkHttpClient.Builder();
 
     static {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {     // Older than LOLLIPOP does not have TLSv1.2 enabled by default
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN        // Older than JELLY_BEAN does not have TLSv1.2 support at all
+            && Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {     // Older than LOLLIPOP does not have TLSv1.2 enabled by default
             try {
                 // This is the main fix here
                 okHttpClientBuilder.sslSocketFactory(new TLSV12SocketFactory(), generateTLSv12TrustManager());
