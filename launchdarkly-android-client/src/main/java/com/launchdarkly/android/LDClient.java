@@ -6,6 +6,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.support.annotation.NonNull;
+import android.util.Log;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -38,7 +39,7 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
- * The main entry point is the {@link #init(Application, LDConfig, LDUser)} method.
+ * The main entry point is the {@link #init(Application, LDConfig, LDUser)} method. 
  */
 public class LDClient implements LDClientInterface, Closeable {
 
@@ -61,6 +62,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private volatile boolean isOffline = false;
     private volatile boolean isAppForegrounded = true;
+
+    private boolean isClosed = false;
 
     /**
      * Initializes the singleton instance. The result is a {@link Future} which
@@ -95,10 +98,19 @@ public class LDClient implements LDClientInterface, Closeable {
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
         if (instance != null) {
-            Timber.w( "LDClient.init() was called more than once! returning existing instance.");
-            settableFuture.set(instance);
-            return settableFuture;
+            if (config.isForceRestart()) {
+                try {
+                    instance.close();
+                } catch (Exception e) {
+                    Timber.e(e, "Exception during Client initialization");
+                }
+            } else {
+                Timber.w("LDClient.init() was called more than once! returning existing instance.");
+                settableFuture.set(instance);
+                return settableFuture;
+            }
         }
+
         if (BuildConfig.DEBUG) {
             Timber.plant(new Timber.DebugTree());
         }
@@ -525,6 +537,11 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
+        if (isClosed) {
+            return;
+        }
+        isClosed = true;
+
         updateProcessor.stop();
         eventProcessor.close();
         if (connectivityReceiver != null && application.get() != null) {

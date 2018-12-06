@@ -57,6 +57,8 @@ public class LDConfig {
 
     private final boolean inlineUsersInEvents;
 
+    private final boolean forceRestart;
+
     public LDConfig(String mobileKey,
                     Uri baseUri,
                     Uri eventsUri,
@@ -72,7 +74,8 @@ public class LDConfig {
                     boolean useReport,
                     boolean allAttributesPrivate,
                     Set<String> privateAttributeNames,
-                    boolean inlineUsersInEvents) {
+                    boolean inlineUsersInEvents,
+                    boolean forceRestart) {
 
         this.mobileKey = mobileKey;
         this.baseUri = baseUri;
@@ -90,6 +93,7 @@ public class LDConfig {
         this.allAttributesPrivate = allAttributesPrivate;
         this.privateAttributeNames = privateAttributeNames;
         this.inlineUsersInEvents = inlineUsersInEvents;
+        this.forceRestart = forceRestart;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -171,6 +175,8 @@ public class LDConfig {
         return inlineUsersInEvents;
     }
 
+    public boolean isForceRestart() { return forceRestart; }
+
     public static class Builder {
         private String mobileKey;
 
@@ -193,6 +199,8 @@ public class LDConfig {
         private Set<String> privateAttributeNames = new HashSet<>();
 
         private boolean inlineUsersInEvents = false;
+
+        private boolean forceRestart = false;
 
         /**
          * Sets the flag for making all attributes private. The default is false.
@@ -358,6 +366,18 @@ public class LDConfig {
         }
 
         /**
+         * Forces LaunchDarkly to restart if LaunchDarkly has already been started.
+         * Default: false
+         *
+         * @param forceRestart
+         * @return
+         */
+        public LDConfig.Builder setForceRestart(boolean forceRestart) {
+            this.forceRestart = forceRestart;
+            return this;
+        }
+
+        /**
          * If enabled, events to the server will be created containing the entire User object.
          * If disabled, events to the server will be created without the entire User object, including only the userKey instead.
          * Defaults to false in order to reduce network bandwidth.
@@ -420,7 +440,8 @@ public class LDConfig {
                     useReport,
                     allAttributesPrivate,
                     privateAttributeNames,
-                    inlineUsersInEvents);
+                    inlineUsersInEvents,
+                    forceRestart);
         }
     }
 }
