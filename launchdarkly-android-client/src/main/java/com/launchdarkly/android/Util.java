@@ -27,7 +27,6 @@ class Util {
     }
 
     static class LazySingleton<T> {
-
         private final Provider<T> provider;
         private T instance;
 
@@ -44,7 +43,6 @@ class Util {
     }
 
     interface Provider<T> {
-
         T get();
     }
 }

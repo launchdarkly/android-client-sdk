@@ -3,6 +3,8 @@ package com.launchdarkly.android;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.support.annotation.NonNull;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -106,7 +108,11 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.plant(new Timber.DebugTree());
         }
 
-        boolean internetConnected = isInternetConnected(application);
+
+        ConnectivityManager cm = (ConnectivityManager) application.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        boolean deviceConnected = activeNetwork != null && activeNetwork.isConnectedOrConnecting();
+
         instances = new HashMap<>();
 
         Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
@@ -117,19 +123,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
             instances.put(mobileKeys.getKey(), instance);
 
-            if (instance.isOffline() || !internetConnected)
+            if (instance.isOffline() || !deviceConnected)
                 continue;
 
             instance.eventProcessor.start();
             updateFutures.put(mobileKeys.getKey(), instance.updateProcessor.start());
             instance.sendEvent(new IdentifyEvent(user));
-        }
-
-        final LDClient primaryInstance = instances.get(LDConfig.primaryEnvironmentName);
-
-        if (!internetConnected) {
-            settableFuture.set(primaryInstance);
-            return settableFuture;
         }
 
         ArrayList<ListenableFuture<Void>> online = new ArrayList<>();
@@ -146,7 +145,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return Futures.transform(allFuture, new Function<List<Void>, LDClient>() {
             @Override
             public LDClient apply(List<Void> input) {
-                return primaryInstance;
+                return instances.get(LDConfig.primaryEnvironmentName);
             }
         }, MoreExecutors.directExecutor());
     }
