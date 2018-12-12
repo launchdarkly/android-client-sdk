@@ -207,29 +207,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return instances.keySet();
     }
 
-    public static synchronized Future<LDClient> getForMobileKey(String keyName) {
-        SettableFuture<LDClient> settableFuture = SettableFuture.create();
-        LDClient client = instances.get(keyName);
-
-        if (client != null) {
-            settableFuture.set(client);
-            return settableFuture;
-        } else {
-            throw new NoSuchElementException();
-        }
-    }
-
-    private static LDClient getForMobileKey(String keyName, int startWaitSeconds) {
-        Future<LDClient> clientFuture = getForMobileKey(keyName);
-
-        try {
-            return clientFuture.get(startWaitSeconds, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException e) {
-            Timber.e(e, "Exception during secondary instance retrieval");
-        } catch (TimeoutException e) {
-            Timber.w("Secondary instance was not retrieved within " + startWaitSeconds + " seconds. " +
-                    "It could be taking longer than expected to start up");
-        }
+    public static LDClient getForMobileKey(String keyName) {
         return instances.get(keyName);
     }
 
