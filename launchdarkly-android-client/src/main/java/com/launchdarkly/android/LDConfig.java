@@ -60,7 +60,7 @@ public class LDConfig {
 
     private final boolean inlineUsersInEvents;
 
-    public LDConfig(Map<String, String> mobileKeys,
+    LDConfig(Map<String, String> mobileKeys,
                     Uri baseUri,
                     Uri eventsUri,
                     Uri streamUri,
@@ -100,13 +100,7 @@ public class LDConfig {
 
     }
 
-    public Request.Builder getRequestBuilder() {
-        return new Request.Builder()
-                .addHeader("Authorization", getMobileKey())
-                .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
-    }
-
-    public Request.Builder getRequestBuilderFor(String environment) {
+    Request.Builder getRequestBuilderFor(String environment) {
         if (environment == null)
             throw new IllegalArgumentException("null is not a valid environment");
 

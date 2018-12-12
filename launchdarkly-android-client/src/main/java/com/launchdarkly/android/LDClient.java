@@ -151,40 +151,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }, MoreExecutors.directExecutor());
     }
 
-    public static Set<String> getEnvironmentNames() throws LaunchDarklyException {
-        if (instances == null) {
-            Timber.e("LDClient.getEnvironmentNames() was called before init()!");
-            throw new LaunchDarklyException("LDClient.getEnvironmentNames() was called before init()!");
-        }
-        return instances.keySet();
-    }
-
-    public static synchronized Future<LDClient> getForMobileKey(String keyName) {
-        SettableFuture<LDClient> settableFuture = SettableFuture.create();
-        LDClient client = instances.get(keyName);
-
-        if (client != null) {
-            settableFuture.set(client);
-            return settableFuture;
-        } else {
-            throw new NoSuchElementException();
-        }
-    }
-
-    private static LDClient getForMobileKey(String keyName, int startWaitSeconds) {
-        Future<LDClient> clientFuture = getForMobileKey(keyName);
-
-        try {
-            return clientFuture.get(startWaitSeconds, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException e) {
-            Timber.e(e, "Exception during secondary instance retrieval");
-        } catch (TimeoutException e) {
-            Timber.w("Secondary instance was not retrieved within " + startWaitSeconds + " seconds. " +
-                    "It could be taking longer than expected to start up");
-        }
-        return instances.get(keyName);
-    }
-
     private static <T> boolean validateParameter(T parameter) {
         boolean parameterValid;
         try {
@@ -232,6 +198,40 @@ public class LDClient implements LDClientInterface, Closeable {
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
         return instances.get(LDConfig.primaryEnvironmentName);
+    }
+
+    static Set<String> getEnvironmentNames() throws LaunchDarklyException {
+        if (instances == null) {
+            Timber.e("LDClient.getEnvironmentNames() was called before init()!");
+            throw new LaunchDarklyException("LDClient.getEnvironmentNames() was called before init()!");
+        }
+        return instances.keySet();
+    }
+
+    public static synchronized Future<LDClient> getForMobileKey(String keyName) {
+        SettableFuture<LDClient> settableFuture = SettableFuture.create();
+        LDClient client = instances.get(keyName);
+
+        if (client != null) {
+            settableFuture.set(client);
+            return settableFuture;
+        } else {
+            throw new NoSuchElementException();
+        }
+    }
+
+    private static LDClient getForMobileKey(String keyName, int startWaitSeconds) {
+        Future<LDClient> clientFuture = getForMobileKey(keyName);
+
+        try {
+            return clientFuture.get(startWaitSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException e) {
+            Timber.e(e, "Exception during secondary instance retrieval");
+        } catch (TimeoutException e) {
+            Timber.w("Secondary instance was not retrieved within " + startWaitSeconds + " seconds. " +
+                    "It could be taking longer than expected to start up");
+        }
+        return instances.get(keyName);
     }
 
     @VisibleForTesting
