@@ -6,7 +6,6 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.support.annotation.NonNull;
-import android.util.Log;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
