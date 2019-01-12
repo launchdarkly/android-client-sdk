@@ -41,7 +41,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     private final Context context;
     private final OkHttpClient client;
 
-    private volatile boolean isOffline = false;
+    private volatile boolean isOffline;
 
     static HttpFeatureFlagFetcher init(Context context, LDConfig config) {
         instance = new HttpFeatureFlagFetcher(context, config);
@@ -109,7 +109,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                                     + request.url() + " with body: " + body);
                         }
                         Timber.d(body);
-                        Timber.d("Cache hit count: " + client.cache().hitCount() + " Cache network Count: " + client.cache().networkCount());
+                        Timber.d("Cache hit count: %s Cache network Count: %s", client.cache().hitCount(), client.cache().networkCount());
                         Timber.d("Cache response: %s", response.cacheResponse());
                         Timber.d("Network response: %s", response.networkResponse());
 
@@ -117,7 +117,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                         JsonObject jsonObject = parser.parse(body).getAsJsonObject();
                         doneFuture.set(jsonObject);
                     } catch (Exception e) {
-                        Timber.e(e, "Exception when handling response for url: " + request.url() + " with body: " + body);
+                        Timber.e(e, "Exception when handling response for url: %s with body: %s", request.url(), body);
                         doneFuture.setException(e);
                     } finally {
                         if (response != null) {

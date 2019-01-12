@@ -148,15 +148,14 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
-        Timber.i("Initializing Client and waiting up to " + startWaitSeconds + " for initialization to complete");
+        Timber.i("Initializing Client and waiting up to %s for initialization to complete", startWaitSeconds);
         Future<LDClient> initFuture = init(application, config, user);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
             Timber.e(e, "Exception during Client initialization");
         } catch (TimeoutException e) {
-            Timber.w("Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
-                    "It could be taking longer than expected to start up");
+            Timber.w("Client did not successfully initialize within %s seconds. It could be taking longer than expected to start up", startWaitSeconds);
         }
         return instance;
     }
@@ -191,7 +190,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
-        Timber.i("Using instance id: " + instanceId);
+        Timber.i("Using instance id: %s", instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.init(application, config);
         this.userManager = UserManager.init(application, fetcher);
@@ -326,11 +325,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getBoolean(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get boolean flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get boolean flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get boolean flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get boolean flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -347,7 +344,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("boolVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("boolVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -369,11 +366,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = (int) userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get integer flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get integer flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get integer flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get integer flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -390,7 +385,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("intVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("intVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -412,11 +407,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get float flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get float flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get float flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get float flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -433,7 +426,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("floatVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("floatVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -455,11 +448,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getString(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get string flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get string flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get string flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -476,7 +467,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("stringVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("stringVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -501,20 +492,17 @@ public class LDClient implements LDClientInterface, Closeable {
                 result = new JsonParser().parse(stringResult);
             }
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get json (string) flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get json (string) flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get json (string flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get json (string flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (JsonSyntaxException jse) {
-            Timber.e(jse, "Attempted to get json (string flag that exists as another type for key: " +
-                    flagKey + " Returning fallback: " + fallback);
+            Timber.e(jse, "Attempted to get json (string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
         updateSummaryEvents(flagKey, result, fallback);
         sendFlagRequestEvent(flagKey, result, fallback, version, variation);
-        Timber.d("jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("jsonVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 

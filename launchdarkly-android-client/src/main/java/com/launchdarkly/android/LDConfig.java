@@ -373,14 +373,12 @@ public class LDConfig {
         public LDConfig build() {
             if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    Timber.w("setPollingIntervalMillis: " + pollingIntervalMillis
-                            + " was set below the allowed minimum of: " + MIN_POLLING_INTERVAL_MILLIS + ". Ignoring and using minimum value.");
+                    Timber.w("setPollingIntervalMillis: %s was set below the allowed minimum of: %s. Ignoring and using minimum value.", pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
                     pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                    Timber.w("BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
-                            " was set below the foreground polling interval: " + pollingIntervalMillis + ". Ignoring and using minimum value for background polling.");
+                    Timber.w("BackgroundPollingIntervalMillis: %s was set below the foreground polling interval: %s. Ignoring and using minimum value for background polling.", backgroundPollingIntervalMillis, pollingIntervalMillis);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
 
@@ -392,8 +390,7 @@ public class LDConfig {
 
             if (!disableBackgroundUpdating) {
                 if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
-                    Timber.w("BackgroundPollingIntervalMillis: " + backgroundPollingIntervalMillis +
-                            " was set below the minimum allowed: " + MIN_BACKGROUND_POLLING_INTERVAL_MILLIS + ". Ignoring and using minimum value.");
+                    Timber.w("BackgroundPollingIntervalMillis: %s was set below the minimum allowed: %s. Ignoring and using minimum value.", backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
             }

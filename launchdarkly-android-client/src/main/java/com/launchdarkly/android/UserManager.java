@@ -118,7 +118,7 @@ class UserManager {
     @SuppressWarnings("JavaDoc")
     void setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
-        Timber.d("Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
+        Timber.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
         userLocalSharedPreferences.setCurrentUser(user);
     }
@@ -136,8 +136,7 @@ class UserManager {
             @Override
             public void onFailure(@NonNull Throwable t) {
                 if (Util.isInternetConnected(application)) {
-                    Timber.e(t, "Error when attempting to set user: [" + currentUser.getAsUrlSafeBase64()
-                            + "] [" + userBase64ToJson(currentUser.getAsUrlSafeBase64()) + "]");
+                    Timber.e(t, "Error when attempting to set user: [%s] [%s]", currentUser.getAsUrlSafeBase64(), userBase64ToJson(currentUser.getAsUrlSafeBase64()));
                 }
                 syncCurrentUserToActiveUserAndLog();
             }
@@ -310,7 +309,7 @@ class UserManager {
 
             UserLocalSharedPreferences.SharedPreferencesEntry sharedPreferencesEntry = getSharedPreferencesEntry(flagResponse);
             if (sharedPreferencesEntry == null) {
-                Timber.w("Found some unknown feature flag type for key: [" + key + "] value: [" + v.toString() + "]");
+                Timber.w("Found some unknown feature flag type for key: [%s] value: [%s]", key, v.toString());
             } else {
                 sharedPreferencesEntryList.add(sharedPreferencesEntry);
             }
@@ -331,7 +330,7 @@ class UserManager {
 
             UserLocalSharedPreferences.SharedPreferencesEntry sharedPreferencesEntry = getSharedPreferencesEntry(flagResponse);
             if (sharedPreferencesEntry == null) {
-                Timber.w("Found some unknown feature flag type for key: [" + key + "] value: [" + v.toString() + "]");
+                Timber.w("Found some unknown feature flag type for key: [%s] value: [%s]", key, v.toString());
             } else {
                 sharedPreferencesEntryList.add(sharedPreferencesEntry);
             }

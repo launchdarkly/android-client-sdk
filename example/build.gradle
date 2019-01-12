@@ -48,5 +48,7 @@ dependencies {
     // Comment the previous line and uncomment this one to depend on the published artifact:
     //    compile 'com.launchdarkly:launchdarkly-android-client:1.0.1'
 
+    implementation 'com.jakewharton.timber:timber:4.7.0'
+
     testImplementation 'junit:junit:4.12'
 }

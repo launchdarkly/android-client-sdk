@@ -28,7 +28,7 @@ public class SSLHandshakeInterceptor implements okhttp3.Interceptor {
             if (handshake != null) {
                 final CipherSuite cipherSuite = handshake.cipherSuite();
                 final TlsVersion tlsVersion = handshake.tlsVersion();
-                Timber.v("TLS: " + tlsVersion + ", CipherSuite: " + cipherSuite);
+                Timber.v("TLS: %s, CipherSuite: %s", tlsVersion, cipherSuite);
             }
         }
     }

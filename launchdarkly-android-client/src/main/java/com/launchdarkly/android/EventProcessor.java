@@ -145,7 +145,7 @@ class EventProcessor implements Closeable {
                     .addHeader("X-LaunchDarkly-Event-Schema", "3")
                     .build();
 
-            Timber.d("Posting " + events.size() + " event(s) to " + request.url());
+            Timber.d("Posting %s event(s) to %s", events.size(), request.url());
 
             Response response = null;
             try {

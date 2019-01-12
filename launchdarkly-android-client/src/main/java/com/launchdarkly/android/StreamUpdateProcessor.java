@@ -96,7 +96,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
                 }
 
                 @Override
-                public void onComment(String comment) throws Exception {
+                public void onComment(String comment) {
 
                 }
 
@@ -106,7 +106,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
                     if (t instanceof UnsuccessfulResponseException) {
                         int code = ((UnsuccessfulResponseException) t).getCode();
                         if (code >= 400 && code < 500) {
-                            Timber.e("Encountered non-retriable error: " + code + ". Aborting connection to stream. Verify correct Mobile Key and Stream URI");
+                            Timber.e("Encountered non-retriable error: %s. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
                             if (!initialized.getAndSet(true)) {
                                 initFuture.setException(t);
