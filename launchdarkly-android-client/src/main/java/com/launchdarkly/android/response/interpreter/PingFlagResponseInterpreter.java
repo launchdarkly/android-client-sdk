@@ -35,7 +35,16 @@ public class PingFlagResponseInterpreter extends BaseFlagResponseInterpreter<Lis
                     Boolean trackEvents = getTrackEvents(asJsonObject);
                     Long debugEventsUntilDate = getDebugEventsUntilDate(asJsonObject);
 
-                    flagResponseList.add(new UserFlagResponse(key, asJsonObject.get("value"), variation, trackEvents, debugEventsUntilDate));
+
+                    JsonElement flagVersionElement = asJsonObject.get("flagVersion");
+                    JsonElement versionElement = asJsonObject.get("version");
+                    int flagVersion = flagVersionElement != null && flagVersionElement.getAsJsonPrimitive().isNumber()
+                            ? flagVersionElement.getAsInt()
+                            : -1;
+                    int version = versionElement != null && versionElement.getAsJsonPrimitive().isNumber()
+                            ? versionElement.getAsInt()
+                            : -1;
+                    flagResponseList.add(new UserFlagResponse(key, asJsonObject.get("value"), version, flagVersion, variation, trackEvents, debugEventsUntilDate));
                 } else {
                     flagResponseList.add(new UserFlagResponse(key, v));
                 }
