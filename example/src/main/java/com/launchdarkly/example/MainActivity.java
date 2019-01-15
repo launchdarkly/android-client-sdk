@@ -18,7 +18,6 @@ import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
 
-import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -56,21 +55,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Timber.e(e, "Exception when awaiting LaunchDarkly Client initialization");
         }
-    }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-        doSafeClientAction(new LDClientFunction() {
-            @Override
-            public void call() {
-                try {
-                    ldClient.close();
-                } catch (IOException e) {
-                    Timber.e(e, "Exception when closing LaunchDarkly Client");
-                }
-            }
-        });
     }
 
     private void setupFlushButton() {
