@@ -31,7 +31,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private static final String PATCH = "patch";
     private static final String DELETE = "delete";
 
-    private static final long MAX_RECONNECT_TIME_MS = 3600000; // 1 hour
+    private static final long MAX_RECONNECT_TIME_MS = 3_600_000; // 1 hour
 
     private EventSource es;
     private final LDConfig config;
@@ -42,10 +42,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
+    private final String environmentName;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName) {
         this.config = config;
         this.userManager = userManager;
+        this.environmentName = environmentName;
         queue = new Debounce();
 
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
@@ -58,7 +60,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
             stop();
             Timber.d("Starting.");
             Headers headers = new Headers.Builder()
-                    .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKey())
+                    .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKeys().get(environmentName))
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
                     .add("Accept", "text/event-stream")
                     .build();

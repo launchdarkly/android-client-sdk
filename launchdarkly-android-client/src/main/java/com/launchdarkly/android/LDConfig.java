@@ -6,7 +6,9 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import okhttp3.MediaType;
@@ -21,19 +23,21 @@ public class LDConfig {
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
+    static final String primaryEnvironmentName = "default";
+
     static final Uri DEFAULT_BASE_URI = Uri.parse("https://app.launchdarkly.com");
     static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com/mobile");
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
     static final int DEFAULT_EVENTS_CAPACITY = 100;
-    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30000;
-    static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10000;
+    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
+    static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
     static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
     static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
     static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
-    private final String mobileKey;
+    private final Map<String, String> mobileKeys;
 
     private final Uri baseUri;
     private final Uri eventsUri;
@@ -57,7 +61,7 @@ public class LDConfig {
 
     private final boolean inlineUsersInEvents;
 
-    public LDConfig(String mobileKey,
+    LDConfig(Map<String, String> mobileKeys,
                     Uri baseUri,
                     Uri eventsUri,
                     Uri streamUri,
@@ -74,7 +78,7 @@ public class LDConfig {
                     Set<String> privateAttributeNames,
                     boolean inlineUsersInEvents) {
 
-        this.mobileKey = mobileKey;
+        this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
@@ -97,14 +101,25 @@ public class LDConfig {
 
     }
 
-    public Request.Builder getRequestBuilder() {
+    Request.Builder getRequestBuilderFor(String environment) {
+        if (environment == null)
+            throw new IllegalArgumentException("null is not a valid environment");
+
+        String key = mobileKeys.get(environment);
+        if (key == null)
+            throw new IllegalArgumentException("No environment by that name.");
+
         return new Request.Builder()
-                .addHeader("Authorization", LDConfig.AUTH_SCHEME + mobileKey)
+                .addHeader("Authorization", LDConfig.AUTH_SCHEME + key)
                 .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
     }
 
     public String getMobileKey() {
-        return mobileKey;
+        return mobileKeys.get(primaryEnvironmentName);
+    }
+
+    public Map<String, String> getMobileKeys() {
+        return mobileKeys;
     }
 
     public Uri getBaseUri() {
@@ -173,6 +188,7 @@ public class LDConfig {
 
     public static class Builder {
         private String mobileKey;
+        private Map<String, String> secondaryMobileKeys;
 
         private Uri baseUri = DEFAULT_BASE_URI;
         private Uri eventsUri = DEFAULT_EVENTS_URI;
@@ -218,7 +234,39 @@ public class LDConfig {
          * @return
          */
         public LDConfig.Builder setMobileKey(String mobileKey) {
+            if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
+                throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
+            }
+
             this.mobileKey = mobileKey;
+            return this;
+        }
+
+        /**
+         * Sets the secondary keys for authenticating to additional LaunchDarkly environments
+         *
+         * @param secondaryMobileKeys A map of identifying names to unique mobile keys to access secondary environments
+         * @return
+         */
+        public LDConfig.Builder setSecondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
+            if (secondaryMobileKeys == null) {
+                this.secondaryMobileKeys = null;
+                return this;
+            }
+
+            Map<String, String> unmodifiable = Collections.unmodifiableMap(secondaryMobileKeys);
+            if (unmodifiable.containsKey(primaryEnvironmentName)) {
+                throw new IllegalArgumentException("The primary environment name is not a valid key.");
+            }
+            Set<String> secondaryKeys = new HashSet<>(unmodifiable.values());
+            if (mobileKey != null && secondaryKeys.contains(mobileKey)) {
+                throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
+            }
+            if (unmodifiable.values().size() != secondaryKeys.size()) {
+                throw new IllegalArgumentException("A key can only be used once.");
+            }
+
+            this.secondaryMobileKeys = unmodifiable;
             return this;
         }
 
@@ -401,8 +449,17 @@ public class LDConfig {
 
             PollingUpdater.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
 
+            HashMap<String, String> mobileKeys;
+            if (secondaryMobileKeys == null) {
+                mobileKeys = new HashMap<>();
+            }
+            else {
+                mobileKeys = new HashMap<>(secondaryMobileKeys);
+            }
+            mobileKeys.put(primaryEnvironmentName, mobileKey);
+
             return new LDConfig(
-                    mobileKey,
+                    mobileKeys,
                     baseUri,
                     eventsUri,
                     streamUri,

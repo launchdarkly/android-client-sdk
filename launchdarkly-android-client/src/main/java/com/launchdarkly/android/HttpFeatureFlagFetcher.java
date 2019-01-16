@@ -1,8 +1,8 @@
 package com.launchdarkly.android;
 
-
 import android.content.Context;
 import android.os.Build;
+import android.support.annotation.NonNull;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
@@ -35,25 +35,20 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
-    private static HttpFeatureFlagFetcher instance;
-
     private final LDConfig config;
+    private final String environment;
     private final Context context;
     private final OkHttpClient client;
 
     private volatile boolean isOffline;
 
-    static HttpFeatureFlagFetcher init(Context context, LDConfig config) {
-        instance = new HttpFeatureFlagFetcher(context, config);
-        return instance;
+    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environment) {
+        return new HttpFeatureFlagFetcher(context, config, environment);
     }
 
-    static HttpFeatureFlagFetcher get() {
-        return instance;
-    }
-
-    private HttpFeatureFlagFetcher(Context context, LDConfig config) {
+    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environment) {
         this.config = config;
+        this.environment = environment;
         this.context = context;
         this.isOffline = config.isOffline();
 
@@ -82,19 +77,21 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
         if (user != null && !isOffline && isInternetConnected(context)) {
 
-            final Request request = config.isUseReport() ? getReportRequest(user) : getDefaultRequest(user);
+            final Request request = config.isUseReport()
+                    ? getReportRequest(user)
+                    : getDefaultRequest(user);
 
             Timber.d(request.toString());
             Call call = client.newCall(request);
             call.enqueue(new Callback() {
                 @Override
-                public void onFailure(Call call, IOException e) {
+                public void onFailure(@NonNull Call call, @NonNull IOException e) {
                     Timber.e(e, "Exception when fetching flags.");
                     doneFuture.setException(e);
                 }
 
                 @Override
-                public void onResponse(Call call, final Response response) throws IOException {
+                public void onResponse(@NonNull Call call, @NonNull final Response response) throws IOException {
                     String body = "";
                     try {
                         ResponseBody responseBody = response.body();
@@ -139,7 +136,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     private Request getDefaultRequest(LDUser user) {
         String uri = config.getBaseUri() + "/msdk/evalx/users/" + user.getAsUrlSafeBase64();
         Timber.d("Attempting to fetch Feature flags using uri: %s", uri);
-        final Request request = config.getRequestBuilder() // default GET verb
+        final Request request = config.getRequestBuilderFor(environment) // default GET verb
                 .url(uri)
                 .build();
         return request;
@@ -150,12 +147,13 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         Timber.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), userJson);
-        final Request report = config.getRequestBuilder()
+        final Request report = config.getRequestBuilderFor(environment)
                 .method("REPORT", reportBody) // custom REPORT verb
                 .url(reportUri)
                 .build();
         return report;
     }
+
 
     @Override
     public void setOffline() {

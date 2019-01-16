@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
 
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -26,15 +27,22 @@ public class PollingUpdater extends BroadcastReceiver {
             LDClient client = LDClient.get();
             if (client != null && !client.isOffline() && isInternetConnected(context)) {
                 Timber.d("onReceive connected to the internet!");
-                UserManager userManager = UserManager.get();
-                if (userManager == null) {
-                    Timber.e("UserManager singleton was accessed before it was initialized! doing nothing");
-                    return;
+                Set<String> environments = LDClient.getEnvironmentNames();
+                for (String environment : environments) {
+                    UserManager userManager = LDClient.getForMobileKey(environment).get().getUserManager();
+                    if (userManager == null) {
+                        Timber.e("UserManager singleton was accessed before it was initialized! doing nothing");
+                        continue;
+                    }
+                    userManager.updateCurrentUser().get(15, TimeUnit.SECONDS);
                 }
-                userManager.updateCurrentUser();
             } else {
                 Timber.d("onReceive with no internet connection! Skipping fetch.");
             }
+        } catch (InterruptedException | ExecutionException e) {
+            Timber.e(e, "Exception caught when awaiting update");
+        } catch (TimeoutException e) {
+            Timber.e(e, "Feature Flag update timed out");
         } catch (LaunchDarklyException e) {
             Timber.e(e, "Exception when getting client");
         }

@@ -4,6 +4,8 @@ import android.app.Application;
 import android.content.Context;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.Build;
 import android.support.annotation.NonNull;
 
@@ -25,7 +27,11 @@ import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -43,12 +49,14 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 public class LDClient implements LDClientInterface, Closeable {
 
     private static final String INSTANCE_ID_KEY = "instanceId";
+    private static final String INSTANCE_CLEAR_KEY = "clear";
+    private static int instanceClearCounter = 0;
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
     private static String instanceId = "UNKNOWN_ANDROID";
-    private static LDClient instance = null;
+    private static Map<String, LDClient> instances = null;
 
-    private static final long MAX_RETRY_TIME_MS = 3600000; // 1 hour
-    private static final long RETRY_TIME_MS = 1000; // 1 second
+    private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
+    private static final long RETRY_TIME_MS = 1_000; // 1 second
 
     private final WeakReference<Application> application;
     private final LDConfig config;
@@ -63,7 +71,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isAppForegrounded = true;
 
     /**
-     * Initializes the singleton instance. The result is a {@link Future} which
+     * Initializes the singleton/primary instance. The result is a {@link Future} which
      * will complete once the client has been initialized with the latest feature flag values. For
      * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
      * the return value of this method, and afterward call {@link #get()}
@@ -78,7 +86,6 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return a {@link Future} which will complete once the client has been initialized.
      */
     public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
-
         boolean applicationValid = validateParameter(application);
         boolean configValid = validateParameter(config);
         boolean userValid = validateParameter(user);
@@ -94,32 +101,53 @@ public class LDClient implements LDClientInterface, Closeable {
 
         SettableFuture<LDClient> settableFuture = SettableFuture.create();
 
-        if (instance != null) {
-            Timber.w( "LDClient.init() was called more than once! returning existing instance.");
-            settableFuture.set(instance);
+        if (instances != null) {
+            Timber.w("LDClient.init() was called more than once! returning primary instance.");
+            settableFuture.set(instances.get(LDConfig.primaryEnvironmentName));
             return settableFuture;
         }
         if (BuildConfig.DEBUG) {
             Timber.plant(new Timber.DebugTree());
         }
-        instance = new LDClient(application, config);
-        instance.userManager.setCurrentUser(user);
 
-        if (instance.isOffline() || !isInternetConnected(application)) {
-            settableFuture.set(instance);
-            return settableFuture;
 
+        ConnectivityManager cm = (ConnectivityManager) application.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        boolean deviceConnected = activeNetwork != null && activeNetwork.isConnectedOrConnecting();
+
+        instances = new HashMap<>();
+
+        Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
+
+        for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
+            final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
+            instance.userManager.setCurrentUser(user);
+
+            instances.put(mobileKeys.getKey(), instance);
+
+            if (instance.isOffline() || !deviceConnected)
+                continue;
+
+            instance.eventProcessor.start();
+            updateFutures.put(mobileKeys.getKey(), instance.updateProcessor.start());
+            instance.sendEvent(new IdentifyEvent(user));
         }
-        instance.eventProcessor.start();
 
-        ListenableFuture<Void> initFuture = instance.updateProcessor.start();
-        instance.sendEvent(new IdentifyEvent(user));
+        ArrayList<ListenableFuture<Void>> online = new ArrayList<>();
+
+        for (Map.Entry<String, ListenableFuture<Void>> entry : updateFutures.entrySet()) {
+            if (!instances.get(entry.getKey()).isOffline()) {
+                online.add(entry.getValue());
+            }
+        }
+
+        ListenableFuture<List<Void>> allFuture = Futures.allAsList(online);
 
         // Transform initFuture so its result is the instance:
-        return Futures.transform(initFuture, new Function<Void, LDClient>() {
+        return Futures.transform(allFuture, new Function<List<Void>, LDClient>() {
             @Override
-            public LDClient apply(Void input) {
-                return instance;
+            public LDClient apply(List<Void> input) {
+                return instances.get(LDConfig.primaryEnvironmentName);
             }
         }, MoreExecutors.directExecutor());
     }
@@ -157,7 +185,7 @@ public class LDClient implements LDClientInterface, Closeable {
         } catch (TimeoutException e) {
             Timber.w("Client did not successfully initialize within %s seconds. It could be taking longer than expected to start up", startWaitSeconds);
         }
-        return instance;
+        return instances.get(LDConfig.primaryEnvironmentName);
     }
 
     /**
@@ -165,35 +193,83 @@ public class LDClient implements LDClientInterface, Closeable {
      * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
      */
     public static LDClient get() throws LaunchDarklyException {
-        if (instance == null) {
+        if (instances == null) {
             Timber.e("LDClient.get() was called before init()!");
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
-        return instance;
+        return instances.get(LDConfig.primaryEnvironmentName);
+    }
+
+    static Set<String> getEnvironmentNames() throws LaunchDarklyException {
+        if (instances == null) {
+            Timber.e("LDClient.getEnvironmentNames() was called before init()!");
+            throw new LaunchDarklyException("LDClient.getEnvironmentNames() was called before init()!");
+        }
+        return instances.keySet();
+    }
+
+    public static LDClient getForMobileKey(String keyName) {
+        return instances.get(keyName);
     }
 
     @VisibleForTesting
     protected LDClient(final Application application, @NonNull final LDConfig config) {
+        this(application, config, LDConfig.primaryEnvironmentName);
+    }
+
+    @VisibleForTesting
+    protected LDClient(final Application application, @NonNull final LDConfig config, String environmentName) {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.isOffline = config.isOffline();
         this.application = new WeakReference<>(application);
 
         SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
+        SharedPreferences mobileKeySharedPrefs =
+                application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + config.getMobileKeys().get(environmentName), Context.MODE_PRIVATE);
 
-        if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
+        if (!instanceIdSharedPrefs.contains(INSTANCE_CLEAR_KEY)) {
+            SharedPreferences.Editor editor = mobileKeySharedPrefs.edit();
+
+            for (Map.Entry<String, ?> entry : instanceIdSharedPrefs.getAll().entrySet()) {
+                Object value = entry.getValue();
+                String key = entry.getKey();
+
+                if (value instanceof Boolean)
+                    editor.putBoolean(key, (Boolean) value);
+                else if (value instanceof Float)
+                    editor.putFloat(key, (Float) value);
+                else if (value instanceof Integer)
+                    editor.putInt(key, (Integer) value);
+                else if (value instanceof Long)
+                    editor.putLong(key, (Long) value);
+                else if (value instanceof String)
+                    editor.putString(key, ((String) value));
+                editor.apply();
+            }
+
+            if (instanceClearCounter > config.getMobileKeys().size()) { //SharedPreferences will only be cleared if all environments have a copy
+                instanceIdSharedPrefs.edit().clear().commit();
+                instanceIdSharedPrefs.edit().putString(INSTANCE_CLEAR_KEY, INSTANCE_CLEAR_KEY).apply();
+            } else {
+                instanceClearCounter++;
+            }
+
+        }
+
+        if (!mobileKeySharedPrefs.contains(INSTANCE_ID_KEY)) {
             String uuid = UUID.randomUUID().toString();
             Timber.i("Did not find existing instance id. Saving a new one");
-            SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
+            SharedPreferences.Editor editor = mobileKeySharedPrefs.edit();
             editor.putString(INSTANCE_ID_KEY, uuid);
             editor.apply();
         }
 
-        instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
+        instanceId = mobileKeySharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
         Timber.i("Using instance id: %s", instanceId);
 
-        this.fetcher = HttpFeatureFlagFetcher.init(application, config);
-        this.userManager = UserManager.init(application, fetcher);
+        this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
+        this.userManager = UserManager.newInstance(application, fetcher);
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
@@ -215,12 +291,12 @@ public class LDClient implements LDClientInterface, Closeable {
         foreground.addListener(foregroundListener);
 
         if (config.isStream()) {
-            this.updateProcessor = new StreamUpdateProcessor(config, userManager);
+            this.updateProcessor = new StreamUpdateProcessor(config, userManager, environmentName);
         } else {
             Timber.i("Streaming is disabled. Starting LaunchDarkly Client in polling mode");
             this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
         }
-        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences());
+        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
 
         throttler = new Throttler(new Runnable() {
             @Override
@@ -274,6 +350,10 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public synchronized Future<Void> identify(LDUser user) {
+        return LDClient.identifyInstances(user);
+    }
+
+    private synchronized ListenableFuture<Void> identifyInternal(LDUser user) {
         if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
         }
@@ -294,6 +374,25 @@ public class LDClient implements LDClientInterface, Closeable {
         sendEvent(new IdentifyEvent(user));
 
         return doneFuture;
+    }
+
+    private static synchronized Future<Void> identifyInstances(LDUser user) {
+        if (user == null) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
+        }
+
+        ArrayList<ListenableFuture<Void>> futures = new ArrayList<>();
+
+        for (LDClient client : instances.values()) {
+            futures.add(client.identifyInternal(user));
+        }
+
+        return Futures.transform(Futures.allAsList(futures), new Function<List<Void>, Void>() {
+            @Override
+            public Void apply(List<Void> input) {
+                return null;
+            }
+        }, MoreExecutors.directExecutor());
     }
 
     /**
@@ -513,6 +612,10 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
+        LDClient.closeInstances();
+    }
+
+    private void closeInternal() throws IOException {
         updateProcessor.stop();
         eventProcessor.close();
         if (connectivityReceiver != null && application.get() != null) {
@@ -520,12 +623,35 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
+    private static void closeInstances() throws IOException {
+        IOException exception = null;
+        for (LDClient client : instances.values()) {
+            try {
+                client.closeInternal();
+            } catch (IOException e) {
+                exception = e;
+            }
+        }
+        if (exception != null)
+            throw exception;
+    }
+
     /**
      * Sends all pending events to LaunchDarkly.
      */
     @Override
     public void flush() {
+        LDClient.flushInstances();
+    }
+
+    private void flushInternal() {
         eventProcessor.flush();
+    }
+
+    private static void flushInstances() {
+        for (LDClient client : instances.values()) {
+            client.flushInternal();
+        }
     }
 
     @Override
@@ -549,12 +675,22 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public synchronized void setOffline() {
+        LDClient.setInstancesOffline();
+    }
+
+    private synchronized void setOfflineInternal() {
         Timber.d("Setting isOffline = true");
         throttler.cancel();
         isOffline = true;
         fetcher.setOffline();
         stopForegroundUpdating();
         eventProcessor.stop();
+    }
+
+    private synchronized static void setInstancesOffline() {
+        for (LDClient client : instances.values()) {
+            client.setOfflineInternal();
+        }
     }
 
     /**
@@ -571,6 +707,10 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void setOnlineStatus() {
+        LDClient.setOnlineStatusInstances();
+    }
+
+    private void setOnlineStatusInternal() {
         Timber.d("Setting isOffline = false");
         isOffline = false;
         fetcher.setOnline();
@@ -580,6 +720,12 @@ public class LDClient implements LDClientInterface, Closeable {
             startBackgroundPolling();
         }
         eventProcessor.start();
+    }
+
+    private static void setOnlineStatusInstances() {
+        for (LDClient client : instances.values()) {
+            client.setOnlineStatusInternal();
+        }
     }
 
     /**
@@ -706,5 +852,9 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return userManager.getSummaryEventSharedPreferences();
+    }
+
+    UserManager getUserManager() {
+        return userManager;
     }
 }
