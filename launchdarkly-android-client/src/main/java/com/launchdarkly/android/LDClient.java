@@ -31,7 +31,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.security.NoSuchAlgorithmException;
-import java.security.Security;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -56,7 +55,6 @@ import static com.launchdarkly.android.Util.isClientConnected;
 public class LDClient implements LDClientInterface, Closeable {
 
     private static final String INSTANCE_ID_KEY = "instanceId";
-    private static final String INSTANCE_CLEAR_KEY = "clear";
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
     private static String instanceId = "UNKNOWN_ANDROID";
     private static Map<String, LDClient> instances = null;
@@ -116,8 +114,6 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.plant(new Timber.DebugTree());
         }
 
-        Security.removeProvider("AndroidOpenSSL");
-
         try {
             SSLContext.getInstance("TLSv1.2");
         } catch (NoSuchAlgorithmException e) {
@@ -139,15 +135,21 @@ public class LDClient implements LDClientInterface, Closeable {
 
         Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
 
-        for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
-            String mobileKey = mobileKeys.getKey();
-            multiEnvironmentSharedPreferencesMigration(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE),
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "id", Context.MODE_PRIVATE),
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE),
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "users", Context.MODE_PRIVATE),
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE),
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "version", Context.MODE_PRIVATE));
+        SharedPreferences instanceIdSharedPrefs =
+                application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
+
+        if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
+            String uuid = UUID.randomUUID().toString();
+            Timber.i("Did not find existing instance id. Saving a new one");
+            SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
+            editor.putString(INSTANCE_ID_KEY, uuid);
+            editor.apply();
         }
+
+        instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
+        Timber.i("Using instance id: %s", instanceId);
+
+        migrateWhenNeeded(application, config);
 
         for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
             final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
@@ -260,23 +262,9 @@ public class LDClient implements LDClientInterface, Closeable {
         this.isOffline = config.isOffline();
         this.application = new WeakReference<>(application);
         this.environmentName = environmentName;
-
-        SharedPreferences mobileKeySharedPrefs =
-                application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + config.getMobileKeys().get(environmentName) + "id", Context.MODE_PRIVATE);
-
-        if (!mobileKeySharedPrefs.contains(INSTANCE_ID_KEY)) {
-            String uuid = UUID.randomUUID().toString();
-            Timber.i("Did not find existing instance id. Saving a new one");
-            SharedPreferences.Editor editor = mobileKeySharedPrefs.edit();
-            editor.putString(INSTANCE_ID_KEY, uuid);
-            editor.apply();
-        }
-
-        instanceId = mobileKeySharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
-        Timber.i("Using instance id: %s", instanceId);
-
         this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
         this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
+
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
@@ -319,24 +307,33 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private static void multiEnvironmentSharedPreferencesMigration(SharedPreferences instanceIdSharedPrefs, SharedPreferences newInstanceIdSharedPrefs,
-                                                                   SharedPreferences userSharedPrefs, SharedPreferences newUserSharedPrefs,
-                                                                   SharedPreferences userFlagSharedPrefs, SharedPreferences newUserFlagSharedPrefs) {
-        checkAndClearSharedPreferences(instanceIdSharedPrefs, newInstanceIdSharedPrefs);
-        checkAndClearSharedPreferences(userFlagSharedPrefs, newUserFlagSharedPrefs);
-        checkAndClearSharedPreferences(userSharedPrefs, newUserSharedPrefs);
-    }
+    private static void migrateWhenNeeded(Application application, LDConfig config) {
+        SharedPreferences migrations = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "migrations", Context.MODE_PRIVATE);
 
-    private static void checkAndClearSharedPreferences(SharedPreferences oldPrefs, SharedPreferences newPrefs) {
-        if (!oldPrefs.contains(INSTANCE_CLEAR_KEY)) {
-            copySharedPreferences(oldPrefs, newPrefs);
+        if (!migrations.contains("v2.6.0")) {
+            Timber.d("Migrating to v2.6.0 multi-environment shared preferences");
+            boolean allSuccess = true;
+            for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
+                String mobileKey = mobileKeys.getValue();
+                boolean users = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE),
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "users", Context.MODE_PRIVATE));
+                boolean version = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE),
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "version", Context.MODE_PRIVATE));
+                allSuccess = allSuccess && users && version;
+            }
 
-            oldPrefs.edit().clear().commit();
-            oldPrefs.edit().putString(INSTANCE_CLEAR_KEY, INSTANCE_CLEAR_KEY).apply();
+            if (allSuccess) {
+                Timber.d("Migration to v2.6.0 multi-environment shared preferences successful");
+                boolean logged = migrations.edit().putString("v2.6.0", "v2.6.0").commit();
+                if (logged) {
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE).edit().clear().apply();
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE).edit().clear().apply();
+                }
+            }
         }
     }
 
-    private static void copySharedPreferences(SharedPreferences oldPreferences, SharedPreferences newPreferences) {
+    private static boolean copySharedPreferences(SharedPreferences oldPreferences, SharedPreferences newPreferences) {
         SharedPreferences.Editor editor = newPreferences.edit();
 
         for (Map.Entry<String, ?> entry : oldPreferences.getAll().entrySet()) {
@@ -353,8 +350,9 @@ public class LDClient implements LDClientInterface, Closeable {
                 editor.putLong(key, (Long) value);
             else if (value instanceof String)
                 editor.putString(key, ((String) value));
-            editor.apply();
         }
+
+        return editor.commit();
     }
 
     /**
