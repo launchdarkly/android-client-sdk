@@ -33,7 +33,7 @@ import okhttp3.Response;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
-import static com.launchdarkly.android.Util.isInternetConnected;
+import static com.launchdarkly.android.Util.isClientConnected;
 
 class EventProcessor implements Closeable {
     private final BlockingQueue<Event> queue;
@@ -123,7 +123,7 @@ class EventProcessor implements Closeable {
         }
 
         public synchronized void flush() {
-            if (isInternetConnected(context)) {
+            if (isClientConnected(context, environmentName)) {
                 List<Event> events = new ArrayList<>(queue.size() + 1);
                 queue.drainTo(events);
                 if (summaryEvent != null) {
@@ -159,7 +159,7 @@ class EventProcessor implements Closeable {
                 SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
                 try {
                     Date date = sdf.parse(dateString);
-                    currentTimeMs =  date.getTime();
+                    currentTimeMs = date.getTime();
                 } catch (ParseException pe) {
                     Timber.e(pe, "Failed to parse date header");
                 }

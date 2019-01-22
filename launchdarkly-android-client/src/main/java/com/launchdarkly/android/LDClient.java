@@ -47,7 +47,7 @@ import javax.net.ssl.SSLContext;
 
 import timber.log.Timber;
 
-import static com.launchdarkly.android.Util.isInternetConnected;
+import static com.launchdarkly.android.Util.isClientConnected;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
@@ -64,6 +64,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
     private static final long RETRY_TIME_MS = 1_000; // 1 second
 
+    private final String environmentName;
     private final WeakReference<Application> application;
     private final LDConfig config;
     private final UserManager userManager;
@@ -253,11 +254,12 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    protected LDClient(final Application application, @NonNull final LDConfig config, String environmentName) {
+    protected LDClient(final Application application, @NonNull final LDConfig config, final String environmentName) {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.isOffline = config.isOffline();
         this.application = new WeakReference<>(application);
+        this.environmentName = environmentName;
 
         SharedPreferences mobileKeySharedPrefs =
                 application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + config.getMobileKeys().get(environmentName) + "id", Context.MODE_PRIVATE);
@@ -274,14 +276,14 @@ public class LDClient implements LDClientInterface, Closeable {
         Timber.i("Using instance id: %s", instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
-        this.userManager = UserManager.newInstance(application, fetcher, config.getMobileKeys().get(environmentName));
+        this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
             public void onBecameForeground() {
                 PollingUpdater.stop(application);
                 isAppForegrounded = true;
-                if (isInternetConnected(application)) {
+                if (isClientConnected(application, environmentName)) {
                     startForegroundUpdating();
                 }
             }
@@ -318,8 +320,8 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private static void multiEnvironmentSharedPreferencesMigration(SharedPreferences instanceIdSharedPrefs, SharedPreferences newInstanceIdSharedPrefs,
-                                           SharedPreferences userSharedPrefs, SharedPreferences newUserSharedPrefs,
-                                           SharedPreferences userFlagSharedPrefs, SharedPreferences newUserFlagSharedPrefs) {
+                                                                   SharedPreferences userSharedPrefs, SharedPreferences newUserSharedPrefs,
+                                                                   SharedPreferences userFlagSharedPrefs, SharedPreferences newUserFlagSharedPrefs) {
         checkAndClearSharedPreferences(instanceIdSharedPrefs, newInstanceIdSharedPrefs);
         checkAndClearSharedPreferences(userFlagSharedPrefs, newUserFlagSharedPrefs);
         checkAndClearSharedPreferences(userSharedPrefs, newUserSharedPrefs);
@@ -835,7 +837,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     void startBackgroundPolling() {
         Application application = this.application.get();
-        if (application != null && !config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
+        if (application != null && !config.isDisableBackgroundPolling() && isClientConnected(application, environmentName)) {
             PollingUpdater.startBackgroundPolling(application);
         }
     }

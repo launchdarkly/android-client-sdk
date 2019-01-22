@@ -14,6 +14,7 @@ import java.util.concurrent.TimeoutException;
 
 import timber.log.Timber;
 
+import static com.launchdarkly.android.Util.isClientConnected;
 import static com.launchdarkly.android.Util.isInternetConnected;
 
 public class PollingUpdater extends BroadcastReceiver {
@@ -24,12 +25,15 @@ public class PollingUpdater extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         try {
-            LDClient client = LDClient.get();
-            if (client != null && !client.isOffline() && isInternetConnected(context)) {
+            if (isInternetConnected(context)) {
                 Timber.d("onReceive connected to the internet!");
                 Set<String> environments = LDClient.getEnvironmentNames();
                 for (String environment : environments) {
-                    UserManager userManager = LDClient.getForMobileKey(environment).get().getUserManager();
+                    if (!isClientConnected(context, environment)) {
+                        Timber.d("Skipping offline environment: %s", environment);
+                        continue;
+                    }
+                    UserManager userManager = LDClient.getForMobileKey(environment).getUserManager();
                     if (userManager == null) {
                         Timber.e("UserManager singleton was accessed before it was initialized! doing nothing");
                         continue;

@@ -17,12 +17,14 @@ public class ConnectivityReceiver extends BroadcastReceiver {
         if (isInternetConnected(context)) {
             Timber.d("Connected to the internet");
             try {
-                LDClient ldClient = LDClient.get();
-                if (!ldClient.isOffline()) {
-                    if (Foreground.get(context).isForeground()) {
-                        ldClient.startForegroundUpdating();
-                    } else if (!ldClient.isDisableBackgroundPolling()){
-                        PollingUpdater.startBackgroundPolling(context);
+                for (String environmentName : LDClient.getEnvironmentNames()) {
+                    LDClient ldClient = LDClient.getForMobileKey(environmentName);
+                    if (!ldClient.isOffline()) {
+                        if (Foreground.get(context).isForeground()) {
+                            ldClient.startForegroundUpdating();
+                        } else if (!ldClient.isDisableBackgroundPolling()) {
+                            PollingUpdater.startBackgroundPolling(context);
+                        }
                     }
                 }
             } catch (LaunchDarklyException e) {
@@ -31,8 +33,10 @@ public class ConnectivityReceiver extends BroadcastReceiver {
         } else {
             Timber.d("Not Connected to the internet");
             try {
-                LDClient ldClient = LDClient.get();
-                ldClient.stopForegroundUpdating();
+                for (String environmentName : LDClient.getEnvironmentNames()) {
+                    LDClient ldClient = LDClient.getForMobileKey(environmentName);
+                    ldClient.stopForegroundUpdating();
+                }
             } catch (LaunchDarklyException e) {
                 Timber.e(e, "Tried to stop foreground updating, but LDClient has not yet been initialized.");
             }

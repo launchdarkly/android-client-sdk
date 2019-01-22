@@ -53,22 +53,24 @@ class UserManager {
     private final UserLocalSharedPreferences userLocalSharedPreferences;
     private final FlagResponseSharedPreferences flagResponseSharedPreferences;
     private final SummaryEventSharedPreferences summaryEventSharedPreferences;
+    private final String environmentName;
 
     private LDUser currentUser;
     private final Util.LazySingleton<JsonParser> jsonParser;
 
     private final ExecutorService executor;
 
-    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher, String mobileKey) {
-        return new UserManager(application, fetcher, mobileKey);
+    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
+        return new UserManager(application, fetcher, environmentName, mobileKey);
     }
 
-    UserManager(Application application, FeatureFlagFetcher fetcher, String mobileKey) {
+    UserManager(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
         this.application = application;
         this.fetcher = fetcher;
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application, mobileKey);
         this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "version");
         this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "summaryevents");
+        this.environmentName = environmentName;
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
             @Override
@@ -121,7 +123,7 @@ class UserManager {
 
             @Override
             public void onFailure(@NonNull Throwable t) {
-                if (Util.isInternetConnected(application)) {
+                if (Util.isClientConnected(application, environmentName)) {
                     Timber.e(t, "Error when attempting to set user: [%s] [%s]", currentUser.getAsUrlSafeBase64(), userBase64ToJson(currentUser.getAsUrlSafeBase64()));
                 }
                 syncCurrentUserToActiveUserAndLog();

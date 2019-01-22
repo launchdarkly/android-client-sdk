@@ -116,7 +116,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
                             if (code == 401) {
                                 connection401Error = true;
                                 try {
-                                    LDClient clientSingleton = LDClient.get();
+                                    LDClient clientSingleton = LDClient.getForMobileKey(environmentName);
                                     clientSingleton.setOffline();
                                 } catch (LaunchDarklyException e) {
                                     Timber.e(e, "Client unavailable to be set offline");

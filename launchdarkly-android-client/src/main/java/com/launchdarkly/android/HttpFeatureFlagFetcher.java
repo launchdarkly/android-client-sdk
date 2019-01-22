@@ -29,26 +29,26 @@ import okhttp3.ResponseBody;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.GSON;
-import static com.launchdarkly.android.Util.isInternetConnected;
+import static com.launchdarkly.android.Util.isClientConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
     private final LDConfig config;
-    private final String environment;
+    private final String environmentName;
     private final Context context;
     private final OkHttpClient client;
 
     private volatile boolean isOffline;
 
-    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environment) {
-        return new HttpFeatureFlagFetcher(context, config, environment);
+    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environmentName) {
+        return new HttpFeatureFlagFetcher(context, config, environmentName);
     }
 
-    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environment) {
+    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environmentName) {
         this.config = config;
-        this.environment = environment;
+        this.environmentName = environmentName;
         this.context = context;
         this.isOffline = config.isOffline();
 
@@ -75,7 +75,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     public synchronized ListenableFuture<JsonObject> fetch(LDUser user) {
         final SettableFuture<JsonObject> doneFuture = SettableFuture.create();
 
-        if (user != null && !isOffline && isInternetConnected(context)) {
+        if (user != null && !isOffline && isClientConnected(context, environmentName)) {
 
             final Request request = config.isUseReport()
                     ? getReportRequest(user)
@@ -136,7 +136,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     private Request getDefaultRequest(LDUser user) {
         String uri = config.getBaseUri() + "/msdk/evalx/users/" + user.getAsUrlSafeBase64();
         Timber.d("Attempting to fetch Feature flags using uri: %s", uri);
-        final Request request = config.getRequestBuilderFor(environment) // default GET verb
+        final Request request = config.getRequestBuilderFor(environmentName) // default GET verb
                 .url(uri)
                 .build();
         return request;
@@ -147,7 +147,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         Timber.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), userJson);
-        final Request report = config.getRequestBuilderFor(environment)
+        final Request report = config.getRequestBuilderFor(environmentName)
                 .method("REPORT", reportBody) // custom REPORT verb
                 .url(reportUri)
                 .build();
