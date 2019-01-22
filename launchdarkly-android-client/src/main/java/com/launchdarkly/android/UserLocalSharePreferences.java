@@ -42,9 +42,12 @@ class UserLocalSharedPreferences {
     // The current user- we'll always fetch this user from the response we get from the api
     private SharedPreferences currentUserSharedPrefs;
 
-    UserLocalSharedPreferences(Application application) {
+    private String mobileKey;
+
+    UserLocalSharedPreferences(Application application, String mobileKey) {
         this.application = application;
-        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE);
+        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "users", Context.MODE_PRIVATE);
+        this.mobileKey = mobileKey;
         this.activeUserSharedPrefs = loadSharedPrefsForActiveUser();
         HashMultimap<String, Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> multimap = HashMultimap.create();
         listeners = Multimaps.synchronizedMultimap(multimap);
@@ -79,7 +82,7 @@ class UserLocalSharedPreferences {
     }
 
     private String sharedPrefsKeyForUser(String user) {
-        return LDConfig.SHARED_PREFS_BASE_KEY + user;
+        return LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + user;
     }
 
     // Gets all users sorted by creation time (oldest first)
@@ -131,7 +134,7 @@ class UserLocalSharedPreferences {
     }
 
     private SharedPreferences loadSharedPrefsForActiveUser() {
-        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + "active";
+        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "active";
         Timber.d("Using SharedPreferences key for active user: [%s]", sharedPrefsKey);
         return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
     }
@@ -188,7 +191,6 @@ class UserLocalSharedPreferences {
      * active user as well as their listeners.
      */
     void syncCurrentUserToActiveUser() {
-
         SharedPreferences.Editor activeEditor = activeUserSharedPrefs.edit();
         Map<String, ?> active = activeUserSharedPrefs.getAll();
         Map<String, ?> current = currentUserSharedPrefs.getAll();

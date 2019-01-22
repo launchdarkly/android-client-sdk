@@ -59,16 +59,16 @@ class UserManager {
 
     private final ExecutorService executor;
 
-    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher) {
-        return new UserManager(application, fetcher);
+    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher, String mobileKey) {
+        return new UserManager(application, fetcher, mobileKey);
     }
 
-    UserManager(Application application, FeatureFlagFetcher fetcher) {
+    UserManager(Application application, FeatureFlagFetcher fetcher, String mobileKey) {
         this.application = application;
         this.fetcher = fetcher;
-        this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
-        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
-        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents");
+        this.userLocalSharedPreferences = new UserLocalSharedPreferences(application, mobileKey);
+        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "version");
+        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "summaryevents");
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
             @Override
@@ -94,7 +94,6 @@ class UserManager {
     SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return summaryEventSharedPreferences;
     }
-
 
     /**
      * Sets the current user. If there are more than MAX_USERS stored in shared preferences,

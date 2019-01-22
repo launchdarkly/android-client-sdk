@@ -67,12 +67,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
             EventHandler handler = new EventHandler() {
                 @Override
-                public void onOpen() throws Exception {
+                public void onOpen() {
                     Timber.i("Started LaunchDarkly EventStream");
                 }
 
                 @Override
-                public void onClosed() throws Exception {
+                public void onClosed() {
                     Timber.i("Closed LaunchDarkly EventStream");
                 }
 

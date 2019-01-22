@@ -57,7 +57,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private static final String INSTANCE_ID_KEY = "instanceId";
     private static final String INSTANCE_CLEAR_KEY = "clear";
-    private static int instanceClearCounter = 0;
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
     private static String instanceId = "UNKNOWN_ANDROID";
     private static Map<String, LDClient> instances = null;
@@ -138,6 +137,16 @@ public class LDClient implements LDClientInterface, Closeable {
         instances = new HashMap<>();
 
         Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
+
+        for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
+            String mobileKey = mobileKeys.getKey();
+            multiEnvironmentSharedPreferencesMigration(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE),
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "id", Context.MODE_PRIVATE),
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE),
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "users", Context.MODE_PRIVATE),
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE),
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "version", Context.MODE_PRIVATE));
+        }
 
         for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
             final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
@@ -250,38 +259,8 @@ public class LDClient implements LDClientInterface, Closeable {
         this.isOffline = config.isOffline();
         this.application = new WeakReference<>(application);
 
-        SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
         SharedPreferences mobileKeySharedPrefs =
-                application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + config.getMobileKeys().get(environmentName), Context.MODE_PRIVATE);
-
-        if (!instanceIdSharedPrefs.contains(INSTANCE_CLEAR_KEY)) {
-            SharedPreferences.Editor editor = mobileKeySharedPrefs.edit();
-
-            for (Map.Entry<String, ?> entry : instanceIdSharedPrefs.getAll().entrySet()) {
-                Object value = entry.getValue();
-                String key = entry.getKey();
-
-                if (value instanceof Boolean)
-                    editor.putBoolean(key, (Boolean) value);
-                else if (value instanceof Float)
-                    editor.putFloat(key, (Float) value);
-                else if (value instanceof Integer)
-                    editor.putInt(key, (Integer) value);
-                else if (value instanceof Long)
-                    editor.putLong(key, (Long) value);
-                else if (value instanceof String)
-                    editor.putString(key, ((String) value));
-                editor.apply();
-            }
-
-            if (instanceClearCounter > config.getMobileKeys().size()) { //SharedPreferences will only be cleared if all environments have a copy
-                instanceIdSharedPrefs.edit().clear().commit();
-                instanceIdSharedPrefs.edit().putString(INSTANCE_CLEAR_KEY, INSTANCE_CLEAR_KEY).apply();
-            } else {
-                instanceClearCounter++;
-            }
-
-        }
+                application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + config.getMobileKeys().get(environmentName) + "id", Context.MODE_PRIVATE);
 
         if (!mobileKeySharedPrefs.contains(INSTANCE_ID_KEY)) {
             String uuid = UUID.randomUUID().toString();
@@ -295,7 +274,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Timber.i("Using instance id: %s", instanceId);
 
         this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
-        this.userManager = UserManager.newInstance(application, fetcher);
+        this.userManager = UserManager.newInstance(application, fetcher, config.getMobileKeys().get(environmentName));
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
@@ -335,6 +314,44 @@ public class LDClient implements LDClientInterface, Closeable {
             connectivityReceiver = new ConnectivityReceiver();
             IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
             application.registerReceiver(connectivityReceiver, filter);
+        }
+    }
+
+    private static void multiEnvironmentSharedPreferencesMigration(SharedPreferences instanceIdSharedPrefs, SharedPreferences newInstanceIdSharedPrefs,
+                                           SharedPreferences userSharedPrefs, SharedPreferences newUserSharedPrefs,
+                                           SharedPreferences userFlagSharedPrefs, SharedPreferences newUserFlagSharedPrefs) {
+        checkAndClearSharedPreferences(instanceIdSharedPrefs, newInstanceIdSharedPrefs);
+        checkAndClearSharedPreferences(userFlagSharedPrefs, newUserFlagSharedPrefs);
+        checkAndClearSharedPreferences(userSharedPrefs, newUserSharedPrefs);
+    }
+
+    private static void checkAndClearSharedPreferences(SharedPreferences oldPrefs, SharedPreferences newPrefs) {
+        if (!oldPrefs.contains(INSTANCE_CLEAR_KEY)) {
+            copySharedPreferences(oldPrefs, newPrefs);
+
+            oldPrefs.edit().clear().commit();
+            oldPrefs.edit().putString(INSTANCE_CLEAR_KEY, INSTANCE_CLEAR_KEY).apply();
+        }
+    }
+
+    private static void copySharedPreferences(SharedPreferences oldPreferences, SharedPreferences newPreferences) {
+        SharedPreferences.Editor editor = newPreferences.edit();
+
+        for (Map.Entry<String, ?> entry : oldPreferences.getAll().entrySet()) {
+            Object value = entry.getValue();
+            String key = entry.getKey();
+
+            if (value instanceof Boolean)
+                editor.putBoolean(key, (Boolean) value);
+            else if (value instanceof Float)
+                editor.putFloat(key, (Float) value);
+            else if (value instanceof Integer)
+                editor.putInt(key, (Integer) value);
+            else if (value instanceof Long)
+                editor.putLong(key, (Long) value);
+            else if (value instanceof String)
+                editor.putString(key, ((String) value));
+            editor.apply();
         }
     }
 
