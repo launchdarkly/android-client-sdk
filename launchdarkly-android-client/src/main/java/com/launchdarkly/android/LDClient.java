@@ -28,11 +28,13 @@ import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 import com.google.android.gms.security.ProviderInstaller;
 
 import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -312,14 +314,58 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (!migrations.contains("v2.6.0")) {
             Timber.d("Migrating to v2.6.0 multi-environment shared preferences");
+
+            File directory = new File(application.getFilesDir().getParent() + "/shared_prefs/");
+            File[] files = directory.listFiles();
+            ArrayList<String> filenames = new ArrayList<>();
+            for (File file : files) {
+                if (file.isFile())
+                    filenames.add(file.getName());
+            }
+
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "id.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "users.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "version.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "active.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "migrations.xml");
+
+            Iterator<String> nameIter = filenames.iterator();
+            while (nameIter.hasNext()) {
+                String name = nameIter.next();
+                if (!name.startsWith(LDConfig.SHARED_PREFS_BASE_KEY) || !name.endsWith(".xml")) {
+                    nameIter.remove();
+                    continue;
+                }
+                for (String mobileKey : config.getMobileKeys().values()) {
+                    if (name.contains(mobileKey)) {
+                        nameIter.remove();
+                        break;
+                    }
+                }
+            }
+
+            ArrayList<String> userKeys = new ArrayList<>();
+            for (String filename : filenames) {
+                userKeys.add(filename.substring(LDConfig.SHARED_PREFS_BASE_KEY.length(), filename.length() - 4));
+            }
+
             boolean allSuccess = true;
             for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
                 String mobileKey = mobileKeys.getValue();
                 boolean users = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE),
-                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "users", Context.MODE_PRIVATE));
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE));
                 boolean version = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE),
-                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "version", Context.MODE_PRIVATE));
-                allSuccess = allSuccess && users && version;
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-version", Context.MODE_PRIVATE));
+                boolean active = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "active", Context.MODE_PRIVATE),
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-active", Context.MODE_PRIVATE));
+                boolean stores = true;
+                for (String key : userKeys) {
+                    boolean store = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + key, Context.MODE_PRIVATE),
+                            application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + key + "-user", Context.MODE_PRIVATE));
+                    stores = stores && store;
+                }
+                allSuccess = allSuccess && users && version && active && stores;
             }
 
             if (allSuccess) {
@@ -328,6 +374,11 @@ public class LDClient implements LDClientInterface, Closeable {
                 if (logged) {
                     application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE).edit().clear().apply();
                     application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE).edit().clear().apply();
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "active", Context.MODE_PRIVATE).edit().clear().apply();
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents", Context.MODE_PRIVATE).edit().clear().apply();
+                    for (String key : userKeys) {
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + key, Context.MODE_PRIVATE).edit().clear().apply();
+                    }
                 }
             }
         }

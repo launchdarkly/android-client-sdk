@@ -46,7 +46,7 @@ class UserLocalSharedPreferences {
 
     UserLocalSharedPreferences(Application application, String mobileKey) {
         this.application = application;
-        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "users", Context.MODE_PRIVATE);
+        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
         this.mobileKey = mobileKey;
         this.activeUserSharedPrefs = loadSharedPrefsForActiveUser();
         HashMultimap<String, Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> multimap = HashMultimap.create();
@@ -82,7 +82,7 @@ class UserLocalSharedPreferences {
     }
 
     private String sharedPrefsKeyForUser(String user) {
-        return LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + user;
+        return LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + user + "-user";
     }
 
     // Gets all users sorted by creation time (oldest first)
@@ -134,7 +134,7 @@ class UserLocalSharedPreferences {
     }
 
     private SharedPreferences loadSharedPrefsForActiveUser() {
-        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "active";
+        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-active";
         Timber.d("Using SharedPreferences key for active user: [%s]", sharedPrefsKey);
         return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
     }

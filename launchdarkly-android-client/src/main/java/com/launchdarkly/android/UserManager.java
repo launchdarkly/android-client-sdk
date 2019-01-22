@@ -68,8 +68,8 @@ class UserManager {
         this.application = application;
         this.fetcher = fetcher;
         this.userLocalSharedPreferences = new UserLocalSharedPreferences(application, mobileKey);
-        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "version");
-        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "summaryevents");
+        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-version");
+        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
         this.environmentName = environmentName;
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
