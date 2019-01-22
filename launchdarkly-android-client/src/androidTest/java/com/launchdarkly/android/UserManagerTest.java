@@ -51,7 +51,7 @@ public class UserManagerTest extends EasyMockSupport {
 
     @Before
     public void before() {
-        userManager = new UserManager(activityTestRule.getActivity().getApplication(), fetcher);
+        userManager = new UserManager(activityTestRule.getActivity().getApplication(), fetcher, "test", "test");
     }
 
     @Test
