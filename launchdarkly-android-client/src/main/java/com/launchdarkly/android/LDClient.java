@@ -9,6 +9,8 @@ import android.net.NetworkInfo;
 import android.os.Build;
 import android.support.annotation.NonNull;
 
+import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
+import com.google.android.gms.common.GooglePlayServicesRepairableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -23,10 +25,13 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 import com.launchdarkly.android.response.SummaryEventSharedPreferences;
+import com.google.android.gms.security.ProviderInstaller;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.security.NoSuchAlgorithmException;
+import java.security.Security;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,6 +42,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+
+import javax.net.ssl.SSLContext;
 
 import timber.log.Timber;
 
@@ -99,10 +106,9 @@ public class LDClient implements LDClientInterface, Closeable {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
         }
 
-        SettableFuture<LDClient> settableFuture = SettableFuture.create();
-
         if (instances != null) {
             Timber.w("LDClient.init() was called more than once! returning primary instance.");
+            SettableFuture<LDClient> settableFuture = SettableFuture.create();
             settableFuture.set(instances.get(LDConfig.primaryEnvironmentName));
             return settableFuture;
         }
@@ -110,6 +116,20 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.plant(new Timber.DebugTree());
         }
 
+        Security.removeProvider("AndroidOpenSSL");
+
+        try {
+            SSLContext.getInstance("TLSv1.2");
+        } catch (NoSuchAlgorithmException e) {
+            Timber.w("No TLSv1.2 implementation available, attempting patch.");
+            try {
+                ProviderInstaller.installIfNeeded(application.getApplicationContext());
+            } catch (GooglePlayServicesRepairableException e1) {
+                Timber.w("Patch failed, Google Play Services too old.");
+            } catch (GooglePlayServicesNotAvailableException e1) {
+                Timber.w("Patch failed, no Google Play Services available.");
+            }
+        }
 
         ConnectivityManager cm = (ConnectivityManager) application.getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
@@ -143,7 +163,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
         ListenableFuture<List<Void>> allFuture = Futures.allAsList(online);
 
-        // Transform initFuture so its result is the instance:
         return Futures.transform(allFuture, new Function<List<Void>, LDClient>() {
             @Override
             public LDClient apply(List<Void> input) {
@@ -208,7 +227,14 @@ public class LDClient implements LDClientInterface, Closeable {
         return instances.keySet();
     }
 
-    public static LDClient getForMobileKey(String keyName) {
+    public static LDClient getForMobileKey(String keyName) throws LaunchDarklyException {
+        if (instances == null) {
+            Timber.e("LDClient.getForMobileKey() was called before init()!");
+            throw new LaunchDarklyException("LDClient.getForMobileKey() was called before init()!");
+        }
+        if (!(instances.containsKey(keyName))) {
+            throw new LaunchDarklyException("LDClient.getForMobileKey() called with invalid keyName");
+        }
         return instances.get(keyName);
     }
 
