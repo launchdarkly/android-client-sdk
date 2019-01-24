@@ -10,6 +10,8 @@
 # Add any project specific keep options here:
 -keep class com.launchdarkly.android.** { *; }
 -keep class org.apache.http.** { *; }
+-keep public class com.google.android.gms.* { public * ; }
+-dontwarn com.google.android.gms.**
 -dontwarn okio.**
 -dontwarn okhttp3.**
 -dontwarn org.apache.http.**
