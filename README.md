@@ -1,5 +1,5 @@
 # LaunchDarkly Android SDK
-This library is compatible with Android SDK versions 15 and up (4.0.3 Ice Cream Sandwich)
+This library is compatible with Android SDK versions 16 and up (4.1 Jelly Bean)
 
 
 How to use:
@@ -8,7 +8,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:2.5.4'
+	compile 'com.launchdarkly:launchdarkly-android-client:2.6.0'
 	```  
 1. In your application configure and initialize the client:
 

@@ -2,7 +2,18 @@
 
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
-
+## [2.6.0] - 2019-01-22
+### Added
+- Support for connecting to multiple environments through LDClient interface.
+- Security provider hot patch for devices without support for TLSv1.2 (requires Google Play Services to be successful).
+### Changed
+- Use Timber formatting instead of String concatenation in logging.
+- Replace Log calls with Timber in example app.
+### Fixed
+- Client now parses and stores flag version information correctly in polling mode, allowing these fields to be included in feature and summary events.
+- Prevent example app from permanently closing LDClient on first backgrounding.
+### Removed
+- Support for Android Ice Cream Sandwich, 4.0.3, API 15
 ## [2.5.4] - 2018-10-25
 ### Changed
 - Outbound HTTP requests now have an authentication scheme token in `Authorization` request headers
