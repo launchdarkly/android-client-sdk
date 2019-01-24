@@ -3,7 +3,6 @@ package com.launchdarkly.example;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -19,15 +18,15 @@ import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDUser;
 
-import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import timber.log.Timber;
+
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "MainActivity";
     private LDClient ldClient;
 
     @Override
@@ -54,23 +53,8 @@ public class MainActivity extends AppCompatActivity {
         try {
             ldClient = initFuture.get(10, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e(TAG, "Exception when awaiting LaunchDarkly Client initialization", e);
+            Timber.e(e, "Exception when awaiting LaunchDarkly Client initialization");
         }
-    }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-        doSafeClientAction(new LDClientFunction() {
-            @Override
-            public void call() {
-                try {
-                    ldClient.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "Exception when closing LaunchDarkly Client", e);
-                }
-            }
-        });
     }
 
     private void setupFlushButton() {
@@ -78,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
         flushButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Log.i(TAG, "flush onClick");
+                Timber.i("flush onClick");
                 MainActivity.this.doSafeClientAction(new LDClientFunction() {
                     @Override
                     public void call() {
@@ -116,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
         trackButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Log.i(TAG, "track onClick");
+                Timber.i("track onClick");
                 MainActivity.this.doSafeClientAction(new LDClientFunction() {
                     @Override
                     public void call() {
@@ -132,7 +116,7 @@ public class MainActivity extends AppCompatActivity {
         identify.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Log.i(TAG, "identify onClick");
+                Timber.i("identify onClick");
                 String userKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText)).getText().toString();
                 final LDUser updatedUser = new LDUser.Builder(userKey).build();
                 MainActivity.this.doSafeClientAction(new LDClientFunction() {
@@ -180,7 +164,7 @@ public class MainActivity extends AppCompatActivity {
         evalButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Log.i(TAG, "eval onClick");
+                Timber.i("eval onClick");
                 final String flagKey = ((EditText) MainActivity.this.findViewById(R.id.feature_flag_key)).getText().toString();
 
                 String type = spinner.getSelectedItem().toString();
@@ -195,7 +179,7 @@ public class MainActivity extends AppCompatActivity {
                             }
                         });
                         logResult = result == null ? "no result" : result;
-                        Log.i(TAG, logResult);
+                        Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                         MainActivity.this.doSafeClientAction(new LDClientFunction() {
                             @Override
@@ -218,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
                             }
                         });
                         logResult = result == null ? "no result" : result;
-                        Log.i(TAG, logResult);
+                        Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Integer":
@@ -229,7 +213,7 @@ public class MainActivity extends AppCompatActivity {
                             }
                         });
                         logResult = result == null ? "no result" : result;
-                        Log.i(TAG, logResult);
+                        Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Float":
@@ -240,7 +224,7 @@ public class MainActivity extends AppCompatActivity {
                             }
                         });
                         logResult = result == null ? "no result" : result;
-                        Log.i(TAG, logResult);
+                        Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Json":
@@ -251,7 +235,7 @@ public class MainActivity extends AppCompatActivity {
                             }
                         });
                         logResult = result == null ? "no result" : result;
-                        Log.i(TAG, logResult);
+                        Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                         break;
                 }

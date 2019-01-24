@@ -1,13 +1,17 @@
 package com.launchdarkly.android;
 
-
 import android.content.Context;
+import android.os.Build;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.launchdarkly.android.response.SummaryEventSharedPreferences;
+import com.launchdarkly.android.tls.ModernTLSSocketFactory;
+import com.launchdarkly.android.tls.SSLHandshakeInterceptor;
+import com.launchdarkly.android.tls.TLSUtils;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -29,7 +33,7 @@ import okhttp3.Response;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
-import static com.launchdarkly.android.Util.isInternetConnected;
+import static com.launchdarkly.android.Util.isClientConnected;
 
 class EventProcessor implements Closeable {
     private final BlockingQueue<Event> queue;
@@ -37,23 +41,36 @@ class EventProcessor implements Closeable {
     private final OkHttpClient client;
     private final Context context;
     private final LDConfig config;
+    private final String environmentName;
     private ScheduledExecutorService scheduler;
     private SummaryEvent summaryEvent = null;
     private final SummaryEventSharedPreferences summaryEventSharedPreferences;
     private long currentTimeMs = System.currentTimeMillis();
 
-    EventProcessor(Context context, LDConfig config, SummaryEventSharedPreferences summaryEventSharedPreferences) {
+    EventProcessor(Context context, LDConfig config, SummaryEventSharedPreferences summaryEventSharedPreferences, String environmentName) {
         this.context = context;
         this.config = config;
+        this.environmentName = environmentName;
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
         this.summaryEventSharedPreferences = summaryEventSharedPreferences;
 
-        client = new OkHttpClient.Builder()
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
-                .build();
+                .addInterceptor(new SSLHandshakeInterceptor());
+
+        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
+            try {
+                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
+            } catch (GeneralSecurityException ignored) {
+                // TLS is not available, so don't set up the socket factory, swallow the exception
+            }
+        }
+
+        client = builder.build();
+
     }
 
     void start() {
@@ -106,7 +123,7 @@ class EventProcessor implements Closeable {
         }
 
         public synchronized void flush() {
-            if (isInternetConnected(context)) {
+            if (isClientConnected(context, environmentName)) {
                 List<Event> events = new ArrayList<>(queue.size() + 1);
                 queue.drainTo(events);
                 if (summaryEvent != null) {
@@ -123,14 +140,14 @@ class EventProcessor implements Closeable {
 
         private void postEvents(List<Event> events) {
             String content = config.getFilteredEventGson().toJson(events);
-            Request request = config.getRequestBuilder()
+            Request request = config.getRequestBuilderFor(environmentName)
                     .url(config.getEventsUri().toString())
                     .post(RequestBody.create(JSON, content))
                     .addHeader("Content-Type", "application/json")
                     .addHeader("X-LaunchDarkly-Event-Schema", "3")
                     .build();
 
-            Timber.d("Posting " + events.size() + " event(s) to " + request.url());
+            Timber.d("Posting %s event(s) to %s", events.size(), request.url());
 
             Response response = null;
             try {
@@ -142,7 +159,7 @@ class EventProcessor implements Closeable {
                 SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
                 try {
                     Date date = sdf.parse(dateString);
-                    currentTimeMs =  date.getTime();
+                    currentTimeMs = date.getTime();
                 } catch (ParseException pe) {
                     Timber.e(pe, "Failed to parse date header");
                 }

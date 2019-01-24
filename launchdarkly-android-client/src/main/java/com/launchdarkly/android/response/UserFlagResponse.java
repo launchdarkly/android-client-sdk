@@ -50,10 +50,6 @@ public class UserFlagResponse implements FlagResponse {
         this(key, value, version, flagVersion, null, null, null);
     }
 
-    public UserFlagResponse(String key, JsonElement value, Integer variation, Boolean trackEvents, Long debugEventsUntilDate) {
-        this(key, value, -1, -1, variation, trackEvents, debugEventsUntilDate);
-    }
-
     @NonNull
     @Override
     public String getKey() {

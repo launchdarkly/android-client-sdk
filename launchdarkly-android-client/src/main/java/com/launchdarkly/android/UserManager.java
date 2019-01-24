@@ -1,7 +1,5 @@
 package com.launchdarkly.android;
 
-
-import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
@@ -48,9 +46,6 @@ import timber.log.Timber;
  */
 class UserManager {
 
-    @SuppressLint("StaticFieldLeak")
-    private static UserManager instance;
-
     private final FeatureFlagFetcher fetcher;
     private volatile boolean initialized = false;
 
@@ -58,30 +53,24 @@ class UserManager {
     private final UserLocalSharedPreferences userLocalSharedPreferences;
     private final FlagResponseSharedPreferences flagResponseSharedPreferences;
     private final SummaryEventSharedPreferences summaryEventSharedPreferences;
+    private final String environmentName;
 
     private LDUser currentUser;
     private final Util.LazySingleton<JsonParser> jsonParser;
 
     private final ExecutorService executor;
 
-    static synchronized UserManager init(Application application, FeatureFlagFetcher fetcher) {
-        if (instance != null) {
-            return instance;
-        }
-        instance = new UserManager(application, fetcher);
-        return instance;
+    static synchronized UserManager newInstance(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
+        return new UserManager(application, fetcher, environmentName, mobileKey);
     }
 
-    static UserManager get() {
-        return instance;
-    }
-
-    UserManager(Application application, FeatureFlagFetcher fetcher) {
+    UserManager(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
         this.application = application;
         this.fetcher = fetcher;
-        this.userLocalSharedPreferences = new UserLocalSharedPreferences(application);
-        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "version");
-        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents");
+        this.userLocalSharedPreferences = new UserLocalSharedPreferences(application, mobileKey);
+        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-version");
+        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
+        this.environmentName = environmentName;
 
         jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
             @Override
@@ -108,7 +97,6 @@ class UserManager {
         return summaryEventSharedPreferences;
     }
 
-
     /**
      * Sets the current user. If there are more than MAX_USERS stored in shared preferences,
      * the oldest one is deleted.
@@ -118,7 +106,7 @@ class UserManager {
     @SuppressWarnings("JavaDoc")
     void setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
-        Timber.d("Setting current user to: [" + userBase64 + "] [" + userBase64ToJson(userBase64) + "]");
+        Timber.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
         userLocalSharedPreferences.setCurrentUser(user);
     }
@@ -135,9 +123,8 @@ class UserManager {
 
             @Override
             public void onFailure(@NonNull Throwable t) {
-                if (Util.isInternetConnected(application)) {
-                    Timber.e(t, "Error when attempting to set user: [" + currentUser.getAsUrlSafeBase64()
-                            + "] [" + userBase64ToJson(currentUser.getAsUrlSafeBase64()) + "]");
+                if (Util.isClientConnected(application, environmentName)) {
+                    Timber.e(t, "Error when attempting to set user: [%s] [%s]", currentUser.getAsUrlSafeBase64(), userBase64ToJson(currentUser.getAsUrlSafeBase64()));
                 }
                 syncCurrentUserToActiveUserAndLog();
             }
@@ -310,7 +297,7 @@ class UserManager {
 
             UserLocalSharedPreferences.SharedPreferencesEntry sharedPreferencesEntry = getSharedPreferencesEntry(flagResponse);
             if (sharedPreferencesEntry == null) {
-                Timber.w("Found some unknown feature flag type for key: [" + key + "] value: [" + v.toString() + "]");
+                Timber.w("Found some unknown feature flag type for key: [%s] value: [%s]", key, v.toString());
             } else {
                 sharedPreferencesEntryList.add(sharedPreferencesEntry);
             }
@@ -331,7 +318,7 @@ class UserManager {
 
             UserLocalSharedPreferences.SharedPreferencesEntry sharedPreferencesEntry = getSharedPreferencesEntry(flagResponse);
             if (sharedPreferencesEntry == null) {
-                Timber.w("Found some unknown feature flag type for key: [" + key + "] value: [" + v.toString() + "]");
+                Timber.w("Found some unknown feature flag type for key: [%s] value: [%s]", key, v.toString());
             } else {
                 sharedPreferencesEntryList.add(sharedPreferencesEntry);
             }

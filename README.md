@@ -1,5 +1,5 @@
 # LaunchDarkly Android SDK
-This library is compatible with Android SDK versions 15 and up (4.0.3 Ice Cream Sandwich)
+This library is compatible with Android SDK versions 16 and up (4.1 Jelly Bean)
 
 
 How to use:
@@ -8,7 +8,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:2.5.4'
+	compile 'com.launchdarkly:launchdarkly-android-client:2.6.0'
 	```  
 1. In your application configure and initialize the client:
 
@@ -69,7 +69,7 @@ The LaunchDarkly Android SDK defaults to what we have found to be the best combi
 
 This configuration means that you will get near real-time updates for your feature flag values when the app is in the foreground.
 
-###Other Options
+### Other Options
 If you prefer other options, here they are:
 
 1. Streaming can be disabled in favor of polling updates. To disable streaming call `.setStream(false)` on the `LDConfig.Builder` object.

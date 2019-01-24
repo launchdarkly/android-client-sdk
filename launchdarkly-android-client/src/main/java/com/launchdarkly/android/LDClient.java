@@ -4,9 +4,13 @@ import android.app.Application;
 import android.content.Context;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.Build;
 import android.support.annotation.NonNull;
 
+import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
+import com.google.android.gms.common.GooglePlayServicesRepairableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -21,20 +25,30 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 import com.launchdarkly.android.response.SummaryEventSharedPreferences;
+import com.google.android.gms.security.ProviderInstaller;
 
 import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import javax.net.ssl.SSLContext;
+
 import timber.log.Timber;
 
-import static com.launchdarkly.android.Util.isInternetConnected;
+import static com.launchdarkly.android.Util.isClientConnected;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
@@ -45,11 +59,12 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final String INSTANCE_ID_KEY = "instanceId";
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
     private static String instanceId = "UNKNOWN_ANDROID";
-    private static LDClient instance = null;
+    private static Map<String, LDClient> instances = null;
 
-    private static final long MAX_RETRY_TIME_MS = 3600000; // 1 hour
-    private static final long RETRY_TIME_MS = 1000; // 1 second
+    private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
+    private static final long RETRY_TIME_MS = 1_000; // 1 second
 
+    private final String environmentName;
     private final WeakReference<Application> application;
     private final LDConfig config;
     private final UserManager userManager;
@@ -63,7 +78,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile boolean isAppForegrounded = true;
 
     /**
-     * Initializes the singleton instance. The result is a {@link Future} which
+     * Initializes the singleton/primary instance. The result is a {@link Future} which
      * will complete once the client has been initialized with the latest feature flag values. For
      * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
      * the return value of this method, and afterward call {@link #get()}
@@ -78,7 +93,6 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return a {@link Future} which will complete once the client has been initialized.
      */
     public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
-
         boolean applicationValid = validateParameter(application);
         boolean configValid = validateParameter(config);
         boolean userValid = validateParameter(user);
@@ -92,34 +106,81 @@ public class LDClient implements LDClientInterface, Closeable {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
         }
 
-        SettableFuture<LDClient> settableFuture = SettableFuture.create();
-
-        if (instance != null) {
-            Timber.w( "LDClient.init() was called more than once! returning existing instance.");
-            settableFuture.set(instance);
+        if (instances != null) {
+            Timber.w("LDClient.init() was called more than once! returning primary instance.");
+            SettableFuture<LDClient> settableFuture = SettableFuture.create();
+            settableFuture.set(instances.get(LDConfig.primaryEnvironmentName));
             return settableFuture;
         }
         if (BuildConfig.DEBUG) {
             Timber.plant(new Timber.DebugTree());
         }
-        instance = new LDClient(application, config);
-        instance.userManager.setCurrentUser(user);
 
-        if (instance.isOffline() || !isInternetConnected(application)) {
-            settableFuture.set(instance);
-            return settableFuture;
-
+        try {
+            SSLContext.getInstance("TLSv1.2");
+        } catch (NoSuchAlgorithmException e) {
+            Timber.w("No TLSv1.2 implementation available, attempting patch.");
+            try {
+                ProviderInstaller.installIfNeeded(application.getApplicationContext());
+            } catch (GooglePlayServicesRepairableException e1) {
+                Timber.w("Patch failed, Google Play Services too old.");
+            } catch (GooglePlayServicesNotAvailableException e1) {
+                Timber.w("Patch failed, no Google Play Services available.");
+            }
         }
-        instance.eventProcessor.start();
 
-        ListenableFuture<Void> initFuture = instance.updateProcessor.start();
-        instance.sendEvent(new IdentifyEvent(user));
+        ConnectivityManager cm = (ConnectivityManager) application.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        boolean deviceConnected = activeNetwork != null && activeNetwork.isConnectedOrConnecting();
 
-        // Transform initFuture so its result is the instance:
-        return Futures.transform(initFuture, new Function<Void, LDClient>() {
+        instances = new HashMap<>();
+
+        Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
+
+        SharedPreferences instanceIdSharedPrefs =
+                application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
+
+        if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
+            String uuid = UUID.randomUUID().toString();
+            Timber.i("Did not find existing instance id. Saving a new one");
+            SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
+            editor.putString(INSTANCE_ID_KEY, uuid);
+            editor.apply();
+        }
+
+        instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
+        Timber.i("Using instance id: %s", instanceId);
+
+        migrateWhenNeeded(application, config);
+
+        for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
+            final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
+            instance.userManager.setCurrentUser(user);
+
+            instances.put(mobileKeys.getKey(), instance);
+
+            if (instance.isOffline() || !deviceConnected)
+                continue;
+
+            instance.eventProcessor.start();
+            updateFutures.put(mobileKeys.getKey(), instance.updateProcessor.start());
+            instance.sendEvent(new IdentifyEvent(user));
+        }
+
+        ArrayList<ListenableFuture<Void>> online = new ArrayList<>();
+
+        for (Map.Entry<String, ListenableFuture<Void>> entry : updateFutures.entrySet()) {
+            if (!instances.get(entry.getKey()).isOffline()) {
+                online.add(entry.getValue());
+            }
+        }
+
+        ListenableFuture<List<Void>> allFuture = Futures.allAsList(online);
+
+        return Futures.transform(allFuture, new Function<List<Void>, LDClient>() {
             @Override
-            public LDClient apply(Void input) {
-                return instance;
+            public LDClient apply(List<Void> input) {
+                return instances.get(LDConfig.primaryEnvironmentName);
             }
         }, MoreExecutors.directExecutor());
     }
@@ -148,17 +209,16 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return
      */
     public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
-        Timber.i("Initializing Client and waiting up to " + startWaitSeconds + " for initialization to complete");
+        Timber.i("Initializing Client and waiting up to %s for initialization to complete", startWaitSeconds);
         Future<LDClient> initFuture = init(application, config, user);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
             Timber.e(e, "Exception during Client initialization");
         } catch (TimeoutException e) {
-            Timber.w("Client did not successfully initialize within " + startWaitSeconds + " seconds. " +
-                    "It could be taking longer than expected to start up");
+            Timber.w("Client did not successfully initialize within %s seconds. It could be taking longer than expected to start up", startWaitSeconds);
         }
-        return instance;
+        return instances.get(LDConfig.primaryEnvironmentName);
     }
 
     /**
@@ -166,42 +226,54 @@ public class LDClient implements LDClientInterface, Closeable {
      * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
      */
     public static LDClient get() throws LaunchDarklyException {
-        if (instance == null) {
+        if (instances == null) {
             Timber.e("LDClient.get() was called before init()!");
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
-        return instance;
+        return instances.get(LDConfig.primaryEnvironmentName);
+    }
+
+    static Set<String> getEnvironmentNames() throws LaunchDarklyException {
+        if (instances == null) {
+            Timber.e("LDClient.getEnvironmentNames() was called before init()!");
+            throw new LaunchDarklyException("LDClient.getEnvironmentNames() was called before init()!");
+        }
+        return instances.keySet();
+    }
+
+    public static LDClient getForMobileKey(String keyName) throws LaunchDarklyException {
+        if (instances == null) {
+            Timber.e("LDClient.getForMobileKey() was called before init()!");
+            throw new LaunchDarklyException("LDClient.getForMobileKey() was called before init()!");
+        }
+        if (!(instances.containsKey(keyName))) {
+            throw new LaunchDarklyException("LDClient.getForMobileKey() called with invalid keyName");
+        }
+        return instances.get(keyName);
     }
 
     @VisibleForTesting
     protected LDClient(final Application application, @NonNull final LDConfig config) {
+        this(application, config, LDConfig.primaryEnvironmentName);
+    }
+
+    @VisibleForTesting
+    protected LDClient(final Application application, @NonNull final LDConfig config, final String environmentName) {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.isOffline = config.isOffline();
         this.application = new WeakReference<>(application);
+        this.environmentName = environmentName;
+        this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
+        this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
 
-        SharedPreferences instanceIdSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
-
-        if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
-            String uuid = UUID.randomUUID().toString();
-            Timber.i("Did not find existing instance id. Saving a new one");
-            SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
-            editor.putString(INSTANCE_ID_KEY, uuid);
-            editor.apply();
-        }
-
-        instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
-        Timber.i("Using instance id: " + instanceId);
-
-        this.fetcher = HttpFeatureFlagFetcher.init(application, config);
-        this.userManager = UserManager.init(application, fetcher);
         Foreground foreground = Foreground.get(application);
         Foreground.Listener foregroundListener = new Foreground.Listener() {
             @Override
             public void onBecameForeground() {
                 PollingUpdater.stop(application);
                 isAppForegrounded = true;
-                if (isInternetConnected(application)) {
+                if (isClientConnected(application, environmentName)) {
                     startForegroundUpdating();
                 }
             }
@@ -216,12 +288,12 @@ public class LDClient implements LDClientInterface, Closeable {
         foreground.addListener(foregroundListener);
 
         if (config.isStream()) {
-            this.updateProcessor = new StreamUpdateProcessor(config, userManager);
+            this.updateProcessor = new StreamUpdateProcessor(config, userManager, environmentName);
         } else {
             Timber.i("Streaming is disabled. Starting LaunchDarkly Client in polling mode");
             this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
         }
-        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences());
+        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
 
         throttler = new Throttler(new Runnable() {
             @Override
@@ -235,6 +307,103 @@ public class LDClient implements LDClientInterface, Closeable {
             IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
             application.registerReceiver(connectivityReceiver, filter);
         }
+    }
+
+    private static void migrateWhenNeeded(Application application, LDConfig config) {
+        SharedPreferences migrations = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "migrations", Context.MODE_PRIVATE);
+
+        if (!migrations.contains("v2.6.0")) {
+            Timber.d("Migrating to v2.6.0 multi-environment shared preferences");
+
+            File directory = new File(application.getFilesDir().getParent() + "/shared_prefs/");
+            File[] files = directory.listFiles();
+            ArrayList<String> filenames = new ArrayList<>();
+            for (File file : files) {
+                if (file.isFile())
+                    filenames.add(file.getName());
+            }
+
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "id.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "users.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "version.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "active.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents.xml");
+            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "migrations.xml");
+
+            Iterator<String> nameIter = filenames.iterator();
+            while (nameIter.hasNext()) {
+                String name = nameIter.next();
+                if (!name.startsWith(LDConfig.SHARED_PREFS_BASE_KEY) || !name.endsWith(".xml")) {
+                    nameIter.remove();
+                    continue;
+                }
+                for (String mobileKey : config.getMobileKeys().values()) {
+                    if (name.contains(mobileKey)) {
+                        nameIter.remove();
+                        break;
+                    }
+                }
+            }
+
+            ArrayList<String> userKeys = new ArrayList<>();
+            for (String filename : filenames) {
+                userKeys.add(filename.substring(LDConfig.SHARED_PREFS_BASE_KEY.length(), filename.length() - 4));
+            }
+
+            boolean allSuccess = true;
+            for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
+                String mobileKey = mobileKeys.getValue();
+                boolean users = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE),
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE));
+                boolean version = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE),
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-version", Context.MODE_PRIVATE));
+                boolean active = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "active", Context.MODE_PRIVATE),
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-active", Context.MODE_PRIVATE));
+                boolean stores = true;
+                for (String key : userKeys) {
+                    boolean store = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + key, Context.MODE_PRIVATE),
+                            application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + key + "-user", Context.MODE_PRIVATE));
+                    stores = stores && store;
+                }
+                allSuccess = allSuccess && users && version && active && stores;
+            }
+
+            if (allSuccess) {
+                Timber.d("Migration to v2.6.0 multi-environment shared preferences successful");
+                boolean logged = migrations.edit().putString("v2.6.0", "v2.6.0").commit();
+                if (logged) {
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE).edit().clear().apply();
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE).edit().clear().apply();
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "active", Context.MODE_PRIVATE).edit().clear().apply();
+                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents", Context.MODE_PRIVATE).edit().clear().apply();
+                    for (String key : userKeys) {
+                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + key, Context.MODE_PRIVATE).edit().clear().apply();
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean copySharedPreferences(SharedPreferences oldPreferences, SharedPreferences newPreferences) {
+        SharedPreferences.Editor editor = newPreferences.edit();
+
+        for (Map.Entry<String, ?> entry : oldPreferences.getAll().entrySet()) {
+            Object value = entry.getValue();
+            String key = entry.getKey();
+
+            if (value instanceof Boolean)
+                editor.putBoolean(key, (Boolean) value);
+            else if (value instanceof Float)
+                editor.putFloat(key, (Float) value);
+            else if (value instanceof Integer)
+                editor.putInt(key, (Integer) value);
+            else if (value instanceof Long)
+                editor.putLong(key, (Long) value);
+            else if (value instanceof String)
+                editor.putString(key, ((String) value));
+        }
+
+        return editor.commit();
     }
 
     /**
@@ -275,6 +444,10 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public synchronized Future<Void> identify(LDUser user) {
+        return LDClient.identifyInstances(user);
+    }
+
+    private synchronized ListenableFuture<Void> identifyInternal(LDUser user) {
         if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
         }
@@ -295,6 +468,25 @@ public class LDClient implements LDClientInterface, Closeable {
         sendEvent(new IdentifyEvent(user));
 
         return doneFuture;
+    }
+
+    private static synchronized Future<Void> identifyInstances(LDUser user) {
+        if (user == null) {
+            return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
+        }
+
+        ArrayList<ListenableFuture<Void>> futures = new ArrayList<>();
+
+        for (LDClient client : instances.values()) {
+            futures.add(client.identifyInternal(user));
+        }
+
+        return Futures.transform(Futures.allAsList(futures), new Function<List<Void>, Void>() {
+            @Override
+            public Void apply(List<Void> input) {
+                return null;
+            }
+        }, MoreExecutors.directExecutor());
     }
 
     /**
@@ -326,11 +518,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getBoolean(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get boolean flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get boolean flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get boolean flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get boolean flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -347,7 +537,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("boolVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("boolVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -369,11 +559,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = (int) userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get integer flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get integer flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get integer flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get integer flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -390,7 +578,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("intVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("intVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -412,11 +600,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get float flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get float flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get float flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get float flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -433,7 +619,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("floatVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("floatVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -455,11 +641,9 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             result = userManager.getCurrentUserSharedPrefs().getString(flagKey, fallback);
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get string flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get string flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get string flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
@@ -476,7 +660,7 @@ public class LDClient implements LDClientInterface, Closeable {
             updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
             sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
         }
-        Timber.d("stringVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("stringVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -501,20 +685,17 @@ public class LDClient implements LDClientInterface, Closeable {
                 result = new JsonParser().parse(stringResult);
             }
         } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get json (string) flag that exists as another type for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(cce, "Attempted to get json (string) flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get json (string flag with a default null value for key: "
-                    + flagKey + " Returning fallback: " + fallback);
+            Timber.e(npe, "Attempted to get json (string flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
         } catch (JsonSyntaxException jse) {
-            Timber.e(jse, "Attempted to get json (string flag that exists as another type for key: " +
-                    flagKey + " Returning fallback: " + fallback);
+            Timber.e(jse, "Attempted to get json (string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
         }
         int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
         int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
         updateSummaryEvents(flagKey, result, fallback);
         sendFlagRequestEvent(flagKey, result, fallback, version, variation);
-        Timber.d("jsonVariation: returning variation: " + result + " flagKey: " + flagKey + " user key: " + userManager.getCurrentUser().getKeyAsString());
+        Timber.d("jsonVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -525,6 +706,10 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
+        LDClient.closeInstances();
+    }
+
+    private void closeInternal() throws IOException {
         updateProcessor.stop();
         eventProcessor.close();
         if (connectivityReceiver != null && application.get() != null) {
@@ -532,12 +717,35 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
+    private static void closeInstances() throws IOException {
+        IOException exception = null;
+        for (LDClient client : instances.values()) {
+            try {
+                client.closeInternal();
+            } catch (IOException e) {
+                exception = e;
+            }
+        }
+        if (exception != null)
+            throw exception;
+    }
+
     /**
      * Sends all pending events to LaunchDarkly.
      */
     @Override
     public void flush() {
+        LDClient.flushInstances();
+    }
+
+    private void flushInternal() {
         eventProcessor.flush();
+    }
+
+    private static void flushInstances() {
+        for (LDClient client : instances.values()) {
+            client.flushInternal();
+        }
     }
 
     @Override
@@ -561,12 +769,22 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public synchronized void setOffline() {
+        LDClient.setInstancesOffline();
+    }
+
+    private synchronized void setOfflineInternal() {
         Timber.d("Setting isOffline = true");
         throttler.cancel();
         isOffline = true;
         fetcher.setOffline();
         stopForegroundUpdating();
         eventProcessor.stop();
+    }
+
+    private synchronized static void setInstancesOffline() {
+        for (LDClient client : instances.values()) {
+            client.setOfflineInternal();
+        }
     }
 
     /**
@@ -583,6 +801,10 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void setOnlineStatus() {
+        LDClient.setOnlineStatusInstances();
+    }
+
+    private void setOnlineStatusInternal() {
         Timber.d("Setting isOffline = false");
         isOffline = false;
         fetcher.setOnline();
@@ -592,6 +814,12 @@ public class LDClient implements LDClientInterface, Closeable {
             startBackgroundPolling();
         }
         eventProcessor.start();
+    }
+
+    private static void setOnlineStatusInstances() {
+        for (LDClient client : instances.values()) {
+            client.setOnlineStatusInternal();
+        }
     }
 
     /**
@@ -658,7 +886,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     void startBackgroundPolling() {
         Application application = this.application.get();
-        if (application != null && !config.isDisableBackgroundPolling() && !isOffline() && isInternetConnected(application)) {
+        if (application != null && !config.isDisableBackgroundPolling() && isClientConnected(application, environmentName)) {
             PollingUpdater.startBackgroundPolling(application);
         }
     }
@@ -718,5 +946,9 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return userManager.getSummaryEventSharedPreferences();
+    }
+
+    UserManager getUserManager() {
+        return userManager;
     }
 }

@@ -15,7 +15,7 @@ android {
     buildToolsVersion '26.0.2'
     defaultConfig {
         applicationId "com.launchdarkly.example"
-        minSdkVersion 15
+        minSdkVersion 16
         targetSdkVersion 26
         versionCode 1
         versionName "1.0"
@@ -47,6 +47,8 @@ dependencies {
     implementation project(path: ':launchdarkly-android-client')
     // Comment the previous line and uncomment this one to depend on the published artifact:
     //    compile 'com.launchdarkly:launchdarkly-android-client:1.0.1'
+
+    implementation 'com.jakewharton.timber:timber:4.7.0'
 
     testImplementation 'junit:junit:4.12'
 }

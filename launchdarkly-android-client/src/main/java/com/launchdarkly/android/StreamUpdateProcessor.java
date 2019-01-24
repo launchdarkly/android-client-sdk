@@ -31,7 +31,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private static final String PATCH = "patch";
     private static final String DELETE = "delete";
 
-    private static final long MAX_RECONNECT_TIME_MS = 3600000; // 1 hour
+    private static final long MAX_RECONNECT_TIME_MS = 3_600_000; // 1 hour
 
     private EventSource es;
     private final LDConfig config;
@@ -42,10 +42,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
+    private final String environmentName;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName) {
         this.config = config;
         this.userManager = userManager;
+        this.environmentName = environmentName;
         queue = new Debounce();
 
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
@@ -58,19 +60,19 @@ class StreamUpdateProcessor implements UpdateProcessor {
             stop();
             Timber.d("Starting.");
             Headers headers = new Headers.Builder()
-                    .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKey())
+                    .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKeys().get(environmentName))
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
                     .add("Accept", "text/event-stream")
                     .build();
 
             EventHandler handler = new EventHandler() {
                 @Override
-                public void onOpen() throws Exception {
+                public void onOpen() {
                     Timber.i("Started LaunchDarkly EventStream");
                 }
 
                 @Override
-                public void onClosed() throws Exception {
+                public void onClosed() {
                     Timber.i("Closed LaunchDarkly EventStream");
                 }
 
@@ -96,7 +98,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
                 }
 
                 @Override
-                public void onComment(String comment) throws Exception {
+                public void onComment(String comment) {
 
                 }
 
@@ -106,7 +108,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
                     if (t instanceof UnsuccessfulResponseException) {
                         int code = ((UnsuccessfulResponseException) t).getCode();
                         if (code >= 400 && code < 500) {
-                            Timber.e("Encountered non-retriable error: " + code + ". Aborting connection to stream. Verify correct Mobile Key and Stream URI");
+                            Timber.e("Encountered non-retriable error: %s. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
                             if (!initialized.getAndSet(true)) {
                                 initFuture.setException(t);
@@ -114,7 +116,7 @@ class StreamUpdateProcessor implements UpdateProcessor {
                             if (code == 401) {
                                 connection401Error = true;
                                 try {
-                                    LDClient clientSingleton = LDClient.get();
+                                    LDClient clientSingleton = LDClient.getForMobileKey(environmentName);
                                     clientSingleton.setOffline();
                                 } catch (LaunchDarklyException e) {
                                     Timber.e(e, "Client unavailable to be set offline");

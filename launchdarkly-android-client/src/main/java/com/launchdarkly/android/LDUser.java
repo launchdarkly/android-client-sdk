@@ -93,8 +93,7 @@ public class LDUser {
 
     protected LDUser(Builder builder) {
         if (builder.key == null || builder.key.equals("")) {
-            Timber.w("User was created with null/empty key. " +
-                    "Using device-unique anonymous user key: " + LDClient.getInstanceId());
+            Timber.w("User was created with null/empty key. Using device-unique anonymous user key: %s", LDClient.getInstanceId());
             this.key = new JsonPrimitive(LDClient.getInstanceId());
             this.anonymous = new JsonPrimitive(true);
         } else {
@@ -684,7 +683,7 @@ public class LDUser {
         private void checkCustomAttribute(String key) {
             for (UserAttribute a : UserAttribute.values()) {
                 if (a.name().equals(key)) {
-                    Timber.w("Built-in attribute key: " + key + " added as custom attribute! This custom attribute will be ignored during Feature Flag evaluation");
+                    Timber.w("Built-in attribute key: %s added as custom attribute! This custom attribute will be ignored during Feature Flag evaluation", key);
                     return;
                 }
             }

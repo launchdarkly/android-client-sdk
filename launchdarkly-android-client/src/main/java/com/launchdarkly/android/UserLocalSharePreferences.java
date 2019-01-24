@@ -42,9 +42,12 @@ class UserLocalSharedPreferences {
     // The current user- we'll always fetch this user from the response we get from the api
     private SharedPreferences currentUserSharedPrefs;
 
-    UserLocalSharedPreferences(Application application) {
+    private String mobileKey;
+
+    UserLocalSharedPreferences(Application application, String mobileKey) {
         this.application = application;
-        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE);
+        this.usersSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
+        this.mobileKey = mobileKey;
         this.activeUserSharedPrefs = loadSharedPrefsForActiveUser();
         HashMultimap<String, Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> multimap = HashMultimap.create();
         listeners = Multimaps.synchronizedMultimap(multimap);
@@ -64,8 +67,7 @@ class UserLocalSharedPreferences {
         while (usersSharedPrefs.getAll().size() > MAX_USERS) {
             List<String> allUsers = getAllUsers();
             String removed = allUsers.get(0);
-            Timber.d("Exceeded max # of users: [" + MAX_USERS + "] Removing user: [" + removed
-                    + "] [" + removed + "]");
+            Timber.d("Exceeded max # of users: [%s] Removing user: [%s]", MAX_USERS, removed);
             deleteSharedPreferences(removed);
             usersSharedPrefs.edit()
                     .remove(removed)
@@ -75,12 +77,12 @@ class UserLocalSharedPreferences {
     }
 
     private SharedPreferences loadSharedPrefsForUser(String user) {
-        Timber.d("Using SharedPreferences key: [" + sharedPrefsKeyForUser(user) + "]");
+        Timber.d("Using SharedPreferences key: [%s]", sharedPrefsKeyForUser(user));
         return application.getSharedPreferences(sharedPrefsKeyForUser(user), Context.MODE_PRIVATE);
     }
 
     private String sharedPrefsKeyForUser(String user) {
-        return LDConfig.SHARED_PREFS_BASE_KEY + user;
+        return LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + user + "-user";
     }
 
     // Gets all users sorted by creation time (oldest first)
@@ -132,8 +134,8 @@ class UserLocalSharedPreferences {
     }
 
     private SharedPreferences loadSharedPrefsForActiveUser() {
-        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + "active";
-        Timber.d("Using SharedPreferences key for active user: [" + sharedPrefsKey + "]");
+        String sharedPrefsKey = LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-active";
+        Timber.d("Using SharedPreferences key for active user: [%s]", sharedPrefsKey);
         return application.getSharedPreferences(sharedPrefsKey, Context.MODE_PRIVATE);
     }
 
@@ -148,14 +150,14 @@ class UserLocalSharedPreferences {
             @Override
             public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String s) {
                 if (s.equals(key)) {
-                    Timber.d("Found changed flag: [" + key + "]");
+                    Timber.d("Found changed flag: [%s]", key);
                     listener.onFeatureFlagChange(s);
                 }
             }
         };
         synchronized (listeners) {
             listeners.put(key, new Pair<>(listener, sharedPrefsListener));
-            Timber.d("Added listener. Total count: [" + listeners.size() + "]");
+            Timber.d("Added listener. Total count: [%s]", listeners.size());
         }
         activeUserSharedPrefs.registerOnSharedPreferenceChangeListener(sharedPrefsListener);
 
@@ -167,7 +169,7 @@ class UserLocalSharedPreferences {
             while (it.hasNext()) {
                 Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener> pair = it.next();
                 if (pair.first.equals(listener)) {
-                    Timber.d("Removing listener for key: [" + key + "]");
+                    Timber.d("Removing listener for key: [%s]", key);
                     activeUserSharedPrefs.unregisterOnSharedPreferenceChangeListener(pair.second);
                     it.remove();
                 }
@@ -176,7 +178,6 @@ class UserLocalSharedPreferences {
     }
 
     void saveCurrentUserFlags(SharedPreferencesEntries sharedPreferencesEntries) {
-
         sharedPreferencesEntries.clearAndSave(currentUserSharedPrefs);
     }
 
@@ -190,7 +191,6 @@ class UserLocalSharedPreferences {
      * active user as well as their listeners.
      */
     void syncCurrentUserToActiveUser() {
-
         SharedPreferences.Editor activeEditor = activeUserSharedPrefs.edit();
         Map<String, ?> active = activeUserSharedPrefs.getAll();
         Map<String, ?> current = currentUserSharedPrefs.getAll();
@@ -198,24 +198,24 @@ class UserLocalSharedPreferences {
         for (Map.Entry<String, ?> entry : current.entrySet()) {
             Object v = entry.getValue();
             String key = entry.getKey();
-            Timber.d("key: [" + key + "] CurrentUser value: [" + v + "] ActiveUser value: [" + active.get(key) + "]");
+            Timber.d("key: [%s] CurrentUser value: [%s] ActiveUser value: [%s]", key, v, active.get(key));
             if (v instanceof Boolean) {
                 if (!v.equals(active.get(key))) {
                     activeEditor.putBoolean(key, (Boolean) v);
-                    Timber.d("Found new boolean flag value for key: [" + key + "] with value: [" + v + "]");
+                    Timber.d("Found new boolean flag value for key: [%s] with value: [%s]", key, v);
                 }
             } else if (v instanceof Float) {
                 if (!v.equals(active.get(key))) {
                     activeEditor.putFloat(key, (Float) v);
-                    Timber.d("Found new numeric flag value for key: [" + key + "] with value: [" + v + "]");
+                    Timber.d("Found new numeric flag value for key: [%s] with value: [%s]", key, v);
                 }
             } else if (v instanceof String) {
                 if (!v.equals(active.get(key))) {
                     activeEditor.putString(key, (String) v);
-                    Timber.d("Found new json or string flag value for key: [" + key + "] with value: [" + v + "]");
+                    Timber.d("Found new json or string flag value for key: [%s] with value: [%s]", key, v);
                 }
             } else {
-                Timber.w("Found some unknown feature flag type for key: [" + key + "] and value: [" + v + "]");
+                Timber.w("Found some unknown feature flag type for key: [%s] with value: [%s]", key, v);
             }
         }
 
@@ -223,7 +223,7 @@ class UserLocalSharedPreferences {
         // we need to remove any flags that have been deleted:
         for (String key : active.keySet()) {
             if (current.get(key) == null) {
-                Timber.d("Deleting value and listeners for key: [" + key + "]");
+                Timber.d("Deleting value and listeners for key: [%s]", key);
                 activeEditor.remove(key);
                 synchronized (listeners) {
                     listeners.removeAll(key);
@@ -239,15 +239,15 @@ class UserLocalSharedPreferences {
         if (all.size() == 0) {
             Timber.d("found zero saved feature flags");
         } else {
-            Timber.d("Found " + all.size() + " feature flags:");
+            Timber.d("Found %s feature flags:", all.size());
             for (Map.Entry<String, ?> kv : all.entrySet()) {
-                Timber.d("\tKey: [" + kv.getKey() + "] value: [" + kv.getValue() + "]");
+                Timber.d("\tKey: [%s] value: [%s]", kv.getKey(), kv.getValue());
             }
         }
     }
 
     void deleteCurrentUserFlag(String flagKey) {
-        Timber.d("Request to delete key: [" + flagKey + "]");
+        Timber.d("Request to delete key: [%s]", flagKey);
 
         removeCurrentUserFlag(flagKey);
 
@@ -264,7 +264,7 @@ class UserLocalSharedPreferences {
 
             if (key.equals(flagKey)) {
                 editor.remove(flagKey);
-                Timber.d("Deleting key: [" + key + "] CurrentUser value: [" + v + "]");
+                Timber.d("Deleting key: [%s] CurrentUser value: [%s]", key, v);
             }
         }
 
@@ -292,7 +292,6 @@ class UserLocalSharedPreferences {
         }
 
         void clearAndSave(SharedPreferences sharedPreferences) {
-
             SharedPreferences.Editor editor = sharedPreferences.edit();
             editor.clear();
             for (SharedPreferencesEntry entry : sharedPreferencesEntryList) {
