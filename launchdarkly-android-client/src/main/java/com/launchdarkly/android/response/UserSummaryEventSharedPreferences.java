@@ -35,7 +35,7 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
                     JsonElement variationElement = asJsonObject.get("variation");
                     JsonElement versionElement = asJsonObject.get("version");
                     // We can compare variation rather than value.
-                    boolean isSameVersion = versionElement != null && asJsonObject.get("version").getAsFloat() == version;
+                    boolean isSameVersion = versionElement != null && asJsonObject.get("version").getAsInt() == version;
                     boolean isSameVariation = variationElement != null && variationElement.getAsInt() == variation;
                     if ((isSameVersion && isSameVariation) || (variationElement == null && versionElement == null && isUnknown)) {
                         variationExists = true;

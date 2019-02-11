@@ -26,7 +26,7 @@ public class UserFlagResponseSharedPreferences extends BaseUserSharedPreferences
     @Override
     public boolean isVersionValid(FlagResponse flagResponse) {
         if (flagResponse != null && sharedPreferences.contains(flagResponse.getKey())) {
-            float storedVersion = getStoredVersion(flagResponse.getKey());
+            int storedVersion = getStoredVersion(flagResponse.getKey());
             return storedVersion < flagResponse.getVersion();
         }
         return true;
