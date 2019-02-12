@@ -3,6 +3,7 @@ package com.launchdarkly.android.response;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -14,6 +15,7 @@ import com.launchdarkly.android.EvaluationReason;
  * 2018-01-30
  */
 public class UserFlagResponse implements FlagResponse {
+    private static Gson gson = new Gson();
 
     @NonNull
     private final String key;
@@ -118,6 +120,9 @@ public class UserFlagResponse implements FlagResponse {
         }
         if (debugEventsUntilDate != null) {
             object.add("debugEventsUntilDate", new JsonPrimitive(debugEventsUntilDate));
+        }
+        if (reason != null)  {
+            object.add("reason", gson.toJsonTree(reason));
         }
         return object;
     }
