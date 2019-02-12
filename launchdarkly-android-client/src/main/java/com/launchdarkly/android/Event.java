@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-import android.support.annotation.FloatRange;
 import android.support.annotation.IntRange;
+import android.support.annotation.Nullable;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -87,7 +87,7 @@ class FeatureRequestEvent extends GenericEvent {
      */
     FeatureRequestEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal,
                         @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
-                        @IntRange(from=(0), to=(Integer.MAX_VALUE)) int variation) {
+                        @Nullable Integer variation) {
         super("feature", key, user);
         this.value = value;
         this.defaultVal = defaultVal;
@@ -107,7 +107,7 @@ class FeatureRequestEvent extends GenericEvent {
      */
     FeatureRequestEvent(String key, String userKey, JsonElement value, JsonElement defaultVal,
                         @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
-                        @IntRange(from=(0), to=(Integer.MAX_VALUE)) int variation) {
+                        @Nullable Integer variation) {
         super("feature", key, null);
         this.value = value;
         this.defaultVal = defaultVal;
@@ -115,14 +115,14 @@ class FeatureRequestEvent extends GenericEvent {
         setOptionalValues(version, variation);
     }
 
-    private void setOptionalValues(int version, int variation) {
+    private void setOptionalValues(int version, @Nullable Integer variation) {
         if (version != -1) {
             this.version = version;
         } else {
             Timber.d("Feature Event: Ignoring version for flag: %s", key);
         }
 
-        if (variation != -1) {
+        if (variation != null) {
             this.variation = variation;
         } else {
             Timber.d("Feature Event: Ignoring variation for flag: %s", key);
@@ -132,7 +132,7 @@ class FeatureRequestEvent extends GenericEvent {
 
 class DebugEvent extends FeatureRequestEvent {
 
-    DebugEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int variation) {
+    DebugEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version, @Nullable Integer variation) {
         super(key, user, value, defaultVal, version, variation);
         this.kind = "debug";
     }

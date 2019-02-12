@@ -17,7 +17,7 @@ import javax.annotation.Nullable;
  * Farhan
  * 2018-01-30
  */
-public class PingFlagResponseInterpreter extends BaseFlagResponseInterpreter<List<FlagResponse>> {
+public class PingFlagResponseInterpreter implements FlagResponseInterpreter<List<FlagResponse>> {
 
     @NonNull
     @Override
@@ -31,25 +31,16 @@ public class PingFlagResponseInterpreter extends BaseFlagResponseInterpreter<Lis
                 if (isValueInsideObject(v)) {
                     JsonObject asJsonObject = v.getAsJsonObject();
 
-                    Integer variation = getVariation(asJsonObject);
-                    Boolean trackEvents = getTrackEvents(asJsonObject);
-                    Long debugEventsUntilDate = getDebugEventsUntilDate(asJsonObject);
-
-
-                    JsonElement flagVersionElement = asJsonObject.get("flagVersion");
-                    JsonElement versionElement = asJsonObject.get("version");
-                    int flagVersion = flagVersionElement != null && flagVersionElement.getAsJsonPrimitive().isNumber()
-                            ? flagVersionElement.getAsInt()
-                            : -1;
-                    int version = versionElement != null && versionElement.getAsJsonPrimitive().isNumber()
-                            ? versionElement.getAsInt()
-                            : -1;
-                    flagResponseList.add(new UserFlagResponse(key, asJsonObject.get("value"), version, flagVersion, variation, trackEvents, debugEventsUntilDate));
+                    flagResponseList.add(UserFlagResponseParser.parseFlag(asJsonObject, key));
                 } else {
                     flagResponseList.add(new UserFlagResponse(key, v));
                 }
             }
         }
         return flagResponseList;
+    }
+
+    protected boolean isValueInsideObject(JsonElement element) {
+        return !element.isJsonNull() && element.isJsonObject() && element.getAsJsonObject().has("value");
     }
 }

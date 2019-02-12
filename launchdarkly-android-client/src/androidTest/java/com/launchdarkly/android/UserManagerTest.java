@@ -268,48 +268,48 @@ public class UserManagerTest extends EasyMockSupport {
         //// case 1: value does not exist in shared preferences.
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
         assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredVersion("flag1"));
+        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
 
         //// case 2: value exists in shared preferences without version.
         userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
         assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredVersion("flag1"));
+        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
 
         // version does not exist in shared preferences but exists in patch.
         // ---------------------------
         //// case 1: value does not exist in shared preferences.
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
         assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(558, flagResponseSharedPreferences.getStoredVersion("flag1"));
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagVersion("flag1"));
-        assertEquals(3, flagResponseSharedPreferences.getVersionForEvents("flag1"));
+        assertEquals(558, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
 
         //// case 2: value exists in shared preferences without version.
         userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
         assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(558, flagResponseSharedPreferences.getStoredVersion("flag1"));
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagVersion("flag1"));
-        assertEquals(3, flagResponseSharedPreferences.getVersionForEvents("flag1"));
+        assertEquals(558, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
 
         // version exists in shared preferences but does not exist in patch.
         // ---------------------------
         userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
         assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredVersion("flag1"));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagVersion("flag1"));
-        assertEquals(-1, flagResponseSharedPreferences.getVersionForEvents("flag1"));
+        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
+        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
+        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
 
         // version exists in shared preferences and patch.
         // ---------------------------
         userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":559,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
         assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(559, flagResponseSharedPreferences.getStoredVersion("flag1"));
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagVersion("flag1"));
-        assertEquals(3, flagResponseSharedPreferences.getVersionForEvents("flag1"));
+        assertEquals(559, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
     }
 
     @Test
@@ -334,20 +334,20 @@ public class UserManagerTest extends EasyMockSupport {
         SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
         FlagResponseSharedPreferences flagResponseSharedPreferences = userManager.getFlagResponseSharedPreferences();
         assertEquals("string1", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagVersion("stringFlag1"));
-        assertEquals(125, flagResponseSharedPreferences.getVersionForEvents("stringFlag1"));
+        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getFlagVersion());
+        assertEquals(125, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":126,\"value\":\"string2\"}").get();
         assertEquals("string2", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(126, flagResponseSharedPreferences.getStoredVersion("stringFlag1"));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagVersion("stringFlag1"));
-        assertEquals(126, flagResponseSharedPreferences.getVersionForEvents("stringFlag1"));
+        assertEquals(126, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersion());
+        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getFlagVersion());
+        assertEquals(126, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":127,\"flagVersion\":3,\"value\":\"string3\"}").get();
         assertEquals("string3", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(127, flagResponseSharedPreferences.getStoredVersion("stringFlag1"));
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagVersion("stringFlag1"));
-        assertEquals(3, flagResponseSharedPreferences.getVersionForEvents("stringFlag1"));
+        assertEquals(127, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getFlagVersion());
+        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag20\",\"version\":1,\"value\":\"stringValue\"}").get();
         assertEquals("stringValue", sharedPrefs.getString("stringFlag20", ""));

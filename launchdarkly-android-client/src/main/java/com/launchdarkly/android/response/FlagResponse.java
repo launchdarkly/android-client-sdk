@@ -17,9 +17,11 @@ public interface FlagResponse {
 
     int getFlagVersion();
 
+    int getVersionForEvents();
+
     Integer getVariation();
 
-    Boolean getTrackEvents();
+    boolean isTrackEvents();
 
     Long getDebugEventsUntilDate();
 

@@ -18,17 +18,7 @@ public interface FlagResponseSharedPreferences {
 
     void updateStoredFlagResponse(FlagResponse flagResponse);
 
-    int getStoredVersion(String flagResponseKey);
-
-    int getStoredFlagVersion(String flagResponseKey);
-
-    Long getStoredDebugEventsUntilDate(String flagResponseKey);
-
-    boolean getStoredTrackEvents(String flagResponseKey);
-
-    int getStoredVariation(String flagResponseKey);
+    FlagResponse getStoredFlagResponse(String flagResponseKey);
 
     boolean containsKey(String key);
-
-    int getVersionForEvents(String flagResponseKey);
 }
