@@ -4,51 +4,41 @@ import android.support.annotation.Nullable;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.response.UserFlagResponse;
 
 public class UserFlagResponseParser {
-
-    @Nullable
-    public static Long getDebugEventsUntilDate(JsonObject object) {
-        if (object == null || object.get("debugEventsUntilDate") == null || object.get("debugEventsUntilDate").isJsonNull()) {
-            return null;
-        }
-        return object.get("debugEventsUntilDate").getAsLong();
-    }
-
-    @Nullable
-    public static Boolean getTrackEvents(JsonObject object) {
-        if (object == null || object.get("trackEvents") == null || object.get("trackEvents").isJsonNull()) {
-            return null;
-        }
-        return object.get("trackEvents").getAsBoolean();
-    }
-
-    @Nullable
-    public static Integer getVariation(JsonObject object) {
-        if (object == null || object.get("variation") == null || object.get("variation").isJsonNull()) {
-            return null;
-        }
-        return object.get("variation").getAsInt();
-    }
 
     public static UserFlagResponse parseFlag(JsonObject o, String key) {
         if (o == null) {
             return null;
         }
-        JsonElement versionElement = o.get("version");
-        JsonElement valueElement = o.get("value");
-        JsonElement flagVersionElement = o.get("flagVersion");
-        Boolean trackEvents = getTrackEvents(o);
-        Long debugEventsUntilDate = getDebugEventsUntilDate(o);
-        int version = versionElement != null && versionElement.getAsJsonPrimitive().isNumber()
+        JsonPrimitive versionElement = getPrimitive(o, "version");
+        JsonPrimitive valueElement = getPrimitive(o, "value");
+        JsonPrimitive flagVersionElement = getPrimitive(o, "flagVersion");
+        JsonPrimitive variationElement = getPrimitive(o, "variation");
+        JsonPrimitive trackEventsElement = getPrimitive(o, "trackEvents");
+        JsonPrimitive debugEventsUntilDateElement = getPrimitive(o, "debugEventsUntilDate");
+        int version = versionElement != null && versionElement.isNumber()
                 ? versionElement.getAsInt()
                 : -1;
-        Integer variation = getVariation(o);
-        int flagVersion = flagVersionElement != null && flagVersionElement.getAsJsonPrimitive().isNumber()
+        Integer variation = variationElement != null && variationElement.isNumber()
+                ? variationElement.getAsInt()
+                : null;
+        int flagVersion = flagVersionElement != null && flagVersionElement.isNumber()
                 ? flagVersionElement.getAsInt()
                 : -1;
-        JsonElement reasonElement = o.get("reason");
+        boolean trackEvents = trackEventsElement != null && trackEventsElement.isBoolean()
+                && trackEventsElement.getAsBoolean();
+        Long debugEventsUntilDate = debugEventsUntilDateElement != null && debugEventsUntilDateElement.isNumber()
+                ? debugEventsUntilDateElement.getAsLong()
+                : null;
         return new UserFlagResponse(key, valueElement, version, flagVersion, variation, trackEvents, debugEventsUntilDate);
+    }
+
+    @Nullable
+    private static JsonPrimitive getPrimitive(JsonObject o, String name) {
+        JsonElement e = o.get(name);
+        return e != null && e.isJsonPrimitive() ? e.getAsJsonPrimitive() : null;
     }
 }
