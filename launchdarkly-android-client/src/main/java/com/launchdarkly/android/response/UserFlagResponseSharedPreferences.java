@@ -41,7 +41,6 @@ public class UserFlagResponseSharedPreferences extends BaseUserSharedPreferences
         SharedPreferences.Editor editor = sharedPreferences.edit();
 
         for (FlagResponse flagResponse : flagResponseList) {
-            String s = flagResponse.getAsJsonObject().toString();
             editor.putString(flagResponse.getKey(), flagResponse.getAsJsonObject().toString());
         }
         editor.apply();
