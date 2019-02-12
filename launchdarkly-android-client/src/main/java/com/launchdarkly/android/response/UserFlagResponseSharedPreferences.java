@@ -42,7 +42,6 @@ public class UserFlagResponseSharedPreferences extends BaseUserSharedPreferences
 
         for (FlagResponse flagResponse : flagResponseList) {
             String s = flagResponse.getAsJsonObject().toString();
-            android.util.Log.d("ELI", "*** " + flagResponse.getKey() + ": " + s);
             editor.putString(flagResponse.getKey(), flagResponse.getAsJsonObject().toString());
         }
         editor.apply();

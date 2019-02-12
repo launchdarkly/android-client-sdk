@@ -33,7 +33,6 @@ public class UserFlagResponseParser {
     }
 
     public static UserFlagResponse parseFlag(JsonObject o, String key) {
-        android.util.Log.d("ELI", "*** parseFlag: " + key + ": " + o.toString());
         if (o == null) {
             return null;
         }
