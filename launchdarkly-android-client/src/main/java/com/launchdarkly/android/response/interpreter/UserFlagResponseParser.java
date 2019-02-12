@@ -93,7 +93,7 @@ public class UserFlagResponseParser {
     }
 
     @Nullable
-    private static <T extends Enum> T parseEnum(Class<T> c, String name, T fallback) {
+    private static <T extends Enum<T>> T parseEnum(Class<T> c, String name, T fallback) {
         try {
             return Enum.valueOf(c, name);
         } catch (IllegalArgumentException e) {

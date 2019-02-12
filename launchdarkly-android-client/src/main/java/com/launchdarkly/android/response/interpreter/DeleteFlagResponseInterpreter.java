@@ -25,7 +25,7 @@ public class DeleteFlagResponseInterpreter implements FlagResponseInterpreter<Fl
 
             if (keyElement != null) {
                 String key = keyElement.getAsJsonPrimitive().getAsString();
-                return new UserFlagResponse(key, null, version, -1, -1, false, null);
+                return new UserFlagResponse(key, null, version, -1, -1, false, null, null);
             }
         }
         return null;

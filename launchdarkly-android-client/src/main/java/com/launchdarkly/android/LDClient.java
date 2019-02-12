@@ -528,8 +528,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
         FlagResponse flag = userManager.getFlagResponseSharedPreferences().getStoredFlagResponse(flagKey);
         if (result == null) {
-            updateSummaryEvents(flagKey, flag, null, new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, flag, JsonNull.INSTANCE, new JsonPrimitive(fallback));
+            updateSummaryEvents(flagKey, flag, null, null);
+            sendFlagRequestEvent(flagKey, flag, JsonNull.INSTANCE, null);
         } else if (fallback == null) {
             updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), null);
             sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), JsonNull.INSTANCE);
