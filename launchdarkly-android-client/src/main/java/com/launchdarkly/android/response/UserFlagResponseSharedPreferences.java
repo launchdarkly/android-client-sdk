@@ -8,6 +8,8 @@ import android.support.annotation.VisibleForTesting;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
+import com.google.gson.JsonObject;
+import com.launchdarkly.android.response.interpreter.UserFlagResponseParser;
 
 import java.util.List;
 
@@ -25,9 +27,11 @@ public class UserFlagResponseSharedPreferences extends BaseUserSharedPreferences
 
     @Override
     public boolean isVersionValid(FlagResponse flagResponse) {
-        if (flagResponse != null && sharedPreferences.contains(flagResponse.getKey())) {
-            int storedVersion = getStoredVersion(flagResponse.getKey());
-            return storedVersion < flagResponse.getVersion();
+        if (flagResponse != null) {
+            FlagResponse storedFlag = getStoredFlagResponse(flagResponse.getKey());
+            if (storedFlag != null) {
+                return storedFlag.getVersion() < flagResponse.getVersion();
+            }
         }
         return true;
     }
@@ -57,85 +61,9 @@ public class UserFlagResponseSharedPreferences extends BaseUserSharedPreferences
     }
 
     @Override
-    public int getStoredVersion(String flagResponseKey) {
-        JsonElement extracted = extractValueFromPreferences(flagResponseKey, "version");
-        if (extracted == null || extracted instanceof JsonNull) {
-            return -1;
-        }
-
-        try {
-            return extracted.getAsInt();
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Failed to get stored version");
-        }
-
-        return -1;
-    }
-
-    @Override
-    public int getStoredFlagVersion(String flagResponseKey) {
-        JsonElement extracted = extractValueFromPreferences(flagResponseKey, "flagVersion");
-        if (extracted == null || extracted instanceof JsonNull) {
-            return -1;
-        }
-
-        try {
-            return extracted.getAsInt();
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Failed to get stored flag version");
-        }
-
-        return -1;
-    }
-
-    @Override
-    @Nullable
-    public Long getStoredDebugEventsUntilDate(String flagResponseKey) {
-        JsonElement extracted = extractValueFromPreferences(flagResponseKey, "debugEventsUntilDate");
-        if (extracted == null || extracted instanceof JsonNull) {
-            return null;
-        }
-
-        try {
-            return extracted.getAsLong();
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Failed to get stored debug events until date");
-        }
-
-        return null;
-    }
-
-    @Override
-    @Nullable
-    public boolean getStoredTrackEvents(String flagResponseKey) {
-        JsonElement extracted = extractValueFromPreferences(flagResponseKey, "trackEvents");
-        if (extracted == null || extracted instanceof JsonNull) {
-            return false;
-        }
-
-        try {
-            return extracted.getAsBoolean();
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Failed to get stored trackEvents");
-        }
-
-        return false;
-    }
-
-    @Override
-    public int getStoredVariation(String flagResponseKey) {
-        JsonElement extracted = extractValueFromPreferences(flagResponseKey, "variation");
-        if (extracted == null || extracted instanceof JsonNull) {
-            return -1;
-        }
-
-        try {
-            return extracted.getAsInt();
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Failed to get stored variation");
-        }
-
-        return -1;
+    public FlagResponse getStoredFlagResponse(String key) {
+        JsonObject jsonObject = getValueAsJsonObject(key);
+        return jsonObject == null ? null : UserFlagResponseParser.parseFlag(jsonObject, key);
     }
 
     @Override
@@ -147,12 +75,4 @@ public class UserFlagResponseSharedPreferences extends BaseUserSharedPreferences
     int getLength() {
         return sharedPreferences.getAll().size();
     }
-
-    @Override
-    public int getVersionForEvents(String flagResponseKey) {
-        int storedFlagVersion = getStoredFlagVersion(flagResponseKey);
-        int storedVersion = getStoredVersion(flagResponseKey);
-        return storedFlagVersion == -1 ? storedVersion : storedFlagVersion;
-    }
-
 }

@@ -244,7 +244,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, -1);
+        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, null);
         final FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, 20);
 
         Assert.assertEquals(5, hasVersionEvent.version, 0.0f);

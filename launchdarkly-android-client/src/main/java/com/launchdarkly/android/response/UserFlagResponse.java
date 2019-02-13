@@ -27,7 +27,7 @@ public class UserFlagResponse implements FlagResponse {
     private final Integer variation;
 
     @Nullable
-    private final Boolean trackEvents;
+    private final boolean trackEvents;
 
     @Nullable
     private final Long debugEventsUntilDate;
@@ -38,7 +38,7 @@ public class UserFlagResponse implements FlagResponse {
         this.version = version;
         this.flagVersion = flagVersion;
         this.variation = variation;
-        this.trackEvents = trackEvents;
+        this.trackEvents = trackEvents == null ? false : trackEvents.booleanValue();
         this.debugEventsUntilDate = debugEventsUntilDate;
     }
 
@@ -72,15 +72,19 @@ public class UserFlagResponse implements FlagResponse {
         return flagVersion;
     }
 
+    @Override
+    public int getVersionForEvents() {
+        return flagVersion > 0 ? flagVersion : version;
+    }
+
     @Nullable
     @Override
     public Integer getVariation() {
         return variation;
     }
 
-    @Nullable
     @Override
-    public Boolean getTrackEvents() {
+    public boolean isTrackEvents() {
         return trackEvents;
     }
 
@@ -95,9 +99,15 @@ public class UserFlagResponse implements FlagResponse {
         JsonObject object = new JsonObject();
         object.add("version", new JsonPrimitive(version));
         object.add("flagVersion", new JsonPrimitive(flagVersion));
-        object.add("variation", variation == null ? JsonNull.INSTANCE : new JsonPrimitive(variation));
-        object.add("trackEvents", trackEvents == null ? JsonNull.INSTANCE : new JsonPrimitive(trackEvents));
-        object.add("debugEventsUntilDate", debugEventsUntilDate == null ? JsonNull.INSTANCE : new JsonPrimitive(debugEventsUntilDate));
+        if (variation != null) {
+            object.add("variation", new JsonPrimitive(variation));
+        }
+        if (trackEvents) {
+            object.add("trackEvents", new JsonPrimitive(true));
+        }
+        if (debugEventsUntilDate != null) {
+            object.add("debugEventsUntilDate", new JsonPrimitive(debugEventsUntilDate));
+        }
         return object;
     }
 

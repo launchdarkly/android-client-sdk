@@ -24,6 +24,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
+import com.launchdarkly.android.response.FlagResponse;
 import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 import com.google.android.gms.security.ProviderInstaller;
 
@@ -525,17 +526,16 @@ public class LDClient implements LDClientInterface, Closeable {
         }
         result = result == null ? fallback : result;
 
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
+        FlagResponse flag = userManager.getFlagResponseSharedPreferences().getStoredFlagResponse(flagKey);
         if (result == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, null, new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, flag, JsonNull.INSTANCE, new JsonPrimitive(fallback));
         } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), JsonNull.INSTANCE);
         } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
         Timber.d("boolVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -566,18 +566,16 @@ public class LDClient implements LDClientInterface, Closeable {
                 Timber.e(cce, "Attempted to get integer flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
             }
         }
-
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
+        FlagResponse flag = userManager.getFlagResponseSharedPreferences().getStoredFlagResponse(flagKey);
         if (result == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, null, null);
+            sendFlagRequestEvent(flagKey, flag, JsonNull.INSTANCE, JsonNull.INSTANCE);
         } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), JsonNull.INSTANCE);
         } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
         Timber.d("intVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -608,18 +606,16 @@ public class LDClient implements LDClientInterface, Closeable {
                 Timber.e(cce, "Attempted to get float flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
             }
         }
-
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
+        FlagResponse flag = userManager.getFlagResponseSharedPreferences().getStoredFlagResponse(flagKey);
         if (result == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, null, null);
+            sendFlagRequestEvent(flagKey, flag, JsonNull.INSTANCE, JsonNull.INSTANCE);
         } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), JsonNull.INSTANCE);
         } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
         Timber.d("floatVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -650,18 +646,16 @@ public class LDClient implements LDClientInterface, Closeable {
                 Timber.e(cce, "Attempted to get string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
             }
         }
-
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
+        FlagResponse flag = userManager.getFlagResponseSharedPreferences().getStoredFlagResponse(flagKey);
         if (result == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, null, null);
+            sendFlagRequestEvent(flagKey, flag, JsonNull.INSTANCE, JsonNull.INSTANCE);
         } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), null);
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), JsonNull.INSTANCE);
         } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
+            updateSummaryEvents(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
+            sendFlagRequestEvent(flagKey, flag, new JsonPrimitive(result), new JsonPrimitive(fallback));
         }
         Timber.d("stringVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
@@ -695,11 +689,9 @@ public class LDClient implements LDClientInterface, Closeable {
                 Timber.e(jse, "Attempted to get json flag from string flag for key: %s Returning fallback: %s", flagKey, fallback);
             }
         }
-
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
-        updateSummaryEvents(flagKey, result, fallback);
-        sendFlagRequestEvent(flagKey, result, fallback, version, variation);
+        FlagResponse flag = userManager.getFlagResponseSharedPreferences().getStoredFlagResponse(flagKey);
+        updateSummaryEvents(flagKey, flag, result, fallback);
+        sendFlagRequestEvent(flagKey, flag, result, fallback);
         Timber.d("jsonVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
@@ -869,15 +861,17 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private void sendFlagRequestEvent(String flagKey, JsonElement value, JsonElement fallback, int version, int variation) {
-        if (userManager.getFlagResponseSharedPreferences().getStoredTrackEvents(flagKey)) {
+    private void sendFlagRequestEvent(String flagKey, FlagResponse flag, JsonElement value, JsonElement fallback) {
+        int version = flag == null ? -1 : flag.getVersionForEvents();
+        Integer variation = flag == null ? null : flag.getVariation();
+        if (flag != null && flag.isTrackEvents()) {
             if (config.inlineUsersInEvents()) {
                 sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation));
             } else {
                 sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKeyAsString(), value, fallback, version, variation));
             }
         } else {
-            Long debugEventsUntilDate = userManager.getFlagResponseSharedPreferences().getStoredDebugEventsUntilDate(flagKey);
+            Long debugEventsUntilDate = flag == null ? null :  flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {
                 long serverTimeMs = eventProcessor.getCurrentTimeMs();
                 if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
@@ -913,9 +907,9 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param result   The value that was returned in the evaluation of the flagKey
      * @param fallback The fallback value used in the evaluation of the flagKey
      */
-    private void updateSummaryEvents(String flagKey, JsonElement result, JsonElement fallback) {
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
+    private void updateSummaryEvents(String flagKey, FlagResponse flag, JsonElement result, JsonElement fallback) {
+        int version = flag == null ? -1 : flag.getVersionForEvents();
+        Integer variation = flag == null ? null : flag.getVariation();
         boolean isUnknown = !userManager.getFlagResponseSharedPreferences().containsKey(flagKey);
 
         userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation, isUnknown);

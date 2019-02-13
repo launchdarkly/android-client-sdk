@@ -30,8 +30,8 @@ public class UserFlagResponseSharedPreferencesTest {
                 = new UserFlagResponseSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
         versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(key1, key2));
 
-        Assert.assertEquals(versionSharedPreferences.getStoredVersion(key1.getKey()), 12, 0);
-        Assert.assertEquals(versionSharedPreferences.getStoredVersion(key2.getKey()), -1, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key1.getKey()).getVersion(), 12, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key2.getKey()).getVersion(), -1, 0);
     }
 
     @Test
@@ -43,7 +43,7 @@ public class UserFlagResponseSharedPreferencesTest {
         versionSharedPreferences.saveAll(Collections.<FlagResponse>singletonList(key1));
         versionSharedPreferences.deleteStoredFlagResponse(key1);
 
-        Assert.assertEquals(versionSharedPreferences.getStoredVersion(key1.getKey()), -1, 0);
+        Assert.assertNull(versionSharedPreferences.getStoredFlagResponse(key1.getKey()));
     }
 
     @Test
@@ -57,7 +57,7 @@ public class UserFlagResponseSharedPreferencesTest {
 
         versionSharedPreferences.updateStoredFlagResponse(updatedKey1);
 
-        Assert.assertEquals(versionSharedPreferences.getStoredVersion(key1.getKey()), 15, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key1.getKey()).getVersion(), 15, 0);
     }
 
     @Test
@@ -70,8 +70,8 @@ public class UserFlagResponseSharedPreferencesTest {
         versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(key1, key2));
         versionSharedPreferences.clear();
 
-        Assert.assertEquals(versionSharedPreferences.getStoredVersion(key1.getKey()), -1, 0);
-        Assert.assertEquals(versionSharedPreferences.getStoredVersion(key2.getKey()), -1, 0);
+        Assert.assertNull(versionSharedPreferences.getStoredFlagResponse(key1.getKey()));
+        Assert.assertNull(versionSharedPreferences.getStoredFlagResponse(key2.getKey()));
         Assert.assertEquals(0, versionSharedPreferences.getLength(), 0);
     }
 
@@ -85,9 +85,9 @@ public class UserFlagResponseSharedPreferencesTest {
                 = new UserFlagResponseSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
         versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(key1, key2, key3));
 
-        Assert.assertEquals(versionSharedPreferences.getStoredVariation(key1.getKey()), 16, 0);
-        Assert.assertEquals(versionSharedPreferences.getStoredVariation(key2.getKey()), 23, 0);
-        Assert.assertEquals(versionSharedPreferences.getStoredVariation(key3.getKey()), -1, 0);
+        Assert.assertEquals(16, versionSharedPreferences.getStoredFlagResponse(key1.getKey()).getVariation(), 0);
+        Assert.assertEquals(23, versionSharedPreferences.getStoredFlagResponse(key2.getKey()).getVariation(),0);
+        Assert.assertNull(versionSharedPreferences.getStoredFlagResponse(key3.getKey()).getVariation());
     }
 
     @Test
@@ -100,9 +100,9 @@ public class UserFlagResponseSharedPreferencesTest {
                 = new UserFlagResponseSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
         versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(key1, key2, key3));
 
-        Assert.assertEquals(versionSharedPreferences.getStoredTrackEvents(key1.getKey()), false);
-        Assert.assertEquals(versionSharedPreferences.getStoredTrackEvents(key2.getKey()), true);
-        Assert.assertFalse(versionSharedPreferences.getStoredTrackEvents(key3.getKey()));
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key1.getKey()).isTrackEvents(), false);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key2.getKey()).isTrackEvents(), true);
+        Assert.assertFalse(versionSharedPreferences.getStoredFlagResponse(key3.getKey()).isTrackEvents());
     }
 
     @Test
@@ -116,10 +116,10 @@ public class UserFlagResponseSharedPreferencesTest {
         versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(key1, key2, key3));
 
         //noinspection ConstantConditions
-        Assert.assertEquals(versionSharedPreferences.getStoredDebugEventsUntilDate(key1.getKey()), 123456789L, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key1.getKey()).getDebugEventsUntilDate(), 123456789L, 0);
         //noinspection ConstantConditions
-        Assert.assertEquals(versionSharedPreferences.getStoredDebugEventsUntilDate(key2.getKey()), 987654321L, 0);
-        Assert.assertNull(versionSharedPreferences.getStoredDebugEventsUntilDate(key3.getKey()));
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key2.getKey()).getDebugEventsUntilDate(), 987654321L, 0);
+        Assert.assertNull(versionSharedPreferences.getStoredFlagResponse(key3.getKey()).getDebugEventsUntilDate());
     }
 
 
@@ -132,8 +132,8 @@ public class UserFlagResponseSharedPreferencesTest {
                 = new UserFlagResponseSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
         versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(key1, key2));
 
-        Assert.assertEquals(versionSharedPreferences.getStoredFlagVersion(key1.getKey()), 12, 0);
-        Assert.assertEquals(versionSharedPreferences.getStoredFlagVersion(key2.getKey()), -1, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key1.getKey()).getFlagVersion(), 12, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key2.getKey()).getFlagVersion(), -1, 0);
     }
 
     @Test
@@ -145,7 +145,7 @@ public class UserFlagResponseSharedPreferencesTest {
         versionSharedPreferences.saveAll(Collections.<FlagResponse>singletonList(key1));
         versionSharedPreferences.deleteStoredFlagResponse(key1);
 
-        Assert.assertEquals(versionSharedPreferences.getStoredFlagVersion(key1.getKey()), -1, 0);
+        Assert.assertNull(versionSharedPreferences.getStoredFlagResponse(key1.getKey()));
     }
 
     @Test
@@ -159,7 +159,7 @@ public class UserFlagResponseSharedPreferencesTest {
 
         versionSharedPreferences.updateStoredFlagResponse(updatedKey1);
 
-        Assert.assertEquals(versionSharedPreferences.getStoredFlagVersion(key1.getKey()), 15, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(key1.getKey()).getFlagVersion(), 15, 0);
     }
 
     @Test
@@ -171,8 +171,8 @@ public class UserFlagResponseSharedPreferencesTest {
                 = new UserFlagResponseSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
         versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(withFlagVersion, withOnlyVersion));
 
-        Assert.assertEquals(versionSharedPreferences.getVersionForEvents(withFlagVersion.getKey()), 13, 0);
-        Assert.assertEquals(versionSharedPreferences.getVersionForEvents(withOnlyVersion.getKey()), 12, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(withFlagVersion.getKey()).getVersionForEvents(), 13, 0);
+        Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(withOnlyVersion.getKey()).getVersionForEvents(), 12, 0);
     }
 
 }

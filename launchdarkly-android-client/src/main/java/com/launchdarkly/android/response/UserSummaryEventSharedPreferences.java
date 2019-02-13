@@ -21,7 +21,8 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
     }
 
     @Override
-    public void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, int variation, boolean isUnknown) {
+    public void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer nullableVariation, boolean isUnknown) {
+        int variation = nullableVariation == null ? -1 : nullableVariation;
         JsonObject object = getValueAsJsonObject(flagResponseKey);
         if (object == null) {
             object = createNewEvent(value, defaultVal, version, variation, isUnknown);
