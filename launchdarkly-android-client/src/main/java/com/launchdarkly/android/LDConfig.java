@@ -61,6 +61,8 @@ public class LDConfig {
 
     private final boolean inlineUsersInEvents;
 
+    private final boolean evaluationReasons;
+
     LDConfig(Map<String, String> mobileKeys,
                     Uri baseUri,
                     Uri eventsUri,
@@ -76,7 +78,8 @@ public class LDConfig {
                     boolean useReport,
                     boolean allAttributesPrivate,
                     Set<String> privateAttributeNames,
-                    boolean inlineUsersInEvents) {
+                    boolean inlineUsersInEvents,
+                    boolean evaluationReasons) {
 
         this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
@@ -94,6 +97,7 @@ public class LDConfig {
         this.allAttributesPrivate = allAttributesPrivate;
         this.privateAttributeNames = privateAttributeNames;
         this.inlineUsersInEvents = inlineUsersInEvents;
+        this.evaluationReasons = evaluationReasons;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -186,6 +190,10 @@ public class LDConfig {
         return inlineUsersInEvents;
     }
 
+    public boolean isEvaluationReasons() {
+        return evaluationReasons;
+    }
+
     public static class Builder {
         private String mobileKey;
         private Map<String, String> secondaryMobileKeys;
@@ -209,6 +217,7 @@ public class LDConfig {
         private Set<String> privateAttributeNames = new HashSet<>();
 
         private boolean inlineUsersInEvents = false;
+        private boolean evaluationReasons = false;
 
         /**
          * Sets the flag for making all attributes private. The default is false.
@@ -418,6 +427,22 @@ public class LDConfig {
             return this;
         }
 
+        /**
+         * If enabled, LaunchDarkly will provide additional information about how flag values were
+         * calculated. The additional information will then be available through the client's
+         * "detail" methods ({@link LDClientInterface#boolVariationDetail(String, boolean)}, etc.).
+         *
+         * Since this increases the size of network requests, the default is false (detail
+         * information will not be sent).
+         *
+         * @param evaluationReasons  true if detail/reason information should be made available
+         * @return the builder
+         */
+        public LDConfig.Builder setEvaluationReasons(boolean evaluationReasons) {
+            this.evaluationReasons = evaluationReasons;
+            return this;
+        }
+
         public LDConfig build() {
             if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
@@ -474,7 +499,8 @@ public class LDConfig {
                     useReport,
                     allAttributesPrivate,
                     privateAttributeNames,
-                    inlineUsersInEvents);
+                    inlineUsersInEvents,
+                    evaluationReasons);
         }
     }
 }

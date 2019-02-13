@@ -4,6 +4,7 @@ import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.JsonPrimitive;
+import com.launchdarkly.android.EvaluationReason;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Assert;
@@ -175,4 +176,22 @@ public class UserFlagResponseSharedPreferencesTest {
         Assert.assertEquals(versionSharedPreferences.getStoredFlagResponse(withOnlyVersion.getKey()).getVersionForEvents(), 12, 0);
     }
 
+    @Test
+    public void savesReasons() {
+        // This test assumes that if the store correctly serializes and deserializes one kind of EvaluationReason, it can handle any kind,
+        // since the actual marshaling is being done by UserFlagResponse. Therefore, the other variants of EvaluationReason are tested by
+        // UserFlagResponseTest.
+        final EvaluationReason reason = EvaluationReason.ruleMatch(1, "id");
+        final UserFlagResponse flag1 = new UserFlagResponse("key1", new JsonPrimitive(true), 11,
+                1, 1, null, null, reason);
+        final UserFlagResponse flag2 = new UserFlagResponse("key2", new JsonPrimitive(true), 11,
+                1, 1, null, null, null);
+
+        FlagResponseSharedPreferences versionSharedPreferences
+                = new UserFlagResponseSharedPreferences(activityTestRule.getActivity().getApplication(), "abc");
+        versionSharedPreferences.saveAll(Arrays.<FlagResponse>asList(flag1, flag2));
+
+        Assert.assertEquals(reason, versionSharedPreferences.getStoredFlagResponse(flag1.getKey()).getReason());
+        Assert.assertNull(versionSharedPreferences.getStoredFlagResponse(flag2.getKey()).getReason());
+    }
 }

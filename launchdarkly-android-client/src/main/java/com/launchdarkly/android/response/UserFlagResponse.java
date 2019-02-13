@@ -110,6 +110,7 @@ public class UserFlagResponse implements FlagResponse {
     @Override
     public JsonObject getAsJsonObject() {
         JsonObject object = new JsonObject();
+        object.add("value", value);
         object.add("version", new JsonPrimitive(version));
         object.add("flagVersion", new JsonPrimitive(flagVersion));
         if (variation != null) {

@@ -34,6 +34,7 @@ public class LDConfigTest {
 
         assertEquals(null, config.getMobileKey());
         assertFalse(config.inlineUsersInEvents());
+        assertFalse(config.isEvaluationReasons());
     }
 
 
@@ -168,4 +169,10 @@ public class LDConfigTest {
         assertEquals(config.getPrivateAttributeNames().size(), 2);
     }
 
+    @Test
+    public void testBuilderEvaluationReasons() {
+        LDConfig config = new LDConfig.Builder().setEvaluationReasons(true).build();
+
+        assertTrue(config.isEvaluationReasons());
+    }
 }
