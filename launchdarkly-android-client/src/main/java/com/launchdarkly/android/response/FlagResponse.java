@@ -1,5 +1,6 @@
 package com.launchdarkly.android.response;
 
+import com.launchdarkly.android.EvaluationReason;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
@@ -24,6 +25,8 @@ public interface FlagResponse {
     boolean isTrackEvents();
 
     Long getDebugEventsUntilDate();
+
+    EvaluationReason getReason();
 
     JsonObject getAsJsonObject();
 

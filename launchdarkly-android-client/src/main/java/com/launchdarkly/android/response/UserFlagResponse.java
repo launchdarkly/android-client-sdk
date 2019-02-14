@@ -3,16 +3,19 @@ package com.launchdarkly.android.response;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.launchdarkly.android.EvaluationReason;
 
 /**
  * Farhan
  * 2018-01-30
  */
 public class UserFlagResponse implements FlagResponse {
+    private static Gson gson = new Gson();
 
     @NonNull
     private final String key;
@@ -32,7 +35,10 @@ public class UserFlagResponse implements FlagResponse {
     @Nullable
     private final Long debugEventsUntilDate;
 
-    public UserFlagResponse(@NonNull String key, @Nullable JsonElement value, int version, int flagVersion, @Nullable Integer variation, @Nullable Boolean trackEvents, @Nullable Long debugEventsUntilDate) {
+    @Nullable
+    private final EvaluationReason reason;
+
+    public UserFlagResponse(@NonNull String key, @Nullable JsonElement value, int version, int flagVersion, @Nullable Integer variation, @Nullable Boolean trackEvents, @Nullable Long debugEventsUntilDate, @Nullable EvaluationReason reason) {
         this.key = key;
         this.value = value;
         this.version = version;
@@ -40,14 +46,15 @@ public class UserFlagResponse implements FlagResponse {
         this.variation = variation;
         this.trackEvents = trackEvents == null ? false : trackEvents.booleanValue();
         this.debugEventsUntilDate = debugEventsUntilDate;
+        this.reason = reason;
     }
 
     public UserFlagResponse(String key, JsonElement value) {
-        this(key, value, -1, -1, null, null, null);
+        this(key, value, -1, -1, null, null, null, null);
     }
 
     public UserFlagResponse(String key, JsonElement value, int version, int flagVersion) {
-        this(key, value, version, flagVersion, null, null, null);
+        this(key, value, version, flagVersion, null, null, null, null);
     }
 
     @NonNull
@@ -94,6 +101,12 @@ public class UserFlagResponse implements FlagResponse {
         return debugEventsUntilDate;
     }
 
+    @Nullable
+    @Override
+    public EvaluationReason getReason() {
+        return reason;
+    }
+
     @Override
     public JsonObject getAsJsonObject() {
         JsonObject object = new JsonObject();
@@ -107,6 +120,9 @@ public class UserFlagResponse implements FlagResponse {
         }
         if (debugEventsUntilDate != null) {
             object.add("debugEventsUntilDate", new JsonPrimitive(debugEventsUntilDate));
+        }
+        if (reason != null)  {
+            object.add("reason", gson.toJsonTree(reason));
         }
         return object;
     }

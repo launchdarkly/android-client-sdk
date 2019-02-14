@@ -77,8 +77,8 @@ public class UserFlagResponseSharedPreferencesTest {
 
     @Test
     public void savesVariation() {
-        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12, -1, 16, null, null);
-        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14, -1, 23, null, null);
+        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12, -1, 16, null, null, null);
+        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14, -1, 23, null, null, null);
         final UserFlagResponse key3 = new UserFlagResponse("key3", new JsonPrimitive(true), 16, -1);
 
         FlagResponseSharedPreferences versionSharedPreferences
@@ -92,8 +92,8 @@ public class UserFlagResponseSharedPreferencesTest {
 
     @Test
     public void savesTrackEvents() {
-        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12, -1, 16, false, 123456789L);
-        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14, -1, 23, true, 987654321L);
+        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12, -1, 16, false, 123456789L, null);
+        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14, -1, 23, true, 987654321L, null);
         final UserFlagResponse key3 = new UserFlagResponse("key3", new JsonPrimitive(true), 16, -1);
 
         FlagResponseSharedPreferences versionSharedPreferences
@@ -107,8 +107,8 @@ public class UserFlagResponseSharedPreferencesTest {
 
     @Test
     public void savesDebugEventsUntilDate() {
-        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12, -1, 16, false, 123456789L);
-        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14, -1, 23, true, 987654321L);
+        final UserFlagResponse key1 = new UserFlagResponse("key1", new JsonPrimitive(true), 12, -1, 16, false, 123456789L, null);
+        final UserFlagResponse key2 = new UserFlagResponse("key2", new JsonPrimitive(true), 14, -1, 23, true, 987654321L, null);
         final UserFlagResponse key3 = new UserFlagResponse("key3", new JsonPrimitive(true), 16, -1);
 
         FlagResponseSharedPreferences versionSharedPreferences
