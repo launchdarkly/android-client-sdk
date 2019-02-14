@@ -161,6 +161,10 @@ class StreamUpdateProcessor implements UpdateProcessor {
             str += "/" + user.getAsUrlSafeBase64();
         }
 
+        if (config.isEvaluationReasons()) {
+            str += "?withReasons=true";
+        }
+
         return URI.create(str);
     }
 

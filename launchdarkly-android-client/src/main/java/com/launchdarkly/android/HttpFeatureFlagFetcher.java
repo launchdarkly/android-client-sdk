@@ -135,6 +135,9 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
     private Request getDefaultRequest(LDUser user) {
         String uri = config.getBaseUri() + "/msdk/evalx/users/" + user.getAsUrlSafeBase64();
+        if (config.isEvaluationReasons()) {
+            uri += "?withReasons=true";
+        }
         Timber.d("Attempting to fetch Feature flags using uri: %s", uri);
         final Request request = config.getRequestBuilderFor(environmentName) // default GET verb
                 .url(uri)
@@ -144,6 +147,9 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
     private Request getReportRequest(LDUser user) {
         String reportUri = config.getBaseUri() + "/msdk/evalx/user";
+        if (config.isEvaluationReasons()) {
+            reportUri += "?withReasons=true";
+        }
         Timber.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), userJson);

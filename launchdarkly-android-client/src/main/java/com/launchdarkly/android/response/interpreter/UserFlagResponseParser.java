@@ -14,8 +14,8 @@ public class UserFlagResponseParser {
         if (o == null) {
             return null;
         }
+        JsonElement valueElement = o.get("value");
         JsonPrimitive versionElement = getPrimitive(o, "version");
-        JsonPrimitive valueElement = getPrimitive(o, "value");
         JsonPrimitive flagVersionElement = getPrimitive(o, "flagVersion");
         JsonPrimitive variationElement = getPrimitive(o, "variation");
         JsonPrimitive trackEventsElement = getPrimitive(o, "trackEvents");
