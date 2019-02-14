@@ -14,6 +14,10 @@ public class ConnectivityReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
+        if(!CONNECTIVITY_CHANGE.equals(intent.getAction())) {
+            return;
+        }
+
         if (isInternetConnected(context)) {
             Timber.d("Connected to the internet");
             try {

@@ -35,7 +35,7 @@ abstract class BaseUserSharedPreferences {
 
     @SuppressLint("ApplySharedPref")
     @Nullable
-    JsonObject getValueAsJsonObject(String flagResponseKey) {
+    public JsonObject getValueAsJsonObject(String flagResponseKey) {
         String storedFlag;
         try {
             storedFlag = sharedPreferences.getString(flagResponseKey, null);

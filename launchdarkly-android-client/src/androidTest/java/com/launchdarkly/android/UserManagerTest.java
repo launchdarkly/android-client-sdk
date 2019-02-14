@@ -1,14 +1,14 @@
 package com.launchdarkly.android;
 
-import android.content.SharedPreferences;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
-import android.util.Pair;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.launchdarkly.android.response.FlagResponseSharedPreferences;
+import com.launchdarkly.android.flagstore.Flag;
+import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.easymock.EasyMockRule;
@@ -29,6 +29,7 @@ import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertFalse;
 import static junit.framework.Assert.assertNotNull;
+import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.reset;
@@ -59,21 +60,39 @@ public class UserManagerTest extends EasyMockSupport {
         setUserAndFailToFetchFlags("userKey");
     }
 
+    private void addSimpleFlag(JsonObject jsonObject, String flagKey, String value) {
+        JsonObject flagBody = new JsonObject();
+        flagBody.addProperty("value", value);
+        jsonObject.add(flagKey, flagBody);
+    }
+
+    private void addSimpleFlag(JsonObject jsonObject, String flagKey, boolean value) {
+        JsonObject flagBody = new JsonObject();
+        flagBody.addProperty("value", value);
+        jsonObject.add(flagKey, flagBody);
+    }
+
+    private void addSimpleFlag(JsonObject jsonObject, String flagKey, Number value) {
+        JsonObject flagBody = new JsonObject();
+        flagBody.addProperty("value", value);
+        jsonObject.add(flagKey, flagBody);
+    }
+
     @Test
     public void TestBasicRetrieval() throws ExecutionException, InterruptedException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("boolFlag1", true);
-        jsonObject.addProperty("stringFlag1", expectedStringFlagValue);
+        addSimpleFlag(jsonObject, "boolFlag1", true);
+        addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
         Future<Void> future = setUser("userKey", jsonObject);
         future.get();
 
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
-        assertEquals(2, sharedPrefs.getAll().size());
-        assertEquals(true, sharedPrefs.getBoolean("boolFlag1", false));
-        assertEquals(expectedStringFlagValue, sharedPrefs.getString("stringFlag1", ""));
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
+        assertEquals(2, flagStore.getAllFlags().size());
+        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
+        assertEquals(expectedStringFlagValue, flagStore.getFlag("stringFlag1").getValue().getAsString());
     }
 
     @Test
@@ -81,12 +100,12 @@ public class UserManagerTest extends EasyMockSupport {
         JsonObject flags = new JsonObject();
 
         String flagKey = "stringFlag";
-        flags.addProperty(flagKey, "user1");
+        addSimpleFlag(flags, flagKey, "user1");
 
         setUser("user1", flags);
         assertFlagValue(flagKey, "user1");
 
-        flags.addProperty(flagKey, "user2");
+        addSimpleFlag(flags, flagKey, "user2");
 
         setUser("user2", flags);
         assertFlagValue(flagKey, "user2");
@@ -102,14 +121,14 @@ public class UserManagerTest extends EasyMockSupport {
         List<String> users = Arrays.asList(user1, "user2", "user3", "user4", user5, "user6");
 
         for (String user : users) {
-            flags.addProperty(flagKey, user);
+            addSimpleFlag(flags, flagKey, user);
             setUser(user, flags);
             assertFlagValue(flagKey, user);
         }
 
         //we now have 5 users in SharedPreferences. The very first one we added shouldn't be saved anymore.
         setUserAndFailToFetchFlags(user1);
-        assertFlagValue(flagKey, null);
+        assertNull(userManager.getCurrentUserFlagStore().getFlag(flagKey));
 
         // user5 should still be saved:
         setUserAndFailToFetchFlags(user5);
@@ -125,7 +144,7 @@ public class UserManagerTest extends EasyMockSupport {
         };
 
         userManager.registerListener("key", listener);
-        Collection<Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> listeners = userManager.getListenersByKey("key");
+        Collection<FeatureFlagChangeListener> listeners = userManager.getListenersByKey("key");
         assertNotNull(listeners);
         assertFalse(listeners.isEmpty());
 
@@ -147,32 +166,30 @@ public class UserManagerTest extends EasyMockSupport {
         userManager.registerListener("key", listener);
         userManager.unregisterListener("key", listener);
 
-        Collection<Pair<FeatureFlagChangeListener, SharedPreferences.OnSharedPreferenceChangeListener>> listeners = userManager.getListenersByKey("key");
+        Collection<FeatureFlagChangeListener> listeners = userManager.getListenersByKey("key");
         assertNotNull(listeners);
         assertTrue(listeners.isEmpty());
     }
 
     @Test
     public void TestDeleteFlag() throws ExecutionException, InterruptedException {
-        userManager.clearFlagResponseSharedPreferences();
-
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("boolFlag1", true);
-        jsonObject.addProperty("stringFlag1", expectedStringFlagValue);
+        addSimpleFlag(jsonObject, "boolFlag1", true);
+        addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
-        Future<Void> future = setUser("userKey", jsonObject);
+        Future<Void> future = setUserClear("userKey", jsonObject);
         future.get();
 
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
-        assertEquals(2, sharedPrefs.getAll().size());
-        assertEquals(true, sharedPrefs.getBoolean("boolFlag1", false));
-        assertEquals(expectedStringFlagValue, sharedPrefs.getString("stringFlag1", ""));
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
+        assertEquals(2, flagStore.getAllFlags().size());
+        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
+        assertEquals(expectedStringFlagValue, flagStore.getFlag("stringFlag1").getValue().getAsString());
 
         userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}").get();
-        assertEquals("", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(true, sharedPrefs.getBoolean("boolFlag1", false));
+        assertNull(flagStore.getFlag("stringFlag1"));
+        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
 
         userManager.deleteCurrentUserFlag("{\"key\":\"nonExistentFlag\",\"version\":16,\"value\":false}").get();
     }
@@ -182,8 +199,8 @@ public class UserManagerTest extends EasyMockSupport {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("boolFlag1", true);
-        jsonObject.addProperty("stringFlag1", expectedStringFlagValue);
+        addSimpleFlag(jsonObject, "boolFlag1", true);
+        addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
         Future<Void> future = setUser("userKey", jsonObject);
         future.get();
@@ -198,9 +215,7 @@ public class UserManagerTest extends EasyMockSupport {
 
     @Test
     public void TestDeleteWithVersion() throws ExecutionException, InterruptedException {
-        userManager.clearFlagResponseSharedPreferences();
-
-        Future<Void> future = setUser("userKey", new JsonObject());
+        Future<Void> future = setUserClear("userKey", new JsonObject());
         future.get();
 
         String json = "{\n" +
@@ -214,109 +229,108 @@ public class UserManagerTest extends EasyMockSupport {
         userManager.putCurrentUserFlags(json).get();
 
         userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}").get();
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
-        assertEquals("string1", sharedPrefs.getString("stringFlag1", ""));
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
+        assertEquals("string1", flagStore.getFlag("stringFlag1").getValue().getAsString());
 
         userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":127}").get();
-        assertEquals("", sharedPrefs.getString("stringFlag1", ""));
+        assertNull(flagStore.getFlag("stringFlag1"));
 
         userManager.deleteCurrentUserFlag("{\"key\":\"nonExistent\",\"version\":1}").get();
     }
 
     @Test
     public void TestPatchForAddAndReplaceFlags() throws ExecutionException, InterruptedException {
-        userManager.clearFlagResponseSharedPreferences();
-
         JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("boolFlag1", true);
-        jsonObject.addProperty("stringFlag1", "string1");
-        jsonObject.addProperty("floatFlag1", 3.0f);
+        addSimpleFlag(jsonObject, "boolFlag1", true);
+        addSimpleFlag(jsonObject, "stringFlag1", "string1");
+        addSimpleFlag(jsonObject, "floatFlag1", 3.0f);
 
-        Future<Void> future = setUser("userKey", jsonObject);
+        Future<Void> future = setUserClear("userKey", jsonObject);
         future.get();
 
         userManager.patchCurrentUserFlags("{\"key\":\"new-flag\",\"version\":16,\"value\":false}").get();
 
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
-        assertEquals(false, sharedPrefs.getBoolean("new-flag", true));
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
+        assertEquals(false, flagStore.getFlag("new-flag").getValue().getAsBoolean());
 
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":16,\"value\":\"string2\"}").get();
-        assertEquals("string2", sharedPrefs.getString("stringFlag1", ""));
+        assertEquals("string2", flagStore.getFlag("stringFlag1").getValue().getAsString());
 
         userManager.patchCurrentUserFlags("{\"key\":\"boolFlag1\",\"version\":16,\"value\":false}").get();
-        assertEquals(false, sharedPrefs.getBoolean("boolFlag1", false));
+        assertEquals(false, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
 
-        assertEquals(3.0f, sharedPrefs.getFloat("floatFlag1", Float.MIN_VALUE));
+        assertEquals(3.0f, flagStore.getFlag("floatFlag1").getValue().getAsFloat());
 
         userManager.patchCurrentUserFlags("{\"key\":\"floatFlag2\",\"version\":16,\"value\":8.0}").get();
-        assertEquals(8.0f, sharedPrefs.getFloat("floatFlag2", Float.MIN_VALUE));
+        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().getAsFloat());
     }
 
     @Test
     public void TestPatchSucceedsForMissingVersionInPatch() throws ExecutionException, InterruptedException {
-        userManager.clearFlagResponseSharedPreferences();
-
-        Future<Void> future = setUser("userKey", new JsonObject());
+        Future<Void> future = setUserClear("userKey", new JsonObject());
         future.get();
 
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
-        FlagResponseSharedPreferences flagResponseSharedPreferences = userManager.getFlagResponseSharedPreferences();
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
 
         // version does not exist in shared preferences and patch.
         // ---------------------------
         //// case 1: value does not exist in shared preferences.
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
-        assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
+        Flag flag1 = flagStore.getFlag("flag1");
+        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertNull(flag1.getVersion());
 
         //// case 2: value exists in shared preferences without version.
         userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
-        assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
+        flag1 = flagStore.getFlag("flag1");
+        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertNull(flag1.getVersion());
 
         // version does not exist in shared preferences but exists in patch.
         // ---------------------------
         //// case 1: value does not exist in shared preferences.
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
-        assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(558, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
+        flag1 = flagStore.getFlag("flag1");
+        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals(558, (int) flag1.getVersion());
+        assertEquals(3, (int) flag1.getFlagVersion());
+        assertEquals(3, flag1.getVersionForEvents());
 
         //// case 2: value exists in shared preferences without version.
         userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
-        assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(558, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
+        flag1 = flagStore.getFlag("flag1");
+        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals(558, (int) flag1.getVersion());
+        assertEquals(3, (int) flag1.getFlagVersion());
+        assertEquals(3, flag1.getVersionForEvents());
 
         // version exists in shared preferences but does not exist in patch.
         // ---------------------------
         userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
-        assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
+        flag1 = flagStore.getFlag("flag1");
+        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertNull(flag1.getVersion());
+        assertNull(flag1.getFlagVersion());
+        assertEquals(-1, flag1.getVersionForEvents());
 
         // version exists in shared preferences and patch.
         // ---------------------------
         userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}");
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":559,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
-        assertEquals("value-from-patch", sharedPrefs.getString("flag1", ""));
-        assertEquals(559, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getFlagVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("flag1").getVersionForEvents());
+        flag1 = flagStore.getFlag("flag1");
+        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals(559, (int) flag1.getVersion());
+        assertEquals(3, (int) flag1.getFlagVersion());
+        assertEquals(3, flag1.getVersionForEvents());
     }
 
     @Test
     public void TestPatchWithVersion() throws ExecutionException, InterruptedException {
-        userManager.clearFlagResponseSharedPreferences();
-
-        Future<Void> future = setUser("userKey", new JsonObject());
+        Future<Void> future = setUserClear("userKey", new JsonObject());
         future.get();
 
         String json = "{\n" +
@@ -331,26 +345,29 @@ public class UserManagerTest extends EasyMockSupport {
 
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":16,\"value\":\"string2\"}").get();
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
-        FlagResponseSharedPreferences flagResponseSharedPreferences = userManager.getFlagResponseSharedPreferences();
-        assertEquals("string1", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getFlagVersion());
-        assertEquals(125, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersionForEvents());
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
+        Flag stringFlag1 = flagStore.getFlag("stringFlag1");
+        assertEquals("string1", stringFlag1.getValue().getAsString());
+        assertNull(stringFlag1.getFlagVersion());
+        assertEquals(125, stringFlag1.getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":126,\"value\":\"string2\"}").get();
-        assertEquals("string2", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(126, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersion());
-        assertEquals(-1, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getFlagVersion());
-        assertEquals(126, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersionForEvents());
+        stringFlag1 = flagStore.getFlag("stringFlag1");
+        assertEquals("string2", stringFlag1.getValue().getAsString());
+        assertEquals(126, (int) stringFlag1.getVersion());
+        assertNull(stringFlag1.getFlagVersion());
+        assertEquals(126, stringFlag1.getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":127,\"flagVersion\":3,\"value\":\"string3\"}").get();
-        assertEquals("string3", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(127, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getFlagVersion());
-        assertEquals(3, flagResponseSharedPreferences.getStoredFlagResponse("stringFlag1").getVersionForEvents());
+        stringFlag1 = flagStore.getFlag("stringFlag1");
+        assertEquals("string3", stringFlag1.getValue().getAsString());
+        assertEquals(127, (int) stringFlag1.getVersion());
+        assertEquals(3, (int) stringFlag1.getFlagVersion());
+        assertEquals(3, stringFlag1.getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag20\",\"version\":1,\"value\":\"stringValue\"}").get();
-        assertEquals("stringValue", sharedPrefs.getString("stringFlag20", ""));
+        Flag stringFlag20 = flagStore.getFlag("stringFlag20");
+        assertEquals("stringValue", stringFlag20.getValue().getAsString());
     }
 
     @Test
@@ -358,8 +375,8 @@ public class UserManagerTest extends EasyMockSupport {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("boolFlag1", true);
-        jsonObject.addProperty("stringFlag1", expectedStringFlagValue);
+        addSimpleFlag(jsonObject, "boolFlag1", true);
+        addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
         Future<Void> future = setUser("userKey", jsonObject);
         future.get();
@@ -376,9 +393,9 @@ public class UserManagerTest extends EasyMockSupport {
     public void TestPutForReplaceFlags() throws ExecutionException, InterruptedException {
 
         JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("stringFlag1", "string1");
-        jsonObject.addProperty("boolFlag1", true);
-        jsonObject.addProperty("floatFlag1", 3.0f);
+        addSimpleFlag(jsonObject, "stringFlag1", "string1");
+        addSimpleFlag(jsonObject, "boolFlag1", true);
+        addSimpleFlag(jsonObject, "floatFlag1", 3.0f);
 
         Future<Void> future = setUser("userKey", jsonObject);
         future.get();
@@ -403,15 +420,15 @@ public class UserManagerTest extends EasyMockSupport {
 
         userManager.putCurrentUserFlags(json).get();
 
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
 
-        assertEquals("string2", sharedPrefs.getString("stringFlag1", ""));
-        assertEquals(false, sharedPrefs.getBoolean("boolFlag1", false));
+        assertEquals("string2", flagStore.getFlag("stringFlag1").getValue().getAsString());
+        assertEquals(false, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
 
-        // Should have value Float.MIN_VALUE instead of 3.0f which was deleted by PUT.
-        assertEquals(Float.MIN_VALUE, sharedPrefs.getFloat("floatFlag1", Float.MIN_VALUE));
+        // Should no exist as was deleted by PUT.
+        assertNull(flagStore.getFlag("floatFlag1"));
 
-        assertEquals(8.0f, sharedPrefs.getFloat("floatFlag2", 1.0f));
+        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().getAsFloat());
     }
 
     @Test
@@ -419,8 +436,8 @@ public class UserManagerTest extends EasyMockSupport {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("boolFlag1", true);
-        jsonObject.addProperty("stringFlag1", expectedStringFlagValue);
+        addSimpleFlag(jsonObject, "boolFlag1", true);
+        addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
         Future<Void> future = setUser("userKey", jsonObject);
         future.get();
@@ -444,6 +461,18 @@ public class UserManagerTest extends EasyMockSupport {
         return future;
     }
 
+    private Future<Void> setUserClear(String userKey, JsonObject flags) {
+        LDUser user = new LDUser.Builder(userKey).build();
+        ListenableFuture<JsonObject> jsonObjectFuture = Futures.immediateFuture(flags);
+        expect(fetcher.fetch(user)).andReturn(jsonObjectFuture);
+        replayAll();
+        userManager.setCurrentUser(user);
+        userManager.getCurrentUserFlagStore().clear();
+        Future<Void> future = userManager.updateCurrentUser();
+        reset(fetcher);
+        return future;
+    }
+
     private void setUserAndFailToFetchFlags(String userKey) throws InterruptedException {
         LaunchDarklyException expectedException = new LaunchDarklyException("Could not fetch feature flags");
         ListenableFuture<JsonObject> failedFuture = immediateFailedFuture(expectedException);
@@ -462,9 +491,9 @@ public class UserManagerTest extends EasyMockSupport {
         reset(fetcher);
     }
 
-    private void assertFlagValue(String flagKey, Object expectedValue) {
-        SharedPreferences sharedPrefs = userManager.getCurrentUserSharedPrefs();
-        assertEquals(expectedValue, sharedPrefs.getAll().get(flagKey));
+    private void assertFlagValue(String flagKey, String expectedValue) {
+        FlagStore flagStore = userManager.getCurrentUserFlagStore();
+        assertEquals(expectedValue, flagStore.getFlag(flagKey).getValue().getAsString());
     }
 
 }
