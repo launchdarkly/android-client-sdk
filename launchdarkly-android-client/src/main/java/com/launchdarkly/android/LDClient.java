@@ -853,13 +853,10 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     private void updateSummaryEvents(String flagKey, Flag flag, JsonElement result, JsonElement fallback) {
         if (flag == null) {
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, -1, true);
+            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, null, true);
         } else {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
-            if (variation == null)
-                variation = -1;
-
             userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation, false);
         }
     }

@@ -7,6 +7,7 @@ import android.support.annotation.Nullable;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
@@ -22,7 +23,7 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
 
     @Override
     public void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer nullableVariation, boolean isUnknown) {
-        int variation = nullableVariation == null ? -1 : nullableVariation;
+        JsonElement variation = nullableVariation == null ? JsonNull.INSTANCE : new JsonPrimitive(nullableVariation);
         JsonObject object = getValueAsJsonObject(flagResponseKey);
         if (object == null) {
             object = createNewEvent(value, defaultVal, version, variation, isUnknown);
@@ -33,12 +34,24 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
             for (JsonElement element : countersArray) {
                 if (element instanceof JsonObject) {
                     JsonObject asJsonObject = element.getAsJsonObject();
+                    boolean unknownElement = asJsonObject.get("unknown") != null && asJsonObject.get("unknown").getAsBoolean();
+                    if (unknownElement != isUnknown) {
+                        continue;
+                    }
+                    // Both are unknown and same value
+                    if (isUnknown && value.equals(asJsonObject.get("value"))) {
+                        variationExists = true;
+                        int currentCount = asJsonObject.get("count").getAsInt();
+                        asJsonObject.add("count", new JsonPrimitive(++currentCount));
+                        break;
+                    }
                     JsonElement variationElement = asJsonObject.get("variation");
                     JsonElement versionElement = asJsonObject.get("version");
+
                     // We can compare variation rather than value.
                     boolean isSameVersion = versionElement != null && asJsonObject.get("version").getAsInt() == version;
-                    boolean isSameVariation = variationElement != null && variationElement.getAsInt() == variation;
-                    if ((isSameVersion && isSameVariation) || (variationElement == null && versionElement == null && isUnknown && value.equals(asJsonObject.get("value")))) {
+                    boolean isSameVariation = variationElement != null && variationElement.equals(variation);
+                    if (isSameVersion && isSameVariation) {
                         variationExists = true;
                         int currentCount = asJsonObject.get("count").getAsInt();
                         asJsonObject.add("count", new JsonPrimitive(++currentCount));
@@ -61,7 +74,7 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
         editor.apply();
     }
 
-    private JsonObject createNewEvent(JsonElement value, JsonElement defaultVal, int version, int variation, boolean isUnknown) {
+    private JsonObject createNewEvent(JsonElement value, JsonElement defaultVal, int version, JsonElement variation, boolean isUnknown) {
         JsonObject object = new JsonObject();
         object.add("default", defaultVal);
         JsonArray countersArray = new JsonArray();
@@ -70,7 +83,7 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
         return object;
     }
 
-    private void addNewCountersElement(JsonArray countersArray, @Nullable JsonElement value, int version, int variation, boolean isUnknown) {
+    private void addNewCountersElement(JsonArray countersArray, @Nullable JsonElement value, int version, JsonElement variation, boolean isUnknown) {
         JsonObject newCounter = new JsonObject();
         if (isUnknown) {
             newCounter.add("unknown", new JsonPrimitive(true));
@@ -78,7 +91,7 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
         } else {
             newCounter.add("value", value);
             newCounter.add("version", new JsonPrimitive(version));
-            newCounter.add("variation", new JsonPrimitive(variation));
+            newCounter.add("variation", variation);
         }
         newCounter.add("count", new JsonPrimitive(1));
         countersArray.add(newCounter);
