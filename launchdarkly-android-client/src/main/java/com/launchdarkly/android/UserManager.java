@@ -17,6 +17,7 @@ import com.google.gson.reflect.TypeToken;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreManager;
+import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreFactory;
 import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreManager;
 import com.launchdarkly.android.response.DeleteFlagResponse;
 import com.launchdarkly.android.response.GsonCache;
@@ -57,7 +58,7 @@ class UserManager {
     UserManager(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
         this.application = application;
         this.fetcher = fetcher;
-        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey);
+        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey, new SharedPrefsFlagStoreFactory(application));
         this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
         this.environmentName = environmentName;
 
@@ -150,7 +151,7 @@ class UserManager {
             }
             flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
         } catch (Exception e) {
-
+            Timber.d("Invalid JsonObject for flagSettings: %s", flagsJson);
         }
     }
 

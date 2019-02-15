@@ -401,7 +401,9 @@ public class LDClient implements LDClientInterface, Closeable {
         List<Flag> flags = userManager.getCurrentUserFlagStore().getAllFlags();
         for (Flag flag : flags) {
             JsonElement jsonVal = flag.getValue();
-            if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
+            if (jsonVal == null) {
+                result.put(flag.getKey(), null);
+            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
                 result.put(flag.getKey(), jsonVal.getAsBoolean());
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
                 // TODO distinguish ints?
