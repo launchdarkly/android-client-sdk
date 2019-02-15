@@ -11,6 +11,7 @@ import android.support.annotation.NonNull;
 
 import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
 import com.google.android.gms.common.GooglePlayServicesRepairableException;
+import com.google.android.gms.security.ProviderInstaller;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -18,16 +19,13 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
-import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagInterface;
 import com.launchdarkly.android.response.GsonCache;
 import com.launchdarkly.android.response.SummaryEventSharedPreferences;
-import com.google.android.gms.security.ProviderInstaller;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -202,11 +200,11 @@ public class LDClient implements LDClientInterface, Closeable {
      * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
      * have fetched the most recent feature flag values.
      *
-     * @param application
-     * @param config
-     * @param user
-     * @param startWaitSeconds
-     * @return
+     * @param application      Your Android application.
+     * @param config           Configuration used to set up the client
+     * @param user             The user used in evaluating feature flags
+     * @param startWaitSeconds Maximum number of seconds to wait for the client to initialize
+     * @return The primary LDClient instance
      */
     public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
         Timber.i("Initializing Client and waiting up to %s for initialization to complete", startWaitSeconds);
@@ -426,7 +424,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * <li>Any other error</li>
      * </ol>
      *
-     * @param flagKey key for the flag to evaluate
+     * @param flagKey  key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
@@ -470,7 +468,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * <li>Any other error</li>
      * </ol>
      *
-     * @param flagKey key for the flag to evaluate
+     * @param flagKey  key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
@@ -514,7 +512,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * <li>Any other error</li>
      * </ol>
      *
-     * @param flagKey key for the flag to evaluate
+     * @param flagKey  key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
@@ -558,7 +556,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * <li>Any other error</li>
      * </ol>
      *
-     * @param flagKey key for the flag to evaluate
+     * @param flagKey  key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
@@ -602,7 +600,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * <li>Any other error</li>
      * </ol>
      *
-     * @param flagKey key for the flag to evaluate
+     * @param flagKey  key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
@@ -763,8 +761,8 @@ public class LDClient implements LDClientInterface, Closeable {
      * Registers a {@link FeatureFlagChangeListener} to be called when the <code>flagKey</code> changes
      * from its current value. If the feature flag is deleted, the <code>listener</code> will be unregistered.
      *
-     * @param flagKey
-     * @param listener
+     * @param flagKey  the flag key to attach the listener to
+     * @param listener the listener to attach to the flag key
      */
     @Override
     public void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
@@ -774,8 +772,8 @@ public class LDClient implements LDClientInterface, Closeable {
     /**
      * Unregisters a {@link FeatureFlagChangeListener} for the <code>flagKey</code>
      *
-     * @param flagKey
-     * @param listener
+     * @param flagKey  the flag key to attach the listener to
+     * @param listener the listener to attach to the flag key
      */
     @Override
     public void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {

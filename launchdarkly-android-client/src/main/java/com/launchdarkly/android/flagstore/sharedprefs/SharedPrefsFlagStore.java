@@ -1,11 +1,12 @@
 package com.launchdarkly.android.flagstore.sharedprefs;
 
+import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.support.annotation.NonNull;
 import android.util.Pair;
 
-import com.google.gson.Gson;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
@@ -13,6 +14,7 @@ import com.launchdarkly.android.flagstore.FlagUpdate;
 import com.launchdarkly.android.flagstore.StoreUpdatedListener;
 import com.launchdarkly.android.response.GsonCache;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,11 +25,29 @@ import timber.log.Timber;
 
 public class SharedPrefsFlagStore implements FlagStore {
 
+    private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
+    private final String prefsKey;
+    private Application application;
     private SharedPreferences sharedPreferences;
     private StoreUpdatedListener storeUpdatedListener;
 
-    public SharedPrefsFlagStore(Application application, String name) {
-        this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);
+    public SharedPrefsFlagStore(@NonNull Application application, @NonNull String identifier) {
+        this.application = application;
+        this.prefsKey = SHARED_PREFS_BASE_KEY + identifier + "-flags";
+        this.sharedPreferences = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE);
+    }
+
+    @SuppressLint("ApplySharedPref")
+    @Override
+    public void delete() {
+        sharedPreferences.edit().clear().commit();
+        sharedPreferences = null;
+
+        File file = new File(application.getFilesDir().getParent() + "/shared_prefs/" + prefsKey + ".xml");
+        Timber.i("Deleting SharedPrefs file:%s", file.getAbsolutePath());
+
+        //noinspection ResultOfMethodCallIgnored
+        file.delete();
     }
 
     @Override
