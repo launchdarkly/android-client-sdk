@@ -18,13 +18,11 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
-import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagInterface;
 import com.launchdarkly.android.response.GsonCache;
 import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 import com.google.android.gms.security.ProviderInstaller;
@@ -418,221 +416,91 @@ public class LDClient implements LDClientInterface, Closeable {
         return result;
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a boolean type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
-     */
     @Override
     public Boolean boolVariation(String flagKey, Boolean fallback) {
-        if (flagKey == null) {
-            Timber.e("Attempted to get boolean flag with a null value for key. Returning fallback: %s", fallback);
-            return fallback;
-        }
-
-        Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
-
-        Boolean result = fallback;
-
-        if (flag == null) {
-            Timber.e("Attempted to get non-existent boolean flag for key: %s Returning fallback: %s", flagKey, fallback);
-        } else {
-            JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null || jsonVal.isJsonNull()) {
-                Timber.e("Attempted to get boolean flag without value for key: %s Returning fallback: %s", flagKey, fallback);
-            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
-                result = jsonVal.getAsBoolean();
-            } else {
-                Timber.e("Attempted to get boolean flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-            }
-        }
-
-        JsonElement defaultVal = fallback == null ? JsonNull.INSTANCE : new JsonPrimitive(fallback);
-        JsonElement val = result == null ? JsonNull.INSTANCE : new JsonPrimitive(result);
-        updateSummaryEvents(flagKey, flag, val, defaultVal);
-        sendFlagRequestEvent(flagKey, flag, val, defaultVal);
-        Timber.d("boolVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of an integer type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
-     */
+    @Override
+    public EvaluationDetail<Boolean> boolVariationDetail(String flagKey, Boolean fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, true);
+    }
+
     @Override
     public Integer intVariation(String flagKey, Integer fallback) {
-        if (flagKey == null) {
-            Timber.e("Attempted to get integer flag with a null value for key. Returning fallback: %s", fallback);
-            return fallback;
-        }
-
-        Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
-
-        Integer result = fallback;
-
-        if (flag == null) {
-            Timber.e("Attempted to get non-existent integer flag for key: %s Returning fallback: %s", flagKey, fallback);
-        } else {
-            JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null || jsonVal.isJsonNull()) {
-                Timber.e("Attempted to get integer flag without value for key: %s Returning fallback: %s", flagKey, fallback);
-            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
-                result = jsonVal.getAsInt();
-            } else {
-                Timber.e("Attempted to get integer flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-            }
-        }
-
-        JsonElement defaultVal = fallback == null ? JsonNull.INSTANCE : new JsonPrimitive(fallback);
-        JsonElement val = result == null ? JsonNull.INSTANCE : new JsonPrimitive(result);
-        updateSummaryEvents(flagKey, flag, val, defaultVal);
-        sendFlagRequestEvent(flagKey, flag, val, defaultVal);
-        Timber.d("intVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        return variationDetailInternal(flagKey, fallback, ValueTypes.INT, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a float type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
-     */
+    @Override
+    public EvaluationDetail<Integer> intVariationDetail(String flagKey, Integer fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.INT, true);
+    }
+
     @Override
     public Float floatVariation(String flagKey, Float fallback) {
-        if (flagKey == null) {
-            Timber.e("Attempted to get float flag with a null value for key. Returning fallback: %s", fallback);
-            return fallback;
-        }
-
-        Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
-
-        Float result = fallback;
-
-        if (flag == null) {
-            Timber.e("Attempted to get non-existent float flag for key: %s Returning fallback: %s", flagKey, fallback);
-        } else {
-            JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null || jsonVal.isJsonNull()) {
-                Timber.e("Attempted to get float flag without value for key: %s Returning fallback: %s", flagKey, fallback);
-            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
-                result = jsonVal.getAsFloat();
-            } else {
-                Timber.e("Attempted to get float flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-            }
-        }
-
-        JsonElement defaultVal = fallback == null ? JsonNull.INSTANCE : new JsonPrimitive(fallback);
-        JsonElement val = result == null ? JsonNull.INSTANCE : new JsonPrimitive(result);
-        updateSummaryEvents(flagKey, flag, val, defaultVal);
-        sendFlagRequestEvent(flagKey, flag, val, defaultVal);
-        Timber.d("floatVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a String type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
-     */
+    @Override
+    public EvaluationDetail<Float> floatVariationDetail(String flagKey, Float fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, true);
+    }
+
     @Override
     public String stringVariation(String flagKey, String fallback) {
-        if (flagKey == null) {
-            Timber.e("Attempted to get string flag with a null value for key. Returning fallback: %s", fallback);
-            return fallback;
-        }
-
-        Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
-
-        String result = fallback;
-
-        if (flag == null) {
-            Timber.e("Attempted to get non-existent string flag for key: %s Returning fallback: %s", flagKey, fallback);
-        } else {
-            JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null || jsonVal.isJsonNull()) {
-                Timber.e("Attempted to get string flag without value for key: %s Returning fallback: %s", flagKey, fallback);
-            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
-                result = jsonVal.getAsString();
-            } else {
-                Timber.e("Attempted to get string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-            }
-        }
-
-        JsonElement defaultVal = fallback == null ? JsonNull.INSTANCE : new JsonPrimitive(fallback);
-        JsonElement val = result == null ? JsonNull.INSTANCE : new JsonPrimitive(result);
-        updateSummaryEvents(flagKey, flag, val, defaultVal);
-        sendFlagRequestEvent(flagKey, flag, val, defaultVal);
-        Timber.d("stringVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not valid JSON</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
-     */
+    @Override
+    public EvaluationDetail<String> stringVariationDetail(String flagKey, String fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, true);
+    }
+
     @Override
     public JsonElement jsonVariation(String flagKey, JsonElement fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, false).getValue();
+    }
+
+    @Override
+    public EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, true);
+    }
+
+    private <T> EvaluationDetail<T> variationDetailInternal(String flagKey, T fallback, ValueTypes.Converter<T> typeConverter, boolean includeReasonInEvent) {
         if (flagKey == null) {
-            Timber.e("Attempted to get json flag with a null value for key. Returning fallback: %s", fallback);
-            return fallback;
+            Timber.e("Attempted to get flag with a null value for key. Returning fallback: %s", fallback);
+            return EvaluationDetail.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND, fallback);  // no event is sent in this case
         }
 
         Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
-
-        JsonElement result = fallback;
+        JsonElement fallbackJson = fallback == null ? null : typeConverter.valueToJson(fallback);
+        JsonElement valueJson = fallbackJson;
+        EvaluationDetail<T> result;
 
         if (flag == null) {
-            Timber.e("Attempted to get non-existent json flag for key: %s Returning fallback: %s", flagKey, fallback);
+            Timber.e("Attempted to get non-existent flag for key: %s Returning fallback: %s", flagKey, fallback);
+            result = EvaluationDetail.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND, fallback);
         } else {
-            JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null || jsonVal.isJsonNull()) { // TODO, return null, or fallback? can jsonVal even be null (as opposed to jsonNull)?
-                Timber.e("Attempted to get json flag without value for key: %s Returning fallback: %s", flagKey, fallback);
+            valueJson = flag.getValue();
+            if (valueJson == null || valueJson.isJsonNull()) {
+                Timber.e("Attempted to get flag without value for key: %s Returning fallback: %s", flagKey, fallback);
+                result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), fallback);
+                valueJson = fallbackJson;
             } else {
-                result = jsonVal;
+                T value = typeConverter.valueFromJson(valueJson);
+                if (value == null) {
+                    Timber.e("Attempted to get flag with wrong type for key: %s Returning fallback: %s", flagKey, fallback);
+                    result = EvaluationDetail.error(EvaluationReason.ErrorKind.WRONG_TYPE, fallback);
+                    valueJson = fallbackJson;
+                } else {
+                    result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), value);
+                }
             }
         }
 
-        JsonElement defaultVal = fallback == null ? JsonNull.INSTANCE : fallback;
-        JsonElement val = result == null ? JsonNull.INSTANCE : result;
-        updateSummaryEvents(flagKey, flag, val, defaultVal);
-        sendFlagRequestEvent(flagKey, flag, val, defaultVal);
-        Timber.d("jsonVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
+        updateSummaryEvents(flagKey, flag, valueJson, fallbackJson);
+        sendFlagRequestEvent(flagKey, flag, valueJson, fallbackJson, includeReasonInEvent ? result.getReason() : null);
+        Timber.d("returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -801,7 +669,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback) {
+    private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback, EvaluationReason reason) {
         if (flag == null)
             return;
 
@@ -809,16 +677,16 @@ public class LDClient implements LDClientInterface, Closeable {
         Integer variation = flag.getVariation();
         if (flag.getTrackEvents()) {
             if (config.inlineUsersInEvents()) {
-                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation));
+                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation, reason));
             } else {
-                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKeyAsString(), value, fallback, version, variation));
+                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKeyAsString(), value, fallback, version, variation, reason));
             }
         } else {
             Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {
                 long serverTimeMs = eventProcessor.getCurrentTimeMs();
                 if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    sendEvent(new DebugEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation));
+                    sendEvent(new DebugEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation, reason));
                 }
             }
         }

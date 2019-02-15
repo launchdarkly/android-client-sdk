@@ -192,7 +192,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user.getKeyAsString(), JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1);
+        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user.getKeyAsString(), JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1, null);
 
         Assert.assertNull(event.user);
         Assert.assertEquals(user.getKeyAsString(), event.userKey);
@@ -205,7 +205,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1);
+        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1, null);
 
         Assert.assertEquals(user, event.user);
         Assert.assertNull(event.userKey);
@@ -244,15 +244,23 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, null);
-        final FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, 20);
+        final EvaluationReason reason = EvaluationReason.fallthrough();
+
+        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, null, null);
+        final FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, 20, null);
+        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, 20, reason);
 
         Assert.assertEquals(5, hasVersionEvent.version, 0.0f);
         Assert.assertNull(hasVersionEvent.variation);
+        Assert.assertNull(hasVersionEvent.reason);
 
         Assert.assertEquals(20, hasVariationEvent.variation, 0);
         Assert.assertNull(hasVariationEvent.version);
+        Assert.assertNull(hasVariationEvent.reason);
 
+        Assert.assertEquals(5, hasReasonEvent.version, 0);
+        Assert.assertEquals(20, hasReasonEvent.variation, 0);
+        Assert.assertEquals(reason, hasReasonEvent.reason);
     }
 
 
