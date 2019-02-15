@@ -7,7 +7,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 /**
  * Describes the reason that a flag evaluation produced a particular value. This is returned by
  * methods such as {@code boolVariationDetail()}.
- *
+ * <p>
  * Note that this is an enum-like class hierarchy rather than an enum, because some of the
  * possible reasons have their own properties.
  *
@@ -93,10 +93,10 @@ public abstract class EvaluationReason {
 
     /**
      * Returns an enum indicating the general category of the reason.
+     *
      * @return a {@link Kind} value
      */
-    public Kind getKind()
-    {
+    public Kind getKind() {
         return kind;
     }
 
@@ -105,13 +105,13 @@ public abstract class EvaluationReason {
         return getKind().name();
     }
 
-    protected EvaluationReason(Kind kind)
-    {
+    protected EvaluationReason(Kind kind) {
         this.kind = kind;
     }
 
     /**
      * Returns an instance of {@link Off}.
+     *
      * @return a reason object
      */
     public static Off off() {
@@ -120,6 +120,7 @@ public abstract class EvaluationReason {
 
     /**
      * Returns an instance of {@link TargetMatch}.
+     *
      * @return a reason object
      */
     public static TargetMatch targetMatch() {
@@ -128,8 +129,9 @@ public abstract class EvaluationReason {
 
     /**
      * Returns an instance of {@link RuleMatch}.
+     *
      * @param ruleIndex the rule index
-     * @param ruleId the rule identifier
+     * @param ruleId    the rule identifier
      * @return a reason object
      */
     public static RuleMatch ruleMatch(int ruleIndex, String ruleId) {
@@ -138,6 +140,7 @@ public abstract class EvaluationReason {
 
     /**
      * Returns an instance of {@link PrerequisiteFailed}.
+     *
      * @param prerequisiteKey the flag key of the prerequisite that failed
      * @return a reason object
      */
@@ -147,6 +150,7 @@ public abstract class EvaluationReason {
 
     /**
      * Returns an instance of {@link Fallthrough}.
+     *
      * @return a reason object
      */
     public static Fallthrough fallthrough() {
@@ -155,6 +159,7 @@ public abstract class EvaluationReason {
 
     /**
      * Returns an instance of {@link Error}.
+     *
      * @param errorKind describes the type of error
      * @return a reason object
      */
@@ -164,9 +169,12 @@ public abstract class EvaluationReason {
 
     /**
      * Returns an instance of {@link Unknown}.
+     *
      * @return a reason object
      */
-    public static Unknown unknown() { return Unknown.instance; }
+    public static Unknown unknown() {
+        return Unknown.instance;
+    }
 
     /**
      * Subclass of {@link EvaluationReason} that indicates that the flag was off and therefore returned
@@ -185,8 +193,7 @@ public abstract class EvaluationReason {
      * for this flag.
      */
     public static class TargetMatch extends EvaluationReason {
-        private TargetMatch()
-        {
+        private TargetMatch() {
             super(Kind.TARGET_MATCH);
         }
 
@@ -217,7 +224,7 @@ public abstract class EvaluationReason {
         @Override
         public boolean equals(Object other) {
             if (other instanceof RuleMatch) {
-                RuleMatch o = (RuleMatch)other;
+                RuleMatch o = (RuleMatch) other;
                 return ruleIndex == o.ruleIndex && objectsEqual(ruleId, o.ruleId);
             }
             return false;
@@ -253,7 +260,7 @@ public abstract class EvaluationReason {
         @Override
         public boolean equals(Object other) {
             return (other instanceof PrerequisiteFailed) &&
-                    ((PrerequisiteFailed)other).prerequisiteKey.equals(prerequisiteKey);
+                    ((PrerequisiteFailed) other).prerequisiteKey.equals(prerequisiteKey);
         }
 
         @Override
@@ -272,8 +279,7 @@ public abstract class EvaluationReason {
      * match any targets or rules.
      */
     public static class Fallthrough extends EvaluationReason {
-        private Fallthrough()
-        {
+        private Fallthrough() {
             super(Kind.FALLTHROUGH);
         }
 
@@ -317,7 +323,9 @@ public abstract class EvaluationReason {
      * not supported by this version of the SDK.
      */
     public static class Unknown extends EvaluationReason {
-        private Unknown() { super(Kind.UNKNOWN); }
+        private Unknown() {
+            super(Kind.UNKNOWN);
+        }
 
         private static final Unknown instance = new Unknown();
     }

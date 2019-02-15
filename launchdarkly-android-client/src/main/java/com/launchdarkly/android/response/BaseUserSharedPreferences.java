@@ -22,17 +22,6 @@ abstract class BaseUserSharedPreferences {
         editor.apply();
     }
 
-    @Nullable
-    JsonElement extractValueFromPreferences(String flagResponseKey, String keyOfValueToExtract) {
-
-        JsonObject asJsonObject = getValueAsJsonObject(flagResponseKey);
-        if (asJsonObject == null) {
-            return null;
-        }
-
-        return asJsonObject.get(keyOfValueToExtract);
-    }
-
     @SuppressLint("ApplySharedPref")
     @Nullable
     public JsonObject getValueAsJsonObject(String flagResponseKey) {

@@ -9,9 +9,14 @@ public interface FlagInterface {
 
     @NonNull
     String getKey();
+
     JsonElement getValue();
+
     Integer getVersion();
+
     Integer getFlagVersion();
+
     Integer getVariation();
+
     EvaluationReason getReason();
 }
