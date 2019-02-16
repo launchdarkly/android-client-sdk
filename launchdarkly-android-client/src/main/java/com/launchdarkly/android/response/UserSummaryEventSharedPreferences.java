@@ -34,7 +34,8 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
             for (JsonElement element : countersArray) {
                 if (element instanceof JsonObject) {
                     JsonObject asJsonObject = element.getAsJsonObject();
-                    boolean unknownElement = asJsonObject.get("unknown") != null && asJsonObject.get("unknown").getAsBoolean();
+                    boolean unknownElement = asJsonObject.get("unknown") != null && !asJsonObject.get("unknown").equals(JsonNull.INSTANCE) && asJsonObject.get("unknown").getAsBoolean();
+
                     if (unknownElement != isUnknown) {
                         continue;
                     }
