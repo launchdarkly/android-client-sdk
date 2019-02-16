@@ -102,18 +102,7 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
     public JsonObject getFeaturesJsonObject() {
         JsonObject returnObject = new JsonObject();
         for (String key : sharedPreferences.getAll().keySet()) {
-            JsonObject keyObject = getValueAsJsonObject(key);
-            if (keyObject != null) {
-                JsonArray countersArray = keyObject.get("counters").getAsJsonArray();
-                for (JsonElement element : countersArray) {
-                    JsonObject elementAsJsonObject = element.getAsJsonObject();
-                    // Include variation if we have it, otherwise exclude it
-                    if (elementAsJsonObject.has("variation") && elementAsJsonObject.get("variation").getAsInt() == -1) {
-                        elementAsJsonObject.remove("variation");
-                    }
-                }
-                returnObject.add(key, keyObject);
-            }
+            returnObject.add(key, getValueAsJsonObject(key));
         }
         return returnObject;
     }
