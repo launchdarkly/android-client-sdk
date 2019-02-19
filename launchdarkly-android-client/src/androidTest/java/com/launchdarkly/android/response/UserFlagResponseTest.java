@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.EvaluationReason;
 import com.launchdarkly.android.flagstore.Flag;
+import com.launchdarkly.android.gson.GsonCache;
 
 import org.junit.Test;
 

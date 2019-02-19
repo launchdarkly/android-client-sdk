@@ -12,7 +12,7 @@ import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
 import com.launchdarkly.android.flagstore.FlagUpdate;
 import com.launchdarkly.android.flagstore.StoreUpdatedListener;
-import com.launchdarkly.android.response.GsonCache;
+import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.File;
 import java.util.ArrayList;

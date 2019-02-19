@@ -1,5 +1,6 @@
 package com.launchdarkly.android.response;
 
+import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -9,13 +10,16 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
 /**
  * Created by jamesthacker on 4/12/18.
  */
 
-public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences implements SummaryEventSharedPreferences {
+public class UserSummaryEventSharedPreferences implements SummaryEventSharedPreferences {
+
+    private SharedPreferences sharedPreferences;
 
     public UserSummaryEventSharedPreferences(Application application, String name) {
         this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);
@@ -106,4 +110,36 @@ public class UserSummaryEventSharedPreferences extends BaseUserSharedPreferences
         }
         return returnObject;
     }
+
+    @SuppressLint("ApplySharedPref")
+    @Nullable
+    private JsonObject getValueAsJsonObject(String flagResponseKey) {
+        String storedFlag;
+        try {
+            storedFlag = sharedPreferences.getString(flagResponseKey, null);
+        } catch (ClassCastException castException) {
+            // An old version of shared preferences is stored, so clear it.
+            // The flag responses will get re-synced with the server
+            sharedPreferences.edit().clear().commit();
+            return null;
+        }
+
+        if (storedFlag == null) {
+            return null;
+        }
+
+        JsonElement element = new JsonParser().parse(storedFlag);
+        if (element instanceof JsonObject) {
+            return (JsonObject) element;
+        }
+
+        return null;
+    }
+
+    public void clear() {
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.clear();
+        editor.apply();
+    }
+
 }
