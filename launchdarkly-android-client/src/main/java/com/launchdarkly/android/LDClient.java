@@ -802,8 +802,10 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback) {
-        if (flag == null)
+        if (flag == null) {
+            sendSummaryEvent();
             return;
+        }
 
         int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
