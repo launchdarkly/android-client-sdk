@@ -21,11 +21,9 @@ import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.gson.GsonCache;
-import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -803,7 +801,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback) {
         if (flag == null) {
-            sendSummaryEvent();
             return;
         }
 
@@ -824,8 +821,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 }
             }
         }
-
-        sendSummaryEvent();
     }
 
     void startBackgroundPolling() {
@@ -861,28 +856,6 @@ public class LDClient implements LDClientInterface, Closeable {
             Integer variation = flag.getVariation();
             userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation, false);
         }
-    }
-
-    /**
-     * Updates the cached summary event that will be sent to the server with the next batch of events.
-     */
-    private void sendSummaryEvent() {
-        JsonObject features = userManager.getSummaryEventSharedPreferences().getFeaturesJsonObject();
-        if (features.keySet().size() == 0) {
-            return;
-        }
-        Long startDate = null;
-        for (String key : features.keySet()) {
-            JsonObject asJsonObject = features.get(key).getAsJsonObject();
-            if (asJsonObject.has("startDate")) {
-                startDate = asJsonObject.get("startDate").getAsLong();
-                asJsonObject.remove("startDate");
-                break;
-            }
-        }
-        SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
-        Timber.d("Sending Summary Event: %s", summaryEvent.toString());
-        eventProcessor.setSummaryEvent(summaryEvent);
     }
 
     @VisibleForTesting

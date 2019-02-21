@@ -1,4 +1,4 @@
-package com.launchdarkly.android.response;
+package com.launchdarkly.android;
 
 import android.annotation.SuppressLint;
 import android.app.Application;
@@ -13,6 +13,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
+import timber.log.Timber;
+
 /**
  * Created by jamesthacker on 4/12/18.
  */
@@ -21,12 +23,12 @@ public class UserSummaryEventSharedPreferences implements SummaryEventSharedPref
 
     private SharedPreferences sharedPreferences;
 
-    public UserSummaryEventSharedPreferences(Application application, String name) {
+    UserSummaryEventSharedPreferences(Application application, String name) {
         this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);
     }
 
     @Override
-    public void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer nullableVariation, boolean isUnknown) {
+    public synchronized void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer nullableVariation, boolean isUnknown) {
         JsonElement variation = nullableVariation == null ? JsonNull.INSTANCE : new JsonPrimitive(nullableVariation);
         JsonObject object = getValueAsJsonObject(flagResponseKey);
         if (object == null) {
@@ -74,9 +76,46 @@ public class UserSummaryEventSharedPreferences implements SummaryEventSharedPref
             object.add("startDate", new JsonPrimitive(System.currentTimeMillis()));
         }
 
+        String flagSummary = object.toString();
+
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.putString(flagResponseKey, object.toString());
         editor.apply();
+
+        Timber.d("Updated summary for flagKey %s to %s", flagResponseKey, flagSummary);
+    }
+
+    @Override
+    public synchronized SummaryEvent getSummaryEvent() {
+        return getSummaryEventNoSync();
+    }
+
+    private SummaryEvent getSummaryEventNoSync() {
+        JsonObject features = getFeaturesJsonObject();
+        if (features.keySet().size() == 0) {
+            return null;
+        }
+        Long startDate = null;
+        for (String key : features.keySet()) {
+            JsonObject asJsonObject = features.get(key).getAsJsonObject();
+            if (asJsonObject.has("startDate")) {
+                startDate = asJsonObject.get("startDate").getAsLong();
+                asJsonObject.remove("startDate");
+                break;
+            }
+        }
+        SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
+        Timber.d("Sending Summary Event: %s", summaryEvent.toString());
+        return summaryEvent;
+    }
+
+    @Override
+    public synchronized SummaryEvent getSummaryEventAndClear() {
+        SummaryEvent summaryEvent = getSummaryEventNoSync();
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.clear();
+        editor.apply();
+        return summaryEvent;
     }
 
     private JsonObject createNewEvent(JsonElement value, JsonElement defaultVal, int version, JsonElement variation, boolean isUnknown) {
@@ -102,8 +141,8 @@ public class UserSummaryEventSharedPreferences implements SummaryEventSharedPref
         countersArray.add(newCounter);
     }
 
-    @Override
-    public JsonObject getFeaturesJsonObject() {
+
+    private JsonObject getFeaturesJsonObject() {
         JsonObject returnObject = new JsonObject();
         for (String key : sharedPreferences.getAll().keySet()) {
             returnObject.add(key, getValueAsJsonObject(key));
@@ -136,7 +175,7 @@ public class UserSummaryEventSharedPreferences implements SummaryEventSharedPref
         return null;
     }
 
-    public void clear() {
+    public synchronized void clear() {
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.clear();
         editor.apply();

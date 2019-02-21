@@ -21,8 +21,6 @@ import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreManage
 import com.launchdarkly.android.gson.GsonCache;
 import com.launchdarkly.android.response.DeleteFlagResponse;
 import com.launchdarkly.android.response.FlagsResponse;
-import com.launchdarkly.android.response.SummaryEventSharedPreferences;
-import com.launchdarkly.android.response.UserSummaryEventSharedPreferences;
 
 import java.util.Collection;
 import java.util.List;
