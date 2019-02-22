@@ -36,6 +36,7 @@ class SharedPrefsFlagStore implements FlagStore {
         this.application = application;
         this.prefsKey = SHARED_PREFS_BASE_KEY + identifier + "-flags";
         this.sharedPreferences = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE);
+        this.listenerWeakReference = new WeakReference<>(null);
     }
 
     @SuppressLint("ApplySharedPref")

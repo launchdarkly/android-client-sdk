@@ -408,7 +408,7 @@ public class LDClient implements LDClientInterface, Closeable {
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
                 result.put(flag.getKey(), jsonVal.getAsString());
             } else {
-                result.put(flag.getKey(), jsonVal);
+                result.put(flag.getKey(), GsonCache.getGson().toJson(jsonVal));
             }
         }
         return result;
