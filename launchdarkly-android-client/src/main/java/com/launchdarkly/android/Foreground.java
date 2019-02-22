@@ -48,7 +48,7 @@ import timber.log.Timber;
  */
 class Foreground implements Application.ActivityLifecycleCallbacks {
 
-    static final long CHECK_DELAY = 500;
+    private static final long CHECK_DELAY = 500;
 
     interface Listener {
 

@@ -12,9 +12,10 @@ import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
 import com.launchdarkly.android.flagstore.FlagUpdate;
 import com.launchdarkly.android.flagstore.StoreUpdatedListener;
-import com.launchdarkly.android.response.GsonCache;
+import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.File;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,18 +24,19 @@ import javax.annotation.Nullable;
 
 import timber.log.Timber;
 
-public class SharedPrefsFlagStore implements FlagStore {
+class SharedPrefsFlagStore implements FlagStore {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     private final String prefsKey;
     private Application application;
     private SharedPreferences sharedPreferences;
-    private StoreUpdatedListener storeUpdatedListener;
+    private WeakReference<StoreUpdatedListener> listenerWeakReference;
 
-    public SharedPrefsFlagStore(@NonNull Application application, @NonNull String identifier) {
+    SharedPrefsFlagStore(@NonNull Application application, @NonNull String identifier) {
         this.application = application;
         this.prefsKey = SHARED_PREFS_BASE_KEY + identifier + "-flags";
         this.sharedPreferences = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE);
+        this.listenerWeakReference = new WeakReference<>(null);
     }
 
     @SuppressLint("ApplySharedPref")
@@ -72,7 +74,7 @@ public class SharedPrefsFlagStore implements FlagStore {
         return GsonCache.getGson().fromJson(flagData, Flag.class);
     }
 
-    private Pair<String, FlagStoreUpdateType> applyFlagUpdateNoCommit(SharedPreferences.Editor editor, FlagUpdate flagUpdate) {
+    private Pair<String, FlagStoreUpdateType> applyFlagUpdateNoCommit(@NonNull SharedPreferences.Editor editor, @NonNull FlagUpdate flagUpdate) {
         String flagKey = flagUpdate.flagToUpdate();
         Flag flag = getFlag(flagKey);
         Flag newFlag = flagUpdate.updateFlag(flag);
@@ -91,17 +93,18 @@ public class SharedPrefsFlagStore implements FlagStore {
         return null;
     }
 
-    // TODO synchronize listeners
     @Override
     public void applyFlagUpdate(FlagUpdate flagUpdate) {
         SharedPreferences.Editor editor = sharedPreferences.edit();
         Pair<String, FlagStoreUpdateType> update = applyFlagUpdateNoCommit(editor, flagUpdate);
         editor.apply();
+        StoreUpdatedListener storeUpdatedListener = listenerWeakReference.get();
         if (update != null && storeUpdatedListener != null) {
             storeUpdatedListener.onStoreUpdate(update.first, update.second);
         }
     }
 
+    @NonNull
     private ArrayList<Pair<String, FlagStoreUpdateType>> applyFlagUpdatesNoCommit(SharedPreferences.Editor editor, List<? extends FlagUpdate> flagUpdates) {
         ArrayList<Pair<String, FlagStoreUpdateType>> updates = new ArrayList<>();
         for (FlagUpdate flagUpdate : flagUpdates) {
@@ -114,6 +117,7 @@ public class SharedPrefsFlagStore implements FlagStore {
     }
 
     private void informListenersOfUpdateList(List<Pair<String, FlagStoreUpdateType>> updates) {
+        StoreUpdatedListener storeUpdatedListener = listenerWeakReference.get();
         if (storeUpdatedListener != null) {
             for (Pair<String, FlagStoreUpdateType> update : updates) {
                 storeUpdatedListener.onStoreUpdate(update.first, update.second);
@@ -160,11 +164,11 @@ public class SharedPrefsFlagStore implements FlagStore {
 
     @Override
     public void registerOnStoreUpdatedListener(StoreUpdatedListener storeUpdatedListener) {
-        this.storeUpdatedListener = storeUpdatedListener;
+        listenerWeakReference = new WeakReference<>(storeUpdatedListener);
     }
 
     @Override
     public void unregisterOnStoreUpdatedListener() {
-        this.storeUpdatedListener = null;
+        listenerWeakReference.clear();
     }
 }

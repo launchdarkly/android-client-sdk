@@ -20,12 +20,8 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.response.GsonCache;
-import com.launchdarkly.android.response.SummaryEventSharedPreferences;
+import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -393,7 +389,7 @@ public class LDClient implements LDClientInterface, Closeable {
     /**
      * Returns a map of all feature flags for the current user. No events are sent to LaunchDarkly.
      *
-     * @return
+     * @return a map of all feature flags
      */
     @Override
     public Map<String, ?> allFlags() {
@@ -401,17 +397,15 @@ public class LDClient implements LDClientInterface, Closeable {
         List<Flag> flags = userManager.getCurrentUserFlagStore().getAllFlags();
         for (Flag flag : flags) {
             JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null) {
+            if (jsonVal == null || jsonVal.isJsonNull()) {
                 result.put(flag.getKey(), null);
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
                 result.put(flag.getKey(), jsonVal.getAsBoolean());
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
-                // TODO distinguish ints?
                 result.put(flag.getKey(), jsonVal.getAsFloat());
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
                 result.put(flag.getKey(), jsonVal.getAsString());
             } else {
-                // TODO
                 result.put(flag.getKey(), GsonCache.getGson().toJson(jsonVal));
             }
         }
@@ -516,7 +510,7 @@ public class LDClient implements LDClientInterface, Closeable {
         LDClient.closeInstances();
     }
 
-    private void closeInternal() throws IOException {
+    private void closeInternal() {
         updateProcessor.stop();
         eventProcessor.close();
         if (connectivityReceiver != null && application.get() != null) {
@@ -525,16 +519,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private static void closeInstances() throws IOException {
-        IOException exception = null;
         for (LDClient client : instances.values()) {
-            try {
-                client.closeInternal();
-            } catch (IOException e) {
-                exception = e;
-            }
+            client.closeInternal();
         }
-        if (exception != null)
-            throw exception;
     }
 
     /**
@@ -672,8 +659,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback, EvaluationReason reason) {
-        if (flag == null)
+        if (flag == null) {
             return;
+        }
 
         int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
@@ -692,8 +680,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 }
             }
         }
-
-        sendSummaryEvent();
     }
 
     void startBackgroundPolling() {
@@ -723,37 +709,12 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     private void updateSummaryEvents(String flagKey, Flag flag, JsonElement result, JsonElement fallback) {
         if (flag == null) {
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, -1, true);
+            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, null, true);
         } else {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
-            if (variation == null)
-                variation = -1;
-
             userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation, false);
         }
-    }
-
-    /**
-     * Updates the cached summary event that will be sent to the server with the next batch of events.
-     */
-    private void sendSummaryEvent() {
-        JsonObject features = userManager.getSummaryEventSharedPreferences().getFeaturesJsonObject();
-        if (features.keySet().size() == 0) {
-            return;
-        }
-        Long startDate = null;
-        for (String key : features.keySet()) {
-            JsonObject asJsonObject = features.get(key).getAsJsonObject();
-            if (asJsonObject.has("startDate")) {
-                startDate = asJsonObject.get("startDate").getAsLong();
-                asJsonObject.remove("startDate");
-                break;
-            }
-        }
-        SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
-        Timber.d("Sending Summary Event: %s", summaryEvent.toString());
-        eventProcessor.setSummaryEvent(summaryEvent);
     }
 
     @VisibleForTesting

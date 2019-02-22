@@ -1,4 +1,4 @@
-package com.launchdarkly.android.response;
+package com.launchdarkly.android.flagstore;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.EvaluationReason;
 import com.launchdarkly.android.flagstore.Flag;
+import com.launchdarkly.android.gson.GsonCache;
 
 import org.junit.Test;
 
@@ -18,7 +19,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-public class UserFlagResponseTest {
+public class FlagTest {
     private static final Gson gson = GsonCache.getGson();
 
     private static final Map<EvaluationReason, String> TEST_REASONS = ImmutableMap.<EvaluationReason, String>builder()

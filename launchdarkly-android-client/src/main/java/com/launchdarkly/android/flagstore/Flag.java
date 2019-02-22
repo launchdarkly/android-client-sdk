@@ -33,65 +33,33 @@ public class Flag implements FlagUpdate, FlagInterface {
         return key;
     }
 
-    public void setKey(@NonNull String key) {
-        this.key = key;
-    }
-
     public JsonElement getValue() {
         return value;
-    }
-
-    public void setValue(JsonElement value) {
-        this.value = value;
     }
 
     public Integer getVersion() {
         return version;
     }
 
-    public void setVersion(Integer version) {
-        this.version = version;
-    }
-
     public Integer getFlagVersion() {
         return flagVersion;
-    }
-
-    public void setFlagVersion(Integer flagVersion) {
-        this.flagVersion = flagVersion;
     }
 
     public Integer getVariation() {
         return variation;
     }
 
-    public void setVariation(Integer variation) {
-        this.variation = variation;
-    }
-
     public boolean getTrackEvents() {
         return trackEvents == null ? false : trackEvents;
-    }
-
-    public void setTrackEvents(Boolean trackEvents) {
-        this.trackEvents = trackEvents;
     }
 
     public Long getDebugEventsUntilDate() {
         return debugEventsUntilDate;
     }
 
-    public void setDebugEventsUntilDate(Long debugEventsUntilDate) {
-        this.debugEventsUntilDate = debugEventsUntilDate;
-    }
-
     @Override
     public EvaluationReason getReason() {
         return reason;
-    }
-
-    public void setReason(EvaluationReason reason) {
-        this.reason = reason;
     }
 
     public boolean isVersionMissing() {

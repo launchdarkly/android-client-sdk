@@ -13,20 +13,17 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.gson.JsonObject;
-import com.google.gson.reflect.TypeToken;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreManager;
 import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreFactory;
 import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreManager;
+import com.launchdarkly.android.gson.GsonCache;
 import com.launchdarkly.android.response.DeleteFlagResponse;
-import com.launchdarkly.android.response.GsonCache;
-import com.launchdarkly.android.response.SummaryEventSharedPreferences;
-import com.launchdarkly.android.response.UserSummaryEventSharedPreferences;
+import com.launchdarkly.android.response.FlagsResponse;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Map;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 
@@ -81,9 +78,8 @@ class UserManager {
      * Sets the current user. If there are more than MAX_USERS stored in shared preferences,
      * the oldest one is deleted.
      *
-     * @param user
+     * @param user The user to switch to.
      */
-    @SuppressWarnings("JavaDoc")
     void setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
         Timber.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
@@ -141,14 +137,7 @@ class UserManager {
         Timber.d("saveFlagSettings for user key: %s", currentUser.getKey());
 
         try {
-            Map<String, Flag> flagMap;
-            final ArrayList<Flag> flags = new ArrayList<>();
-            flagMap = GsonCache.getGson().fromJson(flagsJson, new TypeToken<Map<String, Flag>>() {}.getType());
-            for (Map.Entry<String, Flag> flagEntry : flagMap.entrySet()) {
-                Flag flag = flagEntry.getValue();
-                flag.setKey(flagEntry.getKey());
-                flags.add(flag);
-            }
+            final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
             flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
         } catch (Exception e) {
             Timber.d("Invalid JsonObject for flagSettings: %s", flagsJson);
@@ -188,14 +177,7 @@ class UserManager {
 
     ListenableFuture<Void> putCurrentUserFlags(final String json) {
         try {
-            Map<String, Flag> flagMap;
-            final ArrayList<Flag> flags = new ArrayList<>();
-            flagMap = GsonCache.getGson().fromJson(json, new TypeToken<Map<String, Flag>>() {}.getType());
-            for (Map.Entry<String, Flag> flagEntry : flagMap.entrySet()) {
-                Flag flag = flagEntry.getValue();
-                flag.setKey(flagEntry.getKey());
-                flags.add(flag);
-            }
+            final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
             ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
             return service.submit(new Callable<Void>() {
                 @Override

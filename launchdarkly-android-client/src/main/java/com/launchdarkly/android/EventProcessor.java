@@ -4,7 +4,6 @@ import android.content.Context;
 import android.os.Build;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.launchdarkly.android.response.SummaryEventSharedPreferences;
 import com.launchdarkly.android.tls.ModernTLSSocketFactory;
 import com.launchdarkly.android.tls.SSLHandshakeInterceptor;
 import com.launchdarkly.android.tls.TLSUtils;
@@ -43,7 +42,6 @@ class EventProcessor implements Closeable {
     private final LDConfig config;
     private final String environmentName;
     private ScheduledExecutorService scheduler;
-    private SummaryEvent summaryEvent = null;
     private final SummaryEventSharedPreferences summaryEventSharedPreferences;
     private long currentTimeMs = System.currentTimeMillis();
 
@@ -92,12 +90,8 @@ class EventProcessor implements Closeable {
         return queue.offer(e);
     }
 
-    void setSummaryEvent(SummaryEvent summaryEvent) {
-        this.summaryEvent = summaryEvent;
-    }
-
     @Override
-    public void close() throws IOException {
+    public void close() {
         stop();
         flush();
     }
@@ -122,14 +116,14 @@ class EventProcessor implements Closeable {
             flush();
         }
 
-        public synchronized void flush() {
+        synchronized void flush() {
             if (isClientConnected(context, environmentName)) {
                 List<Event> events = new ArrayList<>(queue.size() + 1);
                 queue.drainTo(events);
+                SummaryEvent summaryEvent = summaryEventSharedPreferences.getSummaryEventAndClear();
+
                 if (summaryEvent != null) {
                     events.add(summaryEvent);
-                    summaryEvent = null;
-                    summaryEventSharedPreferences.clear();
                 }
 
                 if (!events.isEmpty()) {
