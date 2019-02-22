@@ -178,12 +178,10 @@ class Migration {
 
         Multimap<String, String> keyUserMap = HashMultimap.create();
         for (String filename : filenames) {
-            Timber.d("Finding keys for file %s", filename);
             String strip = filename.substring(LDConfig.SHARED_PREFS_BASE_KEY.length(), filename.length() - 9);
             int splitAt = strip.length() - 44;
             String mobileKey = strip.substring(0, splitAt);
             String userKey = strip.substring(splitAt);
-            Timber.d("mobile key: %s user key %s", mobileKey, userKey);
             keyUserMap.put(mobileKey, userKey);
         }
         return keyUserMap;
