@@ -91,7 +91,7 @@ class EventProcessor implements Closeable {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         stop();
         flush();
     }
@@ -116,7 +116,7 @@ class EventProcessor implements Closeable {
             flush();
         }
 
-        public synchronized void flush() {
+        synchronized void flush() {
             if (isClientConnected(context, environmentName)) {
                 List<Event> events = new ArrayList<>(queue.size() + 1);
                 queue.drainTo(events);

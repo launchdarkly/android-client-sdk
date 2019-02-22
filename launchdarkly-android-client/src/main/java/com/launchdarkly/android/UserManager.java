@@ -78,9 +78,8 @@ class UserManager {
      * Sets the current user. If there are more than MAX_USERS stored in shared preferences,
      * the oldest one is deleted.
      *
-     * @param user
+     * @param user The user to switch to.
      */
-    @SuppressWarnings("JavaDoc")
     void setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
         Timber.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));

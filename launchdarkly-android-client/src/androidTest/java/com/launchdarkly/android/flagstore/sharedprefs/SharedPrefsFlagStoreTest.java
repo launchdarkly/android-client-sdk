@@ -183,7 +183,7 @@ public class SharedPrefsFlagStoreTest {
     public void savesReasons() {
         // This test assumes that if the store correctly serializes and deserializes one kind of EvaluationReason, it can handle any kind,
         // since the actual marshaling is being done by UserFlagResponse. Therefore, the other variants of EvaluationReason are tested by
-        // UserFlagResponseTest.
+        // FlagTest.
         final EvaluationReason reason = EvaluationReason.ruleMatch(1, "id");
         final Flag flag1 = new Flag("key1", new JsonPrimitive(true), 11,
                 1, 1, null, null, reason);

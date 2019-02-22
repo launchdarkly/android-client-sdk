@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-/**
- * Created by jamesthacker on 4/2/18.
+/*
+  Created by jamesthacker on 4/2/18.
  */
 
 import android.os.Handler;

@@ -1,6 +1,5 @@
 package com.launchdarkly.android;
 
-
 import android.content.Context;
 
 import com.google.common.util.concurrent.ListenableFuture;

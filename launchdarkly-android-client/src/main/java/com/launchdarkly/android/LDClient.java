@@ -644,7 +644,7 @@ public class LDClient implements LDClientInterface, Closeable {
         LDClient.closeInstances();
     }
 
-    private void closeInternal() throws IOException {
+    private void closeInternal() {
         updateProcessor.stop();
         eventProcessor.close();
         if (connectivityReceiver != null && application.get() != null) {
@@ -653,16 +653,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private static void closeInstances() throws IOException {
-        IOException exception = null;
         for (LDClient client : instances.values()) {
-            try {
-                client.closeInternal();
-            } catch (IOException e) {
-                exception = e;
-            }
+            client.closeInternal();
         }
-        if (exception != null)
-            throw exception;
     }
 
     /**
