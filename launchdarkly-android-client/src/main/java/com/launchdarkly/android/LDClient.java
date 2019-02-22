@@ -391,7 +391,7 @@ public class LDClient implements LDClientInterface, Closeable {
     /**
      * Returns a map of all feature flags for the current user. No events are sent to LaunchDarkly.
      *
-     * @return
+     * @return a map of all feature flags
      */
     @Override
     public Map<String, ?> allFlags() {
@@ -399,18 +399,16 @@ public class LDClient implements LDClientInterface, Closeable {
         List<Flag> flags = userManager.getCurrentUserFlagStore().getAllFlags();
         for (Flag flag : flags) {
             JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null) {
+            if (jsonVal == null || jsonVal.isJsonNull()) {
                 result.put(flag.getKey(), null);
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
                 result.put(flag.getKey(), jsonVal.getAsBoolean());
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
-                // TODO distinguish ints?
                 result.put(flag.getKey(), jsonVal.getAsFloat());
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
                 result.put(flag.getKey(), jsonVal.getAsString());
             } else {
-                // TODO
-                result.put(flag.getKey(), GsonCache.getGson().toJson(jsonVal));
+                result.put(flag.getKey(), jsonVal);
             }
         }
         return result;
@@ -619,7 +617,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.e("Attempted to get non-existent json flag for key: %s Returning fallback: %s", flagKey, fallback);
         } else {
             JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null || jsonVal.isJsonNull()) { // TODO, return null, or fallback? can jsonVal even be null (as opposed to jsonNull)?
+            if (jsonVal == null) {
                 Timber.e("Attempted to get json flag without value for key: %s Returning fallback: %s", flagKey, fallback);
             } else {
                 result = jsonVal;
