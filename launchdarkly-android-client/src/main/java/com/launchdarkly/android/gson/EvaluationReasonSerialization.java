@@ -26,7 +26,22 @@ class EvaluationReasonSerialization implements JsonSerializer<EvaluationReason>,
 
     @Override
     public JsonElement serialize(EvaluationReason src, Type typeOfSrc, JsonSerializationContext context) {
-        return context.serialize(src, src.getClass());
+        if (src instanceof EvaluationReason.Off) {
+            return context.serialize(src, EvaluationReason.Off.class);
+        } else if (src instanceof EvaluationReason.Fallthrough) {
+            return context.serialize(src, EvaluationReason.Fallthrough.class);
+        } else if (src instanceof EvaluationReason.TargetMatch) {
+            return context.serialize(src, EvaluationReason.TargetMatch.class);
+        } else if (src instanceof EvaluationReason.RuleMatch) {
+            return context.serialize(src, EvaluationReason.RuleMatch.class);
+        } else if (src instanceof EvaluationReason.PrerequisiteFailed) {
+            return context.serialize(src, EvaluationReason.PrerequisiteFailed.class);
+        } else if (src instanceof EvaluationReason.Error) {
+            return context.serialize(src, EvaluationReason.Error.class);
+        } else if (src instanceof EvaluationReason.Unknown) {
+            return context.serialize(src, EvaluationReason.Unknown.class);
+        }
+        return null;
     }
 
     @Override
