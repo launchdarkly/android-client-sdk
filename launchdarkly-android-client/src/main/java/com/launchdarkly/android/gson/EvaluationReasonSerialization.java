@@ -1,54 +1,37 @@
-package com.launchdarkly.android.response.interpreter;
+package com.launchdarkly.android.gson;
 
 import android.support.annotation.Nullable;
 
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
 import com.launchdarkly.android.EvaluationReason;
-import com.launchdarkly.android.response.UserFlagResponse;
 
-public class UserFlagResponseParser {
+import java.lang.reflect.Type;
 
-    public static UserFlagResponse parseFlag(JsonObject o, String key) {
-        if (o == null) {
-            return null;
+class EvaluationReasonSerialization implements JsonSerializer<EvaluationReason>, JsonDeserializer<EvaluationReason> {
+
+    @Nullable
+    private static <T extends Enum<T>> T parseEnum(Class<T> c, String name, T fallback) {
+        try {
+            return Enum.valueOf(c, name);
+        } catch (IllegalArgumentException e) {
+            return fallback;
         }
-        JsonElement valueElement = o.get("value");
-        JsonPrimitive versionElement = getPrimitive(o, "version");
-        JsonPrimitive flagVersionElement = getPrimitive(o, "flagVersion");
-        JsonPrimitive variationElement = getPrimitive(o, "variation");
-        JsonPrimitive trackEventsElement = getPrimitive(o, "trackEvents");
-        JsonPrimitive debugEventsUntilDateElement = getPrimitive(o, "debugEventsUntilDate");
-        JsonElement reasonElement = o.get("reason");
-        int version = versionElement != null && versionElement.isNumber()
-                ? versionElement.getAsInt()
-                : -1;
-        Integer variation = variationElement != null && variationElement.isNumber()
-                ? variationElement.getAsInt()
-                : null;
-        int flagVersion = flagVersionElement != null && flagVersionElement.isNumber()
-                ? flagVersionElement.getAsInt()
-                : -1;
-        boolean trackEvents = trackEventsElement != null && trackEventsElement.isBoolean()
-                && trackEventsElement.getAsBoolean();
-        Long debugEventsUntilDate = debugEventsUntilDateElement != null && debugEventsUntilDateElement.isNumber()
-                ? debugEventsUntilDateElement.getAsLong()
-                : null;
-        EvaluationReason reason = reasonElement != null && reasonElement.isJsonObject()
-                ? parseReason(reasonElement.getAsJsonObject())
-                :  null;
-        return new UserFlagResponse(key, valueElement, version, flagVersion, variation, trackEvents, debugEventsUntilDate, reason);
     }
 
-    @Nullable
-    private static JsonPrimitive getPrimitive(JsonObject o, String name) {
-        JsonElement e = o.get(name);
-        return e != null && e.isJsonPrimitive() ? e.getAsJsonPrimitive() : null;
+    @Override
+    public JsonElement serialize(EvaluationReason src, Type typeOfSrc, JsonSerializationContext context) {
+        return context.serialize(src, src.getClass());
     }
 
-    @Nullable
-    private static EvaluationReason parseReason(JsonObject o) {
+    @Override
+    public EvaluationReason deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+        JsonObject o = json.getAsJsonObject();
         if (o == null) {
             return null;
         }
@@ -87,17 +70,12 @@ public class UserFlagResponseParser {
                         return EvaluationReason.error(errorKind);
                     }
                     return null;
+                case UNKNOWN:
+                    return EvaluationReason.unknown();
             }
         }
         return null;
     }
 
-    @Nullable
-    private static <T extends Enum<T>> T parseEnum(Class<T> c, String name, T fallback) {
-        try {
-            return Enum.valueOf(c, name);
-        } catch (IllegalArgumentException e) {
-            return fallback;
-        }
-    }
+
 }

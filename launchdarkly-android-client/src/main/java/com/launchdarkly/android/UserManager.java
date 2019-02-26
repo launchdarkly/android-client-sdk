@@ -2,12 +2,9 @@ package com.launchdarkly.android;
 
 import android.app.Application;
 import android.content.SharedPreferences;
-import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
 import android.util.Base64;
-import android.util.Pair;
 
 import com.google.common.base.Function;
 import com.google.common.util.concurrent.FutureCallback;
@@ -15,23 +12,16 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
-import com.launchdarkly.android.response.FlagResponse;
-import com.launchdarkly.android.response.FlagResponseSharedPreferences;
-import com.launchdarkly.android.response.FlagResponseStore;
-import com.launchdarkly.android.response.SummaryEventSharedPreferences;
-import com.launchdarkly.android.response.UserFlagResponseSharedPreferences;
-import com.launchdarkly.android.response.UserFlagResponseStore;
-import com.launchdarkly.android.response.UserSummaryEventSharedPreferences;
-import com.launchdarkly.android.response.interpreter.DeleteFlagResponseInterpreter;
-import com.launchdarkly.android.response.interpreter.PatchFlagResponseInterpreter;
-import com.launchdarkly.android.response.interpreter.PingFlagResponseInterpreter;
-import com.launchdarkly.android.response.interpreter.PutFlagResponseInterpreter;
+import com.launchdarkly.android.flagstore.Flag;
+import com.launchdarkly.android.flagstore.FlagStore;
+import com.launchdarkly.android.flagstore.FlagStoreManager;
+import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreFactory;
+import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreManager;
+import com.launchdarkly.android.gson.GsonCache;
+import com.launchdarkly.android.response.DeleteFlagResponse;
+import com.launchdarkly.android.response.FlagsResponse;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -50,13 +40,11 @@ class UserManager {
     private volatile boolean initialized = false;
 
     private final Application application;
-    private final UserLocalSharedPreferences userLocalSharedPreferences;
-    private final FlagResponseSharedPreferences flagResponseSharedPreferences;
+    private final FlagStoreManager flagStoreManager;
     private final SummaryEventSharedPreferences summaryEventSharedPreferences;
     private final String environmentName;
 
     private LDUser currentUser;
-    private final Util.LazySingleton<JsonParser> jsonParser;
 
     private final ExecutorService executor;
 
@@ -67,17 +55,10 @@ class UserManager {
     UserManager(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
         this.application = application;
         this.fetcher = fetcher;
-        this.userLocalSharedPreferences = new UserLocalSharedPreferences(application, mobileKey);
-        this.flagResponseSharedPreferences = new UserFlagResponseSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-version");
+        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey, new SharedPrefsFlagStoreFactory(application));
         this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
         this.environmentName = environmentName;
 
-        jsonParser = new Util.LazySingleton<>(new Util.Provider<JsonParser>() {
-            @Override
-            public JsonParser get() {
-                return new JsonParser();
-            }
-        });
         executor = new BackgroundThreadExecutor().newFixedThreadPool(1);
     }
 
@@ -85,12 +66,8 @@ class UserManager {
         return currentUser;
     }
 
-    SharedPreferences getCurrentUserSharedPrefs() {
-        return userLocalSharedPreferences.getCurrentUserSharedPrefs();
-    }
-
-    FlagResponseSharedPreferences getFlagResponseSharedPreferences() {
-        return flagResponseSharedPreferences;
+    FlagStore getCurrentUserFlagStore() {
+        return flagStoreManager.getCurrentUserStore();
     }
 
     SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
@@ -101,14 +78,13 @@ class UserManager {
      * Sets the current user. If there are more than MAX_USERS stored in shared preferences,
      * the oldest one is deleted.
      *
-     * @param user
+     * @param user The user to switch to.
      */
-    @SuppressWarnings("JavaDoc")
     void setCurrentUser(final LDUser user) {
         String userBase64 = user.getAsUrlSafeBase64();
         Timber.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
-        userLocalSharedPreferences.setCurrentUser(user);
+        flagStoreManager.switchToUser(user.getSharedPrefsKey());
     }
 
     ListenableFuture<Void> updateCurrentUser() {
@@ -126,7 +102,7 @@ class UserManager {
                 if (Util.isClientConnected(application, environmentName)) {
                     Timber.e(t, "Error when attempting to set user: [%s] [%s]", currentUser.getAsUrlSafeBase64(), userBase64ToJson(currentUser.getAsUrlSafeBase64()));
                 }
-                syncCurrentUserToActiveUserAndLog();
+//                syncCurrentUserToActiveUserAndLog();
             }
         }, MoreExecutors.directExecutor());
 
@@ -140,17 +116,12 @@ class UserManager {
         }, MoreExecutors.directExecutor());
     }
 
-    @SuppressWarnings("SameParameterValue")
-    Collection<Pair<FeatureFlagChangeListener, OnSharedPreferenceChangeListener>> getListenersByKey(String key) {
-        return userLocalSharedPreferences.getListener(key);
-    }
-
     void registerListener(final String key, final FeatureFlagChangeListener listener) {
-        userLocalSharedPreferences.registerListener(key, listener);
+        flagStoreManager.registerListener(key, listener);
     }
 
     void unregisterListener(String key, FeatureFlagChangeListener listener) {
-        userLocalSharedPreferences.unRegisterListener(key, listener);
+        flagStoreManager.unRegisterListener(key, listener);
     }
 
     /**
@@ -159,26 +130,18 @@ class UserManager {
      * saves those values to the active user, triggering any registered {@link FeatureFlagChangeListener}
      * objects.
      *
-     * @param flags
+     * @param flagsJson
      */
     @SuppressWarnings("JavaDoc")
-    private void saveFlagSettings(JsonObject flags) {
-
+    private void saveFlagSettings(JsonObject flagsJson) {
         Timber.d("saveFlagSettings for user key: %s", currentUser.getKey());
 
-        FlagResponseStore<List<FlagResponse>> responseStore = new UserFlagResponseStore<>(flags, new PingFlagResponseInterpreter());
-        List<FlagResponse> flagResponseList = responseStore.getFlagResponse();
-        if (flagResponseList != null) {
-            flagResponseSharedPreferences.clear();
-            flagResponseSharedPreferences.saveAll(flagResponseList);
-            userLocalSharedPreferences.saveCurrentUserFlags(getSharedPreferencesEntries(flagResponseList));
-            syncCurrentUserToActiveUserAndLog();
+        try {
+            final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
+            flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
+        } catch (Exception e) {
+            Timber.d("Invalid JsonObject for flagSettings: %s", flagsJson);
         }
-    }
-
-    private void syncCurrentUserToActiveUserAndLog() {
-        userLocalSharedPreferences.syncCurrentUserToActiveUser();
-        userLocalSharedPreferences.logCurrentUserFlags();
     }
 
     private static String userBase64ToJson(String base64) {
@@ -190,165 +153,70 @@ class UserManager {
     }
 
     ListenableFuture<Void> deleteCurrentUserFlag(@NonNull final String json) {
-
-        JsonObject jsonObject = parseJson(json);
-        final FlagResponseStore<FlagResponse> responseStore
-                = new UserFlagResponseStore<>(jsonObject, new DeleteFlagResponseInterpreter());
-
-        ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-        return service.submit(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                initialized = true;
-                FlagResponse flagResponse = responseStore.getFlagResponse();
-                if (flagResponse != null) {
-                    if (flagResponseSharedPreferences.isVersionValid(flagResponse)) {
-                        flagResponseSharedPreferences.deleteStoredFlagResponse(flagResponse);
-
-                        userLocalSharedPreferences.deleteCurrentUserFlag(flagResponse.getKey());
-                        UserManager.this.syncCurrentUserToActiveUserAndLog();
+        try {
+            final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
+            ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
+            return service.submit(new Runnable() {
+                @Override
+                public void run() {
+                    initialized = true;
+                    if (deleteFlagResponse != null) {
+                        flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
+                    } else {
+                        Timber.d("Invalid DELETE payload: %s", json);
                     }
-                } else {
-                    Timber.d("Invalid DELETE payload: %s", json);
                 }
-                return null;
-            }
-        });
+            }, null);
+        } catch (Exception ex) {
+            Timber.d(ex, "Invalid DELETE payload: %s", json);
+            // In future should this be an immediateFailedFuture?
+            return Futures.immediateFuture(null);
+        }
     }
 
     ListenableFuture<Void> putCurrentUserFlags(final String json) {
-
-        JsonObject jsonObject = parseJson(json);
-        final FlagResponseStore<List<FlagResponse>> responseStore =
-                new UserFlagResponseStore<>(jsonObject, new PutFlagResponseInterpreter());
-
-        ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-        return service.submit(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                initialized = true;
-                Timber.d("PUT for user key: %s", currentUser.getKey());
-
-                List<FlagResponse> flagResponseList = responseStore.getFlagResponse();
-                if (flagResponseList != null) {
-                    flagResponseSharedPreferences.clear();
-                    flagResponseSharedPreferences.saveAll(flagResponseList);
-
-                    userLocalSharedPreferences.saveCurrentUserFlags(UserManager.this.getSharedPreferencesEntries(flagResponseList));
-                    UserManager.this.syncCurrentUserToActiveUserAndLog();
-                } else {
-                    Timber.d("Invalid PUT payload: %s", json);
+        try {
+            final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
+            ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
+            return service.submit(new Runnable() {
+                @Override
+                public void run() {
+                    initialized = true;
+                    Timber.d("PUT for user key: %s", currentUser.getKey());
+                    flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
                 }
-                return null;
-            }
-        });
+            }, null);
+        } catch (Exception ex) {
+            Timber.d(ex, "Invalid PUT payload: %s", json);
+            // In future should this be an immediateFailedFuture?
+            return Futures.immediateFuture(null);
+        }
     }
 
     ListenableFuture<Void> patchCurrentUserFlags(@NonNull final String json) {
-
-        JsonObject jsonObject = parseJson(json);
-        final FlagResponseStore<FlagResponse> responseStore
-                = new UserFlagResponseStore<>(jsonObject, new PatchFlagResponseInterpreter());
-
-        ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-        return service.submit(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                initialized = true;
-                FlagResponse flagResponse = responseStore.getFlagResponse();
-                if (flagResponse != null) {
-                    if (flagResponse.isVersionMissing() || flagResponseSharedPreferences.isVersionValid(flagResponse)) {
-                        flagResponseSharedPreferences.updateStoredFlagResponse(flagResponse);
-
-                        UserLocalSharedPreferences.SharedPreferencesEntries sharedPreferencesEntries = UserManager.this.getSharedPreferencesEntries(flagResponse);
-                        userLocalSharedPreferences.patchCurrentUserFlags(sharedPreferencesEntries);
-                        UserManager.this.syncCurrentUserToActiveUserAndLog();
+        try {
+            final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
+            ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
+            return service.submit(new Runnable() {
+                @Override
+                public void run() {
+                    initialized = true;
+                    if (flag != null) {
+                        flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
+                    } else {
+                        Timber.d("Invalid PATCH payload: %s", json);
                     }
-                } else {
-                    Timber.d("Invalid PATCH payload: %s", json);
                 }
-                return null;
-            }
-        });
-
-    }
-
-    @NonNull
-    private JsonObject parseJson(String json) {
-        JsonParser parser = jsonParser.get();
-        if (json != null) {
-            try {
-                return parser.parse(json).getAsJsonObject();
-            } catch (JsonSyntaxException | IllegalStateException exception) {
-                Timber.e(exception);
-            }
+            }, null);
+        } catch (Exception ex) {
+            Timber.d(ex, "Invalid PATCH payload: %s", json);
+            // In future should this be an immediateFailedFuture?
+            return Futures.immediateFuture(null);
         }
-        return new JsonObject();
-    }
-
-    @NonNull
-    private UserLocalSharedPreferences.SharedPreferencesEntries getSharedPreferencesEntries(@Nullable FlagResponse flagResponse) {
-        List<UserLocalSharedPreferences.SharedPreferencesEntry> sharedPreferencesEntryList
-                = new ArrayList<>();
-
-        if (flagResponse != null) {
-            JsonElement v = flagResponse.getValue();
-            String key = flagResponse.getKey();
-
-            UserLocalSharedPreferences.SharedPreferencesEntry sharedPreferencesEntry = getSharedPreferencesEntry(flagResponse);
-            if (sharedPreferencesEntry == null) {
-                Timber.w("Found some unknown feature flag type for key: [%s] value: [%s]", key, v.toString());
-            } else {
-                sharedPreferencesEntryList.add(sharedPreferencesEntry);
-            }
-        }
-
-        return new UserLocalSharedPreferences.SharedPreferencesEntries(sharedPreferencesEntryList);
-
-    }
-
-    @NonNull
-    private UserLocalSharedPreferences.SharedPreferencesEntries getSharedPreferencesEntries(@NonNull List<FlagResponse> flagResponseList) {
-        List<UserLocalSharedPreferences.SharedPreferencesEntry> sharedPreferencesEntryList
-                = new ArrayList<>();
-
-        for (FlagResponse flagResponse : flagResponseList) {
-            JsonElement v = flagResponse.getValue();
-            String key = flagResponse.getKey();
-
-            UserLocalSharedPreferences.SharedPreferencesEntry sharedPreferencesEntry = getSharedPreferencesEntry(flagResponse);
-            if (sharedPreferencesEntry == null) {
-                Timber.w("Found some unknown feature flag type for key: [%s] value: [%s]", key, v.toString());
-            } else {
-                sharedPreferencesEntryList.add(sharedPreferencesEntry);
-            }
-        }
-
-        return new UserLocalSharedPreferences.SharedPreferencesEntries(sharedPreferencesEntryList);
-
-    }
-
-
-    @Nullable
-    private UserLocalSharedPreferences.SharedPreferencesEntry getSharedPreferencesEntry(@NonNull FlagResponse flagResponse) {
-        String key = flagResponse.getKey();
-        JsonElement element = flagResponse.getValue();
-
-        if (element.isJsonObject() || element.isJsonArray()) {
-            return new UserLocalSharedPreferences.StringSharedPreferencesEntry(key, element.toString());
-        } else if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isBoolean()) {
-            return new UserLocalSharedPreferences.BooleanSharedPreferencesEntry(key, element.getAsBoolean());
-        } else if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isNumber()) {
-            return new UserLocalSharedPreferences.FloatSharedPreferencesEntry(key, element.getAsFloat());
-        } else if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
-            return new UserLocalSharedPreferences.StringSharedPreferencesEntry(key, element.getAsString());
-        }
-        return null;
     }
 
     @VisibleForTesting
-    void clearFlagResponseSharedPreferences() {
-        this.flagResponseSharedPreferences.clear();
+    public Collection<FeatureFlagChangeListener> getListenersByKey(String key) {
+        return flagStoreManager.getListenersByKey(key);
     }
-
 }
