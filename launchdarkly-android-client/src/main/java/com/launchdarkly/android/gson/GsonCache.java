@@ -7,12 +7,9 @@ import com.launchdarkly.android.response.FlagsResponse;
 
 public class GsonCache {
 
-    private static Gson gson;
+    private static final Gson gson = createGson();
 
     public static Gson getGson() {
-        if (gson == null) {
-            gson = createGson();
-        }
         return gson;
     }
 

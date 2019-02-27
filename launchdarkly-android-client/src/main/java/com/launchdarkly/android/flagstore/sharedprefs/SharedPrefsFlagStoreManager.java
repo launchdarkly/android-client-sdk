@@ -12,7 +12,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.flagstore.FlagStore;
-import com.launchdarkly.android.flagstore.FlagStoreFactoryInterface;
+import com.launchdarkly.android.flagstore.FlagStoreFactory;
 import com.launchdarkly.android.flagstore.FlagStoreManager;
 import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
 import com.launchdarkly.android.flagstore.StoreUpdatedListener;
@@ -31,7 +31,7 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
     private static final int MAX_USERS = 5;
 
     @NonNull
-    private final FlagStoreFactoryInterface flagStoreFactory;
+    private final FlagStoreFactory flagStoreFactory;
     @NonNull
     private String mobileKey;
 
@@ -39,7 +39,7 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
     private final SharedPreferences usersSharedPrefs;
     private final Multimap<String, FeatureFlagChangeListener> listeners;
 
-    public SharedPrefsFlagStoreManager(@NonNull Application application, @NonNull String mobileKey, @NonNull FlagStoreFactoryInterface flagStoreFactory) {
+    public SharedPrefsFlagStoreManager(@NonNull Application application, @NonNull String mobileKey, @NonNull FlagStoreFactory flagStoreFactory) {
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
         this.usersSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);

@@ -4,9 +4,9 @@ import android.app.Application;
 import android.support.annotation.NonNull;
 
 import com.launchdarkly.android.flagstore.FlagStore;
-import com.launchdarkly.android.flagstore.FlagStoreFactoryInterface;
+import com.launchdarkly.android.flagstore.FlagStoreFactory;
 
-public class SharedPrefsFlagStoreFactory implements FlagStoreFactoryInterface {
+public class SharedPrefsFlagStoreFactory implements FlagStoreFactory {
 
     private final Application application;
 

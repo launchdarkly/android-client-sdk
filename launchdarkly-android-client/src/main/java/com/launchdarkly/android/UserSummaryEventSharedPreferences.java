@@ -28,14 +28,15 @@ public class UserSummaryEventSharedPreferences implements SummaryEventSharedPref
     }
 
     @Override
-    public synchronized void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer nullableVariation, boolean isUnknown) {
+    public synchronized void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer nullableVariation) {
         JsonElement variation = nullableVariation == null ? JsonNull.INSTANCE : new JsonPrimitive(nullableVariation);
         JsonObject object = getValueAsJsonObject(flagResponseKey);
         if (object == null) {
-            object = createNewEvent(value, defaultVal, version, variation, isUnknown);
+            object = createNewEvent(value, defaultVal, version, variation);
         } else {
             JsonArray countersArray = object.get("counters").getAsJsonArray();
 
+            boolean isUnknown = version == -1;
             boolean variationExists = false;
             for (JsonElement element : countersArray) {
                 if (element instanceof JsonObject) {
@@ -68,7 +69,7 @@ public class UserSummaryEventSharedPreferences implements SummaryEventSharedPref
             }
 
             if (!variationExists) {
-                addNewCountersElement(countersArray, value, version, variation, isUnknown);
+                addNewCountersElement(countersArray, value, version, variation);
             }
         }
 
@@ -118,18 +119,18 @@ public class UserSummaryEventSharedPreferences implements SummaryEventSharedPref
         return summaryEvent;
     }
 
-    private JsonObject createNewEvent(JsonElement value, JsonElement defaultVal, int version, JsonElement variation, boolean isUnknown) {
+    private JsonObject createNewEvent(JsonElement value, JsonElement defaultVal, int version, JsonElement variation) {
         JsonObject object = new JsonObject();
         object.add("default", defaultVal);
         JsonArray countersArray = new JsonArray();
-        addNewCountersElement(countersArray, value, version, variation, isUnknown);
+        addNewCountersElement(countersArray, value, version, variation);
         object.add("counters", countersArray);
         return object;
     }
 
-    private void addNewCountersElement(JsonArray countersArray, @Nullable JsonElement value, int version, JsonElement variation, boolean isUnknown) {
+    private void addNewCountersElement(JsonArray countersArray, @Nullable JsonElement value, int version, JsonElement variation) {
         JsonObject newCounter = new JsonObject();
-        if (isUnknown) {
+        if (version == -1) {
             newCounter.add("unknown", new JsonPrimitive(true));
             newCounter.add("value", value);
         } else {

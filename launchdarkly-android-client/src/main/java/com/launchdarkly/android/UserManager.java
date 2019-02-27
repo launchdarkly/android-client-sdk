@@ -156,18 +156,17 @@ class UserManager {
         try {
             final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
             ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-            return service.submit(new Callable<Void>() {
+            return service.submit(new Runnable() {
                 @Override
-                public Void call() {
+                public void run() {
                     initialized = true;
                     if (deleteFlagResponse != null) {
                         flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
                     } else {
                         Timber.d("Invalid DELETE payload: %s", json);
                     }
-                    return null;
                 }
-            });
+            }, null);
         } catch (Exception ex) {
             Timber.d(ex, "Invalid DELETE payload: %s", json);
             // In future should this be an immediateFailedFuture?
@@ -179,15 +178,14 @@ class UserManager {
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
             ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-            return service.submit(new Callable<Void>() {
+            return service.submit(new Runnable() {
                 @Override
-                public Void call() {
+                public void run() {
                     initialized = true;
                     Timber.d("PUT for user key: %s", currentUser.getKey());
                     flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
-                    return null;
                 }
-            });
+            }, null);
         } catch (Exception ex) {
             Timber.d(ex, "Invalid PUT payload: %s", json);
             // In future should this be an immediateFailedFuture?
@@ -199,18 +197,17 @@ class UserManager {
         try {
             final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
             ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-            return service.submit(new Callable<Void>() {
+            return service.submit(new Runnable() {
                 @Override
-                public Void call() {
+                public void run() {
                     initialized = true;
                     if (flag != null) {
                         flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
                     } else {
                         Timber.d("Invalid PATCH payload: %s", json);
                     }
-                    return null;
                 }
-            });
+            }, null);
         } catch (Exception ex) {
             Timber.d(ex, "Invalid PATCH payload: %s", json);
             // In future should this be an immediateFailedFuture?

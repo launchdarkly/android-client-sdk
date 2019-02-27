@@ -20,6 +20,8 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
+import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.gson.GsonCache;
 
@@ -406,7 +408,7 @@ public class LDClient implements LDClientInterface, Closeable {
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
                 result.put(flag.getKey(), jsonVal.getAsString());
             } else {
-                result.put(flag.getKey(), GsonCache.getGson().toJson(jsonVal));
+                result.put(flag.getKey(), jsonVal);
             }
         }
         return result;
@@ -709,11 +711,11 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     private void updateSummaryEvents(String flagKey, Flag flag, JsonElement result, JsonElement fallback) {
         if (flag == null) {
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, null, true);
+            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, null);
         } else {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation, false);
+            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation);
         }
     }
 

@@ -11,7 +11,7 @@ import com.google.gson.JsonElement;
 public interface SummaryEventSharedPreferences {
 
     void clear();
-    void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer variation, boolean unknown);
+    void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer variation);
     SummaryEvent getSummaryEvent();
     SummaryEvent getSummaryEventAndClear();
 }
