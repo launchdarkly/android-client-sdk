@@ -263,5 +263,20 @@ public class EventTest {
         Assert.assertEquals(reason, hasReasonEvent.reason);
     }
 
+    @Test
+    public void reasonIsSerialized() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .email("email@server.net");
+        LDUser user = builder.build();
+        final EvaluationReason reason = EvaluationReason.fallthrough();
 
+        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, 20, reason);
+
+        LDConfig config = new LDConfig.Builder()
+                .build();
+        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(hasReasonEvent);
+
+        JsonElement expected = config.getFilteredEventGson().fromJson("{\"kind\":\"FALLTHROUGH\"}", JsonElement.class);
+        Assert.assertEquals(expected, jsonElement.getAsJsonObject().get("reason"));
+    }
 }

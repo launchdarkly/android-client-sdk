@@ -2,6 +2,8 @@ package com.launchdarkly.android;
 
 import android.support.annotation.Nullable;
 
+import com.google.gson.annotations.Expose;
+
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
@@ -89,6 +91,7 @@ public abstract class EvaluationReason {
         UNKNOWN
     }
 
+    @Expose
     private final Kind kind;
 
     /**
@@ -204,7 +207,10 @@ public abstract class EvaluationReason {
      * Subclass of {@link EvaluationReason} that indicates that the user matched one of the flag's rules.
      */
     public static class RuleMatch extends EvaluationReason {
+        @Expose
         private final int ruleIndex;
+
+        @Expose
         private final String ruleId;
 
         private RuleMatch(int ruleIndex, String ruleId) {
@@ -246,6 +252,7 @@ public abstract class EvaluationReason {
      * had at least one prerequisite flag that either was off or did not return the desired variation.
      */
     public static class PrerequisiteFailed extends EvaluationReason {
+        @Expose
         private final String prerequisiteKey;
 
         private PrerequisiteFailed(String prerequisiteKey) {
@@ -290,6 +297,7 @@ public abstract class EvaluationReason {
      * Subclass of {@link EvaluationReason} that indicates that the flag could not be evaluated.
      */
     public static class Error extends EvaluationReason {
+        @Expose
         private final ErrorKind errorKind;
 
         private Error(ErrorKind errorKind) {
