@@ -8,7 +8,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 
 public class EvaluationReasonTest {
-    private static final Gson gson = new Gson();
+    private static final Gson gson = new LDConfig.Builder().build().getFilteredEventGson();
 
     @Test
     public void testOffReasonSerialization() {
