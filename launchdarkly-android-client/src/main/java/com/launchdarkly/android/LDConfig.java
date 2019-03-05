@@ -372,7 +372,7 @@ public class LDConfig {
         /**
          * Sets the timeout when connecting to LaunchDarkly.
          * <p>
-         * The default value  is {@value LDConfig#DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
+         * The default value is {@value LDConfig#DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
          *
          * @param connectionTimeoutMillis the connection timeout, in milliseconds
          * @return the builder
