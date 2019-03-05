@@ -340,7 +340,7 @@ public class LDConfig {
 
         /**
          * Set the capacity of the event buffer. The client buffers up to this many events in memory before flushing.
-         * If teh capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
+         * If the capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
          * means that events are less likely to be discarded, at the cost of consuming more memory.
          * <p>
          * The default value is {@value LDConfig#DEFAULT_EVENTS_CAPACITY}.
