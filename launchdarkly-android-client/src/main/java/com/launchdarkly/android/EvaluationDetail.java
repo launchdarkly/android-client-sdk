@@ -3,7 +3,7 @@ package com.launchdarkly.android;
 import com.google.common.base.Objects;
 
 /**
- * An object returned by the "variation detail" methods such as {@link LDClientInterface#boolVariationDetail(String, LDUser, boolean)},
+ * An object returned by the "variation detail" methods such as {@link LDClientInterface#boolVariationDetail(String, Boolean)},
  * combining the result of a flag evaluation with an explanation of how it was calculated.
  *
  * @since 2.7.0

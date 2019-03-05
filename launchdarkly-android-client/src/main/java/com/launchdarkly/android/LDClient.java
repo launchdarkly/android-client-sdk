@@ -305,12 +305,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Tracks that a user performed an event.
-     *
-     * @param eventName the name of the event
-     * @param data      a JSON object containing additional data associated with the event
-     */
     @Override
     public void track(String eventName, JsonElement data) {
         if (config.inlineUsersInEvents()) {
@@ -320,11 +314,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Tracks that a user performed an event.
-     *
-     * @param eventName the name of the event
-     */
     @Override
     public void track(String eventName) {
         if (config.inlineUsersInEvents()) {
@@ -334,13 +323,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Sets the current user, retrieves flags for that user, then sends an Identify Event to LaunchDarkly.
-     * The 5 most recent users' flag settings are kept locally.
-     *
-     * @param user
-     * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
-     */
     @Override
     public synchronized Future<Void> identify(LDUser user) {
         return LDClient.identifyInstances(user);
@@ -388,11 +370,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }, MoreExecutors.directExecutor());
     }
 
-    /**
-     * Returns a map of all feature flags for the current user. No events are sent to LaunchDarkly.
-     *
-     * @return a map of all feature flags
-     */
     @Override
     public Map<String, ?> allFlags() {
         Map<String, Object> result = new HashMap<>();
@@ -526,9 +503,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Sends all pending events to LaunchDarkly.
-     */
     @Override
     public void flush() {
         LDClient.flushInstances();
@@ -554,15 +528,6 @@ public class LDClient implements LDClientInterface, Closeable {
         return isOffline;
     }
 
-    /**
-     * Shuts down any network connections maintained by the client and puts the client in offline
-     * mode, preventing the client from opening new network connections until
-     * <code>setOnline()</code> is called.
-     * <p/>
-     * Note: The client automatically monitors the device's network connectivity and app foreground
-     * status, so calling <code>setOffline()</code> or <code>setOnline()</code> is normally
-     * unnecessary in most situations.
-     */
     @Override
     public synchronized void setOffline() {
         LDClient.setInstancesOffline();
@@ -583,14 +548,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Restores network connectivity for the client, if the client was previously in offline mode.
-     * This operation may be throttled if it is called too frequently.
-     * <p/>
-     * Note: The client automatically monitors the device's network connectivity and app foreground
-     * status, so calling <code>setOffline()</code> or <code>setOnline()</code> is normally
-     * unnecessary in most situations.
-     */
     @Override
     public synchronized void setOnline() {
         throttler.attemptRun();
@@ -618,24 +575,11 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Registers a {@link FeatureFlagChangeListener} to be called when the <code>flagKey</code> changes
-     * from its current value. If the feature flag is deleted, the <code>listener</code> will be unregistered.
-     *
-     * @param flagKey  the flag key to attach the listener to
-     * @param listener the listener to attach to the flag key
-     */
     @Override
     public void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
         userManager.registerListener(flagKey, listener);
     }
 
-    /**
-     * Unregisters a {@link FeatureFlagChangeListener} for the <code>flagKey</code>
-     *
-     * @param flagKey  the flag key to attach the listener to
-     * @param listener the listener to attach to the flag key
-     */
     @Override
     public void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
         userManager.unregisterListener(flagKey, listener);
