@@ -260,4 +260,12 @@ public interface LDClientInterface extends Closeable {
      * @return true if background polling is disabled
      */
     boolean isDisableBackgroundPolling();
+
+    /**
+     * Returns the version of the SDK, for instance "2.7.0".
+     *
+     * @return the version string
+     * @since 2.7.0
+     */
+    String getVersion();
 }
