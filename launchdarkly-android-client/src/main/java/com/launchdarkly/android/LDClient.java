@@ -590,6 +590,11 @@ public class LDClient implements LDClientInterface, Closeable {
         return config.isDisableBackgroundPolling();
     }
 
+    @Override
+    public String getVersion() {
+        return BuildConfig.VERSION_NAME;
+    }
+
     static String getInstanceId() {
         return instanceId;
     }
