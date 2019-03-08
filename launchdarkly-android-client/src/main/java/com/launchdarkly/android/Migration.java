@@ -151,7 +151,7 @@ class Migration {
                 continue;
             }
             for (String mobileKey : config.getMobileKeys().values()) {
-                if (name.contains(mobileKey)) {
+                if (mobileKey != null && name.contains(mobileKey)) {
                     nameIter.remove();
                     break;
                 }
