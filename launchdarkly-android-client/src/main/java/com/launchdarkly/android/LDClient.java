@@ -9,12 +9,8 @@ import android.net.NetworkInfo;
 import android.os.Build;
 import android.support.annotation.NonNull;
 
-import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
-import com.google.android.gms.common.GooglePlayServicesRepairableException;
-import com.google.android.gms.security.ProviderInstaller;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -25,7 +21,6 @@ import com.launchdarkly.android.flagstore.Flag;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,11 +32,10 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import javax.net.ssl.SSLContext;
-
 import timber.log.Timber;
 
 import static com.launchdarkly.android.Util.isClientConnected;
+import static com.launchdarkly.android.tls.TLSUtils.patchTLSIfNeeded;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
@@ -86,17 +80,14 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param user        The user used in evaluating feature flags
      * @return a {@link Future} which will complete once the client has been initialized.
      */
-    public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
-        boolean applicationValid = validateParameter(application);
-        boolean configValid = validateParameter(config);
-        boolean userValid = validateParameter(user);
-        if (!applicationValid) {
+    public static Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
+        if (application == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
         }
-        if (!configValid) {
+        if (config == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
-        if (!userValid) {
+        if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
         }
 
@@ -110,18 +101,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.plant(new Timber.DebugTree());
         }
 
-        try {
-            SSLContext.getInstance("TLSv1.2");
-        } catch (NoSuchAlgorithmException e) {
-            Timber.w("No TLSv1.2 implementation available, attempting patch.");
-            try {
-                ProviderInstaller.installIfNeeded(application.getApplicationContext());
-            } catch (GooglePlayServicesRepairableException e1) {
-                Timber.w("Patch failed, Google Play Services too old.");
-            } catch (GooglePlayServicesNotAvailableException e1) {
-                Timber.w("Patch failed, no Google Play Services available.");
-            }
-        }
+        patchTLSIfNeeded(application);
 
         ConnectivityManager cm = (ConnectivityManager) application.getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
@@ -177,17 +157,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 return instances.get(LDConfig.primaryEnvironmentName);
             }
         }, MoreExecutors.directExecutor());
-    }
-
-    private static <T> boolean validateParameter(T parameter) {
-        boolean parameterValid;
-        try {
-            Preconditions.checkNotNull(parameter);
-            parameterValid = true;
-        } catch (NullPointerException e) {
-            parameterValid = false;
-        }
-        return parameterValid;
     }
 
     /**
@@ -314,11 +283,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public void track(String eventName) {
-        if (config.inlineUsersInEvents()) {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), null));
-        } else {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKeyAsString(), null));
-        }
+        track(eventName, null);
     }
 
     @Override

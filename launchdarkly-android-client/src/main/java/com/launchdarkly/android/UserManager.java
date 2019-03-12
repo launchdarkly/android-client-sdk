@@ -24,7 +24,6 @@ import com.launchdarkly.android.response.FlagsResponse;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 
 import timber.log.Timber;

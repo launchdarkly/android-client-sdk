@@ -5,7 +5,6 @@ import android.support.test.runner.AndroidJUnit4;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.flagstore.FlagStore;
@@ -56,7 +55,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestFailedFetchThrowsException() throws InterruptedException {
+    public void testFailedFetchThrowsException() throws InterruptedException {
         setUserAndFailToFetchFlags("userKey");
     }
 
@@ -79,7 +78,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestBasicRetrieval() throws ExecutionException, InterruptedException {
+    public void testBasicRetrieval() throws ExecutionException, InterruptedException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
@@ -96,7 +95,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestNewUserUpdatesFlags() {
+    public void testNewUserUpdatesFlags() {
         JsonObject flags = new JsonObject();
 
         String flagKey = "stringFlag";
@@ -112,7 +111,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestCanStoreExactly5Users() throws InterruptedException {
+    public void testCanStoreExactly5Users() throws InterruptedException {
         JsonObject flags = new JsonObject();
         String flagKey = "stringFlag";
 
@@ -136,7 +135,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestRegisterUnregisterListener() {
+    public void testRegisterUnregisterListener() {
         FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
             @Override
             public void onFeatureFlagChange(String flagKey) {
@@ -155,7 +154,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestUnregisterListenerWithDuplicates() {
+    public void testUnregisterListenerWithDuplicates() {
         FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
             @Override
             public void onFeatureFlagChange(String flagKey) {
@@ -172,7 +171,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestDeleteFlag() throws ExecutionException, InterruptedException {
+    public void testDeleteFlag() throws ExecutionException, InterruptedException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
@@ -195,7 +194,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestDeleteForInvalidResponse() throws ExecutionException, InterruptedException {
+    public void testDeleteForInvalidResponse() throws ExecutionException, InterruptedException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
@@ -214,7 +213,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestDeleteWithVersion() throws ExecutionException, InterruptedException {
+    public void testDeleteWithVersion() throws ExecutionException, InterruptedException {
         Future<Void> future = setUserClear("userKey", new JsonObject());
         future.get();
 
@@ -239,7 +238,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestPatchForAddAndReplaceFlags() throws ExecutionException, InterruptedException {
+    public void testPatchForAddAndReplaceFlags() throws ExecutionException, InterruptedException {
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "stringFlag1", "string1");
@@ -267,7 +266,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestPatchSucceedsForMissingVersionInPatch() throws ExecutionException, InterruptedException {
+    public void testPatchSucceedsForMissingVersionInPatch() throws ExecutionException, InterruptedException {
         Future<Void> future = setUserClear("userKey", new JsonObject());
         future.get();
 
@@ -329,7 +328,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestPatchWithVersion() throws ExecutionException, InterruptedException {
+    public void testPatchWithVersion() throws ExecutionException, InterruptedException {
         Future<Void> future = setUserClear("userKey", new JsonObject());
         future.get();
 
@@ -371,7 +370,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestPatchForInvalidResponse() throws ExecutionException, InterruptedException {
+    public void testPatchForInvalidResponse() throws ExecutionException, InterruptedException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
@@ -390,7 +389,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestPutForReplaceFlags() throws ExecutionException, InterruptedException {
+    public void testPutForReplaceFlags() throws ExecutionException, InterruptedException {
 
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "stringFlag1", "string1");
@@ -432,7 +431,7 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void TestPutForInvalidResponse() throws ExecutionException, InterruptedException {
+    public void testPutForInvalidResponse() throws ExecutionException, InterruptedException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();

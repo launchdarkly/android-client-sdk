@@ -12,7 +12,7 @@ import static org.junit.Assert.assertNotEquals;
 public class UserHasherTest {
 
     @Test
-    public void TestUserHasherReturnsUniqueResults(){
+    public void testUserHasherReturnsUniqueResults(){
         UserHasher userHasher1 = new UserHasher();
 
         String input1 = "{'key':'userKey1'}";
@@ -22,7 +22,7 @@ public class UserHasherTest {
     }
 
     @Test
-    public void TestDifferentUserHashersReturnSameResults(){
+    public void testDifferentUserHashersReturnSameResults(){
         UserHasher userHasher1 = new UserHasher();
         UserHasher userHasher2 = new UserHasher();
         UserHasher userHasher3 = new UserHasher();

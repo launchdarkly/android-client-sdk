@@ -50,7 +50,7 @@ public class LDClientTest {
     @UiThreadTest
     // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
-    public void TestOfflineClientReturnsFallbacks() {
+    public void testOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
         ldClient.clearSummaryEventSharedPreferences();
 
@@ -72,7 +72,7 @@ public class LDClientTest {
     @UiThreadTest
     // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
-    public void GivenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
+    public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
         ldClient.clearSummaryEventSharedPreferences();
 
@@ -90,7 +90,7 @@ public class LDClientTest {
 
     @UiThreadTest
     @Test
-    public void TestInitMissingApplication() {
+    public void testInitMissingApplication() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
@@ -113,7 +113,7 @@ public class LDClientTest {
 
     @UiThreadTest
     @Test
-    public void TestInitMissingConfig() {
+    public void testInitMissingConfig() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
@@ -136,7 +136,7 @@ public class LDClientTest {
 
     @UiThreadTest
     @Test
-    public void TestInitMissingUser() {
+    public void testInitMissingUser() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
