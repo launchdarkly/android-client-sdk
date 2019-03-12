@@ -12,10 +12,12 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import static junit.framework.Assert.assertEquals;
+import static junit.framework.Assert.assertNotSame;
 import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 import static junit.framework.Assert.fail;
@@ -35,7 +37,9 @@ public class LDClientTest {
     private LDUser ldUser;
 
     @Before
-    public void setUp() {
+    public void setUp() throws IOException {
+        LDClient.unsafeReset();
+
         ldConfig = new LDConfig.Builder()
                 .setOffline(true)
                 .build();
@@ -90,6 +94,7 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
+        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(null, ldConfig, ldUser);
 
         try {
@@ -112,6 +117,7 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
+        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), null, ldUser);
 
         try {
@@ -134,6 +140,7 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
+        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, null);
 
         try {
@@ -148,5 +155,32 @@ public class LDClientTest {
         assertThat(actualFutureException, instanceOf(ExecutionException.class));
         assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
         assertTrue("No future task to run", ldClientFuture.isDone());
+    }
+
+    @UiThreadTest
+    @Test
+    public void testDoubleClose() throws IOException {
+        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        ldClient.close();
+        ldClient.close();
+    }
+
+    @UiThreadTest
+    @Test
+    public void testUnsafeReset() throws IOException {
+        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        LDClient.unsafeReset();
+
+        try {
+            LDClient.get();
+            fail("Expected get() after unsafeReset() to throw");
+        } catch (Exception ex) {
+            assertEquals(LaunchDarklyException.class, ex.getClass());
+        }
+
+        LDClient secondClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+
+        assertNotSame(ldClient, secondClient);
+        secondClient.close();
     }
 }

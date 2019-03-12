@@ -20,10 +20,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -68,6 +65,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final UpdateProcessor updateProcessor;
     private final FeatureFlagFetcher fetcher;
     private final Throttler throttler;
+    private final Foreground.Listener foregroundListener;
     private ConnectivityReceiver connectivityReceiver;
 
     private volatile boolean isOffline = false;
@@ -264,7 +262,7 @@ public class LDClient implements LDClientInterface, Closeable {
         this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
 
         Foreground foreground = Foreground.get(application);
-        Foreground.Listener foregroundListener = new Foreground.Listener() {
+        foregroundListener = new Foreground.Listener() {
             @Override
             public void onBecameForeground() {
                 PollingUpdater.stop(application);
@@ -492,8 +490,18 @@ public class LDClient implements LDClientInterface, Closeable {
     private void closeInternal() {
         updateProcessor.stop();
         eventProcessor.close();
-        if (connectivityReceiver != null && application.get() != null) {
-            application.get().unregisterReceiver(connectivityReceiver);
+        Application app = application.get();
+        if (connectivityReceiver != null && app != null) {
+            app.unregisterReceiver(connectivityReceiver);
+            connectivityReceiver = null;
+        }
+        try {
+            Foreground foreground = Foreground.get();
+            if (foregroundListener != null) {
+                foreground.removeListener(foregroundListener);
+            }
+        } catch (IllegalStateException ex) {
+            // Foreground not initialized
         }
     }
 
@@ -676,6 +684,21 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return userManager.getSummaryEventSharedPreferences();
+    }
+
+    /**
+     * Thread unsafe reset method that closes all instances and removes the instances map. Visible
+     * just to allow re-initializing LDClient during testing.
+     */
+    @VisibleForTesting
+    static void unsafeReset() throws IOException {
+        try {
+            if (instances != null) {
+                closeInstances();
+            }
+        } finally {
+            instances = null;
+        }
     }
 
     UserManager getUserManager() {
