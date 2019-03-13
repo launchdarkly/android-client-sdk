@@ -39,7 +39,9 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
     private final SharedPreferences usersSharedPrefs;
     private final Multimap<String, FeatureFlagChangeListener> listeners;
 
-    public SharedPrefsFlagStoreManager(@NonNull Application application, @NonNull String mobileKey, @NonNull FlagStoreFactory flagStoreFactory) {
+    public SharedPrefsFlagStoreManager(@NonNull Application application,
+                                       @NonNull String mobileKey,
+                                       @NonNull FlagStoreFactory flagStoreFactory) {
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
         this.usersSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
@@ -55,6 +57,8 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
         currentFlagStore = flagStoreFactory.createFlagStore(storeIdentifierForUser(userKey));
         currentFlagStore.registerOnStoreUpdatedListener(this);
 
+        // Store the user's key and the current time in usersSharedPrefs so it can be removed when
+        // MAX_USERS is exceeded.
         usersSharedPrefs.edit()
                 .putLong(userKey, System.currentTimeMillis())
                 .apply();
@@ -62,13 +66,14 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
         int usersStored = usersSharedPrefs.getAll().size();
         if (usersStored > MAX_USERS) {
             Iterator<String> oldestFirstUsers = getAllUsers().iterator();
+            // Remove oldest users until we are at MAX_USERS.
             while (usersStored-- > MAX_USERS) {
                 String removed = oldestFirstUsers.next();
                 Timber.d("Exceeded max # of users: [%s] Removing user: [%s]", MAX_USERS, removed);
+                // Load FlagStore for oldest user and delete it.
                 flagStoreFactory.createFlagStore(storeIdentifierForUser(removed)).delete();
-                usersSharedPrefs.edit()
-                        .remove(removed)
-                        .apply();
+                // Remove entry from usersSharedPrefs.
+                usersSharedPrefs.edit().remove(removed).apply();
             }
         }
     }
@@ -121,22 +126,28 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
     }
 
     private static String userAndTimeStampToHumanReadableString(String userSharedPrefsKey, Long timestamp) {
-        return userSharedPrefsKey + " [" + userSharedPrefsKey + "] timestamp: [" + timestamp + "] [" + new Date(timestamp) + "]";
+        return userSharedPrefsKey + " [" + userSharedPrefsKey + "] timestamp: [" + timestamp + "]" + " [" + new Date(timestamp) + "]";
     }
 
     @Override
     public void onStoreUpdate(final String flagKey, final FlagStoreUpdateType flagStoreUpdateType) {
+        // We make sure to call listener callbacks on the main thread, as we consistently did so in
+        // the past by virtue of using SharedPreferences to implement the callbacks.
         if (Looper.myLooper() == Looper.getMainLooper()) {
+            // Make sure listeners are not updated while we are calling them.
             synchronized (listeners) {
+                // We only call the listener if the flag is a new flag or updated.
                 if (flagStoreUpdateType != FlagStoreUpdateType.FLAG_DELETED) {
                     for (FeatureFlagChangeListener listener : listeners.get(flagKey)) {
                         listener.onFeatureFlagChange(flagKey);
                     }
                 } else {
+                    // When flag is deleted we remove the corresponding listeners
                     listeners.removeAll(flagKey);
                 }
             }
         } else {
+            // Call ourselves on the main thread
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override
                 public void run() {

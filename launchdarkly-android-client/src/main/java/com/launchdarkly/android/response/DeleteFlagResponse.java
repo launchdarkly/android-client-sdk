@@ -13,6 +13,13 @@ public class DeleteFlagResponse implements FlagUpdate {
         this.version = version;
     }
 
+    /**
+     * Returns null to signal deletion of the flag if this update is valid on the supplied flag,
+     * otherwise returns the existing flag.
+     *
+     * @param before An existing Flag associated with flagKey from flagToUpdate()
+     * @return null, or the before flag.
+     */
     @Override
     public Flag updateFlag(Flag before) {
         if (before == null || version == null || before.isVersionMissing() || version > before.getVersion()) {
