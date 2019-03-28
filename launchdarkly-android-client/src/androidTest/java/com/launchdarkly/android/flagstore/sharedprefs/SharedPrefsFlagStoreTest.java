@@ -1,16 +1,20 @@
 package com.launchdarkly.android.flagstore.sharedprefs;
 
+import android.app.Application;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
-import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.EvaluationReason;
 import com.launchdarkly.android.flagstore.Flag;
+import com.launchdarkly.android.flagstore.FlagBuilder;
+import com.launchdarkly.android.flagstore.FlagStore;
+import com.launchdarkly.android.flagstore.FlagStoreTest;
 import com.launchdarkly.android.flagstore.FlagUpdate;
 import com.launchdarkly.android.response.DeleteFlagResponse;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -18,32 +22,44 @@ import org.junit.runner.RunWith;
 import java.util.Arrays;
 import java.util.Collections;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+
 @RunWith(AndroidJUnit4.class)
-public class SharedPrefsFlagStoreTest {
+public class SharedPrefsFlagStoreTest extends FlagStoreTest {
+
+    private Application testApplication;
 
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
 
+    @Before
+    public void setUp() {
+        this.testApplication = activityTestRule.getActivity().getApplication();
+    }
+
+    public FlagStore createFlagStore(String identifier) {
+        return new SharedPrefsFlagStore(testApplication, identifier);
+    }
+
     @Test
     public void savesVersions() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), 12, null, null, null, null, null);
-        final Flag key2 = new Flag("key2", new JsonPrimitive(true), null, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").version(12).build();
+        final Flag key2 = new FlagBuilder("key2").version(null).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(key1, key2));
 
-        Assert.assertEquals(flagStore.getFlag(key1.getKey()).getVersion(), 12, 0);
-        Assert.assertEquals(flagStore.getFlag(key2.getKey()).getVersion(), null);
+        assertEquals(flagStore.getFlag(key1.getKey()).getVersion(), 12, 0);
+        assertNull(flagStore.getFlag(key2.getKey()).getVersion());
     }
 
     @Test
     public void deletesVersions() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), 12, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").version(12).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), null));
 
@@ -52,100 +68,89 @@ public class SharedPrefsFlagStoreTest {
 
     @Test
     public void updatesVersions() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), 12, null, null, null, null, null);
-        final Flag updatedKey1 = new Flag(key1.getKey(), key1.getValue(), 15, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").version(12).build();
+        final Flag updatedKey1 = new FlagBuilder(key1.getKey()).version(15).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
 
-        Assert.assertEquals(flagStore.getFlag(key1.getKey()).getVersion(), 15, 0);
+        assertEquals(flagStore.getFlag(key1.getKey()).getVersion(), 15, 0);
     }
 
     @Test
     public void clearsFlags() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), 12, null, null, null, null, null);
-        final Flag key2 = new Flag("key2", new JsonPrimitive(true), 14, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").version(12).build();
+        final Flag key2 = new FlagBuilder("key2").version(14).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(key1, key2));
         flagStore.clear();
 
         Assert.assertNull(flagStore.getFlag(key1.getKey()));
         Assert.assertNull(flagStore.getFlag(key2.getKey()));
-        Assert.assertEquals(0, flagStore.getAllFlags().size(), 0);
+        assertEquals(0, flagStore.getAllFlags().size(), 0);
     }
 
     @Test
     public void savesVariation() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), 12, null, 16, null, null, null);
-        final Flag key2 = new Flag("key2", new JsonPrimitive(true), 14, null, 23, null, null, null);
-        final Flag key3 = new Flag("key3", new JsonPrimitive(true), 16, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").variation(16).build();
+        final Flag key2 = new FlagBuilder("key2").variation(null).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
-        flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(key1, key2, key3));
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
+        flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(key1, key2));
 
-        Assert.assertEquals(flagStore.getFlag(key1.getKey()).getVariation(), 16, 0);
-        Assert.assertEquals(flagStore.getFlag(key2.getKey()).getVariation(), 23, 0);
-        Assert.assertEquals(flagStore.getFlag(key3.getKey()).getVariation(), null);
+        assertEquals(flagStore.getFlag(key1.getKey()).getVariation(), 16, 0);
+        assertNull(flagStore.getFlag(key2.getKey()).getVariation());
     }
 
     @Test
     public void savesTrackEvents() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), 12, null, 16, false, 123456789L, null);
-        final Flag key2 = new Flag("key2", new JsonPrimitive(true), 14, null, 23, true, 987654321L, null);
-        final Flag key3 = new Flag("key3", new JsonPrimitive(true), 16, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").trackEvents(false).build();
+        final Flag key2 = new FlagBuilder("key2").trackEvents(true).build();
+        final Flag key3 = new FlagBuilder("key3").trackEvents(null).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(key1, key2, key3));
 
-        Assert.assertEquals(flagStore.getFlag(key1.getKey()).getTrackEvents(), false);
-        Assert.assertEquals(flagStore.getFlag(key2.getKey()).getTrackEvents(), true);
+        assertEquals(flagStore.getFlag(key1.getKey()).getTrackEvents(), false);
+        assertEquals(flagStore.getFlag(key2.getKey()).getTrackEvents(), true);
         Assert.assertFalse(flagStore.getFlag(key3.getKey()).getTrackEvents());
     }
 
     @Test
     public void savesDebugEventsUntilDate() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), 12, null, 16, false, 123456789L, null);
-        final Flag key2 = new Flag("key2", new JsonPrimitive(true), 14, null, 23, true, 987654321L, null);
-        final Flag key3 = new Flag("key3", new JsonPrimitive(true), 16, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").debugEventsUntilDate(123456789L).build();
+        final Flag key2 = new FlagBuilder("key2").debugEventsUntilDate(2500000000L).build();
+        final Flag key3 = new FlagBuilder("key3").debugEventsUntilDate(null).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(key1, key2, key3));
 
-        //noinspection ConstantConditions
-        Assert.assertEquals(flagStore.getFlag(key1.getKey()).getDebugEventsUntilDate(), 123456789L, 0);
-        //noinspection ConstantConditions
-        Assert.assertEquals(flagStore.getFlag(key2.getKey()).getDebugEventsUntilDate(), 987654321L, 0);
+        assertEquals(flagStore.getFlag(key1.getKey()).getDebugEventsUntilDate(), 123456789L, 0);
+        assertEquals(flagStore.getFlag(key2.getKey()).getDebugEventsUntilDate(), 2500000000L, 0);
         Assert.assertNull(flagStore.getFlag(key3.getKey()).getDebugEventsUntilDate());
     }
 
 
     @Test
     public void savesFlagVersions() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), null, 12, null, null, null, null);
-        final Flag key2 = new Flag("key2", new JsonPrimitive(true), null, null, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").flagVersion(12).build();
+        final Flag key2 = new FlagBuilder("key2").flagVersion(null).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(key1, key2));
 
-        Assert.assertEquals(flagStore.getFlag(key1.getKey()).getFlagVersion(), 12, 0);
-        Assert.assertEquals(flagStore.getFlag(key2.getKey()).getFlagVersion(), null);
+        assertEquals(flagStore.getFlag(key1.getKey()).getFlagVersion(), 12, 0);
+        assertNull(flagStore.getFlag(key2.getKey()).getFlagVersion());
     }
 
     @Test
     public void deletesFlagVersions() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), null, 12, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").flagVersion(12).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), null));
 
@@ -154,47 +159,45 @@ public class SharedPrefsFlagStoreTest {
 
     @Test
     public void updatesFlagVersions() {
-        final Flag key1 = new Flag("key1", new JsonPrimitive(true), null, 12, null, null, null, null);
-        final Flag updatedKey1 = new Flag(key1.getKey(), key1.getValue(), null, 15, null, null, null, null);
+        final Flag key1 = new FlagBuilder("key1").flagVersion(12).build();
+        final Flag updatedKey1 = new FlagBuilder(key1.getKey()).flagVersion(15).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
 
-        Assert.assertEquals(flagStore.getFlag(key1.getKey()).getFlagVersion(), 15, 0);
+        assertEquals(flagStore.getFlag(key1.getKey()).getFlagVersion(), 15, 0);
     }
 
     @Test
     public void versionForEventsReturnsFlagVersionIfPresentOtherwiseReturnsVersion() {
-        final Flag withFlagVersion = new Flag("withFlagVersion", new JsonPrimitive(true), 12, 13, null, null, null, null);
-        final Flag withOnlyVersion = new Flag("withOnlyVersion", new JsonPrimitive(true), 12, null, null, null, null, null);
+        final Flag withFlagVersion =
+                new FlagBuilder("withFlagVersion").version(12).flagVersion(13).build();
+        final Flag withOnlyVersion = new FlagBuilder("withOnlyVersion").version(12).build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(withFlagVersion, withOnlyVersion));
 
-        Assert.assertEquals(flagStore.getFlag(withFlagVersion.getKey()).getVersionForEvents(), 13, 0);
-        Assert.assertEquals(flagStore.getFlag(withOnlyVersion.getKey()).getVersionForEvents(), 12, 0);
+        assertEquals(flagStore.getFlag(withFlagVersion.getKey()).getVersionForEvents(), 13, 0);
+        assertEquals(flagStore.getFlag(withOnlyVersion.getKey()).getVersionForEvents(), 12, 0);
     }
 
     @Test
     public void savesReasons() {
-        // This test assumes that if the store correctly serializes and deserializes one kind of EvaluationReason, it can handle any kind,
-        // since the actual marshaling is being done by UserFlagResponse. Therefore, the other variants of EvaluationReason are tested by
+        // This test assumes that if the store correctly serializes and deserializes one kind of
+        // EvaluationReason, it can handle any kind,
+        // since the actual marshaling is being done by UserFlagResponse. Therefore, the other
+        // variants of EvaluationReason are tested by
         // FlagTest.
         final EvaluationReason reason = EvaluationReason.ruleMatch(1, "id");
-        final Flag flag1 = new Flag("key1", new JsonPrimitive(true), 11,
-                1, 1, null, null, reason);
-        final Flag flag2 = new Flag("key2", new JsonPrimitive(true), 11,
-                1, 1, null, null, null);
+        final Flag flag1 = new FlagBuilder("key1").reason(reason).build();
+        final Flag flag2 = new FlagBuilder("key2").build();
 
-        SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(activityTestRule.getActivity().getApplication(), "abc");
-        flagStore.clear();
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(flag1, flag2));
 
-        Assert.assertEquals(reason, flagStore.getFlag(flag1.getKey()).getReason());
-        Assert.assertNull(flagStore.getFlag(flag2.getKey()).getReason());
+        assertEquals(reason, flagStore.getFlag(flag1.getKey()).getReason());
+        assertNull(flagStore.getFlag(flag2.getKey()).getReason());
     }
 }

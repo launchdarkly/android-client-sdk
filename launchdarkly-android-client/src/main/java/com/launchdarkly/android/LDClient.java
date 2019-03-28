@@ -651,21 +651,6 @@ public class LDClient implements LDClientInterface, Closeable {
         return userManager.getSummaryEventSharedPreferences();
     }
 
-    /**
-     * Thread unsafe reset method that closes all instances and removes the instances map. Visible
-     * just to allow re-initializing LDClient during testing.
-     */
-    @VisibleForTesting
-    static void unsafeReset() throws IOException {
-        try {
-            if (instances != null) {
-                closeInstances();
-            }
-        } finally {
-            instances = null;
-        }
-    }
-
     UserManager getUserManager() {
         return userManager;
     }

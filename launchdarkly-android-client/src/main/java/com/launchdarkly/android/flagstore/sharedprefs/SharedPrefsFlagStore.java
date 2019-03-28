@@ -19,6 +19,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -76,6 +77,9 @@ class SharedPrefsFlagStore implements FlagStore {
 
     private Pair<String, FlagStoreUpdateType> applyFlagUpdateNoCommit(@NonNull SharedPreferences.Editor editor, @NonNull FlagUpdate flagUpdate) {
         String flagKey = flagUpdate.flagToUpdate();
+        if (flagKey == null) {
+            return null;
+        }
         Flag flag = getFlag(flagKey);
         Flag newFlag = flagUpdate.updateFlag(flag);
         if (flag != null && newFlag == null) {
@@ -104,18 +108,6 @@ class SharedPrefsFlagStore implements FlagStore {
         }
     }
 
-    @NonNull
-    private ArrayList<Pair<String, FlagStoreUpdateType>> applyFlagUpdatesNoCommit(SharedPreferences.Editor editor, List<? extends FlagUpdate> flagUpdates) {
-        ArrayList<Pair<String, FlagStoreUpdateType>> updates = new ArrayList<>();
-        for (FlagUpdate flagUpdate : flagUpdates) {
-            Pair<String, FlagStoreUpdateType> update = applyFlagUpdateNoCommit(editor, flagUpdate);
-            if (update != null) {
-                updates.add(update);
-            }
-        }
-        return updates;
-    }
-
     private void informListenersOfUpdateList(List<Pair<String, FlagStoreUpdateType>> updates) {
         StoreUpdatedListener storeUpdatedListener = listenerWeakReference.get();
         if (storeUpdatedListener != null) {
@@ -128,15 +120,41 @@ class SharedPrefsFlagStore implements FlagStore {
     @Override
     public void applyFlagUpdates(List<? extends FlagUpdate> flagUpdates) {
         SharedPreferences.Editor editor = sharedPreferences.edit();
-        ArrayList<Pair<String, FlagStoreUpdateType>> updates = applyFlagUpdatesNoCommit(editor, flagUpdates);
+        ArrayList<Pair<String, FlagStoreUpdateType>> updates = new ArrayList<>();
+        for (FlagUpdate flagUpdate : flagUpdates) {
+            Pair<String, FlagStoreUpdateType> update = applyFlagUpdateNoCommit(editor, flagUpdate);
+            if (update != null) {
+                updates.add(update);
+            }
+        }
         editor.apply();
         informListenersOfUpdateList(updates);
     }
 
     @Override
     public void clearAndApplyFlagUpdates(List<? extends FlagUpdate> flagUpdates) {
-        sharedPreferences.edit().clear().apply();
-        applyFlagUpdates(flagUpdates);
+        Set<String> clearedKeys = sharedPreferences.getAll().keySet();
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.clear();
+        ArrayList<Pair<String, FlagStoreUpdateType>> updates = new ArrayList<>();
+        for (FlagUpdate flagUpdate : flagUpdates) {
+            String flagKey = flagUpdate.flagToUpdate();
+            if (flagKey == null) {
+                continue;
+            }
+            Flag newFlag = flagUpdate.updateFlag(null);
+            if (newFlag != null) {
+                String flagData = GsonCache.getGson().toJson(newFlag);
+                editor.putString(flagKey, flagData);
+                clearedKeys.remove(flagKey);
+                updates.add(new Pair<>(flagKey, FlagStoreUpdateType.FLAG_CREATED));
+            }
+        }
+        editor.apply();
+        for (String clearedKey : clearedKeys) {
+            updates.add(new Pair<>(clearedKey, FlagStoreUpdateType.FLAG_DELETED));
+        }
+        informListenersOfUpdateList(updates);
     }
 
     @Override

@@ -101,7 +101,6 @@ class UserManager {
                 if (Util.isClientConnected(application, environmentName)) {
                     Timber.e(t, "Error when attempting to set user: [%s] [%s]", currentUser.getAsUrlSafeBase64(), userBase64ToJson(currentUser.getAsUrlSafeBase64()));
                 }
-//                syncCurrentUserToActiveUserAndLog();
             }
         }, MoreExecutors.directExecutor());
 
