@@ -17,6 +17,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
 import com.launchdarkly.android.flagstore.Flag;
+import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -340,7 +341,8 @@ public class LDClient implements LDClientInterface, Closeable {
         for (Flag flag : flags) {
             JsonElement jsonVal = flag.getValue();
             if (jsonVal == null || jsonVal.isJsonNull()) {
-                result.put(flag.getKey(), null);
+                // TODO(gwhelanld): Include null flag values in results in 3.0.0
+                continue;
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
                 result.put(flag.getKey(), jsonVal.getAsBoolean());
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
@@ -348,7 +350,10 @@ public class LDClient implements LDClientInterface, Closeable {
             } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
                 result.put(flag.getKey(), jsonVal.getAsString());
             } else {
-                result.put(flag.getKey(), jsonVal);
+                // Returning JSON flag as String for backwards compatibility. In the next major
+                // release (3.0.0) this method will return a Map containing JsonElements for JSON
+                // flags
+                result.put(flag.getKey(), GsonCache.getGson().toJson(jsonVal));
             }
         }
         return result;
@@ -386,12 +391,14 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public String stringVariation(String flagKey, String fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, false).getValue();
+        // TODO(gwhelanld): Change to ValueTypes.String in 3.0.0
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRINGCOMPAT, false).getValue();
     }
 
     @Override
     public EvaluationDetail<String> stringVariationDetail(String flagKey, String fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, true);
+        // TODO(gwhelanld): Change to ValueTypes.String in 3.0.0
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRINGCOMPAT, true);
     }
 
     @Override
