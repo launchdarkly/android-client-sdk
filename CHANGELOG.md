@@ -2,6 +2,21 @@
 
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
+## [2.7.0] - 2019-04-02
+### Added
+- The new configuration option `setEvaluationReasons(true)` causes LaunchDarkly to report information about how each feature flag value was determined; you can access this information with the new client methods `boolVariationDetail`, `stringVariationDetail`, etc. The new methods return an object that contains both the flag value and a "reason" object which will tell you, for instance, if the user was individually targeted for the flag or was matched by one of the flag's rules, or if the flag returned the default value due to an error. For more information, see the SDK Reference Guide on [evaluation reasons](https://docs.launchdarkly.com/docs/evaluation-reasons).
+- The new client method `getVersion()` returns the version string of the SDK.
+### Fixed
+- Bug causing `boolVariation`, `intVariation`, and `floatVariation` to always return `null` if `fallback` argument was `null`.
+- Potential issue where environment versions for flag updates could compare incorrectly due to floating point coercion.
+- Summary events for unknown flags (flags evaluated without any stored value, variation, or version) now include the returned value as intended.
+- Inaccurate events caused by data for flag version and variation being unsynchronized with flag value.
+- Bug causing some events to be dropped from summary counts due to data race in sending and updating summary events.
+- Potential `ClassCastException` crash on some devices due to old version of OkHttp.
+- Improved documentation comments throughout.
+- Crash on migration when no primary mobile key is specified.
+### Removed
+- CircleCI V1 config file
 ## [2.6.0] - 2019-01-22
 ### Added
 - Support for connecting to multiple environments through LDClient interface.
