@@ -15,7 +15,7 @@ import static org.junit.Assert.assertTrue;
 public class LDConfigTest {
 
     @Test
-    public void TestBuilderDefaults() {
+    public void testBuilderDefaults() {
         LDConfig config = new LDConfig.Builder().build();
         assertTrue(config.isStream());
         assertFalse(config.isOffline());
@@ -34,11 +34,12 @@ public class LDConfigTest {
 
         assertEquals(null, config.getMobileKey());
         assertFalse(config.inlineUsersInEvents());
+        assertFalse(config.isEvaluationReasons());
     }
 
 
     @Test
-    public void TestBuilderStreamDisabled() {
+    public void testBuilderStreamDisabled() {
         LDConfig config = new LDConfig.Builder()
                 .setStream(false)
                 .build();
@@ -51,7 +52,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderStreamDisabledCustomIntervals() {
+    public void testBuilderStreamDisabledCustomIntervals() {
         LDConfig config = new LDConfig.Builder()
                 .setStream(false)
                 .setPollingIntervalMillis(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1)
@@ -66,7 +67,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderStreamDisabledBackgroundUpdatingDisabled() {
+    public void testBuilderStreamDisabledBackgroundUpdatingDisabled() {
         LDConfig config = new LDConfig.Builder()
                 .setStream(false)
                 .setDisableBackgroundUpdating(true)
@@ -80,7 +81,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderStreamDisabledPollingIntervalBelowMinimum() {
+    public void testBuilderStreamDisabledPollingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
                 .setStream(false)
                 .setPollingIntervalMillis(LDConfig.MIN_POLLING_INTERVAL_MILLIS - 1)
@@ -95,7 +96,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderStreamDisabledBackgroundPollingIntervalBelowMinimum() {
+    public void testBuilderStreamDisabledBackgroundPollingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
                 .setStream(false)
                 .setBackgroundPollingIntervalMillis(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS - 1)
@@ -110,7 +111,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderUseReportDefaultGet() {
+    public void testBuilderUseReportDefaultGet() {
         LDConfig config = new LDConfig.Builder()
                 .build();
 
@@ -118,7 +119,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderUseReporSetToGet() {
+    public void testBuilderUseReporSetToGet() {
         LDConfig config = new LDConfig.Builder()
                 .setUseReport(false)
                 .build();
@@ -127,7 +128,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderUseReportSetToReport() {
+    public void testBuilderUseReportSetToReport() {
         LDConfig config = new LDConfig.Builder()
                 .setUseReport(true)
                 .build();
@@ -136,7 +137,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderAllAttributesPrivate() {
+    public void testBuilderAllAttributesPrivate() {
         LDConfig config = new LDConfig.Builder()
                 .build();
 
@@ -150,7 +151,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void TestBuilderPrivateAttributesList() {
+    public void testBuilderPrivateAttributesList() {
         LDConfig config = new LDConfig.Builder()
                 .build();
 
@@ -168,4 +169,10 @@ public class LDConfigTest {
         assertEquals(config.getPrivateAttributeNames().size(), 2);
     }
 
+    @Test
+    public void testBuilderEvaluationReasons() {
+        LDConfig config = new LDConfig.Builder().setEvaluationReasons(true).build();
+
+        assertTrue(config.isEvaluationReasons());
+    }
 }

@@ -1,12 +1,10 @@
 package com.launchdarkly.android;
 
-
 import android.util.Base64;
 
 import com.google.common.base.Charsets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-
 
 /**
  * Provides a single hash method that takes a String and returns a unique filename-safe hash of it.

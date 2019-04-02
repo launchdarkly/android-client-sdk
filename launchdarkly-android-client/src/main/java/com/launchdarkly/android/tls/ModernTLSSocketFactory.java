@@ -73,8 +73,8 @@ public class ModernTLSSocketFactory extends SSLSocketFactory {
      * @param s the socket
      * @return
      */
-    static Socket setModernTlsVersionsOnSocket(Socket s) {
-        if (s != null && (s instanceof SSLSocket)) {
+    private static Socket setModernTlsVersionsOnSocket(Socket s) {
+        if (s instanceof SSLSocket) {
             List<String> defaultEnabledProtocols = Arrays.asList(((SSLSocket) s).getSupportedProtocols());
             ArrayList<String> newEnabledProtocols = new ArrayList<>();
             if (defaultEnabledProtocols.contains(TLS_1_2)) {

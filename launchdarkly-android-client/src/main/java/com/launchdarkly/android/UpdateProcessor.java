@@ -20,7 +20,7 @@ interface UpdateProcessor {
     /**
      * Returns true once the UpdateProcessor has been initialized and will never return false again.
      *
-     * @return
+     * @return true once the UpdateProcessor has been initialized and ever after
      */
     boolean isInitialized();
 

@@ -9,32 +9,21 @@ import android.net.NetworkInfo;
 import android.os.Build;
 import android.support.annotation.NonNull;
 
-import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
-import com.google.android.gms.common.GooglePlayServicesRepairableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
-import com.google.gson.JsonSyntaxException;
-import com.launchdarkly.android.response.SummaryEventSharedPreferences;
-import com.google.android.gms.security.ProviderInstaller;
+import com.launchdarkly.android.flagstore.Flag;
+import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,11 +33,10 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import javax.net.ssl.SSLContext;
-
 import timber.log.Timber;
 
 import static com.launchdarkly.android.Util.isClientConnected;
+import static com.launchdarkly.android.tls.TLSUtils.patchTLSIfNeeded;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
@@ -72,6 +60,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final UpdateProcessor updateProcessor;
     private final FeatureFlagFetcher fetcher;
     private final Throttler throttler;
+    private final Foreground.Listener foregroundListener;
     private ConnectivityReceiver connectivityReceiver;
 
     private volatile boolean isOffline = false;
@@ -92,17 +81,14 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param user        The user used in evaluating feature flags
      * @return a {@link Future} which will complete once the client has been initialized.
      */
-    public static synchronized Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
-        boolean applicationValid = validateParameter(application);
-        boolean configValid = validateParameter(config);
-        boolean userValid = validateParameter(user);
-        if (!applicationValid) {
+    public static Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
+        if (application == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
         }
-        if (!configValid) {
+        if (config == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
-        if (!userValid) {
+        if (user == null) {
             return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
         }
 
@@ -116,18 +102,7 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.plant(new Timber.DebugTree());
         }
 
-        try {
-            SSLContext.getInstance("TLSv1.2");
-        } catch (NoSuchAlgorithmException e) {
-            Timber.w("No TLSv1.2 implementation available, attempting patch.");
-            try {
-                ProviderInstaller.installIfNeeded(application.getApplicationContext());
-            } catch (GooglePlayServicesRepairableException e1) {
-                Timber.w("Patch failed, Google Play Services too old.");
-            } catch (GooglePlayServicesNotAvailableException e1) {
-                Timber.w("Patch failed, no Google Play Services available.");
-            }
-        }
+        patchTLSIfNeeded(application);
 
         ConnectivityManager cm = (ConnectivityManager) application.getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
@@ -151,7 +126,7 @@ public class LDClient implements LDClientInterface, Closeable {
         instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
         Timber.i("Using instance id: %s", instanceId);
 
-        migrateWhenNeeded(application, config);
+        Migration.migrateWhenNeeded(application, config);
 
         for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
             final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
@@ -185,28 +160,17 @@ public class LDClient implements LDClientInterface, Closeable {
         }, MoreExecutors.directExecutor());
     }
 
-    private static <T> boolean validateParameter(T parameter) {
-        boolean parameterValid;
-        try {
-            Preconditions.checkNotNull(parameter);
-            parameterValid = true;
-        } catch (NullPointerException e) {
-            parameterValid = false;
-        }
-        return parameterValid;
-    }
-
     /**
      * Initializes the singleton instance and blocks for up to <code>startWaitSeconds</code> seconds
      * until the client has been initialized. If the client does not initialize within
      * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
      * have fetched the most recent feature flag values.
      *
-     * @param application
-     * @param config
-     * @param user
-     * @param startWaitSeconds
-     * @return
+     * @param application      Your Android application.
+     * @param config           Configuration used to set up the client
+     * @param user             The user used in evaluating feature flags
+     * @param startWaitSeconds Maximum number of seconds to wait for the client to initialize
+     * @return The primary LDClient instance
      */
     public static synchronized LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
         Timber.i("Initializing Client and waiting up to %s for initialization to complete", startWaitSeconds);
@@ -268,7 +232,7 @@ public class LDClient implements LDClientInterface, Closeable {
         this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
 
         Foreground foreground = Foreground.get(application);
-        Foreground.Listener foregroundListener = new Foreground.Listener() {
+        foregroundListener = new Foreground.Listener() {
             @Override
             public void onBecameForeground() {
                 PollingUpdater.stop(application);
@@ -309,109 +273,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private static void migrateWhenNeeded(Application application, LDConfig config) {
-        SharedPreferences migrations = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "migrations", Context.MODE_PRIVATE);
-
-        if (!migrations.contains("v2.6.0")) {
-            Timber.d("Migrating to v2.6.0 multi-environment shared preferences");
-
-            File directory = new File(application.getFilesDir().getParent() + "/shared_prefs/");
-            File[] files = directory.listFiles();
-            ArrayList<String> filenames = new ArrayList<>();
-            for (File file : files) {
-                if (file.isFile())
-                    filenames.add(file.getName());
-            }
-
-            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "id.xml");
-            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "users.xml");
-            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "version.xml");
-            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "active.xml");
-            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents.xml");
-            filenames.remove(LDConfig.SHARED_PREFS_BASE_KEY + "migrations.xml");
-
-            Iterator<String> nameIter = filenames.iterator();
-            while (nameIter.hasNext()) {
-                String name = nameIter.next();
-                if (!name.startsWith(LDConfig.SHARED_PREFS_BASE_KEY) || !name.endsWith(".xml")) {
-                    nameIter.remove();
-                    continue;
-                }
-                for (String mobileKey : config.getMobileKeys().values()) {
-                    if (name.contains(mobileKey)) {
-                        nameIter.remove();
-                        break;
-                    }
-                }
-            }
-
-            ArrayList<String> userKeys = new ArrayList<>();
-            for (String filename : filenames) {
-                userKeys.add(filename.substring(LDConfig.SHARED_PREFS_BASE_KEY.length(), filename.length() - 4));
-            }
-
-            boolean allSuccess = true;
-            for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
-                String mobileKey = mobileKeys.getValue();
-                boolean users = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE),
-                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE));
-                boolean version = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE),
-                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-version", Context.MODE_PRIVATE));
-                boolean active = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "active", Context.MODE_PRIVATE),
-                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-active", Context.MODE_PRIVATE));
-                boolean stores = true;
-                for (String key : userKeys) {
-                    boolean store = copySharedPreferences(application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + key, Context.MODE_PRIVATE),
-                            application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + key + "-user", Context.MODE_PRIVATE));
-                    stores = stores && store;
-                }
-                allSuccess = allSuccess && users && version && active && stores;
-            }
-
-            if (allSuccess) {
-                Timber.d("Migration to v2.6.0 multi-environment shared preferences successful");
-                boolean logged = migrations.edit().putString("v2.6.0", "v2.6.0").commit();
-                if (logged) {
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "users", Context.MODE_PRIVATE).edit().clear().apply();
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE).edit().clear().apply();
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "active", Context.MODE_PRIVATE).edit().clear().apply();
-                    application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "summaryevents", Context.MODE_PRIVATE).edit().clear().apply();
-                    for (String key : userKeys) {
-                        application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + key, Context.MODE_PRIVATE).edit().clear().apply();
-                    }
-                }
-            }
-        }
-    }
-
-    private static boolean copySharedPreferences(SharedPreferences oldPreferences, SharedPreferences newPreferences) {
-        SharedPreferences.Editor editor = newPreferences.edit();
-
-        for (Map.Entry<String, ?> entry : oldPreferences.getAll().entrySet()) {
-            Object value = entry.getValue();
-            String key = entry.getKey();
-
-            if (value instanceof Boolean)
-                editor.putBoolean(key, (Boolean) value);
-            else if (value instanceof Float)
-                editor.putFloat(key, (Float) value);
-            else if (value instanceof Integer)
-                editor.putInt(key, (Integer) value);
-            else if (value instanceof Long)
-                editor.putLong(key, (Long) value);
-            else if (value instanceof String)
-                editor.putString(key, ((String) value));
-        }
-
-        return editor.commit();
-    }
-
-    /**
-     * Tracks that a user performed an event.
-     *
-     * @param eventName the name of the event
-     * @param data      a JSON object containing additional data associated with the event
-     */
     @Override
     public void track(String eventName, JsonElement data) {
         if (config.inlineUsersInEvents()) {
@@ -421,27 +282,11 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Tracks that a user performed an event.
-     *
-     * @param eventName the name of the event
-     */
     @Override
     public void track(String eventName) {
-        if (config.inlineUsersInEvents()) {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), null));
-        } else {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKeyAsString(), null));
-        }
+        track(eventName, null);
     }
 
-    /**
-     * Sets the current user, retrieves flags for that user, then sends an Identify Event to LaunchDarkly.
-     * The 5 most recent users' flag settings are kept locally.
-     *
-     * @param user
-     * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
-     */
     @Override
     public synchronized Future<Void> identify(LDUser user) {
         return LDClient.identifyInstances(user);
@@ -489,213 +334,118 @@ public class LDClient implements LDClientInterface, Closeable {
         }, MoreExecutors.directExecutor());
     }
 
-    /**
-     * Returns a map of all feature flags for the current user. No events are sent to LaunchDarkly.
-     *
-     * @return
-     */
     @Override
     public Map<String, ?> allFlags() {
-        return userManager.getCurrentUserSharedPrefs().getAll();
+        Map<String, Object> result = new HashMap<>();
+        List<Flag> flags = userManager.getCurrentUserFlagStore().getAllFlags();
+        for (Flag flag : flags) {
+            JsonElement jsonVal = flag.getValue();
+            if (jsonVal == null || jsonVal.isJsonNull()) {
+                // TODO(gwhelanld): Include null flag values in results in 3.0.0
+                continue;
+            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
+                result.put(flag.getKey(), jsonVal.getAsBoolean());
+            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
+                result.put(flag.getKey(), jsonVal.getAsFloat());
+            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
+                result.put(flag.getKey(), jsonVal.getAsString());
+            } else {
+                // Returning JSON flag as String for backwards compatibility. In the next major
+                // release (3.0.0) this method will return a Map containing JsonElements for JSON
+                // flags
+                result.put(flag.getKey(), GsonCache.getGson().toJson(jsonVal));
+            }
+        }
+        return result;
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a boolean type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey
-     * @param fallback
-     * @return
-     */
-    @SuppressWarnings("ConstantConditions")
     @Override
     public Boolean boolVariation(String flagKey, Boolean fallback) {
-        Boolean result = fallback;
-        try {
-            result = userManager.getCurrentUserSharedPrefs().getBoolean(flagKey, fallback);
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get boolean flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-        } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get boolean flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
-        }
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
-        if (result == null && fallback == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
-        } else if (result == null) {
-            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
-        } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
-        } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
-        }
-        Timber.d("boolVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of an integer type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey
-     * @param fallback
-     * @return
-     */
+    @Override
+    public EvaluationDetail<Boolean> boolVariationDetail(String flagKey, Boolean fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, true);
+    }
+
     @Override
     public Integer intVariation(String flagKey, Integer fallback) {
-        Integer result = fallback;
-        try {
-            result = (int) userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get integer flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-        } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get integer flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
-        }
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
-        if (result == null && fallback == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
-        } else if (result == null) {
-            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
-        } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
-        } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
-        }
-        Timber.d("intVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        return variationDetailInternal(flagKey, fallback, ValueTypes.INT, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a float type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey
-     * @param fallback
-     * @return
-     */
+    @Override
+    public EvaluationDetail<Integer> intVariationDetail(String flagKey, Integer fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.INT, true);
+    }
+
     @Override
     public Float floatVariation(String flagKey, Float fallback) {
-        Float result = fallback;
-        try {
-            result = userManager.getCurrentUserSharedPrefs().getFloat(flagKey, fallback);
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get float flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-        } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get float flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
-        }
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
-        if (result == null && fallback == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
-        } else if (result == null) {
-            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
-        } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
-        } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
-        }
-        Timber.d("floatVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a String type</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey
-     * @param fallback
-     * @return
-     */
+    @Override
+    public EvaluationDetail<Float> floatVariationDetail(String flagKey, Float fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, true);
+    }
+
     @Override
     public String stringVariation(String flagKey, String fallback) {
-        String result = fallback;
-        try {
-            result = userManager.getCurrentUserSharedPrefs().getString(flagKey, fallback);
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-        } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get string flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
-        }
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
-        if (result == null && fallback == null) {
-            updateSummaryEvents(flagKey, null, null);
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, JsonNull.INSTANCE, version, variation);
-        } else if (result == null) {
-            updateSummaryEvents(flagKey, null, new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, JsonNull.INSTANCE, new JsonPrimitive(fallback), version, variation);
-        } else if (fallback == null) {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), null);
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), JsonNull.INSTANCE, version, variation);
-        } else {
-            updateSummaryEvents(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback));
-            sendFlagRequestEvent(flagKey, new JsonPrimitive(result), new JsonPrimitive(fallback), version, variation);
-        }
-        Timber.d("stringVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
-        return result;
+        // TODO(gwhelanld): Change to ValueTypes.String in 3.0.0
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRINGCOMPAT, false).getValue();
     }
 
-    /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not valid JSON</li>
-     * <li>Any other error</li>
-     * </ol>
-     *
-     * @param flagKey
-     * @param fallback
-     * @return
-     */
+    @Override
+    public EvaluationDetail<String> stringVariationDetail(String flagKey, String fallback) {
+        // TODO(gwhelanld): Change to ValueTypes.String in 3.0.0
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRINGCOMPAT, true);
+    }
+
     @Override
     public JsonElement jsonVariation(String flagKey, JsonElement fallback) {
-        JsonElement result = fallback;
-        try {
-            String stringResult = userManager.getCurrentUserSharedPrefs().getString(flagKey, null);
-            if (stringResult != null) {
-                result = new JsonParser().parse(stringResult);
-            }
-        } catch (ClassCastException cce) {
-            Timber.e(cce, "Attempted to get json (string) flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
-        } catch (NullPointerException npe) {
-            Timber.e(npe, "Attempted to get json (string flag with a default null value for key: %s Returning fallback: %s", flagKey, fallback);
-        } catch (JsonSyntaxException jse) {
-            Timber.e(jse, "Attempted to get json (string flag that exists as another type for key: %s Returning fallback: %s", flagKey, fallback);
+        return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, false).getValue();
+    }
+
+    @Override
+    public EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, true);
+    }
+
+    private <T> EvaluationDetail<T> variationDetailInternal(String flagKey, T fallback, ValueTypes.Converter<T> typeConverter, boolean includeReasonInEvent) {
+        if (flagKey == null) {
+            Timber.e("Attempted to get flag with a null value for key. Returning fallback: %s", fallback);
+            return EvaluationDetail.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND, fallback);  // no event is sent in this case
         }
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
-        updateSummaryEvents(flagKey, result, fallback);
-        sendFlagRequestEvent(flagKey, result, fallback, version, variation);
-        Timber.d("jsonVariation: returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
+
+        Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
+        JsonElement fallbackJson = fallback == null ? null : typeConverter.valueToJson(fallback);
+        JsonElement valueJson = fallbackJson;
+        EvaluationDetail<T> result;
+
+        if (flag == null) {
+            Timber.e("Attempted to get non-existent flag for key: %s Returning fallback: %s", flagKey, fallback);
+            result = EvaluationDetail.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND, fallback);
+        } else {
+            valueJson = flag.getValue();
+            if (valueJson == null || valueJson.isJsonNull()) {
+                Timber.e("Attempted to get flag without value for key: %s Returning fallback: %s", flagKey, fallback);
+                result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), fallback);
+                valueJson = fallbackJson;
+            } else {
+                T value = typeConverter.valueFromJson(valueJson);
+                if (value == null) {
+                    Timber.e("Attempted to get flag with wrong type for key: %s Returning fallback: %s", flagKey, fallback);
+                    result = EvaluationDetail.error(EvaluationReason.ErrorKind.WRONG_TYPE, fallback);
+                    valueJson = fallbackJson;
+                } else {
+                    result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), value);
+                }
+            }
+        }
+
+        updateSummaryEvents(flagKey, flag, valueJson, fallbackJson);
+        sendFlagRequestEvent(flagKey, flag, valueJson, fallbackJson, includeReasonInEvent ? result.getReason() : null);
+        Timber.d("returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
         return result;
     }
 
@@ -709,30 +459,30 @@ public class LDClient implements LDClientInterface, Closeable {
         LDClient.closeInstances();
     }
 
-    private void closeInternal() throws IOException {
+    private void closeInternal() {
         updateProcessor.stop();
         eventProcessor.close();
-        if (connectivityReceiver != null && application.get() != null) {
-            application.get().unregisterReceiver(connectivityReceiver);
+        Application app = application.get();
+        if (connectivityReceiver != null && app != null) {
+            app.unregisterReceiver(connectivityReceiver);
+            connectivityReceiver = null;
+        }
+        try {
+            Foreground foreground = Foreground.get();
+            if (foregroundListener != null) {
+                foreground.removeListener(foregroundListener);
+            }
+        } catch (IllegalStateException ex) {
+            // Foreground not initialized
         }
     }
 
     private static void closeInstances() throws IOException {
-        IOException exception = null;
         for (LDClient client : instances.values()) {
-            try {
-                client.closeInternal();
-            } catch (IOException e) {
-                exception = e;
-            }
+            client.closeInternal();
         }
-        if (exception != null)
-            throw exception;
     }
 
-    /**
-     * Sends all pending events to LaunchDarkly.
-     */
     @Override
     public void flush() {
         LDClient.flushInstances();
@@ -758,15 +508,6 @@ public class LDClient implements LDClientInterface, Closeable {
         return isOffline;
     }
 
-    /**
-     * Shuts down any network connections maintained by the client and puts the client in offline
-     * mode, preventing the client from opening new network connections until
-     * <code>setOnline()</code> is called.
-     * <p/>
-     * Note: The client automatically monitors the device's network connectivity and app foreground
-     * status, so calling <code>setOffline()</code> or <code>setOnline()</code> is normally
-     * unnecessary in most situations.
-     */
     @Override
     public synchronized void setOffline() {
         LDClient.setInstancesOffline();
@@ -787,14 +528,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Restores network connectivity for the client, if the client was previously in offline mode.
-     * This operation may be throttled if it is called too frequently.
-     * <p/>
-     * Note: The client automatically monitors the device's network connectivity and app foreground
-     * status, so calling <code>setOffline()</code> or <code>setOnline()</code> is normally
-     * unnecessary in most situations.
-     */
     @Override
     public synchronized void setOnline() {
         throttler.attemptRun();
@@ -822,24 +555,11 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    /**
-     * Registers a {@link FeatureFlagChangeListener} to be called when the <code>flagKey</code> changes
-     * from its current value. If the feature flag is deleted, the <code>listener</code> will be unregistered.
-     *
-     * @param flagKey
-     * @param listener
-     */
     @Override
     public void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
         userManager.registerListener(flagKey, listener);
     }
 
-    /**
-     * Unregisters a {@link FeatureFlagChangeListener} for the <code>flagKey</code>
-     *
-     * @param flagKey
-     * @param listener
-     */
     @Override
     public void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
         userManager.unregisterListener(flagKey, listener);
@@ -848,6 +568,11 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public boolean isDisableBackgroundPolling() {
         return config.isDisableBackgroundPolling();
+    }
+
+    @Override
+    public String getVersion() {
+        return BuildConfig.VERSION_NAME;
     }
 
     static String getInstanceId() {
@@ -864,24 +589,28 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private void sendFlagRequestEvent(String flagKey, JsonElement value, JsonElement fallback, int version, int variation) {
-        if (userManager.getFlagResponseSharedPreferences().getStoredTrackEvents(flagKey)) {
+    private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback, EvaluationReason reason) {
+        if (flag == null) {
+            return;
+        }
+
+        int version = flag.getVersionForEvents();
+        Integer variation = flag.getVariation();
+        if (flag.getTrackEvents()) {
             if (config.inlineUsersInEvents()) {
-                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation));
+                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation, reason));
             } else {
-                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKeyAsString(), value, fallback, version, variation));
+                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKeyAsString(), value, fallback, version, variation, reason));
             }
         } else {
-            Long debugEventsUntilDate = userManager.getFlagResponseSharedPreferences().getStoredDebugEventsUntilDate(flagKey);
+            Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {
                 long serverTimeMs = eventProcessor.getCurrentTimeMs();
                 if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    sendEvent(new DebugEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation));
+                    sendEvent(new DebugEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation, reason));
                 }
             }
         }
-
-        sendSummaryEvent();
     }
 
     void startBackgroundPolling() {
@@ -905,37 +634,18 @@ public class LDClient implements LDClientInterface, Closeable {
      * Nothing is sent to the server.
      *
      * @param flagKey  The flagKey that will be updated
+     * @param flag     The stored flag used in the evaluation of the flagKey
      * @param result   The value that was returned in the evaluation of the flagKey
      * @param fallback The fallback value used in the evaluation of the flagKey
      */
-    private void updateSummaryEvents(String flagKey, JsonElement result, JsonElement fallback) {
-        int version = userManager.getFlagResponseSharedPreferences().getVersionForEvents(flagKey);
-        int variation = userManager.getFlagResponseSharedPreferences().getStoredVariation(flagKey);
-        boolean isUnknown = !userManager.getFlagResponseSharedPreferences().containsKey(flagKey);
-
-        userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation, isUnknown);
-    }
-
-    /**
-     * Updates the cached summary event that will be sent to the server with the next batch of events.
-     */
-    private void sendSummaryEvent() {
-        JsonObject features = userManager.getSummaryEventSharedPreferences().getFeaturesJsonObject();
-        if (features.keySet().size() == 0) {
-            return;
+    private void updateSummaryEvents(String flagKey, Flag flag, JsonElement result, JsonElement fallback) {
+        if (flag == null) {
+            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, null);
+        } else {
+            int version = flag.getVersionForEvents();
+            Integer variation = flag.getVariation();
+            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation);
         }
-        Long startDate = null;
-        for (String key : features.keySet()) {
-            JsonObject asJsonObject = features.get(key).getAsJsonObject();
-            if (asJsonObject.has("startDate")) {
-                startDate = asJsonObject.get("startDate").getAsLong();
-                asJsonObject.remove("startDate");
-                break;
-            }
-        }
-        SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
-        Timber.d("Sending Summary Event: %s", summaryEvent.toString());
-        eventProcessor.setSummaryEvent(summaryEvent);
     }
 
     @VisibleForTesting

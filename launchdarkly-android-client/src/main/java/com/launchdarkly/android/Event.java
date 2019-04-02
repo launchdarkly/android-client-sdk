@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-import android.support.annotation.FloatRange;
 import android.support.annotation.IntRange;
+import android.support.annotation.Nullable;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -75,6 +75,9 @@ class FeatureRequestEvent extends GenericEvent {
     @Expose
     Integer variation;
 
+    @Expose
+    EvaluationReason reason;
+
     /**
      * Creates a FeatureRequestEvent which includes the full user object.
      *
@@ -87,11 +90,12 @@ class FeatureRequestEvent extends GenericEvent {
      */
     FeatureRequestEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal,
                         @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
-                        @IntRange(from=(0), to=(Integer.MAX_VALUE)) int variation) {
+                        @Nullable Integer variation,
+                        @Nullable EvaluationReason reason) {
         super("feature", key, user);
         this.value = value;
         this.defaultVal = defaultVal;
-        setOptionalValues(version, variation);
+        setOptionalValues(version, variation, reason);
     }
 
 
@@ -107,33 +111,36 @@ class FeatureRequestEvent extends GenericEvent {
      */
     FeatureRequestEvent(String key, String userKey, JsonElement value, JsonElement defaultVal,
                         @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
-                        @IntRange(from=(0), to=(Integer.MAX_VALUE)) int variation) {
+                        @Nullable Integer variation,
+                        @Nullable EvaluationReason reason) {
         super("feature", key, null);
         this.value = value;
         this.defaultVal = defaultVal;
         this.userKey = userKey;
-        setOptionalValues(version, variation);
+        setOptionalValues(version, variation, reason);
     }
 
-    private void setOptionalValues(int version, int variation) {
+    private void setOptionalValues(int version, @Nullable Integer variation, @Nullable EvaluationReason reason) {
         if (version != -1) {
             this.version = version;
         } else {
             Timber.d("Feature Event: Ignoring version for flag: %s", key);
         }
 
-        if (variation != -1) {
+        if (variation != null) {
             this.variation = variation;
         } else {
             Timber.d("Feature Event: Ignoring variation for flag: %s", key);
         }
+
+        this.reason = reason;
     }
 }
 
 class DebugEvent extends FeatureRequestEvent {
 
-    DebugEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int variation) {
-        super(key, user, value, defaultVal, version, variation);
+    DebugEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version, @Nullable Integer variation, @Nullable EvaluationReason reason) {
+        super(key, user, value, defaultVal, version, variation, reason);
         this.kind = "debug";
     }
 }

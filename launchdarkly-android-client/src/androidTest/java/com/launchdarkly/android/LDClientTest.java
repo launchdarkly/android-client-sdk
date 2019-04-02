@@ -12,6 +12,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -46,7 +47,7 @@ public class LDClientTest {
     @UiThreadTest
     // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
-    public void TestOfflineClientReturnsFallbacks() {
+    public void testOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
         ldClient.clearSummaryEventSharedPreferences();
 
@@ -68,7 +69,7 @@ public class LDClientTest {
     @UiThreadTest
     // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
-    public void GivenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
+    public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
         ldClient.clearSummaryEventSharedPreferences();
 
@@ -86,10 +87,11 @@ public class LDClientTest {
 
     @UiThreadTest
     @Test
-    public void TestInitMissingApplication() {
+    public void testInitMissingApplication() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
+        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(null, ldConfig, ldUser);
 
         try {
@@ -108,10 +110,11 @@ public class LDClientTest {
 
     @UiThreadTest
     @Test
-    public void TestInitMissingConfig() {
+    public void testInitMissingConfig() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
+        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), null, ldUser);
 
         try {
@@ -130,10 +133,11 @@ public class LDClientTest {
 
     @UiThreadTest
     @Test
-    public void TestInitMissingUser() {
+    public void testInitMissingUser() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
+        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, null);
 
         try {
@@ -148,5 +152,13 @@ public class LDClientTest {
         assertThat(actualFutureException, instanceOf(ExecutionException.class));
         assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
         assertTrue("No future task to run", ldClientFuture.isDone());
+    }
+
+    @UiThreadTest
+    @Test
+    public void testDoubleClose() throws IOException {
+        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        ldClient.close();
+        ldClient.close();
     }
 }

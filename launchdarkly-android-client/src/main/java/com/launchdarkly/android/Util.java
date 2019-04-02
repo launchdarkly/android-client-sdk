@@ -9,10 +9,10 @@ import timber.log.Timber;
 class Util {
 
     /**
-     * Looks at both the Android device status to determine if the device is online.
+     * Looks at the Android device status to determine if the device is online.
      *
-     * @param context
-     * @return
+     * @param context Context for getting the ConnectivityManager
+     * @return whether device is connected to the internet
      */
     static boolean isInternetConnected(Context context) {
         ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -21,55 +21,35 @@ class Util {
     }
 
     /**
-     * Looks at both the Android device status and the {@link LDClient} to determine if any network calls should be made.
+     * Looks at both the Android device status and the default {@link LDClient} to determine if any network calls should be made.
      *
-     * @param context
-     * @return
+     * @param context Context for getting the ConnectivityManager
+     * @return whether the device is connected to the internet and the default LDClient instance is online
      */
     static boolean isClientConnected(Context context) {
         boolean deviceConnected = isInternetConnected(context);
         try {
             return deviceConnected && !LDClient.get().isOffline();
         } catch (LaunchDarklyException e) {
-            Timber.e(e,"Exception caught when getting LDClient");
+            Timber.e(e, "Exception caught when getting LDClient");
             return false;
         }
     }
 
     /**
-     * Looks at both the Android device status and the {@link LDClient} to determine if any network calls should be made.
+     * Looks at both the Android device status and the environment's {@link LDClient} to determine if any network calls should be made.
      *
-     * @param context
-     * @param environmentName
-     * @return
+     * @param context         Context for getting the ConnectivityManager
+     * @param environmentName Name of the environment to get the LDClient for
+     * @return whether the device is connected to the internet and the LDClient instance is online
      */
     static boolean isClientConnected(Context context, String environmentName) {
         boolean deviceConnected = isInternetConnected(context);
         try {
             return deviceConnected && !LDClient.getForMobileKey(environmentName).isOffline();
         } catch (LaunchDarklyException e) {
-            Timber.e(e,"Exception caught when getting LDClient");
+            Timber.e(e, "Exception caught when getting LDClient");
             return false;
         }
-    }
-
-    static class LazySingleton<T> {
-        private final Provider<T> provider;
-        private T instance;
-
-        LazySingleton(Provider<T> provider) {
-            this.provider = provider;
-        }
-
-        public T get() {
-            if (instance == null) {
-                instance = provider.get();
-            }
-            return instance;
-        }
-    }
-
-    interface Provider<T> {
-        T get();
     }
 }

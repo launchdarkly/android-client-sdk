@@ -77,12 +77,12 @@ class StreamUpdateProcessor implements UpdateProcessor {
                 }
 
                 @Override
-                public void onMessage(final String name, MessageEvent event) throws Exception {
+                public void onMessage(final String name, MessageEvent event) {
                     Timber.d("onMessage: name: %s", name);
                     final String eventData = event.getData();
                     Callable<Void> updateCurrentUserFunction = new Callable<Void>() {
                         @Override
-                        public Void call() throws Exception {
+                        public Void call() {
                             Timber.d("consumeThis: event: %s", eventData);
                             if (!initialized.getAndSet(true)) {
                                 initFuture.setFuture(handle(name, eventData));
@@ -159,6 +159,10 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
         if (!config.isUseReport() && user != null) {
             str += "/" + user.getAsUrlSafeBase64();
+        }
+
+        if (config.isEvaluationReasons()) {
+            str += "?withReasons=true";
         }
 
         return URI.create(str);

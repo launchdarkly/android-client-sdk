@@ -46,7 +46,7 @@ public class ThrottlerTest {
 
     @UiThreadTest
     @Test
-    public void TestFirstRunIsInstant() {
+    public void testFirstRunIsInstant() {
         throttler.attemptRun();
         boolean result = this.hasRun.getAndSet(false);
         assertTrue(result);
@@ -62,7 +62,7 @@ public class ThrottlerTest {
 
     @UiThreadTest
     @Test
-    public void TestRespectsMaxRetryTime() {
+    public void testRespectsMaxRetryTime() {
         assertEquals(throttler.calculateJitterVal(300), MAX_RETRY_TIME_MS);
     }
 }

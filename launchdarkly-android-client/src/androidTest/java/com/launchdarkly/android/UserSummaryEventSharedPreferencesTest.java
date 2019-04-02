@@ -1,24 +1,22 @@
-package com.launchdarkly.android.response;
+package com.launchdarkly.android;
 
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.launchdarkly.android.LDClient;
-import com.launchdarkly.android.LDConfig;
-import com.launchdarkly.android.LDUser;
 import com.launchdarkly.android.test.TestActivity;
 
 import junit.framework.Assert;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import static junit.framework.Assert.assertNotNull;
+import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 
 /**
@@ -63,18 +61,8 @@ public class UserSummaryEventSharedPreferencesTest {
 
         ldClient.boolVariation("boolFlag", true);
 
-        JsonObject features = summaryEventSharedPreferences.getFeaturesJsonObject();
-
-        Long startDate = null;
-        for (String key : features.keySet()) {
-            JsonObject asJsonObject = features.get(key).getAsJsonObject();
-            if (asJsonObject.has("startDate")) {
-                startDate = asJsonObject.get("startDate").getAsLong();
-                break;
-            }
-        }
-
-        Assert.assertNotNull(startDate);
+        SummaryEvent summaryEvent = summaryEventSharedPreferences.getSummaryEvent();
+        assertNotNull(summaryEvent.startDate);
     }
 
     @Test
@@ -84,7 +72,7 @@ public class UserSummaryEventSharedPreferencesTest {
         ldClient.clearSummaryEventSharedPreferences();
 
         ldClient.boolVariation("boolFlag", true);
-        JsonObject features = summaryEventSharedPreferences.getFeaturesJsonObject();
+        JsonObject features = summaryEventSharedPreferences.getSummaryEvent().features;
         JsonArray counters = features.get("boolFlag").getAsJsonObject().get("counters").getAsJsonArray();
 
         Assert.assertEquals(counters.size(), 1);
@@ -94,7 +82,7 @@ public class UserSummaryEventSharedPreferencesTest {
         Assert.assertEquals(counter.get("count").getAsInt(), 1);
 
         ldClient.boolVariation("boolFlag", true);
-        features = summaryEventSharedPreferences.getFeaturesJsonObject();
+        features = summaryEventSharedPreferences.getSummaryEvent().features;
         counters = features.get("boolFlag").getAsJsonObject().get("counters").getAsJsonArray();
 
         Assert.assertEquals(counters.size(), 1);
@@ -115,7 +103,7 @@ public class UserSummaryEventSharedPreferencesTest {
         ldClient.intVariation("intFlag", 6);
         ldClient.stringVariation("stringFlag", "string");
 
-        JsonObject features = summaryEventSharedPreferences.getFeaturesJsonObject();
+        JsonObject features = summaryEventSharedPreferences.getSummaryEvent().features;
 
         Assert.assertTrue(features.keySet().contains("boolFlag"));
         Assert.assertTrue(features.keySet().contains("jsonFlag"));
@@ -138,16 +126,14 @@ public class UserSummaryEventSharedPreferencesTest {
         ldClient.boolVariation("boolFlag", true);
         ldClient.stringVariation("stringFlag", "string");
 
-        JsonObject features = summaryEventSharedPreferences.getFeaturesJsonObject();
+        JsonObject features = summaryEventSharedPreferences.getSummaryEvent().features;
 
         Assert.assertTrue(features.keySet().contains("boolFlag"));
         Assert.assertTrue(features.keySet().contains("stringFlag"));
 
         ldClient.clearSummaryEventSharedPreferences();
 
-        features = summaryEventSharedPreferences.getFeaturesJsonObject();
-
-        Assert.assertFalse(features.keySet().contains("boolFlag"));
-        Assert.assertFalse(features.keySet().contains("stringFlag"));
+        SummaryEvent summaryEvent = summaryEventSharedPreferences.getSummaryEvent();
+        assertNull(summaryEvent);
     }
 }

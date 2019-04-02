@@ -15,6 +15,10 @@ import okhttp3.MediaType;
 import okhttp3.Request;
 import timber.log.Timber;
 
+/**
+ * This class exposes advanced configuration options for {@link LDClient}. Instances of this class
+ * must be constructed with {@link LDConfig.Builder}.
+ */
 public class LDConfig {
 
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
@@ -61,6 +65,8 @@ public class LDConfig {
 
     private final boolean inlineUsersInEvents;
 
+    private final boolean evaluationReasons;
+
     LDConfig(Map<String, String> mobileKeys,
                     Uri baseUri,
                     Uri eventsUri,
@@ -76,7 +82,8 @@ public class LDConfig {
                     boolean useReport,
                     boolean allAttributesPrivate,
                     Set<String> privateAttributeNames,
-                    boolean inlineUsersInEvents) {
+                    boolean inlineUsersInEvents,
+                    boolean evaluationReasons) {
 
         this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
@@ -94,6 +101,7 @@ public class LDConfig {
         this.allAttributesPrivate = allAttributesPrivate;
         this.privateAttributeNames = privateAttributeNames;
         this.inlineUsersInEvents = inlineUsersInEvents;
+        this.evaluationReasons = evaluationReasons;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -186,6 +194,10 @@ public class LDConfig {
         return inlineUsersInEvents;
     }
 
+    public boolean isEvaluationReasons() {
+        return evaluationReasons;
+    }
+
     public static class Builder {
         private String mobileKey;
         private Map<String, String> secondaryMobileKeys;
@@ -209,9 +221,14 @@ public class LDConfig {
         private Set<String> privateAttributeNames = new HashSet<>();
 
         private boolean inlineUsersInEvents = false;
+        private boolean evaluationReasons = false;
 
         /**
-         * Sets the flag for making all attributes private. The default is false.
+         * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
+         * If this is set, all user attribute values will be private, not just the attributes
+         * specified in {@link #setPrivateAttributeNames(Set)}.
+         *
+         * @return the builder
          */
         public Builder allAttributesPrivate() {
             this.allAttributesPrivate = true;
@@ -219,8 +236,14 @@ public class LDConfig {
         }
 
         /**
-         * Sets the name of private attributes.
-         * Private attributes are not sent to LaunchDarkly.
+         * Marks a set of attributes private. Any users sent to LaunchDarkly with this configuration
+         * active will have attributes with these names removed.
+         *
+         * This can also be specified on a per-user basis with {@link LDUser.Builder} methods like
+         * {@link LDUser.Builder#privateName(String)}.
+         *
+         * @param privateAttributeNames a set of names that will be removed from user data sent to LaunchDarkly
+         * @return the builder
          */
         public Builder setPrivateAttributeNames(Set<String> privateAttributeNames) {
             this.privateAttributeNames = Collections.unmodifiableSet(privateAttributeNames);
@@ -231,7 +254,7 @@ public class LDConfig {
          * Sets the key for authenticating with LaunchDarkly. This is required unless you're using the client in offline mode.
          *
          * @param mobileKey Get this from the LaunchDarkly web app under Team Settings.
-         * @return
+         * @return the builder
          */
         public LDConfig.Builder setMobileKey(String mobileKey) {
             if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
@@ -243,10 +266,10 @@ public class LDConfig {
         }
 
         /**
-         * Sets the secondary keys for authenticating to additional LaunchDarkly environments
+         * Sets the secondary keys for authenticating to additional LaunchDarkly environments.
          *
          * @param secondaryMobileKeys A map of identifying names to unique mobile keys to access secondary environments
-         * @return
+         * @return the builder
          */
         public LDConfig.Builder setSecondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
             if (secondaryMobileKeys == null) {
@@ -273,6 +296,9 @@ public class LDConfig {
         /**
          * Sets the flag for choosing the REPORT api call.  The default is GET.
          * Do not use unless advised by LaunchDarkly.
+         *
+         * @param useReport true if HTTP requests should use the REPORT verb
+         * @return the builder
          */
         public LDConfig.Builder setUseReport(boolean useReport) {
             this.useReport = useReport;
@@ -280,10 +306,10 @@ public class LDConfig {
         }
 
         /**
-         * Set the base uri for connecting to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Set the base URI for connecting to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
          *
-         * @param baseUri
-         * @return
+         * @param baseUri the URI of the main LaunchDarkly service
+         * @return the builder
          */
         public LDConfig.Builder setBaseUri(Uri baseUri) {
             this.baseUri = baseUri;
@@ -291,10 +317,10 @@ public class LDConfig {
         }
 
         /**
-         * Set the events uri for sending analytics to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Set the events URI for sending analytics to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
          *
-         * @param eventsUri
-         * @return
+         * @param eventsUri the URI of the LaunchDarkly analytics event service
+         * @return the builder
          */
         public LDConfig.Builder setEventsUri(Uri eventsUri) {
             this.eventsUri = eventsUri;
@@ -302,10 +328,10 @@ public class LDConfig {
         }
 
         /**
-         * Set the stream uri for connecting to the flag update stream. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Set the stream URI for connecting to the flag update stream. You probably don't need to set this unless instructed by LaunchDarkly.
          *
-         * @param streamUri
-         * @return
+         * @param streamUri the URI of the LaunchDarkly streaming service
+         * @return the builder
          */
         public LDConfig.Builder setStreamUri(Uri streamUri) {
             this.streamUri = streamUri;
@@ -313,10 +339,15 @@ public class LDConfig {
         }
 
         /**
-         * Sets the max number of events to queue before sending them to LaunchDarkly. Default: {@value LDConfig#DEFAULT_EVENTS_CAPACITY}
+         * Set the capacity of the event buffer. The client buffers up to this many events in memory before flushing.
+         * If the capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
+         * means that events are less likely to be discarded, at the cost of consuming more memory.
+         * <p>
+         * The default value is {@value LDConfig#DEFAULT_EVENTS_CAPACITY}.
          *
-         * @param eventsCapacity
-         * @return
+         * @param eventsCapacity the capacity of the event buffer
+         * @return the builder
+         * @see #setEventsFlushIntervalMillis(int)
          */
         public LDConfig.Builder setEventsCapacity(int eventsCapacity) {
             this.eventsCapacity = eventsCapacity;
@@ -324,11 +355,13 @@ public class LDConfig {
         }
 
         /**
-         * Sets the maximum amount of time in milliseconds to wait in between sending analytics events to LaunchDarkly.
-         * Default: {@value LDConfig#DEFAULT_FLUSH_INTERVAL_MILLIS}
+         * Sets the maximum amount of time to wait in between sending analytics events to LaunchDarkly.
+         * <p>
+         * The default value is {@value LDConfig#DEFAULT_FLUSH_INTERVAL_MILLIS}.
          *
-         * @param eventsFlushIntervalMillis
-         * @return
+         * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
+         * @return the builder
+         * @see #setEventsCapacity(int)
          */
         public LDConfig.Builder setEventsFlushIntervalMillis(int eventsFlushIntervalMillis) {
             this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
@@ -337,10 +370,12 @@ public class LDConfig {
 
 
         /**
-         * Sets the timeout in milliseconds when connecting to LaunchDarkly. Default: {@value LDConfig#DEFAULT_CONNECTION_TIMEOUT_MILLIS}
+         * Sets the timeout when connecting to LaunchDarkly.
+         * <p>
+         * The default value is {@value LDConfig#DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
          *
-         * @param connectionTimeoutMillis
-         * @return
+         * @param connectionTimeoutMillis the connection timeout, in milliseconds
+         * @return the builder
          */
         public LDConfig.Builder setConnectionTimeoutMillis(int connectionTimeoutMillis) {
             this.connectionTimeoutMillis = connectionTimeoutMillis;
@@ -349,11 +384,11 @@ public class LDConfig {
 
 
         /**
-         * Enables or disables real-time streaming flag updates. Default: true. When set to false,
-         * an efficient caching polling mechanism is used.
+         * Enables or disables real-time streaming flag updates.  By default, streaming is enabled.
+         * When disabled, an efficient caching polling mechanism is used.
          *
-         * @param enabled
-         * @return
+         * @param enabled true if streaming should be enabled
+         * @return the builder
          */
         public LDConfig.Builder setStream(boolean enabled) {
             this.stream = enabled;
@@ -361,11 +396,15 @@ public class LDConfig {
         }
 
         /**
-         * Only relevant when setStream(false) is called. Sets the interval between feature flag updates. Default: {@link LDConfig#DEFAULT_POLLING_INTERVAL_MILLIS}
-         * Minimum value: {@link LDConfig#MIN_POLLING_INTERVAL_MILLIS}. When set, this will also set the eventsFlushIntervalMillis to the same value.
+         * Sets the interval in between feature flag updates, when streaming mode is disabled.
+         * This is ignored unless {@link #setStream(boolean)} is set to {@code true}. When set, it
+         * will also change the default value for {@link #setEventsFlushIntervalMillis(int)} to the
+         * same value.
+         * <p>
+         * The default value is {@link LDConfig#DEFAULT_POLLING_INTERVAL_MILLIS}.
          *
-         * @param pollingIntervalMillis
-         * @return
+         * @param pollingIntervalMillis the feature flag polling interval, in milliseconds
+         * @return the builder
          */
         public LDConfig.Builder setPollingIntervalMillis(int pollingIntervalMillis) {
             this.pollingIntervalMillis = pollingIntervalMillis;
@@ -373,10 +412,12 @@ public class LDConfig {
         }
 
         /**
-         * Sets the interval in milliseconds that twe will poll for flag updates when your app is in the background. Default:
-         * {@link LDConfig#DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS}
+         * Sets how often the client will poll for flag updates when your application is in the background.
+         * <p>
+         * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS}.
          *
-         * @param backgroundPollingIntervalMillis
+         * @param backgroundPollingIntervalMillis the feature flag polling interval when in the background,
+         *                                        in milliseconds
          */
         public LDConfig.Builder setBackgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
             this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
@@ -384,9 +425,11 @@ public class LDConfig {
         }
 
         /**
-         * Disables feature flag updates when your app is in the background. Default: false
+         * Sets whether feature flag updates should be disabled when your app is in the background.
+         * <p>
+         * The default value is false (flag updates <i>will</i> be done in the background).
          *
-         * @param disableBackgroundUpdating
+         * @param disableBackgroundUpdating true if the client should skip updating flags when in the background
          */
         public LDConfig.Builder setDisableBackgroundUpdating(boolean disableBackgroundUpdating) {
             this.disableBackgroundUpdating = disableBackgroundUpdating;
@@ -394,11 +437,15 @@ public class LDConfig {
         }
 
         /**
-         * Disables all network calls from the LaunchDarkly Client. Once the client has been created,
-         * use the {@link LDClient#setOffline()} method to disable network calls. Default: false
+         * Disables all network calls from the LaunchDarkly client.
+         * <p>
+         * This can also be specified after the client has been created, using
+         * {@link LDClientInterface#setOffline()}.
+         * <p>
+         * The default value is true (the client will make network calls).
          *
-         * @param offline
-         * @return
+         * @param offline true if the client should run in offline mode
+         * @return the builder
          */
         public LDConfig.Builder setOffline(boolean offline) {
             this.offline = offline;
@@ -407,17 +454,39 @@ public class LDConfig {
 
         /**
          * If enabled, events to the server will be created containing the entire User object.
-         * If disabled, events to the server will be created without the entire User object, including only the userKey instead.
+         * If disabled, events to the server will be created without the entire User object, including only the user key instead;
+         * the rest of the user properties will still be included in Identify events.
+         * <p>
          * Defaults to false in order to reduce network bandwidth.
          *
-         * @param inlineUsersInEvents
-         * @return
+         * @param inlineUsersInEvents true if all user properties should be included in events
+         * @return the builder
          */
         public LDConfig.Builder setInlineUsersInEvents(boolean inlineUsersInEvents) {
             this.inlineUsersInEvents = inlineUsersInEvents;
             return this;
         }
 
+        /**
+         * If enabled, LaunchDarkly will provide additional information about how flag values were
+         * calculated. The additional information will then be available through the client's
+         * "detail" methods ({@link LDClientInterface#boolVariationDetail(String, boolean)}, etc.).
+         *
+         * Since this increases the size of network requests, the default is false (detail
+         * information will not be sent).
+         *
+         * @param evaluationReasons  true if detail/reason information should be made available
+         * @return the builder
+         */
+        public LDConfig.Builder setEvaluationReasons(boolean evaluationReasons) {
+            this.evaluationReasons = evaluationReasons;
+            return this;
+        }
+
+        /**
+         * Returns the configured {@link LDConfig} object.
+         * @return the configuration
+         */
         public LDConfig build() {
             if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
@@ -474,7 +543,8 @@ public class LDConfig {
                     useReport,
                     allAttributesPrivate,
                     privateAttributeNames,
-                    inlineUsersInEvents);
+                    inlineUsersInEvents,
+                    evaluationReasons);
         }
     }
 }
