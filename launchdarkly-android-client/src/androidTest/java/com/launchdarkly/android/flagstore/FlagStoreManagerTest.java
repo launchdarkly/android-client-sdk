@@ -55,13 +55,23 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void deletesOlderThanLastFiveStoredUsers() {
+    public void deletesOlderThanLastFiveStoredUsers() throws InterruptedException {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore oldestStore = strictMock(FlagStore.class);
         final FlagStore fillerStore = strictMock(FlagStore.class);
         final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
         final Capture<String> oldestIdentifier = newCapture();
         final int[] oldestCountBox = {0};
+        final FlagStoreFactory delegate = new FlagStoreFactory() {
+            @Override
+            public FlagStore createFlagStore(@NonNull String identifier) {
+                if (identifier.equals(oldestIdentifier.getValue())) {
+                    oldestCountBox[0]++;
+                    return oldestStore;
+                }
+                return fillerStore;
+            }
+        };
 
         checkOrder(fillerStore, false);
         fillerStore.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
@@ -74,40 +84,25 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         expectLastCall().anyTimes();
         oldestStore.unregisterOnStoreUpdatedListener();
         expectLastCall().anyTimes();
-        expect(mockCreate.createFlagStore(anyString())).andReturn(fillerStore);
-        expect(mockCreate.createFlagStore(anyString())).andReturn(fillerStore);
-        expect(mockCreate.createFlagStore(anyString())).andReturn(fillerStore);
-        expect(mockCreate.createFlagStore(anyString())).andReturn(fillerStore);
-        expect(mockCreate.createFlagStore(anyString())).andDelegateTo(new FlagStoreFactory() {
-            @Override
-            public FlagStore createFlagStore(@NonNull String identifier) {
-                if (identifier.equals(oldestIdentifier.getValue())) {
-                    oldestCountBox[0]++;
-                    return oldestStore;
-                }
-                return fillerStore;
-            }
-        });
-        expect(mockCreate.createFlagStore(anyString())).andDelegateTo(new FlagStoreFactory() {
-            @Override
-            public FlagStore createFlagStore(@NonNull String identifier) {
-                if (identifier.equals(oldestIdentifier.getValue())) {
-                    oldestCountBox[0]++;
-                    return oldestStore;
-                }
-                return fillerStore;
-            }
-        });
+        expect(mockCreate.createFlagStore(anyString())).andDelegateTo(delegate).times(6);
         oldestStore.delete();
         expectLastCall();
 
         replayAll();
 
+        // Unfortunately we need to use Thread.sleep() to stagger the loading of users for this test
+        // otherwise the millisecond precision is not good enough to guarantee an ordering of the
+        // users for removing the oldest.
         manager.switchToUser("oldest");
+        Thread.sleep(2);
         manager.switchToUser("fourth");
+        Thread.sleep(2);
         manager.switchToUser("third");
+        Thread.sleep(2);
         manager.switchToUser("second");
+        Thread.sleep(2);
         manager.switchToUser("first");
+        Thread.sleep(2);
         manager.switchToUser("new");
 
         verifyAll();

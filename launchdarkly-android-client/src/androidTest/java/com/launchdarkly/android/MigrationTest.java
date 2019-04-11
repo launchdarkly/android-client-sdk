@@ -5,11 +5,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.support.test.rule.ActivityTestRule;
 
-import static com.launchdarkly.android.Migration.getUserKeysPre_2_6;
-import static com.launchdarkly.android.Migration.getUserKeys_2_6;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 import com.google.common.collect.Multimap;
 import com.launchdarkly.android.test.TestActivity;
 
@@ -20,6 +15,11 @@ import org.junit.Test;
 import java.io.File;
 import java.util.ArrayList;
 
+import static com.launchdarkly.android.Migration.getUserKeysPre_2_6;
+import static com.launchdarkly.android.Migration.getUserKeys_2_6;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 public class MigrationTest {
 
     private static final String FAKE_MOB_KEY = "mob-fakemob6-key9-fake-mob0-keyfakemob22";
@@ -27,6 +27,9 @@ public class MigrationTest {
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
+
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     private Application getApplication() {
         return activityTestRule.getActivity().getApplication();

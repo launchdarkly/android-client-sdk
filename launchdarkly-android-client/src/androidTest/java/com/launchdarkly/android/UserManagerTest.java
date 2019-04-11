@@ -41,6 +41,9 @@ public class UserManagerTest extends EasyMockSupport {
             new ActivityTestRule<>(TestActivity.class, false, true);
 
     @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+
+    @Rule
     public EasyMockRule easyMockRule = new EasyMockRule(this);
 
     @SuppressWarnings("unused")

@@ -8,8 +8,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.EvaluationReason;
+import com.launchdarkly.android.TimberLoggingRule;
 import com.launchdarkly.android.gson.GsonCache;
 
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -33,6 +35,9 @@ public class FlagTest {
             .put(EvaluationReason.prerequisiteFailed("flag"), "{\"kind\": \"PREREQUISITE_FAILED\", \"prerequisiteKey\": \"flag\"}")
             .put(EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND), "{\"kind\": \"ERROR\", \"errorKind\": \"FLAG_NOT_FOUND\"}")
             .build();
+
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void keyIsSerialized() {

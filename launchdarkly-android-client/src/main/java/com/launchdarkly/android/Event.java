@@ -41,7 +41,7 @@ class GenericEvent extends Event {
 class IdentifyEvent extends GenericEvent {
 
     IdentifyEvent(LDUser user) {
-        super("identify", user.getKeyAsString(), user);
+        super("identify", user.getKey(), user);
     }
 }
 

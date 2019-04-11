@@ -140,6 +140,9 @@ class Migration {
     static ArrayList<String> getUserKeysPre_2_6(Application application, LDConfig config) {
         File directory = new File(application.getFilesDir().getParent() + "/shared_prefs/");
         File[] files = directory.listFiles();
+        if (files == null) {
+            return new ArrayList<>();
+        }
         ArrayList<String> filenames = new ArrayList<>();
         for (File file : files) {
             if (file.isFile())

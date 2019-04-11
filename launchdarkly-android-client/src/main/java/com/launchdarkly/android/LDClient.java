@@ -278,7 +278,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (config.inlineUsersInEvents()) {
             sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data));
         } else {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKeyAsString(), data));
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data));
         }
     }
 
@@ -445,7 +445,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         updateSummaryEvents(flagKey, flag, valueJson, fallbackJson);
         sendFlagRequestEvent(flagKey, flag, valueJson, fallbackJson, includeReasonInEvent ? result.getReason() : null);
-        Timber.d("returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKeyAsString());
+        Timber.d("returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKey());
         return result;
     }
 
@@ -600,7 +600,7 @@ public class LDClient implements LDClientInterface, Closeable {
             if (config.inlineUsersInEvents()) {
                 sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation, reason));
             } else {
-                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKeyAsString(), value, fallback, version, variation, reason));
+                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKey(), value, fallback, version, variation, reason));
             }
         } else {
             Long debugEventsUntilDate = flag.getDebugEventsUntilDate();

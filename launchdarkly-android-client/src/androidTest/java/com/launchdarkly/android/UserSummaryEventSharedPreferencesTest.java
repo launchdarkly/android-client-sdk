@@ -30,6 +30,9 @@ public class UserSummaryEventSharedPreferencesTest {
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
 
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+
     private LDClient ldClient;
     private LDConfig ldConfig;
     private LDUser ldUser;
