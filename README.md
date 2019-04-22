@@ -41,23 +41,12 @@ Check out the included example app, or follow things here:
 	```
 
 ## ProGuard Config
-If you're using ProGuard add these lines to your config:
 
-```
--keep class com.launchdarkly.android.** { *; }
--keep class org.apache.http.** { *; }
--dontwarn okio.**
--dontwarn okhttp3.**
--dontwarn org.apache.http.**
--dontwarn org.slf4j.**
--dontwarn com.google.common.**
--dontwarn java.nio.file.*
--dontwarn javax.annotation.**
--dontwarn sun.misc.Unsafe
--dontwarn java.lang.ClassValue
--dontwarn com.google.j2objc.annotations.Weak
--dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
-```
+If you're using ProGuard, the configuration for the Android SDK should
+be automatically included from the `aar` artifact. If this is not the
+case for your build please include the Proguard configuration lines from
+[`consumer-proguard-rules.pro`](launchdarkly-android-client/consumer-proguard-rules.pro)
+into your proguard file.
 
 ## Feature Flag Updating
 The LaunchDarkly Android SDK defaults to what we have found to be the best combination of low latency updates and minimal battery drain:
