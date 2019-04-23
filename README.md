@@ -40,11 +40,12 @@ Check out the included example app, or follow things here:
    ldClient.identify(user);
 	```
 
-## ProGuard Config
+## ProGuard/R8 Config
 
-If you're using ProGuard, the configuration for the Android SDK should
-be automatically included from the `aar` artifact. If this is not the
-case for your build please include the Proguard configuration lines from
+If you're using ProGuard or R8, the configuration for the Android SDK
+should be automatically included from the `aar` artifact. If this is
+not the case for your build please include the Proguard configuration
+lines from
 [`consumer-proguard-rules.pro`](launchdarkly-android-client/consumer-proguard-rules.pro)
 into your proguard file.
 
