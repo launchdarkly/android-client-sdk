@@ -84,7 +84,7 @@ Example config with streaming disabled and custom polling intervals:
 Learn more
 ----------
 
-Check out our [documentation](http://docs.launchdarkly.com) for in-depth instructions on configuring and using LaunchDarkly. You can also head straight to the [complete reference guide for this SDK](http://docs.launchdarkly.com/docs/android-sdk-reference) or our [Javadocs](http://launchdarkly.github.io/android-client/).
+Check out our [documentation](http://docs.launchdarkly.com) for in-depth instructions on configuring and using LaunchDarkly. You can also head straight to the [complete reference guide for this SDK](http://docs.launchdarkly.com/docs/android-sdk-reference) or our [Javadocs](http://launchdarkly.github.io/android-client-sdk/).
 
 ## Testing
 Much of the behavior we want to assert is around complicated device state changes such as
