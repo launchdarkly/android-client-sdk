@@ -470,7 +470,7 @@ public class LDConfig {
         /**
          * If enabled, LaunchDarkly will provide additional information about how flag values were
          * calculated. The additional information will then be available through the client's
-         * "detail" methods ({@link LDClientInterface#boolVariationDetail(String, boolean)}, etc.).
+         * "detail" methods ({@link LDClientInterface#boolVariationDetail(String, Boolean)}, etc.).
          *
          * Since this increases the size of network requests, the default is false (detail
          * information will not be sent).
@@ -515,8 +515,6 @@ public class LDConfig {
             if (eventsFlushIntervalMillis == 0) {
                 eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
             }
-
-            PollingUpdater.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
 
             HashMap<String, String> mobileKeys;
             if (secondaryMobileKeys == null) {

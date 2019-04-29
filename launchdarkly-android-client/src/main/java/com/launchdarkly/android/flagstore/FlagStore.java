@@ -1,5 +1,6 @@
 package com.launchdarkly.android.flagstore;
 
+import java.util.Collection;
 import java.util.List;
 
 import javax.annotation.Nullable;
@@ -63,11 +64,11 @@ public interface FlagStore {
     void clearAndApplyFlagUpdates(List<? extends FlagUpdate> flagUpdates);
 
     /**
-     * Gets a list of all flags currently in the store.
+     * Gets all flags currently in the store.
      *
-     * @return The List of current Flags.
+     * @return A collection of the stored Flags.
      */
-    List<Flag> getAllFlags();
+    Collection<Flag> getAllFlags();
 
     /**
      * Register a listener to be called on any updates to the store. If a listener is already

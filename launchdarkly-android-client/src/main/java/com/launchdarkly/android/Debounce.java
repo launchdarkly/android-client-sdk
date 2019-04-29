@@ -1,20 +1,16 @@
 package com.launchdarkly.android;
 
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
-
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
  * Created by jkodumal on 9/18/17.
  */
 public class Debounce {
-
-    private volatile ListenableFuture<Void> inFlight;
     private volatile Callable<Void> pending;
-    private ListeningExecutorService service = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+    private volatile Callable<Void> inFlight = null;
+    private final ExecutorService service = Executors.newSingleThreadExecutor();
 
     public synchronized void call(Callable<Void> task) {
         pending = task;
@@ -28,15 +24,20 @@ public class Debounce {
         }
 
         if (inFlight == null) {
-            inFlight = service.submit(pending);
-            pending = null;
-            inFlight.addListener(new Runnable() {
+            inFlight = pending;
+            service.submit(new Callable<Void>() {
                 @Override
-                public void run() {
-                    inFlight = null;
-                    schedulePending();
+                public Void call() throws Exception {
+                    try {
+                        inFlight.call();
+                    } finally {
+                        inFlight = null;
+                        schedulePending();
+                    }
+                    return null;
                 }
-            }, MoreExecutors.directExecutor());
+            });
+            pending = null;
         }
     }
 

@@ -9,7 +9,6 @@ import android.os.SystemClock;
 
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import timber.log.Timber;
@@ -19,34 +18,19 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 
 public class PollingUpdater extends BroadcastReceiver {
 
-    // This is set in com.launchdarkly.android.LDConfig.Builder.build()
-    static int backgroundPollingIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
+    private static int backgroundPollingIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
+
+    synchronized static void setBackgroundPollingIntervalMillis(int backgroundPollingInterval) {
+        backgroundPollingIntervalMillis = backgroundPollingInterval;
+    }
 
     @Override
     public void onReceive(Context context, Intent intent) {
         try {
-            if (isInternetConnected(context)) {
-                Timber.d("onReceive connected to the internet!");
-                Set<String> environments = LDClient.getEnvironmentNames();
-                for (String environment : environments) {
-                    if (!isClientConnected(context, environment)) {
-                        Timber.d("Skipping offline environment: %s", environment);
-                        continue;
-                    }
-                    UserManager userManager = LDClient.getForMobileKey(environment).getUserManager();
-                    if (userManager == null) {
-                        Timber.e("UserManager singleton was accessed before it was initialized! doing nothing");
-                        continue;
-                    }
-                    userManager.updateCurrentUser().get(15, TimeUnit.SECONDS);
-                }
-            } else {
-                Timber.d("onReceive with no internet connection! Skipping fetch.");
+            Set<String> environments = LDClient.getEnvironmentNames();
+            for (String environment : environments) {
+                 LDClient.getForMobileKey(environment).triggerPoll();
             }
-        } catch (InterruptedException | ExecutionException e) {
-            Timber.e(e, "Exception caught when awaiting update");
-        } catch (TimeoutException e) {
-            Timber.e(e, "Feature Flag update timed out");
         } catch (LaunchDarklyException e) {
             Timber.e(e, "Exception when getting client");
         }

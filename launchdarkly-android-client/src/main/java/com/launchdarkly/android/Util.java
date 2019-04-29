@@ -1,12 +1,20 @@
 package com.launchdarkly.android;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+
+import com.launchdarkly.android.gson.GsonCache;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import timber.log.Timber;
 
-class Util {
+public class Util {
 
     /**
      * Looks at the Android device status to determine if the device is online.
@@ -51,5 +59,41 @@ class Util {
             Timber.e(e, "Exception caught when getting LDClient");
             return false;
         }
+    }
+
+    // Android API v16 doesn't support Objects.equals()
+    public static <T> boolean objectsEqual(@Nullable T a, @Nullable T b) {
+        return a == b || (a != null && a.equals(b));
+    }
+
+    @NonNull
+    public static <T> Map<String, T> sharedPrefsGetAllGson(SharedPreferences sharedPreferences, Class<T> typeOf) {
+        Map<String, ?> flags = sharedPreferences.getAll();
+        Map<String, T> deserialized = new HashMap<>();
+        for (Map.Entry<String, ?> entry : flags.entrySet()) {
+            if (entry.getValue() instanceof String) {
+                try {
+                    T obj = GsonCache.getGson().fromJson((String) entry.getValue(), typeOf);
+                    deserialized.put(entry.getKey(), obj);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return deserialized;
+    }
+
+    public static <T> T sharedPrefsGetGson(SharedPreferences sharedPreferences, Class<T> typeOf, String key) {
+        String data = sharedPreferences.getString(key, null);
+        if (data == null) return null;
+        try {
+            return GsonCache.getGson().fromJson(data, typeOf);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    public interface ResultCallback<T> {
+        void onSuccess(T result);
+        void onError(Throwable e);
     }
 }

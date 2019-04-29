@@ -1,5 +1,7 @@
 package com.launchdarkly.android.flagstore;
 
+import android.util.Pair;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -10,6 +12,8 @@ import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -116,7 +120,8 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         expect(mockCreate.updateFlag(eqFlag(null))).andReturn(initialFlag);
 
         final StoreUpdatedListener mockUpdateListener = strictMock(StoreUpdatedListener.class);
-        mockUpdateListener.onStoreUpdate("flag", FlagStoreUpdateType.FLAG_CREATED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_CREATED);
+        mockUpdateListener.onStoreUpdate(Collections.singletonList(update));
 
         replayAll();
 
@@ -145,7 +150,8 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         expect(mockUpdate.updateFlag(eqFlag(initialFlag))).andReturn(updatedFlag);
 
         final StoreUpdatedListener mockUpdateListener = strictMock(StoreUpdatedListener.class);
-        mockUpdateListener.onStoreUpdate("flag", FlagStoreUpdateType.FLAG_UPDATED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_UPDATED);
+        mockUpdateListener.onStoreUpdate(Collections.singletonList(update));
 
         replayAll();
 
@@ -172,7 +178,8 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         expect(mockDelete.updateFlag(eqFlag(initialFlag))).andReturn(null);
 
         final StoreUpdatedListener mockUpdateListener = strictMock(StoreUpdatedListener.class);
-        mockUpdateListener.onStoreUpdate("flag", FlagStoreUpdateType.FLAG_DELETED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_DELETED);
+        mockUpdateListener.onStoreUpdate(Collections.singletonList(update));
 
         replayAll();
 
@@ -238,7 +245,7 @@ public abstract class FlagStoreTest extends EasyMockSupport {
             flagStore.applyFlagUpdate(flag);
         }
 
-        final List<Flag> allFlags = flagStore.getAllFlags();
+        final Collection<Flag> allFlags = flagStore.getAllFlags();
         assertEquals(testFlags.size(), flagStore.getAllFlags().size());
         int matchCount = 0;
         for (Flag flag : testFlags) {

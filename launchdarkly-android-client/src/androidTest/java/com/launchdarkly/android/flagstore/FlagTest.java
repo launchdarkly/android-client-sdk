@@ -1,7 +1,5 @@
 package com.launchdarkly.android.flagstore;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -11,10 +9,12 @@ import com.launchdarkly.android.EvaluationReason;
 import com.launchdarkly.android.TimberLoggingRule;
 import com.launchdarkly.android.gson.GsonCache;
 
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,17 +27,21 @@ import static org.junit.Assert.assertTrue;
 public class FlagTest {
     private static final Gson gson = GsonCache.getGson();
 
-    private static final Map<EvaluationReason, String> TEST_REASONS = ImmutableMap.<EvaluationReason, String>builder()
-            .put(EvaluationReason.off(), "{\"kind\": \"OFF\"}")
-            .put(EvaluationReason.fallthrough(), "{\"kind\": \"FALLTHROUGH\"}")
-            .put(EvaluationReason.targetMatch(), "{\"kind\": \"TARGET_MATCH\"}")
-            .put(EvaluationReason.ruleMatch(1, "id"), "{\"kind\": \"RULE_MATCH\", \"ruleIndex\": 1, \"ruleId\": \"id\"}")
-            .put(EvaluationReason.prerequisiteFailed("flag"), "{\"kind\": \"PREREQUISITE_FAILED\", \"prerequisiteKey\": \"flag\"}")
-            .put(EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND), "{\"kind\": \"ERROR\", \"errorKind\": \"FLAG_NOT_FOUND\"}")
-            .build();
+    private Map<EvaluationReason, String> TEST_REASONS;
 
     @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+
+    @Before
+    public void setUp() {
+        TEST_REASONS = new HashMap<>();
+        TEST_REASONS.put(EvaluationReason.off(), "{\"kind\": \"OFF\"}");
+        TEST_REASONS.put(EvaluationReason.fallthrough(), "{\"kind\": \"FALLTHROUGH\"}");
+        TEST_REASONS.put(EvaluationReason.targetMatch(), "{\"kind\": \"TARGET_MATCH\"}");
+        TEST_REASONS.put(EvaluationReason.ruleMatch(1, "id"), "{\"kind\": \"RULE_MATCH\", \"ruleIndex\": 1, \"ruleId\": \"id\"}");
+        TEST_REASONS.put(EvaluationReason.prerequisiteFailed("flag"), "{\"kind\": \"PREREQUISITE_FAILED\", \"prerequisiteKey\": \"flag\"}");
+        TEST_REASONS.put(EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND), "{\"kind\": \"ERROR\", \"errorKind\": \"FLAG_NOT_FOUND\"}");
+    }
 
     @Test
     public void keyIsSerialized() {
@@ -248,7 +252,8 @@ public class FlagTest {
     public void emptyPropertiesAreNotSerialized() {
         final Flag r = new FlagBuilder("flag").value(new JsonPrimitive("yes")).version(99).flagVersion(100).trackEvents(false).build();
         final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
-        assertEquals(ImmutableSet.of("key", "trackEvents", "value", "version", "flagVersion"), json.keySet());
+        assertEquals(5, json.keySet().size());
+        assertTrue(json.keySet().containsAll(Arrays.asList("key", "trackEvents", "value", "version", "flagVersion")));
     }
 
     @Test

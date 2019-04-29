@@ -1,6 +1,8 @@
 package com.launchdarkly.example;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
@@ -11,13 +13,21 @@ import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.gson.JsonNull;
+import com.launchdarkly.android.LDAllFlagsListener;
+import com.launchdarkly.android.ConnectionInformation;
 import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
+import com.launchdarkly.android.LDFailure;
+import com.launchdarkly.android.LDStatusListener;
 import com.launchdarkly.android.LDUser;
 
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +38,32 @@ import timber.log.Timber;
 public class MainActivity extends AppCompatActivity {
 
     private LDClient ldClient;
+    private LDStatusListener ldStatusListener;
+    private LDAllFlagsListener allFlagsListener;
+
+    private void updateStatusString(final ConnectionInformation connectionInformation) {
+        if (Looper.myLooper() != MainActivity.this.getMainLooper()) {
+            (new Handler(MainActivity.this.getMainLooper())).post(new Runnable() {
+                @Override
+                public void run() {
+                    updateStatusString(connectionInformation);
+                }
+            });
+        } else {
+            TextView connection = MainActivity.this.findViewById(R.id.connection_status);
+            Long lastSuccess = connectionInformation.getLastSuccessfulConnection();
+            Long lastFailure = connectionInformation.getLastFailedConnection();
+
+            String result = String.format(Locale.US, "Mode: %s\nSuccess at: %s\nFailure at: %s\nFailure type: %s",
+                    connectionInformation.getConnectionMode().toString(),
+                    lastSuccess == null ? "Never" : new Date(lastSuccess).toString(),
+                    lastFailure == null ? "Never" : new Date(lastFailure).toString(),
+                    lastFailure != null ?
+                            connectionInformation.getLastFailure().getFailureType()
+                            : "");
+            connection.setText(result);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,6 +75,7 @@ public class MainActivity extends AppCompatActivity {
         setupTrackButton();
         setupIdentifyButton();
         setupOfflineSwitch();
+        setupListeners();
 
         LDConfig ldConfig = new LDConfig.Builder()
                 .setMobileKey("MOBILE_KEY")
@@ -52,9 +89,49 @@ public class MainActivity extends AppCompatActivity {
         Future<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
         try {
             ldClient = initFuture.get(10, TimeUnit.SECONDS);
+            updateStatusString(ldClient.getConnectionInformation());
+            ldClient.registerStatusListener(ldStatusListener);
+            ldClient.registerAllFlagsListener(allFlagsListener);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Timber.e(e, "Exception when awaiting LaunchDarkly Client initialization");
         }
+    }
+
+    private void setupListeners() {
+        ldStatusListener = new LDStatusListener() {
+            @Override
+            public void onConnectionModeChanged(final ConnectionInformation connectionInformation) {
+                updateStatusString(connectionInformation);
+            }
+
+            @Override
+            public void onInternalFailure(final LDFailure ldFailure) {
+                new Handler(MainActivity.this.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, ldFailure.toString(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+                updateStatusString(ldClient.getConnectionInformation());
+            }
+        };
+
+        allFlagsListener = new LDAllFlagsListener() {
+            @Override
+            public void onChange(final List<String> flagKey) {
+                new Handler(MainActivity.this.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        StringBuilder flags = new StringBuilder("Updated flags: ");
+                        for (String flag : flagKey) {
+                            flags.append(flag).append(" ");
+                        }
+                        Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+                updateStatusString(ldClient.getConnectionInformation());
+            }
+        };
     }
 
     private void setupFlushButton() {

@@ -57,7 +57,6 @@ public class MultiEnvironmentLDClientTest {
     @Test
     public void testOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
-        ldClient.clearSummaryEventSharedPreferences();
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -70,15 +69,12 @@ public class MultiEnvironmentLDClientTest {
         JsonObject expectedJson = new JsonObject();
         expectedJson.addProperty("field", "value");
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
-
-        ldClient.clearSummaryEventSharedPreferences();
     }
 
     @UiThreadTest
     @Test
     public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
-        ldClient.clearSummaryEventSharedPreferences();
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -88,8 +84,6 @@ public class MultiEnvironmentLDClientTest {
         assertNull(ldClient.floatVariation("floatFlag", null));
         assertNull(ldClient.intVariation("intFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
-
-        ldClient.clearSummaryEventSharedPreferences();
     }
 
     @UiThreadTest

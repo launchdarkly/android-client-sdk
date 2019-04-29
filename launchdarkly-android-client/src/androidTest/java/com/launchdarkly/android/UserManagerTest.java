@@ -1,17 +1,18 @@
 package com.launchdarkly.android;
 
+import android.os.ConditionVariable;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.test.TestActivity;
 
+import org.easymock.Capture;
 import org.easymock.EasyMockRule;
 import org.easymock.EasyMockSupport;
+import org.easymock.IAnswer;
 import org.easymock.Mock;
 import org.junit.Before;
 import org.junit.Rule;
@@ -22,15 +23,16 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 
-import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertFalse;
 import static junit.framework.Assert.assertNotNull;
 import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
-import static org.easymock.EasyMock.expect;
+import static org.easymock.EasyMock.capture;
+import static org.easymock.EasyMock.eq;
+import static org.easymock.EasyMock.expectLastCall;
 import static org.easymock.EasyMock.reset;
 
 @RunWith(AndroidJUnit4.class)
@@ -58,8 +60,51 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void testFailedFetchThrowsException() throws InterruptedException {
+    public void testFailedFetchThrowsException() {
         setUserAndFailToFetchFlags("userKey");
+    }
+
+    private class AwaitableCallback<T> implements Util.ResultCallback<T> {
+        private volatile Throwable errResult = null;
+        private volatile T result = null;
+        private ConditionVariable state = new ConditionVariable();
+
+        @Override
+        public void onSuccess(T result) {
+            this.result = result;
+            state.open();
+        }
+
+        @Override
+        public void onError(Throwable e) {
+            errResult = e;
+            state.open();
+        }
+
+        synchronized T await() throws ExecutionException {
+            state.block();
+            if (errResult != null) {
+                throw new ExecutionException(errResult);
+            }
+            return result;
+        }
+
+        synchronized T await(long timeoutMillis) throws ExecutionException, TimeoutException {
+            boolean opened = state.block(timeoutMillis);
+            if (!opened) {
+                throw new TimeoutException();
+            }
+            if (errResult != null) {
+                throw new ExecutionException(errResult);
+            }
+            return result;
+        }
+
+        synchronized void reset() {
+            state.close();
+            errResult = null;
+            result = null;
+        }
     }
 
     private void addSimpleFlag(JsonObject jsonObject, String flagKey, String value) {
@@ -81,15 +126,14 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void testBasicRetrieval() throws ExecutionException, InterruptedException {
+    public void testBasicRetrieval() throws ExecutionException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
-        Future<Void> future = setUser("userKey", jsonObject);
-        future.get();
+        setUserAwait("userKey", jsonObject);
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         assertEquals(2, flagStore.getAllFlags().size());
@@ -98,23 +142,23 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void testNewUserUpdatesFlags() {
+    public void testNewUserUpdatesFlags() throws ExecutionException {
         JsonObject flags = new JsonObject();
 
         String flagKey = "stringFlag";
         addSimpleFlag(flags, flagKey, "user1");
 
-        setUser("user1", flags);
+        setUserAwait("user1", flags);
         assertFlagValue(flagKey, "user1");
 
         addSimpleFlag(flags, flagKey, "user2");
 
-        setUser("user2", flags);
+        setUserAwait("user2", flags);
         assertFlagValue(flagKey, "user2");
     }
 
     @Test
-    public void testCanStoreExactly5Users() throws InterruptedException {
+    public void testCanStoreExactly5Users() throws ExecutionException {
         JsonObject flags = new JsonObject();
         String flagKey = "stringFlag";
 
@@ -124,7 +168,7 @@ public class UserManagerTest extends EasyMockSupport {
 
         for (String user : users) {
             addSimpleFlag(flags, flagKey, user);
-            setUser(user, flags);
+            setUserAwait(user, flags);
             assertFlagValue(flagKey, user);
         }
 
@@ -174,51 +218,79 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void testDeleteFlag() throws ExecutionException, InterruptedException {
+    public void testDeleteFlag() throws ExecutionException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
-        Future<Void> future = setUserClear("userKey", jsonObject);
-        future.get();
+        setUserClear("userKey", jsonObject);
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         assertEquals(2, flagStore.getAllFlags().size());
         assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
         assertEquals(expectedStringFlagValue, flagStore.getFlag("stringFlag1").getValue().getAsString());
 
-        userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}").get();
+        AwaitableCallback<Void> deleteAwait = new AwaitableCallback<>();
+        userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}", deleteAwait);
+        deleteAwait.await();
         assertNull(flagStore.getFlag("stringFlag1"));
         assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
 
-        userManager.deleteCurrentUserFlag("{\"key\":\"nonExistentFlag\",\"version\":16,\"value\":false}").get();
+        deleteAwait.reset();
+        userManager.deleteCurrentUserFlag("{\"key\":\"nonExistentFlag\",\"version\":16,\"value\":false}", deleteAwait);
+        deleteAwait.await();
     }
 
     @Test
-    public void testDeleteForInvalidResponse() throws ExecutionException, InterruptedException {
+    public void testDeleteForInvalidResponse() throws ExecutionException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
-        Future<Void> future = setUser("userKey", jsonObject);
-        future.get();
+        setUserAwait("userKey", jsonObject);
 
-        userManager.deleteCurrentUserFlag("{}").get();
+        AwaitableCallback<Void> deleteAwait = new AwaitableCallback<>();
+        userManager.deleteCurrentUserFlag("{}", deleteAwait);
+        try {
+            deleteAwait.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
+        deleteAwait.reset();
 
         //noinspection ConstantConditions
-        userManager.deleteCurrentUserFlag(null).get();
+        userManager.deleteCurrentUserFlag(null, deleteAwait);
+        try {
+            deleteAwait.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
+        deleteAwait.reset();
 
-        userManager.deleteCurrentUserFlag("abcd").get();
+        userManager.deleteCurrentUserFlag("abcd", deleteAwait);
+        try {
+            deleteAwait.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
     }
 
     @Test
-    public void testDeleteWithVersion() throws ExecutionException, InterruptedException {
-        Future<Void> future = setUserClear("userKey", new JsonObject());
-        future.get();
+    public void testDeleteWithVersion() throws ExecutionException {
+        setUserClear("userKey", new JsonObject());
 
         String json = "{\n" +
                 "  \"stringFlag1\": {\n" +
@@ -228,64 +300,84 @@ public class UserManagerTest extends EasyMockSupport {
                 "  }\n" +
                 " }";
 
-        userManager.putCurrentUserFlags(json).get();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.putCurrentUserFlags(json, awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
 
-        userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}").get();
+        userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         assertEquals("string1", flagStore.getFlag("stringFlag1").getValue().getAsString());
 
-        userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":127}").get();
+        userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":127}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         assertNull(flagStore.getFlag("stringFlag1"));
 
-        userManager.deleteCurrentUserFlag("{\"key\":\"nonExistent\",\"version\":1}").get();
+        userManager.deleteCurrentUserFlag("{\"key\":\"nonExistent\",\"version\":1}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
     }
 
     @Test
-    public void testPatchForAddAndReplaceFlags() throws ExecutionException, InterruptedException {
+    public void testPatchForAddAndReplaceFlags() throws ExecutionException {
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "stringFlag1", "string1");
         addSimpleFlag(jsonObject, "floatFlag1", 3.0f);
 
-        Future<Void> future = setUserClear("userKey", jsonObject);
-        future.get();
+        setUserClear("userKey", jsonObject);
 
-        userManager.patchCurrentUserFlags("{\"key\":\"new-flag\",\"version\":16,\"value\":false}").get();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.patchCurrentUserFlags("{\"key\":\"new-flag\",\"version\":16,\"value\":false}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         assertEquals(false, flagStore.getFlag("new-flag").getValue().getAsBoolean());
 
 
-        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":16,\"value\":\"string2\"}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":16,\"value\":\"string2\"}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         assertEquals("string2", flagStore.getFlag("stringFlag1").getValue().getAsString());
 
-        userManager.patchCurrentUserFlags("{\"key\":\"boolFlag1\",\"version\":16,\"value\":false}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"boolFlag1\",\"version\":16,\"value\":false}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         assertEquals(false, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
 
         assertEquals(3.0f, flagStore.getFlag("floatFlag1").getValue().getAsFloat());
 
-        userManager.patchCurrentUserFlags("{\"key\":\"floatFlag2\",\"version\":16,\"value\":8.0}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"floatFlag2\",\"version\":16,\"value\":8.0}", awaitableCallback);
+        awaitableCallback.await();
         assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().getAsFloat());
     }
 
     @Test
-    public void testPatchSucceedsForMissingVersionInPatch() throws ExecutionException, InterruptedException {
-        Future<Void> future = setUserClear("userKey", new JsonObject());
-        future.get();
+    public void testPatchSucceedsForMissingVersionInPatch() throws ExecutionException {
+        setUserClear("userKey", new JsonObject());
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
 
         // version does not exist in shared preferences and patch.
         // ---------------------------
         //// case 1: value does not exist in shared preferences.
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         Flag flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().getAsString());
         assertNull(flag1.getVersion());
 
         //// case 2: value exists in shared preferences without version.
-        userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}");
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
+        userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}", null);
+        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().getAsString());
         assertNull(flag1.getVersion());
@@ -293,7 +385,9 @@ public class UserManagerTest extends EasyMockSupport {
         // version does not exist in shared preferences but exists in patch.
         // ---------------------------
         //// case 1: value does not exist in shared preferences.
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().getAsString());
         assertEquals(558, (int) flag1.getVersion());
@@ -301,8 +395,10 @@ public class UserManagerTest extends EasyMockSupport {
         assertEquals(3, flag1.getVersionForEvents());
 
         //// case 2: value exists in shared preferences without version.
-        userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}");
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
+        userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}", null);
+        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().getAsString());
         assertEquals(558, (int) flag1.getVersion());
@@ -311,8 +407,10 @@ public class UserManagerTest extends EasyMockSupport {
 
         // version exists in shared preferences but does not exist in patch.
         // ---------------------------
-        userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}");
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}").get();
+        userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}", null);
+        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().getAsString());
         assertNull(flag1.getVersion());
@@ -321,8 +419,9 @@ public class UserManagerTest extends EasyMockSupport {
 
         // version exists in shared preferences and patch.
         // ---------------------------
-        userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}");
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":559,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}").get();
+        userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}", null);
+        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":559,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}", awaitableCallback);
+        awaitableCallback.await();
         flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().getAsString());
         assertEquals(559, (int) flag1.getVersion());
@@ -331,9 +430,8 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void testPatchWithVersion() throws ExecutionException, InterruptedException {
-        Future<Void> future = setUserClear("userKey", new JsonObject());
-        future.get();
+    public void testPatchWithVersion() throws ExecutionException {
+        setUserClear("userKey", new JsonObject());
 
         String json = "{\n" +
                 "  \"stringFlag1\": {\n" +
@@ -343,64 +441,98 @@ public class UserManagerTest extends EasyMockSupport {
                 "  }\n" +
                 " }";
 
-        userManager.putCurrentUserFlags(json).get();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.putCurrentUserFlags(json, awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
 
-
-        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":16,\"value\":\"string2\"}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":16,\"value\":\"string2\"}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         Flag stringFlag1 = flagStore.getFlag("stringFlag1");
         assertEquals("string1", stringFlag1.getValue().getAsString());
         assertNull(stringFlag1.getFlagVersion());
         assertEquals(125, stringFlag1.getVersionForEvents());
 
-        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":126,\"value\":\"string2\"}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":126,\"value\":\"string2\"}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         stringFlag1 = flagStore.getFlag("stringFlag1");
         assertEquals("string2", stringFlag1.getValue().getAsString());
         assertEquals(126, (int) stringFlag1.getVersion());
         assertNull(stringFlag1.getFlagVersion());
         assertEquals(126, stringFlag1.getVersionForEvents());
 
-        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":127,\"flagVersion\":3,\"value\":\"string3\"}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":127,\"flagVersion\":3,\"value\":\"string3\"}", awaitableCallback);
+        awaitableCallback.await();
+        awaitableCallback.reset();
         stringFlag1 = flagStore.getFlag("stringFlag1");
         assertEquals("string3", stringFlag1.getValue().getAsString());
         assertEquals(127, (int) stringFlag1.getVersion());
         assertEquals(3, (int) stringFlag1.getFlagVersion());
         assertEquals(3, stringFlag1.getVersionForEvents());
 
-        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag20\",\"version\":1,\"value\":\"stringValue\"}").get();
+        userManager.patchCurrentUserFlags("{\"key\":\"stringFlag20\",\"version\":1,\"value\":\"stringValue\"}", awaitableCallback);
+        awaitableCallback.await();
         Flag stringFlag20 = flagStore.getFlag("stringFlag20");
         assertEquals("stringValue", stringFlag20.getValue().getAsString());
     }
 
     @Test
-    public void testPatchForInvalidResponse() throws ExecutionException, InterruptedException {
+    public void testPatchForInvalidResponse() throws ExecutionException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
-        Future<Void> future = setUser("userKey", jsonObject);
-        future.get();
+        setUserAwait("userKey", jsonObject);
 
-        userManager.patchCurrentUserFlags("{}").get();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.patchCurrentUserFlags("{}", awaitableCallback);
+        try {
+            awaitableCallback.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
+        awaitableCallback.reset();
 
         //noinspection ConstantConditions
-        userManager.patchCurrentUserFlags(null).get();
+        userManager.patchCurrentUserFlags(null, awaitableCallback);
+        try {
+            awaitableCallback.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
+        awaitableCallback.reset();
 
-        userManager.patchCurrentUserFlags("abcd").get();
+        userManager.patchCurrentUserFlags("abcd", awaitableCallback);
+        try {
+            awaitableCallback.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
     }
 
     @Test
-    public void testPutForReplaceFlags() throws ExecutionException, InterruptedException {
+    public void testPutForReplaceFlags() throws ExecutionException {
 
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "stringFlag1", "string1");
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "floatFlag1", 3.0f);
 
-        Future<Void> future = setUser("userKey", jsonObject);
-        future.get();
+        setUserAwait("userKey", jsonObject);
 
         String json = "{\n" +
                 "  \"stringFlag1\": {\n" +
@@ -420,7 +552,9 @@ public class UserManagerTest extends EasyMockSupport {
                 "  }\n" +
                 " }";
 
-        userManager.putCurrentUserFlags(json).get();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.putCurrentUserFlags(json, awaitableCallback);
+        awaitableCallback.await();
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
 
@@ -434,62 +568,116 @@ public class UserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void testPutForInvalidResponse() throws ExecutionException, InterruptedException {
+    public void testPutForInvalidResponse() throws ExecutionException {
         String expectedStringFlagValue = "string1";
 
         JsonObject jsonObject = new JsonObject();
         addSimpleFlag(jsonObject, "boolFlag1", true);
         addSimpleFlag(jsonObject, "stringFlag1", expectedStringFlagValue);
 
-        Future<Void> future = setUser("userKey", jsonObject);
-        future.get();
+        setUserAwait("userKey", jsonObject);
 
-        userManager.putCurrentUserFlags("{}").get();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.putCurrentUserFlags("{}", awaitableCallback);
+        try {
+            awaitableCallback.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
+        awaitableCallback.reset();
 
         //noinspection ConstantConditions
-        userManager.putCurrentUserFlags(null).get();
+        userManager.putCurrentUserFlags(null, awaitableCallback);
+        try {
+            awaitableCallback.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
+        awaitableCallback.reset();
 
-        userManager.putCurrentUserFlags("abcd").get();
+        userManager.putCurrentUserFlags("abcd", awaitableCallback);
+        try {
+            awaitableCallback.await();
+        } catch (ExecutionException ex) {
+            Throwable t = ex.getCause();
+            assertTrue(t instanceof LDFailure);
+            LDFailure ldFailure = (LDFailure)t;
+            assertEquals(LDFailure.FailureType.INVALID_RESPONSE_BODY, ldFailure.getFailureType());
+        }
     }
 
-    private Future<Void> setUser(String userKey, JsonObject flags) {
+    private void setUserAwait(String userKey, final JsonObject flags) throws ExecutionException {
         LDUser user = new LDUser.Builder(userKey).build();
-        ListenableFuture<JsonObject> jsonObjectFuture = Futures.immediateFuture(flags);
-        expect(fetcher.fetch(user)).andReturn(jsonObjectFuture);
+        final Capture<Util.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
+        fetcher.fetch(eq(user), capture(callbackCapture));
+        expectLastCall().andAnswer(new IAnswer<Void>() {
+            @Override
+            public Void answer() {
+                callbackCapture.getValue().onSuccess(flags);
+                return null;
+            }
+        });
+
         replayAll();
         userManager.setCurrentUser(user);
-        Future<Void> future = userManager.updateCurrentUser();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.updateCurrentUser(awaitableCallback);
+        awaitableCallback.await();
+        verifyAll();
         reset(fetcher);
-        return future;
     }
 
-    private Future<Void> setUserClear(String userKey, JsonObject flags) {
+    private void setUserClear(String userKey, final JsonObject flags) throws ExecutionException {
         LDUser user = new LDUser.Builder(userKey).build();
-        ListenableFuture<JsonObject> jsonObjectFuture = Futures.immediateFuture(flags);
-        expect(fetcher.fetch(user)).andReturn(jsonObjectFuture);
+        final Capture<Util.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
+        fetcher.fetch(eq(user), capture(callbackCapture));
+        expectLastCall().andAnswer(new IAnswer<Void>() {
+            @Override
+            public Void answer() {
+                callbackCapture.getValue().onSuccess(flags);
+                return null;
+            }
+        });
+
         replayAll();
         userManager.setCurrentUser(user);
         userManager.getCurrentUserFlagStore().clear();
-        Future<Void> future = userManager.updateCurrentUser();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.updateCurrentUser(awaitableCallback);
+        awaitableCallback.await();
+        verifyAll();
         reset(fetcher);
-        return future;
     }
 
-    private void setUserAndFailToFetchFlags(String userKey) throws InterruptedException {
-        LaunchDarklyException expectedException = new LaunchDarklyException("Could not fetch feature flags");
-        ListenableFuture<JsonObject> failedFuture = immediateFailedFuture(expectedException);
-
+    private void setUserAndFailToFetchFlags(String userKey) {
         LDUser user = new LDUser.Builder(userKey).build();
+        final LaunchDarklyException expectedException = new LaunchDarklyException("Could not fetch feature flags");
+        final Capture<Util.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
+        fetcher.fetch(eq(user), capture(callbackCapture));
+        expectLastCall().andAnswer(new IAnswer<Void>() {
+            @Override
+            public Void answer() {
+                callbackCapture.getValue().onError(expectedException);
+                return null;
+            }
+        });
 
-        expect(fetcher.fetch(user)).andReturn(failedFuture);
         replayAll();
         userManager.setCurrentUser(user);
-        Future<Void> future = userManager.updateCurrentUser();
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        userManager.updateCurrentUser(awaitableCallback);
         try {
-            future.get();
+            awaitableCallback.await();
         } catch (ExecutionException e) {
             assertEquals(expectedException, e.getCause());
         }
+        verifyAll();
         reset(fetcher);
     }
 

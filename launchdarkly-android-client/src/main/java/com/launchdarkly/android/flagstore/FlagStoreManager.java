@@ -1,5 +1,6 @@
 package com.launchdarkly.android.flagstore;
 
+import com.launchdarkly.android.LDAllFlagsListener;
 import com.launchdarkly.android.FeatureFlagChangeListener;
 
 import java.util.Collection;
@@ -41,6 +42,20 @@ public interface FlagStoreManager {
      * @param listener The specific listener to be unregistered.
      */
     void unRegisterListener(String key, FeatureFlagChangeListener listener);
+
+    /**
+     * Register a listener to be called whenever new flag data is received.
+     *
+     * @param listener The listener to be called new flag data is received.
+     */
+    void registerAllFlagsListener(LDAllFlagsListener listener);
+
+    /**
+     * Unregister a listener previously registered with registerAllFlagsListener.
+     *
+     * @param listener The specific listener to be unregistered.
+     */
+    void unregisterAllFlagsListener(LDAllFlagsListener listener);
 
     /**
      * Gets all the listeners currently registered to the given key.

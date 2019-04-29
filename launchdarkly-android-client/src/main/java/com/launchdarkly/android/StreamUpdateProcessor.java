@@ -3,8 +3,6 @@ package com.launchdarkly.android;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.SettableFuture;
 import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
@@ -13,7 +11,6 @@ import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import java.net.URI;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Headers;
 import okhttp3.MediaType;
@@ -22,7 +19,7 @@ import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.GSON;
 
-class StreamUpdateProcessor implements UpdateProcessor {
+class StreamUpdateProcessor {
 
     private static final String METHOD_REPORT = "REPORT";
 
@@ -36,27 +33,24 @@ class StreamUpdateProcessor implements UpdateProcessor {
     private EventSource es;
     private final LDConfig config;
     private final UserManager userManager;
-    private final AtomicBoolean initialized = new AtomicBoolean(false);
     private volatile boolean running = false;
-    private SettableFuture<Void> initFuture;
-    private Debounce queue;
+    private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
     private final String environmentName;
+    private final Util.ResultCallback<Void> notifier;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, Util.ResultCallback<Void> notifier) {
         this.config = config;
         this.userManager = userManager;
         this.environmentName = environmentName;
+        this.notifier = notifier;
         queue = new Debounce();
-
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 
-    public synchronized ListenableFuture<Void> start() {
+    synchronized void start() {
         if (!running && !connection401Error) {
-            initFuture = SettableFuture.create();
-            initialized.set(false);
             stop();
             Timber.d("Starting.");
             Headers headers = new Headers.Builder()
@@ -78,23 +72,9 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
                 @Override
                 public void onMessage(final String name, MessageEvent event) {
-                    Timber.d("onMessage: name: %s", name);
                     final String eventData = event.getData();
-                    Callable<Void> updateCurrentUserFunction = new Callable<Void>() {
-                        @Override
-                        public Void call() {
-                            Timber.d("consumeThis: event: %s", eventData);
-                            if (!initialized.getAndSet(true)) {
-                                initFuture.setFuture(handle(name, eventData));
-                                Timber.i("Initialized LaunchDarkly streaming connection");
-                            } else {
-                                handle(name, eventData);
-                            }
-                            return null;
-                        }
-                    };
-
-                    queue.call(updateCurrentUserFunction);
+                    Timber.d("onMessage: %s: %s", name, eventData);
+                    handle(name, eventData, notifier);
                 }
 
                 @Override
@@ -110,20 +90,21 @@ class StreamUpdateProcessor implements UpdateProcessor {
                         if (code >= 400 && code < 500) {
                             Timber.e("Encountered non-retriable error: %s. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
-                            if (!initialized.getAndSet(true)) {
-                                initFuture.setException(t);
-                            }
+                            notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
                                 connection401Error = true;
                                 try {
-                                    LDClient clientSingleton = LDClient.getForMobileKey(environmentName);
-                                    clientSingleton.setOffline();
+                                    LDClient.getForMobileKey(environmentName).setOffline();
                                 } catch (LaunchDarklyException e) {
                                     Timber.e(e, "Client unavailable to be set offline");
                                 }
                             }
                             stop();
+                        } else {
+                            notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, true));
                         }
+                    } else {
+                        notifier.onError(new LDFailure("Network error in stream connection", t, LDFailure.FailureType.NETWORK_FAILURE));
                     }
                 }
             };
@@ -143,18 +124,15 @@ class StreamUpdateProcessor implements UpdateProcessor {
 
             running = true;
         }
-        return initFuture;
     }
 
     @NonNull
     private RequestBody getRequestBody(@Nullable LDUser user) {
-
         Timber.d("Attempting to report user in stream");
         return RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), GSON.toJson(user));
     }
 
     private URI getUri(@Nullable LDUser user) {
-
         String str = config.getStreamUri().toString() + "/meval";
 
         if (!config.isUseReport() && user != null) {
@@ -168,26 +146,35 @@ class StreamUpdateProcessor implements UpdateProcessor {
         return URI.create(str);
     }
 
-    private ListenableFuture<Void> handle(String name, String eventData) {
+    private void handle(final String name, final String eventData,
+                        @NonNull final Util.ResultCallback<Void> onCompleteListener) {
         switch (name.toLowerCase()) {
+            case PUT: userManager.putCurrentUserFlags(eventData, onCompleteListener); break;
+            case PATCH: userManager.patchCurrentUserFlags(eventData, onCompleteListener); break;
+            case DELETE: userManager.deleteCurrentUserFlag(eventData, onCompleteListener); break;
             case PING:
-                return userManager.updateCurrentUser();
-            case PUT:
-                return userManager.putCurrentUserFlags(eventData);
-            case PATCH:
-                return userManager.patchCurrentUserFlags(eventData);
-            case DELETE:
-                return userManager.deleteCurrentUserFlag(eventData);
+                // We debounce ping requests as they trigger a separate asynchronous request for the
+                // flags, overriding all flag values.
+                Callable<Void> pingDebounceFunction = new Callable<Void>() {
+                    @Override
+                    public Void call() {
+                        userManager.updateCurrentUser(onCompleteListener);
+                        return null;
+                    }
+                };
+                queue.call(pingDebounceFunction);
+                break;
             default:
                 Timber.d("Found an unknown stream protocol: %s", name);
-                return SettableFuture.create();
+                onCompleteListener.onError(new LDFailure("Unknown Stream Element Type", null, LDFailure.FailureType.UNEXPECTED_STREAM_ELEMENT_TYPE));
         }
     }
 
-    public synchronized void stop() {
+    synchronized void stop() {
         Timber.d("Stopping.");
         if (es != null) {
-            // We do this in a separate thread because closing the stream involves a network operation and we don't want to do a network operation on the main thread.
+            // We do this in a separate thread because closing the stream involves a network
+            // operation and we don't want to do a network operation on the main thread.
             executor.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -206,21 +193,14 @@ class StreamUpdateProcessor implements UpdateProcessor {
         Timber.d("Stopped.");
     }
 
-    public boolean isInitialized() {
-        return initialized.get();
-    }
-
-    @Override
-    public synchronized ListenableFuture<Void> restart() {
-        final SettableFuture<Void> returnFuture = SettableFuture.create();
+    synchronized void restart() {
         executor.execute(new Runnable() {
             @Override
             public void run() {
                 StreamUpdateProcessor.this.stopSync();
-                returnFuture.setFuture(StreamUpdateProcessor.this.start());
+                StreamUpdateProcessor.this.start();
             }
         });
-        return returnFuture;
     }
 
 }

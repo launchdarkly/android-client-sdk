@@ -11,39 +11,28 @@ import static com.launchdarkly.android.Util.isInternetConnected;
 public class ConnectivityReceiver extends BroadcastReceiver {
 
     static final String CONNECTIVITY_CHANGE = "android.net.conn.CONNECTIVITY_CHANGE";
+    private boolean knownState = false;
+    private boolean lastState = false;
 
     @Override
-    public void onReceive(Context context, Intent intent) {
+    public synchronized void onReceive(Context context, Intent intent) {
         if(!CONNECTIVITY_CHANGE.equals(intent.getAction())) {
             return;
         }
 
-        if (isInternetConnected(context)) {
-            Timber.d("Connected to the internet");
-            try {
-                for (String environmentName : LDClient.getEnvironmentNames()) {
-                    LDClient ldClient = LDClient.getForMobileKey(environmentName);
-                    if (!ldClient.isOffline()) {
-                        if (Foreground.get(context).isForeground()) {
-                            ldClient.startForegroundUpdating();
-                        } else if (!ldClient.isDisableBackgroundPolling()) {
-                            PollingUpdater.startBackgroundPolling(context);
-                        }
-                    }
-                }
-            } catch (LaunchDarklyException e) {
-                Timber.e(e, "Tried to restart foreground updating, but LDClient has not yet been initialized.");
+        boolean connectionStatus = isInternetConnected(context);
+        if (knownState && lastState == connectionStatus) {
+            return;
+        }
+
+        try {
+            for (String environmentName : LDClient.getEnvironmentNames()) {
+                LDClient.getForMobileKey(environmentName).onNetworkConnectivityChange(connectionStatus);
             }
-        } else {
-            Timber.d("Not Connected to the internet");
-            try {
-                for (String environmentName : LDClient.getEnvironmentNames()) {
-                    LDClient ldClient = LDClient.getForMobileKey(environmentName);
-                    ldClient.stopForegroundUpdating();
-                }
-            } catch (LaunchDarklyException e) {
-                Timber.e(e, "Tried to stop foreground updating, but LDClient has not yet been initialized.");
-            }
+            knownState = true;
+            lastState = connectionStatus;
+        } catch (LaunchDarklyException e) {
+            Timber.e(e, "Tried to update LDClients with network connectivity status, but LDClient has not yet been initialized.");
         }
     }
 }

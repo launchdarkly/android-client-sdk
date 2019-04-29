@@ -5,8 +5,8 @@ import com.launchdarkly.android.flagstore.FlagUpdate;
 
 public class DeleteFlagResponse implements FlagUpdate {
 
-    private String key;
-    private Integer version;
+    private final String key;
+    private final Integer version;
 
     public DeleteFlagResponse(String key, Integer version) {
         this.key = key;

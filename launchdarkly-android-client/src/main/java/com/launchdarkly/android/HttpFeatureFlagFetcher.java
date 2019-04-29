@@ -4,8 +4,6 @@ import android.content.Context;
 import android.os.Build;
 import android.support.annotation.NonNull;
 
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.launchdarkly.android.tls.ModernTLSSocketFactory;
@@ -40,8 +38,6 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     private final Context context;
     private final OkHttpClient client;
 
-    private volatile boolean isOffline;
-
     static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environmentName) {
         return new HttpFeatureFlagFetcher(context, config, environmentName);
     }
@@ -50,7 +46,6 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
         this.config = config;
         this.environmentName = environmentName;
         this.context = context;
-        this.isOffline = config.isOffline();
 
         File cacheDir = context.getCacheDir();
         Timber.d("Using cache at: %s", cacheDir.getAbsolutePath());
@@ -72,10 +67,8 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     }
 
     @Override
-    public synchronized ListenableFuture<JsonObject> fetch(LDUser user) {
-        final SettableFuture<JsonObject> doneFuture = SettableFuture.create();
-
-        if (user != null && !isOffline && isClientConnected(context, environmentName)) {
+    public synchronized void fetch(LDUser user, final Util.ResultCallback<JsonObject> callback) {
+        if (user != null && isClientConnected(context, environmentName)) {
 
             final Request request = config.isUseReport()
                     ? getReportRequest(user)
@@ -87,7 +80,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
                     Timber.e(e, "Exception when fetching flags.");
-                    doneFuture.setException(e);
+                    callback.onError(new LDFailure("Exception while fetching flags", e, LDFailure.FailureType.NETWORK_FAILURE));
                 }
 
                 @Override
@@ -102,8 +95,8 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                             if (response.code() == 400) {
                                 Timber.e("Received 400 response when fetching flag values. Please check recommended ProGuard settings");
                             }
-                            throw new IOException("Unexpected response when retrieving Feature Flags: " + response + " using url: "
-                                    + request.url() + " with body: " + body);
+                            callback.onError(new LDInvalidResponseCodeFailure("Unexpected response when retrieving Feature Flags: " + response + " using url: "
+                                    + request.url() + " with body: " + body, response.code(), true));
                         }
                         Timber.d(body);
                         Timber.d("Cache hit count: %s Cache network Count: %s", client.cache().hitCount(), client.cache().networkCount());
@@ -112,10 +105,10 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
 
                         JsonParser parser = new JsonParser();
                         JsonObject jsonObject = parser.parse(body).getAsJsonObject();
-                        doneFuture.set(jsonObject);
+                        callback.onSuccess(jsonObject);
                     } catch (Exception e) {
                         Timber.e(e, "Exception when handling response for url: %s with body: %s", request.url(), body);
-                        doneFuture.setException(e);
+                        callback.onError(new LDFailure("Exception while handling flag fetch response", e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     } finally {
                         if (response != null) {
                             response.close();
@@ -123,14 +116,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                     }
                 }
             });
-        } else {
-            if (user == null) {
-                doneFuture.setException(new LaunchDarklyException("Update was attempted without a user"));
-            } else {
-                doneFuture.setException(new LaunchDarklyException("Update was attempted without an internet connection"));
-            }
         }
-        return doneFuture;
     }
 
     private Request getDefaultRequest(LDUser user) {
@@ -157,16 +143,4 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
                 .url(reportUri)
                 .build();
     }
-
-
-    @Override
-    public void setOffline() {
-        isOffline = true;
-    }
-
-    @Override
-    public void setOnline() {
-        isOffline = false;
-    }
-
 }

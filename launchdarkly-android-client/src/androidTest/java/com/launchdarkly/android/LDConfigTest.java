@@ -52,7 +52,7 @@ public class LDConfigTest {
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, PollingUpdater.backgroundPollingIntervalMillis);
+        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
@@ -67,7 +67,7 @@ public class LDConfigTest {
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS + 2, PollingUpdater.backgroundPollingIntervalMillis);
+        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS + 2, config.getBackgroundPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1, config.getEventsFlushIntervalMillis());
     }
 
@@ -96,7 +96,7 @@ public class LDConfigTest {
         assertFalse(config.isOffline());
         assertFalse(config.isDisableBackgroundPolling());
         assertEquals(LDConfig.MIN_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, PollingUpdater.backgroundPollingIntervalMillis);
+        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
         assertEquals(LDConfig.MIN_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
@@ -111,7 +111,7 @@ public class LDConfigTest {
         assertFalse(config.isOffline());
         assertFalse(config.isDisableBackgroundPolling());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS, PollingUpdater.backgroundPollingIntervalMillis);
+        assertEquals(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 

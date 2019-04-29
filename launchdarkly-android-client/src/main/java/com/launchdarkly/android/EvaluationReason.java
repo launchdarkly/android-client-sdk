@@ -1,10 +1,6 @@
 package com.launchdarkly.android;
 
-import android.support.annotation.Nullable;
-
 import com.google.gson.annotations.Expose;
-
-import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Describes the reason that a flag evaluation produced a particular value. This is returned by
@@ -20,7 +16,7 @@ public abstract class EvaluationReason {
     /**
      * Enumerated type defining the possible values of {@link EvaluationReason#getKind()}.
      */
-    public static enum Kind {
+    public enum Kind {
         /**
          * Indicates that the flag was off and therefore returned its configured off value.
          */
@@ -57,7 +53,7 @@ public abstract class EvaluationReason {
     /**
      * Enumerated type defining the possible values of {@link EvaluationReason.Error#getErrorKind()}.
      */
-    public static enum ErrorKind {
+    public enum ErrorKind {
         /**
          * Indicates that the caller tried to evaluate a flag before the client had successfully initialized.
          */
@@ -231,7 +227,7 @@ public abstract class EvaluationReason {
         public boolean equals(Object other) {
             if (other instanceof RuleMatch) {
                 RuleMatch o = (RuleMatch) other;
-                return ruleIndex == o.ruleIndex && objectsEqual(ruleId, o.ruleId);
+                return ruleIndex == o.ruleIndex && Util.objectsEqual(ruleId, o.ruleId);
             }
             return false;
         }
@@ -257,7 +253,10 @@ public abstract class EvaluationReason {
 
         private PrerequisiteFailed(String prerequisiteKey) {
             super(Kind.PREREQUISITE_FAILED);
-            this.prerequisiteKey = checkNotNull(prerequisiteKey);
+            if (prerequisiteKey == null) {
+                throw new NullPointerException();
+            }
+            this.prerequisiteKey = prerequisiteKey;
         }
 
         public String getPrerequisiteKey() {
@@ -302,7 +301,9 @@ public abstract class EvaluationReason {
 
         private Error(ErrorKind errorKind) {
             super(Kind.ERROR);
-            checkNotNull(errorKind);
+            if (errorKind == null) {
+                throw new NullPointerException();
+            }
             this.errorKind = errorKind;
         }
 
@@ -336,10 +337,5 @@ public abstract class EvaluationReason {
         }
 
         private static final Unknown instance = new Unknown();
-    }
-
-    // Android API v16 doesn't support Objects.equals()
-    private static <T> boolean objectsEqual(@Nullable T a, @Nullable T b) {
-        return a == b || (a != null && b != null && a.equals(b));
     }
 }

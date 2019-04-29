@@ -2,6 +2,7 @@ package com.launchdarkly.android.flagstore;
 
 import android.os.Looper;
 import android.support.annotation.NonNull;
+import android.util.Pair;
 
 import com.launchdarkly.android.FeatureFlagChangeListener;
 
@@ -10,6 +11,7 @@ import org.easymock.EasyMockSupport;
 import org.easymock.IAnswer;
 import org.junit.Test;
 
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -153,7 +155,8 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         manager.switchToUser("user1");
         manager.registerListener("flag", mockFlagListener);
-        managerListener.getValue().onStoreUpdate("flag", FlagStoreUpdateType.FLAG_CREATED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_CREATED);
+        managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
         waitLatch.await(1000, TimeUnit.MILLISECONDS);
 
         verifyAll();
@@ -183,7 +186,8 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         manager.switchToUser("user1");
         manager.registerListener("flag", mockFlagListener);
-        managerListener.getValue().onStoreUpdate("flag", FlagStoreUpdateType.FLAG_UPDATED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_UPDATED);
+        managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
         waitLatch.await(1000, TimeUnit.MILLISECONDS);
 
         verifyAll();
@@ -204,7 +208,8 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         manager.switchToUser("user1");
         manager.registerListener("flag", mockFlagListener);
-        managerListener.getValue().onStoreUpdate("flag", FlagStoreUpdateType.FLAG_DELETED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_DELETED);
+        managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
         // Unfortunately we are testing that an asynchronous method is *not* called, we just have to
         // wait a bit to be sure.
         Thread.sleep(100);
@@ -228,7 +233,8 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         manager.switchToUser("user1");
         manager.registerListener("flag", mockFlagListener);
         manager.unRegisterListener("flag", mockFlagListener);
-        managerListener.getValue().onStoreUpdate("flag", FlagStoreUpdateType.FLAG_CREATED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_CREATED);
+        managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
         // Unfortunately we are testing that an asynchronous method is *not* called, we just have to
         // wait a bit to be sure.
         Thread.sleep(100);
@@ -260,7 +266,8 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         manager.switchToUser("user1");
         manager.registerListener("flag", mockFlagListener);
-        managerListener.getValue().onStoreUpdate("flag", FlagStoreUpdateType.FLAG_CREATED);
+        Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_CREATED);
+        managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
         waitLatch.await(1000, TimeUnit.MILLISECONDS);
 
         verifyAll();

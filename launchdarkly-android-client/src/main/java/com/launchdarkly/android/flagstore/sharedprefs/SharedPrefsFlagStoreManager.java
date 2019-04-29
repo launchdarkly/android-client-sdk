@@ -6,10 +6,9 @@ import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
+import android.util.Pair;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Multimaps;
+import com.launchdarkly.android.LDAllFlagsListener;
 import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreFactory;
@@ -17,11 +16,18 @@ import com.launchdarkly.android.flagstore.FlagStoreManager;
 import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
 import com.launchdarkly.android.flagstore.StoreUpdatedListener;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import timber.log.Timber;
 
@@ -33,11 +39,12 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
     @NonNull
     private final FlagStoreFactory flagStoreFactory;
     @NonNull
-    private String mobileKey;
+    private final String mobileKey;
 
     private FlagStore currentFlagStore;
     private final SharedPreferences usersSharedPrefs;
-    private final Multimap<String, FeatureFlagChangeListener> listeners;
+    private final ConcurrentHashMap<String, Set<FeatureFlagChangeListener>> listeners;
+    private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners;
 
     public SharedPrefsFlagStoreManager(@NonNull Application application,
                                        @NonNull String mobileKey,
@@ -45,8 +52,8 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
         this.usersSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
-        HashMultimap<String, FeatureFlagChangeListener> multimap = HashMultimap.create();
-        listeners = Multimaps.synchronizedMultimap(multimap);
+        this.listeners = new ConcurrentHashMap<>();
+        this.allFlagsListeners = new CopyOnWriteArrayList<>();
     }
 
     @Override
@@ -89,24 +96,37 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
 
     @Override
     public void registerListener(String key, FeatureFlagChangeListener listener) {
-        synchronized (listeners) {
-            listeners.put(key, listener);
-            Timber.d("Added listener. Total count: [%s]", listeners.size());
+        Map<FeatureFlagChangeListener, Boolean> backingMap = new ConcurrentHashMap<>();
+        Set<FeatureFlagChangeListener> newSet = Collections.newSetFromMap(backingMap);
+        newSet.add(listener);
+        Set<FeatureFlagChangeListener> oldSet = listeners.putIfAbsent(key, newSet);
+        if (oldSet != null) {
+            oldSet.add(listener);
+            Timber.d("Added listener. Total count: [%s]", oldSet.size());
+        } else {
+            Timber.d("Added listener. Total count: 1");
         }
     }
 
     @Override
     public void unRegisterListener(String key, FeatureFlagChangeListener listener) {
-        synchronized (listeners) {
-            Iterator<FeatureFlagChangeListener> it = listeners.get(key).iterator();
-            while (it.hasNext()) {
-                FeatureFlagChangeListener check = it.next();
-                if (check.equals(listener)) {
-                    Timber.d("Removing listener for key: [%s]", key);
-                    it.remove();
-                }
+        Set<FeatureFlagChangeListener> keySet = listeners.get(key);
+        if (keySet != null) {
+            boolean removed = keySet.remove(listener);
+            if (removed) {
+                Timber.d("Removing listener for key: [%s]", key);
             }
         }
+    }
+
+    @Override
+    public void registerAllFlagsListener(LDAllFlagsListener listener) {
+        allFlagsListeners.add(listener);
+    }
+
+    @Override
+    public void unregisterAllFlagsListener(LDAllFlagsListener listener) {
+        allFlagsListeners.remove(listener);
     }
 
     // Gets all users sorted by creation time (oldest first)
@@ -129,21 +149,22 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
         return userSharedPrefsKey + " [" + userSharedPrefsKey + "] timestamp: [" + timestamp + "]" + " [" + new Date(timestamp) + "]";
     }
 
-    @Override
-    public void onStoreUpdate(final String flagKey, final FlagStoreUpdateType flagStoreUpdateType) {
+    private void dispatchStoreUpdateCallback(final String flagKey, final FlagStoreUpdateType flagStoreUpdateType) {
         // We make sure to call listener callbacks on the main thread, as we consistently did so in
         // the past by virtue of using SharedPreferences to implement the callbacks.
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            // Make sure listeners are not updated while we are calling them.
-            synchronized (listeners) {
+            // Get the listeners for the specific key
+            Set<FeatureFlagChangeListener> keySet = listeners.get(flagKey);
+            // If there are any listeners for this key
+            if (keySet != null) {
                 // We only call the listener if the flag is a new flag or updated.
                 if (flagStoreUpdateType != FlagStoreUpdateType.FLAG_DELETED) {
-                    for (FeatureFlagChangeListener listener : listeners.get(flagKey)) {
+                    for (FeatureFlagChangeListener listener : keySet) {
                         listener.onFeatureFlagChange(flagKey);
                     }
                 } else {
                     // When flag is deleted we remove the corresponding listeners
-                    listeners.removeAll(flagKey);
+                    listeners.remove(flagKey);
                 }
             }
         } else {
@@ -151,15 +172,26 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override
                 public void run() {
-                    onStoreUpdate(flagKey, flagStoreUpdateType);
+                    dispatchStoreUpdateCallback(flagKey, flagStoreUpdateType);
                 }
             });
         }
     }
 
-    public Collection<FeatureFlagChangeListener> getListenersByKey(String key) {
-        synchronized (listeners) {
-            return listeners.get(key);
+    @Override
+    public void onStoreUpdate(List<Pair<String, FlagStoreUpdateType>> updates) {
+        List<String> flagKeys = new ArrayList<>();
+        for (Pair<String, FlagStoreUpdateType> update : updates) {
+            flagKeys.add(update.first);
+            dispatchStoreUpdateCallback(update.first, update.second);
         }
+        for (LDAllFlagsListener allFlagsListener : allFlagsListeners) {
+            allFlagsListener.onChange(flagKeys);
+        }
+    }
+
+    public Collection<FeatureFlagChangeListener> getListenersByKey(String key) {
+        Set<FeatureFlagChangeListener> res = listeners.get(key);
+        return res == null ? new HashSet<FeatureFlagChangeListener>() : res;
     }
 }

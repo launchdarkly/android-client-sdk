@@ -483,8 +483,7 @@ public class LDUser {
         private void checkCustomAttribute(String key) {
             for (String attributeName : builtInAttributes) {
                 if (attributeName.equals(key)) {
-                    Timber.w("Built-in attribute key: %s added as custom attribute! This custom " +
-                            "attribute will be ignored during Feature Flag evaluation", key);
+                    Timber.w("Built-in attribute key: %s added as custom attribute! This custom attribute will be ignored during Feature Flag evaluation", key);
                     return;
                 }
             }

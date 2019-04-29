@@ -4,17 +4,11 @@ import android.app.Application;
 import android.content.Context;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.support.annotation.NonNull;
+import android.support.annotation.VisibleForTesting;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.SettableFuture;
 import com.google.gson.JsonElement;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.gson.GsonCache;
@@ -23,7 +17,9 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,10 +28,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import timber.log.Timber;
 
-import static com.launchdarkly.android.Util.isClientConnected;
 import static com.launchdarkly.android.tls.TLSUtils.patchTLSIfNeeded;
 
 /**
@@ -49,22 +45,14 @@ public class LDClient implements LDClientInterface, Closeable {
     private static String instanceId = "UNKNOWN_ANDROID";
     private static Map<String, LDClient> instances = null;
 
-    private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
-    private static final long RETRY_TIME_MS = 1_000; // 1 second
-
-    private final String environmentName;
-    private final WeakReference<Application> application;
+    private final Application application;
     private final LDConfig config;
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
-    private final UpdateProcessor updateProcessor;
-    private final FeatureFlagFetcher fetcher;
-    private final Throttler throttler;
-    private final Foreground.Listener foregroundListener;
+    private final ConnectivityManager connectivityManager;
     private ConnectivityReceiver connectivityReceiver;
-
-    private volatile boolean isOffline = false;
-    private volatile boolean isAppForegrounded = true;
+    private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
+            Collections.synchronizedList(new ArrayList<WeakReference<LDStatusListener>>());
 
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
@@ -82,21 +70,25 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return a {@link Future} which will complete once the client has been initialized.
      */
     public static Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
+        // As this is an externally facing API we should still check these, so we hide the linter
+        // warnings
+
+        //noinspection ConstantConditions
         if (application == null) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid application"));
+            return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid application"));
         }
+        //noinspection ConstantConditions
         if (config == null) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid configuration"));
+            return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
+        //noinspection ConstantConditions
         if (user == null) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("Client initialization requires a valid user"));
+            return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid user"));
         }
 
         if (instances != null) {
             Timber.w("LDClient.init() was called more than once! returning primary instance.");
-            SettableFuture<LDClient> settableFuture = SettableFuture.create();
-            settableFuture.set(instances.get(LDConfig.primaryEnvironmentName));
-            return settableFuture;
+            return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
         }
         if (BuildConfig.DEBUG) {
             Timber.plant(new Timber.DebugTree());
@@ -104,13 +96,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         patchTLSIfNeeded(application);
 
-        ConnectivityManager cm = (ConnectivityManager) application.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
-        boolean deviceConnected = activeNetwork != null && activeNetwork.isConnectedOrConnecting();
-
         instances = new HashMap<>();
-
-        Map<String, ListenableFuture<Void>> updateFutures = new HashMap<>();
 
         SharedPreferences instanceIdSharedPrefs =
                 application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
@@ -128,36 +114,35 @@ public class LDClient implements LDClientInterface, Closeable {
 
         Migration.migrateWhenNeeded(application, config);
 
+        final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
+        final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
+        Util.ResultCallback<Void> completeWhenCounterZero = new Util.ResultCallback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                if (initCounter.decrementAndGet() == 0) {
+                    resultFuture.set(instances.get(LDConfig.primaryEnvironmentName));
+                }
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                resultFuture.setException(e);
+            }
+        };
+
+        PollingUpdater.setBackgroundPollingIntervalMillis(config.getBackgroundPollingIntervalMillis());
+
         for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
             final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
             instance.userManager.setCurrentUser(user);
 
             instances.put(mobileKeys.getKey(), instance);
-
-            if (instance.isOffline() || !deviceConnected)
-                continue;
-
-            instance.eventProcessor.start();
-            updateFutures.put(mobileKeys.getKey(), instance.updateProcessor.start());
-            instance.sendEvent(new IdentifyEvent(user));
-        }
-
-        ArrayList<ListenableFuture<Void>> online = new ArrayList<>();
-
-        for (Map.Entry<String, ListenableFuture<Void>> entry : updateFutures.entrySet()) {
-            if (!instances.get(entry.getKey()).isOffline()) {
-                online.add(entry.getValue());
+            if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
+                instance.sendEvent(new IdentifyEvent(user));
             }
         }
 
-        ListenableFuture<List<Void>> allFuture = Futures.allAsList(online);
-
-        return Futures.transform(allFuture, new Function<List<Void>, LDClient>() {
-            @Override
-            public LDClient apply(List<Void> input) {
-                return instances.get(LDConfig.primaryEnvironmentName);
-            }
-        }, MoreExecutors.directExecutor());
+        return resultFuture;
     }
 
     /**
@@ -205,6 +190,12 @@ public class LDClient implements LDClientInterface, Closeable {
         return instances.keySet();
     }
 
+    /**
+     * @return the singleton instance for the environment associated with the given name.
+     * @param keyName The name to lookup the instance by.
+     * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
+     */
+    @SuppressWarnings("WeakerAccess")
     public static LDClient getForMobileKey(String keyName) throws LaunchDarklyException {
         if (instances == null) {
             Timber.e("LDClient.getForMobileKey() was called before init()!");
@@ -225,46 +216,12 @@ public class LDClient implements LDClientInterface, Closeable {
     protected LDClient(final Application application, @NonNull final LDConfig config, final String environmentName) {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
-        this.isOffline = config.isOffline();
-        this.application = new WeakReference<>(application);
-        this.environmentName = environmentName;
-        this.fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
+        this.application = application;
+        FeatureFlagFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
         this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
 
-        Foreground foreground = Foreground.get(application);
-        foregroundListener = new Foreground.Listener() {
-            @Override
-            public void onBecameForeground() {
-                PollingUpdater.stop(application);
-                isAppForegrounded = true;
-                if (isClientConnected(application, environmentName)) {
-                    startForegroundUpdating();
-                }
-            }
-
-            @Override
-            public void onBecameBackground() {
-                stopForegroundUpdating();
-                isAppForegrounded = false;
-                startBackgroundPolling();
-            }
-        };
-        foreground.addListener(foregroundListener);
-
-        if (config.isStream()) {
-            this.updateProcessor = new StreamUpdateProcessor(config, userManager, environmentName);
-        } else {
-            Timber.i("Streaming is disabled. Starting LaunchDarkly Client in polling mode");
-            this.updateProcessor = new PollingUpdateProcessor(application, userManager, config);
-        }
         eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
-
-        throttler = new Throttler(new Runnable() {
-            @Override
-            public void run() {
-                setOnlineStatus();
-            }
-        }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
+        connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();
@@ -289,56 +246,50 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public synchronized Future<Void> identify(LDUser user) {
-        return LDClient.identifyInstances(user);
-    }
-
-    private synchronized ListenableFuture<Void> identifyInternal(LDUser user) {
         if (user == null) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
+            return new LDFailedFuture<>(new LaunchDarklyException("User cannot be null"));
         }
-
         if (user.getKey() == null) {
             Timber.w("identify called with null user or null user key!");
         }
-
-        ListenableFuture<Void> doneFuture;
-        userManager.setCurrentUser(user);
-
-        if (!config.isStream()) {
-            doneFuture = userManager.updateCurrentUser();
-        } else {
-            doneFuture = updateProcessor.restart();
-        }
-
-        sendEvent(new IdentifyEvent(user));
-
-        return doneFuture;
+        return LDClient.identifyInstances(user);
     }
 
-    private static synchronized Future<Void> identifyInstances(LDUser user) {
-        if (user == null) {
-            return Futures.immediateFailedFuture(new LaunchDarklyException("User cannot be null"));
-        }
+    private synchronized void identifyInternal(@NonNull LDUser user,
+                                               Util.ResultCallback<Void> onCompleteListener) {
+        userManager.setCurrentUser(user);
+        connectivityManager.reloadUser(onCompleteListener);
+        sendEvent(new IdentifyEvent(user));
+    }
 
-        ArrayList<ListenableFuture<Void>> futures = new ArrayList<>();
+    private static synchronized Future<Void> identifyInstances(@NonNull LDUser user) {
+        final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
+        final AtomicInteger identifyCounter = new AtomicInteger(instances.size());
+        Util.ResultCallback<Void> completeWhenCounterZero = new Util.ResultCallback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                if (identifyCounter.decrementAndGet() == 0) {
+                    resultFuture.set(null);
+                }
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                resultFuture.setException(e);
+            }
+        };
 
         for (LDClient client : instances.values()) {
-            futures.add(client.identifyInternal(user));
+            client.identifyInternal(user, completeWhenCounterZero);
         }
 
-        return Futures.transform(Futures.allAsList(futures), new Function<List<Void>, Void>() {
-            @Override
-            public Void apply(List<Void> input) {
-                return null;
-            }
-        }, MoreExecutors.directExecutor());
+        return resultFuture;
     }
 
     @Override
     public Map<String, ?> allFlags() {
         Map<String, Object> result = new HashMap<>();
-        List<Flag> flags = userManager.getCurrentUserFlagStore().getAllFlags();
-        for (Flag flag : flags) {
+        for (Flag flag : userManager.getCurrentUserFlagStore().getAllFlags()) {
             JsonElement jsonVal = flag.getValue();
             if (jsonVal == null || jsonVal.isJsonNull()) {
                 // TODO(gwhelanld): Include null flag values in results in 3.0.0
@@ -460,24 +411,15 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void closeInternal() {
-        updateProcessor.stop();
+        connectivityManager.shutdown();
         eventProcessor.close();
-        Application app = application.get();
-        if (connectivityReceiver != null && app != null) {
-            app.unregisterReceiver(connectivityReceiver);
+        if (connectivityReceiver != null && application != null) {
+            application.unregisterReceiver(connectivityReceiver);
             connectivityReceiver = null;
-        }
-        try {
-            Foreground foreground = Foreground.get();
-            if (foregroundListener != null) {
-                foreground.removeListener(foregroundListener);
-            }
-        } catch (IllegalStateException ex) {
-            // Foreground not initialized
         }
     }
 
-    private static void closeInstances() throws IOException {
+    private static void closeInstances() {
         for (LDClient client : instances.values()) {
             client.closeInternal();
         }
@@ -500,12 +442,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean isInitialized() {
-        return isOffline() || updateProcessor.isInitialized();
+        return connectivityManager.isOffline() || connectivityManager.isInitialized();
     }
 
     @Override
     public boolean isOffline() {
-        return isOffline;
+        return connectivityManager.isOffline();
     }
 
     @Override
@@ -514,12 +456,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private synchronized void setOfflineInternal() {
-        Timber.d("Setting isOffline = true");
-        throttler.cancel();
-        isOffline = true;
-        fetcher.setOffline();
-        stopForegroundUpdating();
-        eventProcessor.stop();
+        connectivityManager.setOffline();
     }
 
     private synchronized static void setInstancesOffline() {
@@ -530,23 +467,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public synchronized void setOnline() {
-        throttler.attemptRun();
-    }
-
-    private void setOnlineStatus() {
-        LDClient.setOnlineStatusInstances();
+        setOnlineStatusInstances();
     }
 
     private void setOnlineStatusInternal() {
-        Timber.d("Setting isOffline = false");
-        isOffline = false;
-        fetcher.setOnline();
-        if (isAppForegrounded) {
-            startForegroundUpdating();
-        } else {
-            startBackgroundPolling();
-        }
-        eventProcessor.start();
+        connectivityManager.setOnline();
     }
 
     private static void setOnlineStatusInstances() {
@@ -570,6 +495,84 @@ public class LDClient implements LDClientInterface, Closeable {
         return config.isDisableBackgroundPolling();
     }
 
+    public ConnectionInformation getConnectionInformation() {
+        return connectivityManager.getConnectionInformation();
+    }
+
+    public void registerStatusListener(LDStatusListener LDStatusListener) {
+        if (LDStatusListener == null) {
+            return;
+        }
+        synchronized (connectionFailureListeners) {
+            connectionFailureListeners.add(new WeakReference<>(LDStatusListener));
+        }
+    }
+
+    public void unregisterStatusListener(LDStatusListener LDStatusListener) {
+        if (LDStatusListener == null) {
+            return;
+        }
+        synchronized (connectionFailureListeners) {
+            Iterator<WeakReference<LDStatusListener>> iter = connectionFailureListeners.iterator();
+            while (iter.hasNext()) {
+                LDStatusListener mListener = iter.next().get();
+                if (mListener == null || mListener == LDStatusListener) {
+                    iter.remove();
+                }
+            }
+        }
+    }
+
+    public void registerAllFlagsListener(LDAllFlagsListener allFlagsListener) {
+        userManager.registerAllFlagsListener(allFlagsListener);
+    }
+
+    public void unregisterAllFlagsListener(LDAllFlagsListener allFlagsListener) {
+        userManager.unregisterAllFlagsListener(allFlagsListener);
+    }
+
+    void triggerPoll() {
+        connectivityManager.triggerPoll();
+    }
+
+    void updateListenersConnectionModeChanged(final ConnectionInformation connectionInformation) {
+        synchronized (connectionFailureListeners) {
+            Iterator<WeakReference<LDStatusListener>> iter = connectionFailureListeners.iterator();
+            while (iter.hasNext()) {
+                final LDStatusListener mListener = iter.next().get();
+                if (mListener == null) {
+                    iter.remove();
+                } else {
+                    AsyncTask.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            mListener.onConnectionModeChanged(connectionInformation);
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    void updateListenersOnFailure(final LDFailure ldFailure) {
+        synchronized (connectionFailureListeners) {
+            Iterator<WeakReference<LDStatusListener>> iter = connectionFailureListeners.iterator();
+            while (iter.hasNext()) {
+                final LDStatusListener mListener = iter.next().get();
+                if (mListener == null) {
+                    iter.remove();
+                } else {
+                    AsyncTask.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            mListener.onInternalFailure(ldFailure);
+                        }
+                    });
+                }
+            }
+        }
+    }
+
     @Override
     public String getVersion() {
         return BuildConfig.VERSION_NAME;
@@ -579,14 +582,8 @@ public class LDClient implements LDClientInterface, Closeable {
         return instanceId;
     }
 
-    void stopForegroundUpdating() {
-        updateProcessor.stop();
-    }
-
-    void startForegroundUpdating() {
-        if (!isOffline()) {
-            updateProcessor.start();
-        }
+    void onNetworkConnectivityChange(boolean connectedToInternet) {
+        connectivityManager.onNetworkConnectivityChange(connectedToInternet);
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback, EvaluationReason reason) {
@@ -613,15 +610,8 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    void startBackgroundPolling() {
-        Application application = this.application.get();
-        if (application != null && !config.isDisableBackgroundPolling() && isClientConnected(application, environmentName)) {
-            PollingUpdater.startBackgroundPolling(application);
-        }
-    }
-
     private void sendEvent(Event event) {
-        if (!isOffline()) {
+        if (!connectivityManager.isOffline()) {
             boolean processed = eventProcessor.sendEvent(event);
             if (!processed) {
                 Timber.w("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
@@ -649,16 +639,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    public void clearSummaryEventSharedPreferences() {
-        userManager.getSummaryEventSharedPreferences().clear();
-    }
-
-    @VisibleForTesting
-    public SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
+    SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
         return userManager.getSummaryEventSharedPreferences();
-    }
-
-    UserManager getUserManager() {
-        return userManager;
     }
 }
