@@ -58,7 +58,7 @@ public class MainActivity extends AppCompatActivity {
                     connectionInformation.getConnectionMode().toString(),
                     lastSuccess == null ? "Never" : new Date(lastSuccess).toString(),
                     lastFailure == null ? "Never" : new Date(lastFailure).toString(),
-                    lastFailure != null ?
+                    connectionInformation.getLastFailure() != null ?
                             connectionInformation.getLastFailure().getFailureType()
                             : "");
             connection.setText(result);

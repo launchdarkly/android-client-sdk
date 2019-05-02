@@ -184,7 +184,15 @@ class ConnectivityManager {
 
     private void stopStreaming() {
         if (streamUpdateProcessor != null) {
-            streamUpdateProcessor.stop();
+            streamUpdateProcessor.stop(null);
+        }
+    }
+
+    private void stopStreaming(final Util.ResultCallback<Void> onCompleteListener) {
+        if (streamUpdateProcessor != null) {
+            streamUpdateProcessor.stop(onCompleteListener);
+        } else {
+            onCompleteListener.onSuccess(null);
         }
     }
 
@@ -318,13 +326,22 @@ class ConnectivityManager {
         return setOffline;
     }
 
-    synchronized void reloadUser(Util.ResultCallback<Void> onCompleteListener) {
+    synchronized void reloadUser(final Util.ResultCallback<Void> onCompleteListener) {
         throttler.cancel();
         removeForegroundListener();
         removeNetworkListener();
         stopPolling();
-        stopStreaming();
-        startUp(onCompleteListener);
+        stopStreaming(new Util.ResultCallback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                startUp(onCompleteListener);
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                startUp(onCompleteListener);
+            }
+        });
     }
 
     private synchronized void updateConnectionMode(ConnectionMode connectionMode) {
