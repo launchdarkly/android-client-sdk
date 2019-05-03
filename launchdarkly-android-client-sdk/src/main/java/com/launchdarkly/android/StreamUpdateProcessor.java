@@ -51,6 +51,7 @@ class StreamUpdateProcessor {
 
     synchronized void start() {
         if (!running && !connection401Error) {
+            stop();
             Timber.d("Starting.");
             Headers headers = new Headers.Builder()
                     .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKeys().get(environmentName))
@@ -98,7 +99,7 @@ class StreamUpdateProcessor {
                                     Timber.e(e, "Client unavailable to be set offline");
                                 }
                             }
-                            stop(null);
+                            stop();
                         } else {
                             notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, true));
                         }
@@ -169,7 +170,7 @@ class StreamUpdateProcessor {
         }
     }
 
-    synchronized void stop(final Util.ResultCallback<Void> onCompleteListener) {
+    synchronized void stop() {
         Timber.d("Stopping.");
         if (es != null) {
             // We do this in a separate thread because closing the stream involves a network
@@ -178,9 +179,6 @@ class StreamUpdateProcessor {
                 @Override
                 public void run() {
                     stopSync();
-                    if (onCompleteListener != null) {
-                        onCompleteListener.onSuccess(null);
-                    }
                 }
             });
         }
@@ -194,4 +192,15 @@ class StreamUpdateProcessor {
         es = null;
         Timber.d("Stopped.");
     }
+
+    synchronized void restart() {
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                StreamUpdateProcessor.this.stopSync();
+                StreamUpdateProcessor.this.start();
+            }
+        });
+    }
+
 }
