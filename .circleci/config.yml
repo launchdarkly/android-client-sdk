@@ -1,7 +1,7 @@
 version: 2
 jobs:
   build:
-    working_directory: ~/launchdarkly/android-client-sdk-private
+    working_directory: ~/launchdarkly/android-client-private
     docker:
       - image: circleci/android:api-27
     environment:
@@ -63,12 +63,12 @@ jobs:
           timeout: 1200
           no_output_timeout: 2h
 
-      - run: ./gradlew :launchdarkly-android-client-sdk:assembleDebug --console=plain -PdisablePreDex
+      - run: ./gradlew :launchdarkly-android-client:assembleDebug --console=plain -PdisablePreDex
 
       - run: circle-android wait-for-boot
       - run:
           name: Run Tests
-          command: ./gradlew :launchdarkly-android-client-sdk:connectedAndroidTest --console=plain -PdisablePreDex
+          command: ./gradlew :launchdarkly-android-client:connectedAndroidTest --console=plain -PdisablePreDex
           no_output_timeout: 2h
 
       - run: ./gradlew packageRelease --console=plain -PdisablePreDex
