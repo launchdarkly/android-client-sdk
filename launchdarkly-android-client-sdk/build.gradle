@@ -141,7 +141,7 @@ artifacts {
 }
 
 githubPages {
-    repoUri = 'https://github.com/launchdarkly/android-client.git'
+    repoUri = 'https://github.com/launchdarkly/android-client-sdk.git'
     pages {
         from javadoc
     }
@@ -176,7 +176,7 @@ uploadArchives {
                 name 'LaunchDarkly SDK for Android'
                 packaging 'jar'
                 description 'Official LaunchDarkly SDK for Android'
-                url 'https://github.com/launchdarkly/android-client'
+                url 'https://github.com/launchdarkly/android-client-sdk'
 
                 licenses {
                     license {
@@ -194,9 +194,9 @@ uploadArchives {
                 }
 
                 scm {
-                    connection 'scm:git:git://github.com/launchdarkly/android-client.git'
-                    developerConnection 'scm:git:ssh:git@github.com:launchdarkly/android-client.git'
-                    url 'https://github.com/launchdarkly/android-client'
+                    connection 'scm:git:git://github.com/launchdarkly/android-client-sdk.git'
+                    developerConnection 'scm:git:ssh:git@github.com:launchdarkly/android-client-sdk.git'
+                    url 'https://github.com/launchdarkly/android-client-sdk'
                 }
             }
         }
