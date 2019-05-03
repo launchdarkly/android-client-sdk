@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.Application;
 import android.content.Context;
 import android.os.Bundle;
@@ -12,6 +12,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import timber.log.Timber;
+
+import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
+import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE;
 
 // From: https://gist.github.com/steveliles/11116937
 
@@ -51,18 +54,15 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
     private static final long CHECK_DELAY = 500;
 
     interface Listener {
-
         void onBecameForeground();
-
         void onBecameBackground();
-
     }
 
     private static Foreground instance;
-
-    private boolean foreground = false, paused = true;
-    private Handler handler = new Handler(Looper.getMainLooper());
-    private List<Listener> listeners = new CopyOnWriteArrayList<Listener>();
+    private boolean foreground = false;
+    private boolean paused = true;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final List<Listener> listeners = new CopyOnWriteArrayList<>();
     private Runnable check;
 
     /**
@@ -71,12 +71,17 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
      * initialise, but sometimes (e.g. in test harness) the ApplicationContext
      * is != the Application, and the docs make no guarantees.
      *
-     * @param application
+     * @param application Application for registering lifecycle callbacks on
      * @return an initialised Foreground instance
      */
     static Foreground init(Application application) {
         if (instance == null) {
             instance = new Foreground();
+            ActivityManager.RunningAppProcessInfo appProcessInfo = new ActivityManager.RunningAppProcessInfo();
+            ActivityManager.getMyMemoryState(appProcessInfo);
+            instance.foreground = appProcessInfo.importance == IMPORTANCE_FOREGROUND
+                    || appProcessInfo.importance == IMPORTANCE_VISIBLE;
+
             application.registerActivityLifecycleCallbacks(instance);
         }
         return instance;
@@ -95,8 +100,7 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
             if (appCtx instanceof Application) {
                 init((Application) appCtx);
             }
-            throw new IllegalStateException(
-                    "Foreground is not initialised and " +
+            throw new IllegalStateException("Foreground is not initialised and " +
                             "cannot obtain the Application object");
         }
         return instance;
@@ -104,9 +108,8 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
 
     static Foreground get() {
         if (instance == null) {
-            throw new IllegalStateException(
-                    "Foreground is not initialised - invoke " +
-                            "at least once with parameterised init/get");
+            throw new IllegalStateException("Foreground is not initialised - invoke " +
+                    "at least once with parameterised init/get");
         }
         return instance;
     }
@@ -171,7 +174,7 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
                         }
                     }
                 } else {
-                    Timber.d("still foreground");
+                    Timber.d("still background");
                 }
             }
         }, CHECK_DELAY);

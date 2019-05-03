@@ -5,12 +5,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.support.test.rule.ActivityTestRule;
 
-import static com.launchdarkly.android.Migration.getUserKeysPre_2_6;
-import static com.launchdarkly.android.Migration.getUserKeys_2_6;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
-import com.google.common.collect.Multimap;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Before;
@@ -19,6 +13,13 @@ import org.junit.Test;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.Set;
+
+import static com.launchdarkly.android.Migration.getUserKeysPre_2_6;
+import static com.launchdarkly.android.Migration.getUserKeys_2_6;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class MigrationTest {
 
@@ -27,6 +28,9 @@ public class MigrationTest {
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
+
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     private Application getApplication() {
         return activityTestRule.getActivity().getApplication();
@@ -119,7 +123,7 @@ public class MigrationTest {
         // Create shared prefs files
         getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + user1.getSharedPrefsKey() + "-user", Context.MODE_PRIVATE).edit().commit();
         getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + user2.getSharedPrefsKey() + "-user", Context.MODE_PRIVATE).edit().commit();
-        Multimap<String, String> userKeys = getUserKeys_2_6(getApplication());
+        Map<String, Set<String>> userKeys = getUserKeys_2_6(getApplication());
         assertTrue(userKeys.containsKey(FAKE_MOB_KEY));
         assertTrue(userKeys.get(FAKE_MOB_KEY).contains(user1.getSharedPrefsKey()));
         assertTrue(userKeys.get(FAKE_MOB_KEY).contains(user2.getSharedPrefsKey()));

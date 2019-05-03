@@ -4,6 +4,7 @@ import android.app.Application;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
+import com.launchdarkly.android.TimberLoggingRule;
 import com.launchdarkly.android.flagstore.FlagStoreFactory;
 import com.launchdarkly.android.flagstore.FlagStoreManager;
 import com.launchdarkly.android.flagstore.FlagStoreManagerTest;
@@ -21,6 +22,9 @@ public class SharedPrefsFlagStoreManagerTest extends FlagStoreManagerTest {
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
+
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Before
     public void setUp() {

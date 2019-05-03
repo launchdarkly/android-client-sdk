@@ -23,60 +23,66 @@ abstract class ValueTypes {
          * @param jsonValue the JSON value
          * @return the converted value, or null if the JSON value was not of the correct type
          */
-        @Nullable public T valueFromJson(@NonNull JsonElement jsonValue);
+        @Nullable
+        T valueFromJson(@NonNull JsonElement jsonValue);
 
         /**
          * Converts a value to JSON. The value is guaranteed to be non-null.
          * @param value the value
          * @return the JSON value
          */
-        @NonNull public JsonElement valueToJson(@NonNull T value);
+        @NonNull
+        JsonElement valueToJson(@NonNull T value);
     }
 
     public static final Converter<Boolean> BOOLEAN = new Converter<Boolean>() {
         @Override
-        public Boolean valueFromJson(JsonElement jsonValue) {
+        public Boolean valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isBoolean()) ? jsonValue.getAsBoolean() : null;
         }
 
+        @NonNull
         @Override
-        public JsonElement valueToJson(Boolean value) {
+        public JsonElement valueToJson(@NonNull Boolean value) {
             return new JsonPrimitive(value);
         }
     };
 
     public static final Converter<Integer> INT = new Converter<Integer>() {
         @Override
-        public Integer valueFromJson(JsonElement jsonValue) {
+        public Integer valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsInt() : null;
         }
 
+        @NonNull
         @Override
-        public JsonElement valueToJson(Integer value) {
+        public JsonElement valueToJson(@NonNull Integer value) {
             return new JsonPrimitive(value);
         }
     };
 
     public static final Converter<Float> FLOAT = new Converter<Float>() {
         @Override
-        public Float valueFromJson(JsonElement jsonValue) {
+        public Float valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsFloat() : null;
         }
 
+        @NonNull
         @Override
-        public JsonElement valueToJson(Float value) {
+        public JsonElement valueToJson(@NonNull Float value) {
             return new JsonPrimitive(value);
         }
     };
 
     public static final Converter<String> STRING = new Converter<String>() {
         @Override
-        public String valueFromJson(JsonElement jsonValue) {
+        public String valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) ? jsonValue.getAsString() : null;
         }
 
+        @NonNull
         @Override
-        public JsonElement valueToJson(String value) {
+        public JsonElement valueToJson(@NonNull String value) {
             return new JsonPrimitive(value);
         }
     };
@@ -85,7 +91,7 @@ abstract class ValueTypes {
     // TODO(gwhelanld): remove in 3.0.0
     public static final Converter<String> STRINGCOMPAT = new Converter<String>() {
         @Override
-        public String valueFromJson(JsonElement jsonValue) {
+        public String valueFromJson(@NonNull JsonElement jsonValue) {
             if (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) {
                 return jsonValue.getAsString();
             } else if (!jsonValue.isJsonPrimitive() && !jsonValue.isJsonNull()) {
@@ -97,20 +103,22 @@ abstract class ValueTypes {
             return null;
         }
 
+        @NonNull
         @Override
-        public JsonElement valueToJson(String value) {
+        public JsonElement valueToJson(@NonNull String value) {
             return new JsonPrimitive(value);
         }
     };
 
     public static final Converter<JsonElement> JSON = new Converter<JsonElement>() {
         @Override
-        public JsonElement valueFromJson(JsonElement jsonValue) {
+        public JsonElement valueFromJson(@NonNull JsonElement jsonValue) {
             return jsonValue;
         }
 
+        @NonNull
         @Override
-        public JsonElement valueToJson(JsonElement value) {
+        public JsonElement valueToJson(@NonNull JsonElement value) {
             return value;
         }
     };

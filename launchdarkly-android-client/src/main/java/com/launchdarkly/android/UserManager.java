@@ -6,12 +6,6 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import android.util.Base64;
 
-import com.google.common.base.Function;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.flagstore.FlagStore;
@@ -36,7 +30,6 @@ import timber.log.Timber;
 class UserManager {
 
     private final FeatureFlagFetcher fetcher;
-    private volatile boolean initialized = false;
 
     private final Application application;
     private final FlagStoreManager flagStoreManager;
@@ -86,32 +79,24 @@ class UserManager {
         flagStoreManager.switchToUser(user.getSharedPrefsKey());
     }
 
-    ListenableFuture<Void> updateCurrentUser() {
-        ListenableFuture<JsonObject> fetchFuture = fetcher.fetch(currentUser);
+    void updateCurrentUser(final Util.ResultCallback<Void> onCompleteListener) {
+        fetcher.fetch(currentUser,
+                new Util.ResultCallback<JsonObject>() {
+                    @Override
+                    public void onSuccess(JsonObject result) {
+                        saveFlagSettings(result, onCompleteListener);
+                    }
 
-        Futures.addCallback(fetchFuture, new FutureCallback<JsonObject>() {
-            @Override
-            public void onSuccess(JsonObject result) {
-                initialized = true;
-                saveFlagSettings(result);
-            }
-
-            @Override
-            public void onFailure(@NonNull Throwable t) {
-                if (Util.isClientConnected(application, environmentName)) {
-                    Timber.e(t, "Error when attempting to set user: [%s] [%s]", currentUser.getAsUrlSafeBase64(), userBase64ToJson(currentUser.getAsUrlSafeBase64()));
-                }
-            }
-        }, MoreExecutors.directExecutor());
-
-        // Transform the Future<JsonObject> to Future<Void> since the caller doesn't care about the result.
-        return Futures.transform(fetchFuture, new Function<JsonObject, Void>() {
-            @javax.annotation.Nullable
-            @Override
-            public Void apply(@javax.annotation.Nullable JsonObject input) {
-                return null;
-            }
-        }, MoreExecutors.directExecutor());
+                    @Override
+                    public void onError(Throwable e) {
+                        if (Util.isClientConnected(application, environmentName)) {
+                            Timber.e(e, "Error when attempting to set user: [%s] [%s]",
+                                    currentUser.getAsUrlSafeBase64(),
+                                    userBase64ToJson(currentUser.getAsUrlSafeBase64()));
+                        }
+                        onCompleteListener.onError(e);
+                    }
+                });
     }
 
     void registerListener(final String key, final FeatureFlagChangeListener listener) {
@@ -120,6 +105,14 @@ class UserManager {
 
     void unregisterListener(String key, FeatureFlagChangeListener listener) {
         flagStoreManager.unRegisterListener(key, listener);
+    }
+
+    void registerAllFlagsListener(@NonNull final LDAllFlagsListener listener) {
+        flagStoreManager.registerAllFlagsListener(listener);
+    }
+
+    void unregisterAllFlagsListener(@NonNull final LDAllFlagsListener listener) {
+        flagStoreManager.unregisterAllFlagsListener(listener);
     }
 
     /**
@@ -131,14 +124,16 @@ class UserManager {
      * @param flagsJson
      */
     @SuppressWarnings("JavaDoc")
-    private void saveFlagSettings(JsonObject flagsJson) {
+    private void saveFlagSettings(JsonObject flagsJson, Util.ResultCallback<Void> onCompleteListener) {
         Timber.d("saveFlagSettings for user key: %s", currentUser.getKey());
 
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
             flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
+            onCompleteListener.onSuccess(null);
         } catch (Exception e) {
             Timber.d("Invalid JsonObject for flagSettings: %s", flagsJson);
+            onCompleteListener.onError(new LDFailure("Invalid Json received from flags endpoint", e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
     }
 
@@ -146,75 +141,72 @@ class UserManager {
         return new String(Base64.decode(base64, Base64.URL_SAFE));
     }
 
-    boolean isInitialized() {
-        return initialized;
-    }
-
-    ListenableFuture<Void> deleteCurrentUserFlag(@NonNull final String json) {
+    void deleteCurrentUserFlag(@NonNull final String json, final Util.ResultCallback<Void> onCompleteListener) {
         try {
             final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
-            ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-            return service.submit(new Runnable() {
+            executor.submit(new Runnable() {
                 @Override
                 public void run() {
-                    initialized = true;
                     if (deleteFlagResponse != null) {
                         flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
+                        onCompleteListener.onSuccess(null);
                     } else {
                         Timber.d("Invalid DELETE payload: %s", json);
+                        onCompleteListener.onError(new LDFailure("Invalid DELETE payload",
+                                LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     }
                 }
-            }, null);
+            });
         } catch (Exception ex) {
             Timber.d(ex, "Invalid DELETE payload: %s", json);
-            // In future should this be an immediateFailedFuture?
-            return Futures.immediateFuture(null);
+            onCompleteListener.onError(new LDFailure("Invalid DELETE payload", ex,
+                    LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
     }
 
-    ListenableFuture<Void> putCurrentUserFlags(final String json) {
+    void putCurrentUserFlags(final String json, final Util.ResultCallback<Void> onCompleteListener) {
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
-            ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-            return service.submit(new Runnable() {
+            executor.submit(new Runnable() {
                 @Override
                 public void run() {
-                    initialized = true;
                     Timber.d("PUT for user key: %s", currentUser.getKey());
                     flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
+                    onCompleteListener.onSuccess(null);
                 }
-            }, null);
+            });
         } catch (Exception ex) {
             Timber.d(ex, "Invalid PUT payload: %s", json);
-            // In future should this be an immediateFailedFuture?
-            return Futures.immediateFuture(null);
+            onCompleteListener.onError(new LDFailure("Invalid PUT payload", ex,
+                    LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
     }
 
-    ListenableFuture<Void> patchCurrentUserFlags(@NonNull final String json) {
+    void patchCurrentUserFlags(@NonNull final String json, final Util.ResultCallback<Void> onCompleteListener) {
         try {
             final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
-            ListeningExecutorService service = MoreExecutors.listeningDecorator(executor);
-            return service.submit(new Runnable() {
+            executor.submit(new Runnable() {
                 @Override
                 public void run() {
-                    initialized = true;
                     if (flag != null) {
                         flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
+                        onCompleteListener.onSuccess(null);
                     } else {
                         Timber.d("Invalid PATCH payload: %s", json);
+                        onCompleteListener.onError(new LDFailure("Invalid PUT payload",
+                                LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     }
                 }
-            }, null);
+            });
         } catch (Exception ex) {
             Timber.d(ex, "Invalid PATCH payload: %s", json);
-            // In future should this be an immediateFailedFuture?
-            return Futures.immediateFuture(null);
+            onCompleteListener.onError(new LDFailure("Invalid PATCH payload", ex,
+                    LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
     }
 
     @VisibleForTesting
-    public Collection<FeatureFlagChangeListener> getListenersByKey(String key) {
+    Collection<FeatureFlagChangeListener> getListenersByKey(String key) {
         return flagStoreManager.getListenersByKey(key);
     }
 }

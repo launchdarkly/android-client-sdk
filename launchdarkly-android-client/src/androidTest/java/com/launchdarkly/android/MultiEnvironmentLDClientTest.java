@@ -26,9 +26,13 @@ import static org.hamcrest.MatcherAssert.assertThat;
 
 @RunWith(AndroidJUnit4.class)
 public class MultiEnvironmentLDClientTest {
+
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
+
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     private LDClient ldClient;
     private Future<LDClient> ldClientFuture;
@@ -53,7 +57,6 @@ public class MultiEnvironmentLDClientTest {
     @Test
     public void testOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
-        ldClient.clearSummaryEventSharedPreferences();
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -66,15 +69,12 @@ public class MultiEnvironmentLDClientTest {
         JsonObject expectedJson = new JsonObject();
         expectedJson.addProperty("field", "value");
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
-
-        ldClient.clearSummaryEventSharedPreferences();
     }
 
     @UiThreadTest
     @Test
     public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
-        ldClient.clearSummaryEventSharedPreferences();
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -84,8 +84,6 @@ public class MultiEnvironmentLDClientTest {
         assertNull(ldClient.floatVariation("floatFlag", null));
         assertNull(ldClient.intVariation("intFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
-
-        ldClient.clearSummaryEventSharedPreferences();
     }
 
     @UiThreadTest

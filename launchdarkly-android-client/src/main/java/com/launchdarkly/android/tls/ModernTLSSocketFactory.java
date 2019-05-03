@@ -71,7 +71,7 @@ public class ModernTLSSocketFactory extends SSLSocketFactory {
      * If the socket does not make these modern TLS protocols available at all, then just return the socket unchanged.
      *
      * @param s the socket
-     * @return
+     * @return the socket with modern TLS protocols enabled if possible
      */
     private static Socket setModernTlsVersionsOnSocket(Socket s) {
         if (s instanceof SSLSocket) {
@@ -87,7 +87,7 @@ public class ModernTLSSocketFactory extends SSLSocketFactory {
                 newEnabledProtocols.add(TLS_1);
             }
             if (newEnabledProtocols.size() > 0) {
-                ((SSLSocket) s).setEnabledProtocols(newEnabledProtocols.toArray(new String[newEnabledProtocols.size()]));
+                ((SSLSocket) s).setEnabledProtocols(newEnabledProtocols.toArray(new String[0]));
             }
         }
         return s;

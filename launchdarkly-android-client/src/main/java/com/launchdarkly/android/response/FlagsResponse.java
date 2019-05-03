@@ -13,7 +13,7 @@ import java.util.List;
  */
 public class FlagsResponse {
     @NonNull
-    private List<Flag> flags;
+    private final List<Flag> flags;
 
     public FlagsResponse(@NonNull List<Flag> flags) {
         this.flags = flags;

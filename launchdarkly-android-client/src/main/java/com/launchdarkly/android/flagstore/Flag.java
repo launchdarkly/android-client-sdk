@@ -8,14 +8,14 @@ import com.launchdarkly.android.EvaluationReason;
 public class Flag implements FlagUpdate, FlagInterface {
 
     @NonNull
-    private String key;
-    private JsonElement value;
-    private Integer version;
-    private Integer flagVersion;
-    private Integer variation;
-    private Boolean trackEvents;
-    private Long debugEventsUntilDate;
-    private EvaluationReason reason;
+    private final String key;
+    private final JsonElement value;
+    private final Integer version;
+    private final Integer flagVersion;
+    private final Integer variation;
+    private final Boolean trackEvents;
+    private final Long debugEventsUntilDate;
+    private final EvaluationReason reason;
 
     public Flag(@NonNull String key, JsonElement value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Long debugEventsUntilDate, EvaluationReason reason) {
         this.key = key;

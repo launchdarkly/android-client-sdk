@@ -3,12 +3,17 @@ package com.launchdarkly.android;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 
+import org.junit.Rule;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
 public class EvaluationReasonTest {
+
     private static final Gson gson = new LDConfig.Builder().build().getFilteredEventGson();
+
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void testOffReasonSerialization() {

@@ -4,8 +4,6 @@ import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
@@ -13,6 +11,8 @@ import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
@@ -102,7 +102,7 @@ class Migration {
     private static void migrate_2_7_from_2_6(Application application) {
         Timber.d("Migrating to v2.7.0 shared preferences store from v2.6.0");
 
-        Multimap<String, String> keyUsers = getUserKeys_2_6(application);
+        Map<String, Set<String>> keyUsers = getUserKeys_2_6(application);
 
         boolean allSuccess = true;
         for (String mobileKey : keyUsers.keySet()) {
@@ -140,6 +140,9 @@ class Migration {
     static ArrayList<String> getUserKeysPre_2_6(Application application, LDConfig config) {
         File directory = new File(application.getFilesDir().getParent() + "/shared_prefs/");
         File[] files = directory.listFiles();
+        if (files == null) {
+            return new ArrayList<>();
+        }
         ArrayList<String> filenames = new ArrayList<>();
         for (File file : files) {
             if (file.isFile())
@@ -175,7 +178,7 @@ class Migration {
         return userKeys;
     }
 
-    static Multimap<String, String> getUserKeys_2_6(Application application) {
+    static Map<String, Set<String>> getUserKeys_2_6(Application application) {
         File directory = new File(application.getFilesDir().getParent() + "/shared_prefs/");
         File[] files = directory.listFiles();
         ArrayList<String> filenames = new ArrayList<>();
@@ -186,14 +189,19 @@ class Migration {
             }
         }
 
-        Multimap<String, String> keyUserMap = HashMultimap.create();
+        Map<String, Set<String>> keyUserMap = new HashMap<>();
         for (String filename : filenames) {
             String strip = filename.substring(LDConfig.SHARED_PREFS_BASE_KEY.length(), filename.length() - 9);
             int splitAt = strip.length() - 44;
             if (splitAt > 0) {
                 String mobileKey = strip.substring(0, splitAt);
                 String userKey = strip.substring(splitAt);
-                keyUserMap.put(mobileKey, userKey);
+                Set<String> userKeys = keyUserMap.get(mobileKey);
+                if (userKeys == null) {
+                    userKeys = new HashSet<>();
+                }
+                userKeys.add(userKey);
+                keyUserMap.put(mobileKey, userKeys);
             }
         }
         return keyUserMap;

@@ -73,7 +73,7 @@ public interface LDClientInterface extends Closeable {
      * Sets the current user, retrieves flags for that user, then sends an Identify Event to LaunchDarkly.
      * The 5 most recent users' flag settings are kept locally.
      *
-     * @param user
+     * @param user The user for evaluation and event reporting
      * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
      */
     Future<Void> identify(LDUser user);
@@ -254,11 +254,46 @@ public interface LDClientInterface extends Closeable {
     void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 
     /**
-     * Checks whether {@link LDConfig.Builder#setDisableBackgroundUpdating(boolean)} was set to
-     * {@code true} in the configuration.
+     * Gets a {@link ConnectionInformation} object from the client representing the current state
+     * of the clients connection.
      *
-     * @return true if background polling is disabled
+     * @return An object representing the status of the connection to LaunchDarkly.
      */
+    ConnectionInformation getConnectionInformation();
+
+    /**
+     *
+     * @param LDStatusListener
+     */
+    void unregisterStatusListener(LDStatusListener LDStatusListener);
+
+    /**
+     *
+     * @param LDStatusListener
+     */
+    void registerStatusListener(LDStatusListener LDStatusListener);
+
+    /**
+     * Registers a {@link LDAllFlagsListener} to be called when a flag update is processed by the
+     * SDK.
+     *
+     * @param allFlagsListener the listener to be called on a flag update
+     */
+    void registerAllFlagsListener(LDAllFlagsListener allFlagsListener);
+
+    /**
+     * Unregisters a {@link LDAllFlagsListener} so it will no longer be called on flag updates.
+     *
+     * @param allFlagsListener the listener to be removed
+     */
+    void unregisterAllFlagsListener(LDAllFlagsListener allFlagsListener);
+
+        /**
+         * Checks whether {@link LDConfig.Builder#setDisableBackgroundUpdating(boolean)} was set to
+         * {@code true} in the configuration.
+         *
+         * @return true if background polling is disabled
+         */
     boolean isDisableBackgroundPolling();
 
     /**

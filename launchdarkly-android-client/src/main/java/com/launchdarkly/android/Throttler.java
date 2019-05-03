@@ -99,6 +99,7 @@ class Throttler {
         if ((bound & m) == 0) { // i.e., bound is a power of 2
             r = (bound * r) >> (Long.SIZE - 1);
         } else {
+            //noinspection StatementWithEmptyBody
             for (long u = r; u - (r = u % bound) + m < 0L; u = rand.nextLong() & Long.MAX_VALUE) ;
         }
         return r;

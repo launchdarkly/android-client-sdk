@@ -1,17 +1,18 @@
-package com.launchdarkly.example;
+package com.launchdarkly.android;
 
-import com.launchdarkly.android.Debounce;
+import android.support.test.runner.AndroidJUnit4;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
 import java.util.concurrent.Callable;
 
-import static junit.framework.Assert.assertEquals;
+import static org.junit.Assert.assertEquals;
 
 /**
  * Created by pwray on 2017-09-27.
  */
-
+@RunWith(AndroidJUnit4.class)
 public class DebounceTest {
 
     @Test
@@ -22,7 +23,7 @@ public class DebounceTest {
 
         test.call(null);
 
-        assertEquals("no change", expected, actual);
+        assertEquals(expected, actual);
     }
 
     @Test
@@ -40,7 +41,7 @@ public class DebounceTest {
         });
         Thread.sleep(3000);
 
-        assertEquals("no change", expected, actual[0]);
+        assertEquals(expected, actual[0]);
     }
 
     @Test
@@ -66,13 +67,13 @@ public class DebounceTest {
         });
         Thread.sleep(3000);
 
-        assertEquals("no change", expected, actual[0]);
+        assertEquals(expected, actual[0]);
     }
 
     @Test
-    public void callPendingSetReturnOneBounce() throws InterruptedException {
+    public void callPendingSetReturnThreeBounce() throws InterruptedException {
         Debounce test = new Debounce();
-        Integer expected = 1;
+        Integer expected = 3;
         final Integer[] actual = {0};
 
         test.call(new Callable<Void>() {
@@ -89,7 +90,16 @@ public class DebounceTest {
                 return null;
             }
         });
+        test.call(new Callable<Void>() {
+            @Override
+            public Void call() throws Exception {
+                if (actual[0] == 1)
+                    actual[0] = 3;
+                return null;
+            }
+        });
+        Thread.sleep(1);
 
-        assertEquals("no change", expected, actual[0]);
+        assertEquals(expected, actual[0]);
     }
 }

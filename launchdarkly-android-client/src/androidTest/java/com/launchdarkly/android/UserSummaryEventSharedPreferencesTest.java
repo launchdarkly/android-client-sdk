@@ -9,7 +9,6 @@ import com.launchdarkly.android.test.TestActivity;
 
 import junit.framework.Assert;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -30,6 +29,9 @@ public class UserSummaryEventSharedPreferencesTest {
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
 
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+
     private LDClient ldClient;
     private LDConfig ldConfig;
     private LDUser ldUser;
@@ -44,14 +46,7 @@ public class UserSummaryEventSharedPreferencesTest {
         ldUser = new LDUser.Builder("userKey").build();
 
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
-        ldClient.clearSummaryEventSharedPreferences();
-
         summaryEventSharedPreferences = ldClient.getSummaryEventSharedPreferences();
-    }
-
-    @After
-    public void tearDown() {
-        ldClient.clearSummaryEventSharedPreferences();
     }
 
     @Test
@@ -69,7 +64,6 @@ public class UserSummaryEventSharedPreferencesTest {
     public void counterIsUpdated() {
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
-        ldClient.clearSummaryEventSharedPreferences();
 
         ldClient.boolVariation("boolFlag", true);
         JsonObject features = summaryEventSharedPreferences.getSummaryEvent().features;
@@ -131,7 +125,7 @@ public class UserSummaryEventSharedPreferencesTest {
         Assert.assertTrue(features.keySet().contains("boolFlag"));
         Assert.assertTrue(features.keySet().contains("stringFlag"));
 
-        ldClient.clearSummaryEventSharedPreferences();
+        summaryEventSharedPreferences.clear();
 
         SummaryEvent summaryEvent = summaryEventSharedPreferences.getSummaryEvent();
         assertNull(summaryEvent);

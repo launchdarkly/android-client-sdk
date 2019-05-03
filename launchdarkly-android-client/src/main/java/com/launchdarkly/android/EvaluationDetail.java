@@ -1,6 +1,6 @@
 package com.launchdarkly.android;
 
-import com.google.common.base.Objects;
+import java.util.Arrays;
 
 /**
  * An object returned by the "variation detail" methods such as {@link LDClientInterface#boolVariationDetail(String, Boolean)},
@@ -68,14 +68,17 @@ public class EvaluationDetail<T> {
         if (other instanceof EvaluationDetail) {
             @SuppressWarnings("unchecked")
             EvaluationDetail<T> o = (EvaluationDetail<T>) other;
-            return Objects.equal(reason, o.reason) && Objects.equal(variationIndex, o.variationIndex) && Objects.equal(value, o.value);
+            return Util.objectsEqual(reason, o.reason) &&
+                    Util.objectsEqual(variationIndex, o.variationIndex) &&
+                    Util.objectsEqual(value, o.value);
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(reason, variationIndex, value);
+        Object[] subObjects = {reason, variationIndex, value};
+        return Arrays.hashCode(subObjects);
     }
 
     @Override

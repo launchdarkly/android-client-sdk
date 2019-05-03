@@ -2,8 +2,8 @@ package com.launchdarkly.android;
 
 import android.content.Context;
 import android.os.Build;
+import android.support.annotation.NonNull;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.launchdarkly.android.tls.ModernTLSSocketFactory;
 import com.launchdarkly.android.tls.SSLHandshakeInterceptor;
 import com.launchdarkly.android.tls.TLSUtils;
@@ -23,6 +23,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
@@ -72,11 +73,18 @@ class EventProcessor implements Closeable {
     }
 
     void start() {
-        ThreadFactory threadFactory = new ThreadFactoryBuilder()
-                .setDaemon(true)
-                .setNameFormat("LaunchDarkly-EventProcessor-%d")
-                .build();
-        scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
+        scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+            final AtomicLong count = new AtomicLong(0);
+
+            @Override
+            public Thread newThread(@NonNull Runnable r) {
+                Thread thread = Executors.defaultThreadFactory().newThread(r);
+                thread.setName(String.format(Locale.ROOT, "LaunchDarkly-EventProcessor-%d",
+                        count.getAndIncrement()));
+                thread.setDaemon(true);
+                return thread;
+            }
+        });
         scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
     }
 
@@ -105,7 +113,7 @@ class EventProcessor implements Closeable {
     }
 
     class Consumer implements Runnable {
-        private LDConfig config;
+        private final LDConfig config;
 
         Consumer(LDConfig config) {
             this.config = config;

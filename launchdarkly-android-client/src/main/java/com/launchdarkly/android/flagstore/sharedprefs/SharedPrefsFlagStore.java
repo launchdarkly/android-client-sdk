@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.support.annotation.NonNull;
 import android.util.Pair;
 
+import com.launchdarkly.android.Util;
 import com.launchdarkly.android.flagstore.Flag;
 import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
@@ -17,8 +18,9 @@ import com.launchdarkly.android.gson.GsonCache;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -29,7 +31,7 @@ class SharedPrefsFlagStore implements FlagStore {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     private final String prefsKey;
-    private Application application;
+    private final Application application;
     private SharedPreferences sharedPreferences;
     private WeakReference<StoreUpdatedListener> listenerWeakReference;
 
@@ -55,9 +57,7 @@ class SharedPrefsFlagStore implements FlagStore {
 
     @Override
     public void clear() {
-        SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.clear();
-        editor.apply();
+        sharedPreferences.edit().clear().apply();
     }
 
     @Override
@@ -68,11 +68,7 @@ class SharedPrefsFlagStore implements FlagStore {
     @Nullable
     @Override
     public Flag getFlag(String flagKey) {
-        String flagData = sharedPreferences.getString(flagKey, null);
-        if (flagData == null)
-            return null;
-
-        return GsonCache.getGson().fromJson(flagData, Flag.class);
+        return Util.sharedPrefsGetGson(sharedPreferences, Flag.class, flagKey);
     }
 
     private Pair<String, FlagStoreUpdateType> applyFlagUpdateNoCommit(@NonNull SharedPreferences.Editor editor, @NonNull FlagUpdate flagUpdate) {
@@ -104,16 +100,14 @@ class SharedPrefsFlagStore implements FlagStore {
         editor.apply();
         StoreUpdatedListener storeUpdatedListener = listenerWeakReference.get();
         if (update != null && storeUpdatedListener != null) {
-            storeUpdatedListener.onStoreUpdate(update.first, update.second);
+            storeUpdatedListener.onStoreUpdate(Collections.singletonList(new Pair<>(update.first, update.second)));
         }
     }
 
-    private void informListenersOfUpdateList(List<Pair<String, FlagStoreUpdateType>> updates) {
+    private void informListenerOfUpdateList(List<Pair<String, FlagStoreUpdateType>> updates) {
         StoreUpdatedListener storeUpdatedListener = listenerWeakReference.get();
         if (storeUpdatedListener != null) {
-            for (Pair<String, FlagStoreUpdateType> update : updates) {
-                storeUpdatedListener.onStoreUpdate(update.first, update.second);
-            }
+            storeUpdatedListener.onStoreUpdate(updates);
         }
     }
 
@@ -128,7 +122,7 @@ class SharedPrefsFlagStore implements FlagStore {
             }
         }
         editor.apply();
-        informListenersOfUpdateList(updates);
+        informListenerOfUpdateList(updates);
     }
 
     @Override
@@ -154,30 +148,12 @@ class SharedPrefsFlagStore implements FlagStore {
         for (String clearedKey : clearedKeys) {
             updates.add(new Pair<>(clearedKey, FlagStoreUpdateType.FLAG_DELETED));
         }
-        informListenersOfUpdateList(updates);
+        informListenerOfUpdateList(updates);
     }
 
     @Override
-    public List<Flag> getAllFlags() {
-        Map<String, ?> flags = sharedPreferences.getAll();
-        ArrayList<Flag> result = new ArrayList<>();
-        for (Object entry : flags.values()) {
-            if (entry instanceof String) {
-                Flag flag = null;
-                try {
-                    flag = GsonCache.getGson().fromJson((String) entry, Flag.class);
-                } catch (Exception ignored) {
-                }
-                if (flag == null) {
-                    Timber.e("invalid flag found in flag store");
-                } else {
-                    result.add(flag);
-                }
-            } else {
-                Timber.e("non-string found in flag store");
-            }
-        }
-        return result;
+    public Collection<Flag> getAllFlags() {
+        return Util.sharedPrefsGetAllGson(sharedPreferences, Flag.class).values();
     }
 
     @Override

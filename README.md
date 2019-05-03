@@ -8,7 +8,7 @@ Check out the included example app, or follow things here:
 1. Declare this dependency:
 
 	```
-	compile 'com.launchdarkly:launchdarkly-android-client:2.7.0'
+	compile 'com.launchdarkly:launchdarkly-android-client:2.8.0'
 	```  
 1. In your application configure and initialize the client:
 
@@ -84,7 +84,7 @@ Example config with streaming disabled and custom polling intervals:
 Learn more
 ----------
 
-Check out our [documentation](http://docs.launchdarkly.com) for in-depth instructions on configuring and using LaunchDarkly. You can also head straight to the [complete reference guide for this SDK](http://docs.launchdarkly.com/docs/android-sdk-reference) or our [Javadocs](http://launchdarkly.github.io/android-client-sdk/).
+Check out our [documentation](http://docs.launchdarkly.com) for in-depth instructions on configuring and using LaunchDarkly. You can also head straight to the [complete reference guide for this SDK](http://docs.launchdarkly.com/docs/android-sdk-reference) or our [Javadocs](http://launchdarkly.github.io/android-client/).
 
 ## Testing
 Much of the behavior we want to assert is around complicated device state changes such as

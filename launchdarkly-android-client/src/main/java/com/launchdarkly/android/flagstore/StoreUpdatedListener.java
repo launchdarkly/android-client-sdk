@@ -1,5 +1,9 @@
 package com.launchdarkly.android.flagstore;
 
+import android.util.Pair;
+
+import java.util.List;
+
 /**
  * Listener interface for receiving FlagStore update callbacks
  */
@@ -7,8 +11,7 @@ public interface StoreUpdatedListener {
     /**
      * Called by a FlagStore when the store is updated.
      *
-     * @param flagKey The key of the Flag that was updated
-     * @param flagStoreUpdateType The type of update that occurred.
+     * @param updates Pairs of flag keys that were updated and the type of update that occurred.
      */
-    void onStoreUpdate(String flagKey, FlagStoreUpdateType flagStoreUpdateType);
+    void onStoreUpdate(List<Pair<String, FlagStoreUpdateType>> updates);
 }

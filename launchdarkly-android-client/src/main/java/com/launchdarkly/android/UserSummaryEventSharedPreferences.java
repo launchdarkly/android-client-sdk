@@ -21,7 +21,7 @@ import timber.log.Timber;
 
 public class UserSummaryEventSharedPreferences implements SummaryEventSharedPreferences {
 
-    private SharedPreferences sharedPreferences;
+    private final SharedPreferences sharedPreferences;
 
     UserSummaryEventSharedPreferences(Application application, String name) {
         this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);

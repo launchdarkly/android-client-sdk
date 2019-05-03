@@ -28,6 +28,9 @@ public class ThrottlerTest {
     public final ActivityTestRule<TestActivity> activityTestRule =
             new ActivityTestRule<>(TestActivity.class, false, true);
 
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+
     private final AtomicBoolean hasRun = new AtomicBoolean(false);
     private Throttler throttler;
     private static final long MAX_RETRY_TIME_MS = 600000;

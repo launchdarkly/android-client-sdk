@@ -8,6 +8,7 @@ import com.launchdarkly.android.flagstore.FlagBuilder;
 import com.launchdarkly.android.gson.GsonCache;
 import com.launchdarkly.android.response.DeleteFlagResponse;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -16,6 +17,9 @@ import static org.junit.Assert.assertNull;
 
 @RunWith(AndroidJUnit4.class)
 public class DeleteFlagResponseTest {
+
+    @Rule
+    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     private static final Gson gson = GsonCache.getGson();
 

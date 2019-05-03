@@ -1,130 +1,150 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent"
-    android:layout_height="match_parent" android:paddingBottom="@dimen/activity_vertical_margin"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:paddingLeft="@dimen/activity_horizontal_margin"
-    android:paddingRight="@dimen/activity_horizontal_margin"
     android:paddingTop="@dimen/activity_vertical_margin"
+    android:paddingRight="@dimen/activity_horizontal_margin"
+    android:paddingBottom="@dimen/activity_vertical_margin"
     tools:context="com.launchdarkly.example.MainActivity">
 
     <Button
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Identify"
         android:id="@+id/identify_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
         android:layout_alignParentBottom="true"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true" />
+        android:text="Identify" />
 
     <Button
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Track"
         android:id="@+id/track_button"
-        android:layout_above="@+id/userKey_editText"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true" />
-
-    <Button
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Flush"
+        android:layout_alignParentBottom="true"
+        android:layout_toEndOf="@id/identify_button"
+        android:layout_toRightOf="@id/identify_button"
+        android:text="Track" />
+
+    <Button
         android:id="@+id/flush_button"
-        android:layout_above="@+id/userKey_editText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_toEndOf="@+id/track_button"
         android:layout_toRightOf="@+id/track_button"
-        android:layout_toEndOf="@+id/track_button" />
+        android:text="Flush" />
 
     <EditText
+        android:id="@+id/feature_flag_key"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:id="@+id/feature_flag_key"
         android:layout_alignParentTop="true"
-        android:layout_toRightOf="@+id/textView"
+        android:layout_alignParentEnd="true"
         android:layout_alignParentRight="true"
-        android:layout_alignParentEnd="true" />
+        android:layout_toEndOf="@+id/textView"
+        android:layout_toRightOf="@+id/textView" />
 
     <Spinner
+        android:id="@+id/type_spinner"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:id="@+id/type_spinner"
-        android:spinnerMode="dropdown"
         android:layout_below="@+id/feature_flag_key"
-        android:layout_toLeftOf="@+id/eval_button"
+        android:layout_alignTop="@id/eval_button"
+        android:layout_alignBottom="@id/eval_button"
+        android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true" />
+        android:layout_toStartOf="@+id/eval_button"
+        android:layout_toLeftOf="@+id/eval_button"
+        android:spinnerMode="dropdown" />
 
     <Button
+        android:id="@+id/eval_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Evaluate Flag"
-        android:id="@+id/eval_button"
-        android:layout_below="@+id/textView"
-        android:layout_alignParentRight="true"
+        android:layout_below="@+id/feature_flag_key"
         android:layout_alignParentEnd="true"
-        android:layout_alignBottom="@+id/type_spinner" />
+        android:layout_alignParentRight="true"
+        android:text="Evaluate Flag" />
 
     <TextView
+        android:id="@+id/textView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Feature Key:"
-        android:id="@+id/textView"
         android:layout_alignBaseline="@+id/feature_flag_key"
         android:layout_alignBottom="@+id/feature_flag_key"
+        android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true" />
+        android:text="Feature Key:"
+        android:textColor="@android:color/black"
+        android:textSize="16sp" />
 
     <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
         android:id="@+id/result_textView"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentRight="true"
-        android:layout_alignParentEnd="true"
+        android:layout_width="wrap_content"
+        android:layout_height="0dp"
+        android:layout_above="@+id/connection_status"
         android:layout_below="@+id/space"
-        android:layout_above="@+id/track_button" />
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true" />
+
+    <TextView
+        android:id="@+id/connection_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/userKey_editText"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:minLines="4" />
 
     <Space
-        android:layout_width="20px"
-        android:layout_height="20px"
-        android:layout_below="@+id/type_spinner"
-        android:layout_alignParentLeft="true"
+        android:id="@+id/space"
+        android:layout_width="0dp"
+        android:layout_height="8dp"
+        android:layout_below="@+id/eval_button"
         android:layout_alignParentStart="true"
-        android:layout_alignParentRight="true"
+        android:layout_alignParentLeft="true"
         android:layout_alignParentEnd="true"
-        android:id="@+id/space" />
+        android:layout_alignParentRight="true" />
 
     <EditText
+        android:id="@+id/userKey_editText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:id="@+id/userKey_editText"
         android:layout_above="@+id/identify_button"
-        android:layout_alignRight="@+id/result_textView"
         android:layout_alignEnd="@+id/result_textView"
-        android:layout_toRightOf="@+id/textView2"
-        android:layout_toEndOf="@+id/textView2" />
+        android:layout_alignRight="@+id/result_textView"
+        android:layout_toEndOf="@+id/textView2"
+        android:layout_toRightOf="@+id/textView2" />
 
     <TextView
+        android:id="@+id/textView2"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="User Key:"
-        android:id="@+id/textView2"
         android:layout_alignBaseline="@+id/userKey_editText"
         android:layout_alignBottom="@+id/userKey_editText"
+        android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true" />
+        android:text="User Key:"
+        android:textColor="@android:color/black"
+        android:textSize="16sp" />
 
     <Switch
+        android:id="@+id/offlineSwitch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Offline"
-        android:id="@+id/offlineSwitch"
-        android:layout_above="@+id/userKey_editText"
         android:layout_alignTop="@+id/flush_button"
-        android:layout_alignRight="@+id/userKey_editText"
-        android:layout_alignEnd="@+id/userKey_editText"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:layout_alignParentBottom="true"
+        android:layout_toEndOf="@+id/flush_button"
+        android:layout_toRightOf="@+id/flush_button"
         android:checked="false"
-        android:layout_alignLeft="@+id/eval_button"
-        android:layout_alignStart="@+id/eval_button" />
+        android:text="Offline" />
 
 </RelativeLayout>
