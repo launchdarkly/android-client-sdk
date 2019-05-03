@@ -1,1 +1,6 @@
 com.launchdarkly.android
+com.launchdarkly.android.flagstore
+com.launchdarkly.android.flagstore.sharedprefs
+com.launchdarkly.android.gson
+com.launchdarkly.android.response
+com.launchdarkly.android.tls
