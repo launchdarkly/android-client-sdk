@@ -40,11 +40,6 @@ android {
         execution 'ANDROID_TEST_ORCHESTRATOR'
     }
 
-    lintOptions {
-        // TODO: fix things and set this to true
-        abortOnError false
-    }
-
     configurations {
         javadocDeps
     }
