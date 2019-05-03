@@ -2,6 +2,19 @@
 
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
+
+## [2.8.0] - 2019-05-03
+### Added
+- LDAllFlagsListener interface that can be registered to a LDClient instance. The SDK will call the listener's onChange method whenever it receives an update, passing a list of any flag keys that were updated to the listener.
+- Class ConnectionInformation that contains information about the current status of the SDK. This class can be retrieved with the method getConnectionInformation on a LDClient instance and contains information on the current connectivity mode, timestamps of most recent successful and unsuccessful connections to LaunchDarkly, as well as information on the most recent connection failure (if any).
+- LDStatusListener interface that can be registered to a LDClient instance. The interface has a method onConnectionModeChanged that will be called when the LDClient instance transitions between connectivity modes (due to foreground status changes, network connectivity changing, or explicitly being set). The listener also has a method onInternalFailure that will be called when the instance experiences a failure updating it's flag store. The SDK is expected to recover from these failures, the listener is supplied to allow more informed monitoring of any underlying reasons the flag store may be not up to date.
+- Demo of new ConnectionInformation functionality to example application.
+### Removed
+- Internal usages of Guava
+### Fixed
+- Potential issue that could cause dropping of flag updates if SDK received updates in close succession.
+- SDK will no longer assume that the application is started in the foreground, which can be untrue if started by Android's ActivityManager in response to a broadcast.
+
 ## [2.7.0] - 2019-04-02
 ### Added
 - The new configuration option `setEvaluationReasons(true)` causes LaunchDarkly to report information about how each feature flag value was determined; you can access this information with the new client methods `boolVariationDetail`, `stringVariationDetail`, etc. The new methods return an object that contains both the flag value and a "reason" object which will tell you, for instance, if the user was individually targeted for the flag or was matched by one of the flag's rules, or if the flag returned the default value due to an error. For more information, see the SDK Reference Guide on [evaluation reasons](https://docs.launchdarkly.com/docs/evaluation-reasons).
