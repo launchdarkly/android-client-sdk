@@ -3,6 +3,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.8.1] - 2019-05-03
+### Changed
+- Changed the artifact id from `com.launchdarkly:launchdarkly-android-client` to `com.launchdarkly:launchdarkly-android-client-sdk`
+- Changed repository references to use the new URL
+
+There are no other changes in this release. Substituting `com.launchdarkly:launchdarkly-android-client` version 2.8.0 with `com.launchdarkly:launchdarkly-android-client-sdk` version 2.8.1 will not affect functionality.
+
 ## [2.8.0] - 2019-05-03
 ### Added
 - LDAllFlagsListener interface that can be registered to a LDClient instance. The SDK will call the listener's onChange method whenever it receives an update, passing a list of any flag keys that were updated to the listener.
@@ -14,6 +21,11 @@ All notable changes to the LaunchDarkly Android SDK will be documented in this f
 ### Fixed
 - Potential issue that could cause dropping of flag updates if SDK received updates in close succession.
 - SDK will no longer assume that the application is started in the foreground, which can be untrue if started by Android's ActivityManager in response to a broadcast.
+### Note on future releases
+
+The LaunchDarkly SDK repositories are being renamed for consistency. This repository is now `android-client-sdk` rather than `android-client`.
+
+The artifact id will also change. In the 2.8.0 release, it is still `com.launchdarkly:launchdarkly-android-client`; in all future releases, it will be `com.launchdarkly:launchdarkly-android-client-sdk`. No further updates to the `com.launchdarkly:launchdarkly-android-client` artifact will be published after this release.
 
 ## [2.7.0] - 2019-04-02
 ### Added
@@ -167,7 +179,7 @@ All notable changes to the LaunchDarkly Android SDK will be documented in this f
 - Updated suggested Proguard rules for a smaller footprint.
 
 ### Fixed
-- [Update to Latest version of OkHttp](https://github.com/launchdarkly/android-client/issues/20)
+- [Update to Latest version of OkHttp](https://github.com/launchdarkly/android-client-sdk/issues/20)
 
 ## [1.0.1] - 2016-11-17
 ### Added
