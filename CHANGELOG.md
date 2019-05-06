@@ -3,7 +3,7 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.8.1] - 2019-05-03
+## [2.8.1] - 2019-05-06
 ### Changed
 - Changed the artifact id from `com.launchdarkly:launchdarkly-android-client` to `com.launchdarkly:launchdarkly-android-client-sdk`
 - Changed repository references to use the new URL
