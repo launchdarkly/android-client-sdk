@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.8.2] - 2019-05-14
+### Fixed
+- Thread leak (introduced in 2.8.0) when calling `identify()` on `LDClient` instances.
+
 ## [2.8.1] - 2019-05-06
 ### Changed
 - Changed the artifact id from `com.launchdarkly:launchdarkly-android-client` to `com.launchdarkly:launchdarkly-android-client-sdk`
