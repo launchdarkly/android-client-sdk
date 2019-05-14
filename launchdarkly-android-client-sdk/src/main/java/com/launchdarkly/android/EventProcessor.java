@@ -69,28 +69,31 @@ class EventProcessor implements Closeable {
         }
 
         client = builder.build();
-
     }
 
     void start() {
-        scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-            final AtomicLong count = new AtomicLong(0);
+        if (scheduler == null) {
+            scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+                final AtomicLong count = new AtomicLong(0);
 
-            @Override
-            public Thread newThread(@NonNull Runnable r) {
-                Thread thread = Executors.defaultThreadFactory().newThread(r);
-                thread.setName(String.format(Locale.ROOT, "LaunchDarkly-EventProcessor-%d",
-                        count.getAndIncrement()));
-                thread.setDaemon(true);
-                return thread;
-            }
-        });
-        scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
+                @Override
+                public Thread newThread(@NonNull Runnable r) {
+                    Thread thread = Executors.defaultThreadFactory().newThread(r);
+                    thread.setName(String.format(Locale.ROOT, "LaunchDarkly-EventProcessor-%d",
+                            count.getAndIncrement()));
+                    thread.setDaemon(true);
+                    return thread;
+                }
+            });
+
+            scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
+        }
     }
 
     void stop() {
         if (scheduler != null) {
             scheduler.shutdown();
+            scheduler = null;
         }
     }
 
