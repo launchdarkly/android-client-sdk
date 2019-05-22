@@ -3,6 +3,12 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.8.3] - 2019-05-22
+### Added
+- Improved error handling on flag store migration.
+### Fixed
+- ClassCastException when migrating flag store from certain early Android SDK versions.
+
 ## [2.8.2] - 2019-05-14
 ### Fixed
 - Thread leak (introduced in 2.8.0) when calling `identify()` on `LDClient` instances.
