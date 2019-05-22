@@ -29,11 +29,19 @@ class Migration {
         }
 
         if (!migrations.contains("v2.6.0")) {
-            migrate_2_7_fresh(application, config);
+            try {
+                migrate_2_7_fresh(application, config);
+            } catch (Exception ex) {
+                Timber.w(ex, "Exception while performing fresh v2.7.0 store migration");
+            }
         }
 
         if (migrations.contains("v2.6.0") && !migrations.contains("v2.7.0")) {
-            migrate_2_7_from_2_6(application);
+            try {
+                migrate_2_7_from_2_6(application);
+            } catch (Exception ex) {
+                Timber.w(ex, "Exception while performing v2.6.0 to v2.7.0 store migration");
+            }
         }
     }
 
@@ -75,8 +83,11 @@ class Migration {
                 String prefsKey = LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + key + "-flags";
                 SharedPreferences.Editor userFlagStoreEditor = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE).edit();
                 for (String flagKey : flagKeys) {
-                    String flagString = reconstructFlag(flagKey, (String) flagData.get(flagKey), flagValues.get(flagKey));
-                    userFlagStoreEditor.putString(flagKey, flagString);
+                    Object flagVersionData = flagData.get(flagKey);
+                    if (flagVersionData instanceof String) {
+                        String flagString = reconstructFlag(flagKey, (String) flagVersionData, flagValues.get(flagKey));
+                        userFlagStoreEditor.putString(flagKey, flagString);
+                    }
                 }
                 stores = stores && userFlagStoreEditor.commit();
             }
@@ -114,8 +125,11 @@ class Migration {
                 Map<String, ?> flagValues = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + key + "-user", Context.MODE_PRIVATE).getAll();
                 SharedPreferences.Editor userFlagStoreEditor = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + key + "-flags", Context.MODE_PRIVATE).edit();
                 for (String flagKey : flagKeys) {
-                    String flagString = reconstructFlag(flagKey, (String) flagData.get(flagKey), flagValues.get(flagKey));
-                    userFlagStoreEditor.putString(flagKey, flagString);
+                    Object flagVersionData = flagData.get(flagKey);
+                    if (flagVersionData instanceof String) {
+                        String flagString = reconstructFlag(flagKey, (String) flagVersionData, flagValues.get(flagKey));
+                        userFlagStoreEditor.putString(flagKey, flagString);
+                    }
                 }
                 allSuccess = allSuccess && userFlagStoreEditor.commit();
             }

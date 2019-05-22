@@ -7,7 +7,7 @@ apply plugin: 'io.codearte.nexus-staging'
 
 allprojects {
     group = 'com.launchdarkly'
-    version = '2.8.2'
+    version = '2.8.3'
     sourceCompatibility = 1.7
     targetCompatibility = 1.7
 }

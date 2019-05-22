@@ -46,7 +46,7 @@ dependencies {
     implementation 'com.android.support:appcompat-v7:26.1.0'
     implementation project(path: ':launchdarkly-android-client-sdk')
     // Comment the previous line and uncomment this one to depend on the published artifact:
-    //implementation 'com.launchdarkly:launchdarkly-android-client-sdk:2.8.2'
+    //implementation 'com.launchdarkly:launchdarkly-android-client-sdk:2.8.3'
 
     implementation 'com.jakewharton.timber:timber:4.7.1'
 
