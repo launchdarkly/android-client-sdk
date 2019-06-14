@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.8.4] - 2019-06-14
+### Fixed
+- Deadlock when waiting on main thread for `identify` call.
+- ConcurrentModificationException caused by PollingUpdater or ConnectivityReceiver iterating over LDClient instances during initialization.
+
 ## [2.8.3] - 2019-05-22
 ### Added
 - Improved error handling on flag store migration.
