@@ -7,14 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
 
-import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
-
 import timber.log.Timber;
-
-import static com.launchdarkly.android.Util.isClientConnected;
-import static com.launchdarkly.android.Util.isInternetConnected;
 
 public class PollingUpdater extends BroadcastReceiver {
 
@@ -26,14 +19,7 @@ public class PollingUpdater extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        try {
-            Set<String> environments = LDClient.getEnvironmentNames();
-            for (String environment : environments) {
-                 LDClient.getForMobileKey(environment).triggerPoll();
-            }
-        } catch (LaunchDarklyException e) {
-            Timber.e(e, "Exception when getting client");
-        }
+        LDClient.triggerPollInstances();
     }
 
     synchronized static void startBackgroundPolling(Context context) {

@@ -5,6 +5,7 @@ package com.launchdarkly.android;
  */
 
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.support.annotation.NonNull;
 
@@ -26,6 +27,7 @@ class Throttler {
     private final Random jitter;
     private final AtomicInteger attempts;
     private final AtomicBoolean maxAttemptsReached;
+    private final HandlerThread handlerThread;
     private final Handler handler;
     private final Runnable attemptsResetRunnable;
 
@@ -37,7 +39,9 @@ class Throttler {
         jitter = new Random();
         attempts = new AtomicInteger(0);
         maxAttemptsReached = new AtomicBoolean(false);
-        handler = new Handler(Looper.getMainLooper());
+        handlerThread = new HandlerThread("LDThrottler");
+        handlerThread.start();
+        handler = new Handler(handlerThread.getLooper());
 
         attemptsResetRunnable = new Runnable() {
             @Override

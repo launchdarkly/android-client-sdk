@@ -22,7 +22,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -69,7 +68,9 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param user        The user used in evaluating feature flags
      * @return a {@link Future} which will complete once the client has been initialized.
      */
-    public static Future<LDClient> init(@NonNull Application application, @NonNull LDConfig config, @NonNull LDUser user) {
+    public static synchronized Future<LDClient> init(@NonNull Application application,
+                                                     @NonNull LDConfig config,
+                                                     @NonNull LDUser user) {
         // As this is an externally facing API we should still check these, so we hide the linter
         // warnings
 
@@ -182,14 +183,6 @@ public class LDClient implements LDClientInterface, Closeable {
         return instances.get(LDConfig.primaryEnvironmentName);
     }
 
-    static Set<String> getEnvironmentNames() throws LaunchDarklyException {
-        if (instances == null) {
-            Timber.e("LDClient.getEnvironmentNames() was called before init()!");
-            throw new LaunchDarklyException("LDClient.getEnvironmentNames() was called before init()!");
-        }
-        return instances.keySet();
-    }
-
     /**
      * @return the singleton instance for the environment associated with the given name.
      * @param keyName The name to lookup the instance by.
@@ -245,7 +238,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public synchronized Future<Void> identify(LDUser user) {
+    public Future<Void> identify(LDUser user) {
         if (user == null) {
             return new LDFailedFuture<>(new LaunchDarklyException("User cannot be null"));
         }
@@ -531,7 +524,7 @@ public class LDClient implements LDClientInterface, Closeable {
         userManager.unregisterAllFlagsListener(allFlagsListener);
     }
 
-    void triggerPoll() {
+    private void triggerPoll() {
         connectivityManager.triggerPoll();
     }
 
@@ -582,7 +575,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return instanceId;
     }
 
-    void onNetworkConnectivityChange(boolean connectedToInternet) {
+    private void onNetworkConnectivityChange(boolean connectedToInternet) {
         connectivityManager.onNetworkConnectivityChange(connectedToInternet);
     }
 
@@ -635,6 +628,26 @@ public class LDClient implements LDClientInterface, Closeable {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
             userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation);
+        }
+    }
+
+    static synchronized void triggerPollInstances() {
+        if (instances == null) {
+            Timber.w("LDClient.getEnvironmentNames() was called before init()!");
+            return;
+        }
+        for (LDClient instance : instances.values()) {
+            instance.triggerPoll();
+        }
+    }
+
+    static synchronized void onNetworkConnectivityChangeInstances(boolean network) {
+        if (instances == null) {
+            Timber.e("Tried to update LDClients with network connectivity status, but LDClient has not yet been initialized.");
+            return;
+        }
+        for (LDClient instance : instances.values()) {
+            instance.onNetworkConnectivityChange(network);
         }
     }
 
