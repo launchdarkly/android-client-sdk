@@ -158,4 +158,32 @@ public class LDClientTest {
         ldClient.close();
         ldClient.close();
     }
+
+    @UiThreadTest
+    @Test
+    public void testInitBackgroundThread() throws ExecutionException, InterruptedException {
+        Future<?> backgroundComplete =
+                new BackgroundThreadExecutor().newFixedThreadPool(1).submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser).get();
+                } catch (Exception e) {
+                    fail();
+                }
+                assertTrue(ldClient.isInitialized());
+                assertTrue(ldClient.isOffline());
+
+                assertTrue(ldClient.boolVariation("boolFlag", true));
+                assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
+                assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
+                assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
+
+                JsonObject expectedJson = new JsonObject();
+                expectedJson.addProperty("field", "value");
+                assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+            }
+        });
+        backgroundComplete.get();
+    }
 }
