@@ -27,6 +27,7 @@ jobs:
           name: Download Dependencies
           command: ./gradlew androidDependencies
       - run: sudo mkdir -p $CIRCLE_TEST_REPORTS
+      - run: sudo apt-get update
       - run: sudo apt-get -y -qq install awscli
       - run: sudo mkdir -p /usr/local/android-sdk-linux/licenses
       - run: sdkmanager "system-images;android-24;default;armeabi-v7a"

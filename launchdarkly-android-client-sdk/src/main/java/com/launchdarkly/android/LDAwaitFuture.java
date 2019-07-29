@@ -15,7 +15,8 @@ class LDAwaitFuture<T> implements Future<T> {
     private volatile boolean completed = false;
     private final Object notifier = new Object();
 
-    LDAwaitFuture() {}
+    LDAwaitFuture() {
+    }
 
     synchronized void set(T result) {
         if (!completed) {
@@ -29,7 +30,7 @@ class LDAwaitFuture<T> implements Future<T> {
         }
     }
 
-    synchronized void setException(Throwable error) {
+    synchronized void setException(@NonNull Throwable error) {
         if (!completed) {
             this.error = error;
             synchronized (notifier) {
@@ -59,7 +60,7 @@ class LDAwaitFuture<T> implements Future<T> {
     @Override
     public T get() throws ExecutionException, InterruptedException {
         synchronized (notifier) {
-            if (!completed) {
+            while (!completed) {
                 notifier.wait();
             }
         }
@@ -70,11 +71,14 @@ class LDAwaitFuture<T> implements Future<T> {
     }
 
     @Override
-    public T get(long timeout, @NonNull TimeUnit unit) throws ExecutionException, TimeoutException, InterruptedException {
+    public T get(long timeout, @NonNull TimeUnit unit) throws ExecutionException,
+            TimeoutException, InterruptedException {
+        long remaining = unit.toNanos(timeout);
+        long doneAt = remaining + System.nanoTime();
         synchronized (notifier) {
-            if (!completed) {
-                long millis = TimeUnit.MILLISECONDS.convert(timeout, unit);
-                notifier.wait(millis);
+            while (!completed & remaining > 0) {
+                TimeUnit.NANOSECONDS.timedWait(notifier, remaining);
+                remaining = doneAt - System.nanoTime();
             }
         }
         if (!completed) {
