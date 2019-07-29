@@ -33,6 +33,15 @@ public class LDAwaitFutureTest {
     }
 
     @Test(timeout = 500L)
+    public void futureThrowsTimeoutWhenNotSet() throws ExecutionException, InterruptedException {
+        LDAwaitFuture<Void> future = new LDAwaitFuture<>();
+        try {
+            future.get(250, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ignored) {
+        }
+    }
+
+    @Test(timeout = 500L)
     public void futureThrowsTimeoutExceptionWithZeroTimeout() throws ExecutionException,
             InterruptedException {
         LDAwaitFuture<Void> future = new LDAwaitFuture<>();
@@ -42,7 +51,7 @@ public class LDAwaitFutureTest {
         }
     }
 
-    @Test
+    @Test(timeout = 500L)
     public void futureDoesNotTimeoutOnSuccessfulFuture() throws InterruptedException,
             ExecutionException, TimeoutException {
         LDAwaitFuture<Void> future = new LDAwaitFuture<>();
@@ -50,7 +59,7 @@ public class LDAwaitFutureTest {
         future.get(0, TimeUnit.SECONDS);
     }
 
-    @Test
+    @Test(timeout = 500L)
     public void futureThrowsExecutionExceptionOnFailedFuture() throws InterruptedException,
             TimeoutException {
         LDAwaitFuture<Void> future = new LDAwaitFuture<>();
@@ -63,7 +72,7 @@ public class LDAwaitFutureTest {
         }
     }
 
-    @Test
+    @Test(timeout = 500L)
     public void futureGetsSuccessfulFuture() throws InterruptedException, ExecutionException {
         LDAwaitFuture<Void> future = new LDAwaitFuture<>();
         future.set(null);
@@ -103,7 +112,7 @@ public class LDAwaitFutureTest {
         }
     }
 
-    @Test
+    @Test(timeout = 500L)
     public void futureReturnsSetValue() throws ExecutionException, InterruptedException {
         Object testObject = new Object();
         LDAwaitFuture<Object> future = new LDAwaitFuture<>();
