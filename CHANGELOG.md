@@ -3,6 +3,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.8.5] - 2019-07-29
+### Added:
+- Added a CircleCI badge to the project readme.
+### Fixed
+- Fix a bug introduced in 2.8.0 that could cause the SDK to enter a bad state where it would no longer connect to the flag stream if `identify()` was called rapidly.
+- Reverted an unintentional behavior change introduced in 2.8.0 when `LDClient.init` is given zero as the timeout argument. Before 2.8.0, this would not wait for initialization and return the client immediately. For 2.8.0-2.8.4 this was changed to wait indefinitely for initialization, 2.8.5 restores the earlier behavior.
+
 ## [2.8.4] - 2019-06-14
 ### Fixed
 - Deadlock when waiting on main thread for `identify` call.
