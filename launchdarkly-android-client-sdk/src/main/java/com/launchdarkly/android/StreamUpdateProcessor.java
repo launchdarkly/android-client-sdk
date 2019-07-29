@@ -171,19 +171,17 @@ class StreamUpdateProcessor {
 
     synchronized void stop(final Util.ResultCallback<Void> onCompleteListener) {
         Timber.d("Stopping.");
-        if (es != null) {
-            // We do this in a separate thread because closing the stream involves a network
-            // operation and we don't want to do a network operation on the main thread.
-            executor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    stopSync();
-                    if (onCompleteListener != null) {
-                        onCompleteListener.onSuccess(null);
-                    }
+        // We do this in a separate thread because closing the stream involves a network
+        // operation and we don't want to do a network operation on the main thread.
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                stopSync();
+                if (onCompleteListener != null) {
+                    onCompleteListener.onSuccess(null);
                 }
-            });
-        }
+            }
+        });
     }
 
     private synchronized void stopSync() {
