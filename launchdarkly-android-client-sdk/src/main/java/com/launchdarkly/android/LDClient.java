@@ -224,12 +224,17 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public void track(String eventName, JsonElement data) {
+    public void track(String eventName, JsonElement data, Double metricValue) {
         if (config.inlineUsersInEvents()) {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data));
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
         } else {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data));
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data, metricValue));
         }
+    }
+
+    @Override
+    public void track(String eventName, JsonElement data) {
+        track(eventName, data, null);
     }
 
     @Override
