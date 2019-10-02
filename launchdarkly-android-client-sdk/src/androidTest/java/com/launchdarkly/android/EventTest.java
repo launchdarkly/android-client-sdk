@@ -233,7 +233,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final CustomEvent event = new CustomEvent("key1", user.getKey(), null, null);
+        final CustomEvent event = new CustomEvent("key1", user.getKey(), null);
 
         assertNull(event.user);
         assertEquals(user.getKey(), event.userKey);
@@ -246,7 +246,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final CustomEvent event = new CustomEvent("key1", user, null, null);
+        final CustomEvent event = new CustomEvent("key1", user, null);
 
         assertEquals(user, event.user);
         assertNull(event.userKey);
