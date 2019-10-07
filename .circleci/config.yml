@@ -1,53 +1,73 @@
-version: 2.0
-
+version: 2
 jobs:
   build:
-    docker:
-      - image: reactnativecommunity/react-native-android:2019-9-4
     working_directory: ~/launchdarkly/android-client-sdk-private
-    resource_class: large
+    docker:
+      # Pinned to a particular version of the circleci Android image (API 27), as newer images broke emulator support.
+      - image: circleci/android@sha256:d03eb4470561f2ed4197098c10969abf0763eb5b0dc9c4a2ec55b2c00501940a
     environment:
-      - QEMU_AUDIO_DRV: none
-      - _JAVA_OPTIONS: "-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -Xms2048m -Xmx4096m"
-      - GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-      - JVM_OPTS: -Xmx3200m
-      - CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
-      - CIRCLE_TEST_REPORTS: /tmp/circleci-test-results
-      - BUILD_THREADS: 2
+      QEMU_AUDIO_DRV: none
+      _JAVA_OPTIONS: "-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -Xms2048m -Xmx4096m"
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+      JVM_OPTS: -Xmx3200m
+      CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
+      CIRCLE_TEST_REPORTS: /tmp/circleci-test-results
 
     steps:
       - checkout
+      - restore_cache:
+          keys:
+            # This branch if available
+              - v1-dep-{{ .Branch }}-
+            # Default branch if not
+              - v1-dep-master-
+                    # Any branch if there are none on the default branch - this should be unnecessary if you have your default branch configured correctly
+              - v1-dep-
+
       - run:
           name: Download Dependencies
           command: ./gradlew androidDependencies
-      - run: mkdir -p $CIRCLE_TEST_REPORTS
-      - run: apt-get update
-      - run: apt-get -y -qq install awscli libpulse0
-      - run: mkdir -p /usr/local/android-sdk-linux/licenses
-      - run: sdkmanager "system-images;android-19;google_apis;armeabi-v7a"
+      - run: sudo mkdir -p $CIRCLE_TEST_REPORTS
+      - run: sudo apt-get update
+      - run: sudo apt-get -y -qq install awscli
+      - run: sudo mkdir -p /usr/local/android-sdk-linux/licenses
+      - run: sdkmanager "system-images;android-24;default;armeabi-v7a"
       - run: |
           set +o pipefail
           yes | sdkmanager --licenses
 
+      - save_cache:
+              key: v1-dep-{{ .Branch }}-{{ epoch }}
+              paths:
+              # This is a broad list of cache paths to include many possible development environments
+              # You can probably delete some of these entries
+              - vendor/bundle
+              - ~/virtualenvs
+              - ~/.m2
+              - ~/.ivy2
+              - ~/.bundle
+              - ~/.go_workspace
+              - ~/.gradle
+              - ~/.cache/bower
+              # These cache paths were specified in the 1.0 config
+              - /usr/local/android-sdk-linux/platforms/android-26
+              - /usr/local/android-sdk-linux/build-tools/26.0.2
+              - /usr/local/android-sdk-linux/platforms/android-27
+              - /usr/local/android-sdk-linux/build-tools/27.0.3
+              - /usr/local/android-sdk-linux/extras/android/m2repository
       - run: unset ANDROID_NDK_HOME
 
+      - run: sudo apt-get install libpulse0
+      - run: echo no | avdmanager create avd -n ci-android-avd -f -k "system-images;android-24;default;armeabi-v7a"
       - run:
-          name: Creating emulator
-          command: echo no | avdmanager create avd -n ci-android-avd -f -k "system-images;android-19;google_apis;armeabi-v7a"
-      - run:
-          name: Running emulator
-          command: emulator -avd ci-android-avd -netdelay none -netspeed full -no-audio -no-window -no-snapshot
+          command: emulator -avd ci-android-avd -netdelay none -netspeed full -no-audio -no-window -no-snapshot -use-system-libs -no-boot-anim
           background: true
           timeout: 1200
           no_output_timeout: 2h
 
-      - run:
-          name: Building SDK
-          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebug --console=plain -PdisablePreDex
+      - run: ./gradlew :launchdarkly-android-client-sdk:assembleDebug --console=plain -PdisablePreDex
 
-      - run:
-          name: Wait for emulator to be ready
-          command: .circleci/scripts/wait_for_emulator.sh
+      - run: circle-android wait-for-boot
       - run:
           name: Run Tests
           command: ./gradlew :launchdarkly-android-client-sdk:connectedAndroidTest --console=plain -PdisablePreDex
