@@ -1,6 +1,5 @@
 package com.launchdarkly.android;
 
-import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.Gson;
@@ -9,9 +8,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.test.TestActivity;
 
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -28,13 +25,6 @@ import static org.junit.Assert.assertTrue;
  */
 @RunWith(AndroidJUnit4.class)
 public class EventTest {
-
-    @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void testPrivateAttributesAreConcatenated() {

@@ -1,14 +1,10 @@
 package com.launchdarkly.android;
 
 import android.support.test.annotation.UiThreadTest;
-import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
-
-import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Before;
 import org.junit.Ignore;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -23,13 +19,6 @@ import static junit.framework.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class ThrottlerTest {
-
-    @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     private final AtomicBoolean hasRun = new AtomicBoolean(false);
     private Throttler throttler;
