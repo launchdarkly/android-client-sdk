@@ -86,7 +86,7 @@ dependencies {
     androidTestImplementation "com.android.support.test:runner:$testRunnerVersion"
     androidTestImplementation "com.android.support.test:rules:$testRunnerVersion"
     androidTestImplementation 'org.hamcrest:hamcrest-library:1.3'
-    androidTestImplementation 'org.easymock:easymock:3.4'
+    androidTestImplementation 'org.easymock:easymock:3.6'
     androidTestImplementation 'junit:junit:4.12'
 
     javadocDeps "com.google.code.gson:gson:$gsonVersion"

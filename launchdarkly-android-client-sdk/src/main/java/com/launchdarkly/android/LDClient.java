@@ -46,8 +46,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private final Application application;
     private final LDConfig config;
-    private final UserManager userManager;
-    private final EventProcessor eventProcessor;
+    private final DefaultUserManager userManager;
+    private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private ConnectivityReceiver connectivityReceiver;
     private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
@@ -211,9 +211,9 @@ public class LDClient implements LDClientInterface, Closeable {
         this.config = config;
         this.application = application;
         FeatureFlagFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
-        this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
+        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
 
-        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
+        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
         connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

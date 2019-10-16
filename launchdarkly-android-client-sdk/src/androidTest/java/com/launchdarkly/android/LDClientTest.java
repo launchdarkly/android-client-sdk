@@ -1,6 +1,5 @@
 package com.launchdarkly.android;
 
-import android.support.test.annotation.UiThreadTest;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
@@ -47,8 +46,6 @@ public class LDClientTest {
         ldUser = new LDUser.Builder("userKey").build();
     }
 
-    @UiThreadTest
-    // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
     public void testOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
@@ -66,8 +63,6 @@ public class LDClientTest {
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
     }
 
-    @UiThreadTest
-    // Not testing UI things, but we need to simulate the UI so the Foreground class is happy.
     @Test
     public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
@@ -82,7 +77,6 @@ public class LDClientTest {
         assertNull(ldClient.stringVariation("stringFlag", null));
     }
 
-    @UiThreadTest
     @Test
     public void testInitMissingApplication() {
         ExecutionException actualFutureException = null;
@@ -105,7 +99,6 @@ public class LDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
-    @UiThreadTest
     @Test
     public void testInitMissingConfig() {
         ExecutionException actualFutureException = null;
@@ -128,7 +121,6 @@ public class LDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
-    @UiThreadTest
     @Test
     public void testInitMissingUser() {
         ExecutionException actualFutureException = null;
@@ -151,7 +143,6 @@ public class LDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
-    @UiThreadTest
     @Test
     public void testDoubleClose() throws IOException {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
@@ -159,7 +150,6 @@ public class LDClientTest {
         ldClient.close();
     }
 
-    @UiThreadTest
     @Test
     public void testInitBackgroundThread() throws ExecutionException, InterruptedException {
         Future<?> backgroundComplete =

@@ -11,4 +11,7 @@
     <instrumentation
         android:name="android.support.test.runner.AndroidJUnitRunner"
         android:targetPackage="com.launchdarkly.android.test" />
+
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
 </manifest>

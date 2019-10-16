@@ -30,7 +30,7 @@ jobs:
       - run: sudo mkdir -p /usr/local/android-sdk-linux/licenses
       - run:
           name: Install emulator dependencies
-          command: yes | sdkmanager "platform-tools" "platforms;android-24" "extras;intel;Hardware_Accelerated_Execution_Manager" "build-tools;26.0.2" "system-images;android-24;default;x86" "emulator" | grep -v = || true
+          command: yes | sdkmanager "platform-tools" "platforms;android-25" "extras;intel;Hardware_Accelerated_Execution_Manager" "build-tools;26.0.2" "system-images;android-25;default;x86" "emulator" | grep -v = || true
       - run: |
           set +o pipefail
           yes | sdkmanager --licenses
@@ -40,7 +40,7 @@ jobs:
 
       - run: unset ANDROID_NDK_HOME
 
-      - run: echo no | avdmanager create avd -n ci-android-avd -f -k "system-images;android-24;default;x86"
+      - run: echo no | avdmanager create avd -n ci-android-avd -f -k "system-images;android-25;default;x86"
       - run:
           command: $ANDROID_HOME/emulator/emulator -avd ci-android-avd -netdelay none -netspeed full -no-audio -no-window -no-snapshot -no-boot-anim
           background: true
@@ -54,6 +54,18 @@ jobs:
           command: .circleci/scripts/circle-android wait-for-boot
 
       - run:
+          name: Disable mobile data for network tests
+          command: adb shell svc data disable
+
+      - run:
+          name: Fetch logcat and props
+          background: true
+          command: |
+            mkdir -p ~/artifacts
+            adb shell getprop >> ~/artifacts/props.txt
+            adb logcat >> ~/artifacts/logcat.txt
+
+      - run:
           name: Run Tests
           command: ./gradlew :launchdarkly-android-client-sdk:connectedAndroidTest --console=plain -PdisablePreDex
           no_output_timeout: 2h
@@ -63,10 +75,18 @@ jobs:
       - run:
           name: Save test results
           command: |
-                mkdir -p ~/tests/test-results
-                find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} ~/tests/test-results/ \;
+                mkdir -p ~/test-results
+                cp -r ./launchdarkly-android-client-sdk/build/outputs/androidTest-results/* ~/test-results/
           when: always
+
+      - run:
+          name: Save artifacts
+          command: |
+            mv ./launchdarkly-android-client-sdk/build/reports ~/artifacts
+            mv ./launchdarkly-android-client-sdk/build/outputs ~/artifacts
+          when: always
+
       - store_test_results:
-            path: ~/tests
+            path: ~/test-results
       - store_artifacts:
-            path: ~/tests
+            path: ~/artifacts

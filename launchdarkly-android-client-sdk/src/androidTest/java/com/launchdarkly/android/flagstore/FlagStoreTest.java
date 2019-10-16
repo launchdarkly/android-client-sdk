@@ -6,11 +6,13 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.EvaluationReason;
+import com.launchdarkly.android.response.DeleteFlagResponse;
 
 import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -83,9 +85,8 @@ public abstract class FlagStoreTest extends EasyMockSupport {
 
     private List<Flag> makeTestFlags() {
         // This test assumes that if the store correctly serializes and deserializes one kind of
-        // EvaluationReason, it can handle any kind,
-        // since the actual marshaling is being done by UserFlagResponse. Therefore, the other
-        // variants of EvaluationReason are tested by
+        // EvaluationReason, it can handle any kind, since the actual marshaling is being done by
+        // UserFlagResponse. Therefore, the other variants of EvaluationReason are tested by
         // FlagTest.
         final EvaluationReason reason = EvaluationReason.ruleMatch(1, "id");
         final JsonObject jsonObj = new JsonObject();
@@ -103,7 +104,8 @@ public abstract class FlagStoreTest extends EasyMockSupport {
                 .build();
         final Flag testFlag3 = new Flag("testFlag3", jsonObj, 250, 102, 3,
                 false, 2500000000L, reason);
-        return Arrays.asList(testFlag1, testFlag2, testFlag3);
+        final Flag testFlag4 = new FlagBuilder("_flag-with-very-long-key-name-as-well-as-period.-and-underscore_.").value(new JsonPrimitive("String value")).flagVersion(4).build();
+        return Arrays.asList(testFlag1, testFlag2, testFlag3, testFlag4);
     }
 
     private static Flag eqFlag(Flag in) {
@@ -329,23 +331,6 @@ public abstract class FlagStoreTest extends EasyMockSupport {
             final Flag retrieved = flagStore.getFlag(flag.getKey());
             assertNotNull(retrieved);
             assertExpectedFlag(flag, retrieved);
-        }
-    }
-
-    @Test
-    public void testDelete() {
-        final List<Flag> testFlags = makeTestFlags();
-        FlagStore flagStore = createFlagStore("abc");
-
-        flagStore.applyFlagUpdates(testFlags);
-        flagStore.clear();
-
-        // Get a new instance of FlagStore
-        flagStore = createFlagStore("abc");
-        assertEquals(0, flagStore.getAllFlags().size());
-        for (Flag flag : testFlags) {
-            final Flag retrieved = flagStore.getFlag(flag.getKey());
-            assertNull(retrieved);
         }
     }
 }

@@ -1,6 +1,5 @@
 package com.launchdarkly.android;
 
-import android.support.test.annotation.UiThreadTest;
 import android.support.test.runner.AndroidJUnit4;
 
 import org.junit.Before;
@@ -36,7 +35,6 @@ public class ThrottlerTest {
 
     }
 
-    @UiThreadTest
     @Test
     public void testFirstRunIsInstant() {
         throttler.attemptRun();
@@ -52,7 +50,6 @@ public class ThrottlerTest {
         }
     }
 
-    @UiThreadTest
     @Test
     public void testRespectsMaxRetryTime() {
         assertEquals(throttler.calculateJitterVal(300), MAX_RETRY_TIME_MS);
