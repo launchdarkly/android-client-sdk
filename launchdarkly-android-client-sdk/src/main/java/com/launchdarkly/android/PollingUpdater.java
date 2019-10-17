@@ -53,7 +53,7 @@ public class PollingUpdater extends BroadcastReceiver {
     }
 
     private static PendingIntent getPendingIntent(Context context) {
-        return PendingIntent.getBroadcast(context, 0, getAlarmIntent(context), 0);
+        return PendingIntent.getBroadcast(context, 0, getAlarmIntent(context), PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     private static AlarmManager getAlarmManager(Context context) {
