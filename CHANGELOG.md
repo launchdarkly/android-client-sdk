@@ -8,7 +8,7 @@ All notable changes to the LaunchDarkly Android SDK will be documented in this f
 - Added support for new LaunchDarkly experimentation features. See `LDClient.track(String, JsonElement, Double)` for recording numeric metrics.
 - Substantially improved test coverage for SDK behavior in different Application states (network connectivity and backgrounding).
 ### Fixed
-- The `Future` returned by the `LDClient.identify` could not complete as intended for certain connectivity states. When in a background state this could not complete until the next background polling cycle, or never if background polling was disabled.
+- The `Future` returned by `LDClient.identify` could not complete as intended for certain connectivity states. When in a background state this could not complete until the next background polling cycle, or never if background polling was disabled.
 
 ## [2.8.5] - 2019-07-29
 ### Added:
