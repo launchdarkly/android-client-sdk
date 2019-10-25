@@ -184,6 +184,27 @@ public class FlagTest {
     }
 
     @Test
+    public void trackReasonIsSerialized() {
+        final Flag r = new FlagBuilder("flag").trackReason(true).build();
+        final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
+        assertEquals(new JsonPrimitive(true), json.get("trackReason"));
+    }
+
+    @Test
+    public void trackReasonIsDeserialized() {
+        final String jsonStr = "{\"version\": 99, \"trackReason\": true}";
+        final Flag r = gson.fromJson(jsonStr, Flag.class);
+        assertTrue(r.isTrackReason());
+    }
+
+    @Test
+    public void trackReasonDefaultWhenOmitted() {
+        final String jsonStr = "{\"version\": 99}";
+        final Flag r = gson.fromJson(jsonStr, Flag.class);
+        assertFalse(r.isTrackReason());
+    }
+
+    @Test
     public void debugEventsUntilDateIsSerialized() {
         final long date = 12345L;
         final Flag r = new FlagBuilder("flag").debugEventsUntilDate(date).build();

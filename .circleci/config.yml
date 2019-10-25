@@ -54,6 +54,13 @@ jobs:
           command: .circleci/scripts/circle-android wait-for-boot
 
       - run:
+          name: Validate retrieving emulator SDK version
+          command: |
+            while ! adb shell getprop ro.build.version.sdk; do
+              sleep 1
+            done
+
+      - run:
           name: Disable mobile data for network tests
           command: adb shell svc data disable
 

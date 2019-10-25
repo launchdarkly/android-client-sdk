@@ -1,4 +1,4 @@
-package com.launchdarkly.android.gson;
+package com.launchdarkly.android;
 
 import android.support.annotation.Nullable;
 
@@ -9,7 +9,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
-import com.launchdarkly.android.EvaluationReason;
 
 import java.lang.reflect.Type;
 

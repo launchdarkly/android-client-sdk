@@ -6,13 +6,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.EvaluationReason;
-import com.launchdarkly.android.response.DeleteFlagResponse;
 
 import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -52,6 +50,7 @@ public abstract class FlagStoreTest extends EasyMockSupport {
                         Objects.equals(flag.getFlagVersion(), received.getFlagVersion()) &&
                         Objects.equals(flag.getVariation(), received.getVariation()) &&
                         Objects.equals(flag.getTrackEvents(), received.getTrackEvents()) &&
+                        Objects.equals(flag.isTrackReason(), received.isTrackReason()) &&
                         Objects.equals(flag.getDebugEventsUntilDate(),
                                 received.getDebugEventsUntilDate()) &&
                         Objects.equals(flag.getReason(), received.getReason());
@@ -79,6 +78,7 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         assertEquals(expected.getFlagVersion(), received.getFlagVersion());
         assertEquals(expected.getVariation(), received.getVariation());
         assertEquals(expected.getTrackEvents(), received.getTrackEvents());
+        assertEquals(expected.isTrackReason(), received.isTrackReason());
         assertEquals(expected.getDebugEventsUntilDate(), received.getDebugEventsUntilDate());
         assertEquals(expected.getReason(), received.getReason());
     }
@@ -101,10 +101,14 @@ public abstract class FlagStoreTest extends EasyMockSupport {
                 .version(2)
                 .debugEventsUntilDate(123456789L)
                 .trackEvents(true)
+                .trackReason(true)
                 .build();
         final Flag testFlag3 = new Flag("testFlag3", jsonObj, 250, 102, 3,
-                false, 2500000000L, reason);
-        final Flag testFlag4 = new FlagBuilder("_flag-with-very-long-key-name-as-well-as-period.-and-underscore_.").value(new JsonPrimitive("String value")).flagVersion(4).build();
+                false, false, 2500000000L, reason);
+        final Flag testFlag4 = new FlagBuilder("_flag-with-very-long-key-name-as-well-as-period.-and-underscore_.")
+                .value(new JsonPrimitive("String value"))
+                .flagVersion(4)
+                .build();
         return Arrays.asList(testFlag1, testFlag2, testFlag3, testFlag4);
     }
 

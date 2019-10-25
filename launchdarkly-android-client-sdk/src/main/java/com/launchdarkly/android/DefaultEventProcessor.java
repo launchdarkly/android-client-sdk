@@ -3,6 +3,7 @@ package com.launchdarkly.android;
 import android.content.Context;
 import android.os.Build;
 import android.support.annotation.NonNull;
+import android.support.annotation.VisibleForTesting;
 
 import com.launchdarkly.android.tls.ModernTLSSocketFactory;
 import com.launchdarkly.android.tls.SSLHandshakeInterceptor;
@@ -109,6 +110,11 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
 
     public void flush() {
         Executors.newSingleThreadExecutor().execute(consumer);
+    }
+
+    @VisibleForTesting
+    void blockingFlush() {
+        consumer.run();
     }
 
     public long getCurrentTimeMs() {

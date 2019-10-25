@@ -1,6 +1,7 @@
 package com.launchdarkly.android;
 
 import com.google.gson.annotations.Expose;
+import com.google.gson.annotations.JsonAdapter;
 
 /**
  * Describes the reason that a flag evaluation produced a particular value. This is returned by
@@ -11,6 +12,7 @@ import com.google.gson.annotations.Expose;
  *
  * @since 2.7.0
  */
+@JsonAdapter(EvaluationReasonSerialization.class)
 public abstract class EvaluationReason {
 
     /**
