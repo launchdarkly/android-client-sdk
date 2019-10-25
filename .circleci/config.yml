@@ -2,71 +2,76 @@ version: 2
 jobs:
   build:
     working_directory: ~/launchdarkly/android-client-sdk-private
-    docker:
-      - image: circleci/android:api-27
+    macos:
+      xcode: "10.3.0"
+    shell: /bin/bash --login -eo pipefail
     environment:
+      TERM: dumb
       QEMU_AUDIO_DRV: none
       _JAVA_OPTIONS: "-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -Xms2048m -Xmx4096m"
       GRADLE_OPTS: "-Dorg.gradle.daemon=false"
       JVM_OPTS: -Xmx3200m
-      CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
-      CIRCLE_TEST_REPORTS: /tmp/circleci-test-results
+      ANDROID_HOME: "/usr/local/share/android-sdk"
+      ANDROID_SDK_HOME: "/usr/local/share/android-sdk"
+      ANDROID_SDK_ROOT: "/usr/local/share/android-sdk"
 
     steps:
       - checkout
-      - restore_cache:
-          keys:
-            # This branch if available
-              - v1-dep-{{ .Branch }}-
-            # Default branch if not
-              - v1-dep-master-
-                    # Any branch if there are none on the default branch - this should be unnecessary if you have your default branch configured correctly
-              - v1-dep-
-
       - run:
-          name: Download Dependencies
-          command: ./gradlew androidDependencies
-      - run: sudo mkdir -p $CIRCLE_TEST_REPORTS
-      - run: sudo apt-get update
-      - run: sudo apt-get -y -qq install awscli
+          name: Setup env
+          command: |
+            echo 'export PATH="$PATH:/usr/local/share/android-sdk/tools/bin"' >> $BASH_ENV
+            echo 'export PATH="$PATH:/usr/local/share/android-sdk/platform-tools"' >> $BASH_ENV
+      - run:
+          name: Install Android sdk
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew tap homebrew/cask
+            HOMEBREW_NO_AUTO_UPDATE=1 brew cask install android-sdk
       - run: sudo mkdir -p /usr/local/android-sdk-linux/licenses
-      - run: sdkmanager "system-images;android-24;default;armeabi-v7a"
+      - run:
+          name: Install emulator dependencies
+          command: yes | sdkmanager "platform-tools" "platforms;android-25" "extras;intel;Hardware_Accelerated_Execution_Manager" "build-tools;26.0.2" "system-images;android-25;default;x86" "emulator" | grep -v = || true
       - run: |
           set +o pipefail
           yes | sdkmanager --licenses
+      - run:
+          name: Download Dependencies
+          command: ./gradlew androidDependencies
 
-      - save_cache:
-              key: v1-dep-{{ .Branch }}-{{ epoch }}
-              paths:
-              # This is a broad list of cache paths to include many possible development environments
-              # You can probably delete some of these entries
-              - vendor/bundle
-              - ~/virtualenvs
-              - ~/.m2
-              - ~/.ivy2
-              - ~/.bundle
-              - ~/.go_workspace
-              - ~/.gradle
-              - ~/.cache/bower
-              # These cache paths were specified in the 1.0 config
-              - /usr/local/android-sdk-linux/platforms/android-26
-              - /usr/local/android-sdk-linux/build-tools/26.0.2
-              - /usr/local/android-sdk-linux/platforms/android-27
-              - /usr/local/android-sdk-linux/build-tools/27.0.3
-              - /usr/local/android-sdk-linux/extras/android/m2repository
       - run: unset ANDROID_NDK_HOME
 
-      - run: sudo apt-get install libpulse0
-      - run: echo no | avdmanager create avd -n ci-android-avd -f -k "system-images;android-24;default;armeabi-v7a"
+      - run: echo no | avdmanager create avd -n ci-android-avd -f -k "system-images;android-25;default;x86"
       - run:
-          command: emulator -avd ci-android-avd -netdelay none -netspeed full -no-audio -no-window -no-snapshot -use-system-libs -no-boot-anim
+          command: $ANDROID_HOME/emulator/emulator -avd ci-android-avd -netdelay none -netspeed full -no-audio -no-window -no-snapshot -no-boot-anim
           background: true
           timeout: 1200
           no_output_timeout: 2h
 
       - run: ./gradlew :launchdarkly-android-client-sdk:assembleDebug --console=plain -PdisablePreDex
 
-      - run: circle-android wait-for-boot
+      - run:
+          name: Wait for emulator to boot
+          command: .circleci/scripts/circle-android wait-for-boot
+
+      - run:
+          name: Validate retrieving emulator SDK version
+          command: |
+            while ! adb shell getprop ro.build.version.sdk; do
+              sleep 1
+            done
+
+      - run:
+          name: Disable mobile data for network tests
+          command: adb shell svc data disable
+
+      - run:
+          name: Fetch logcat and props
+          background: true
+          command: |
+            mkdir -p ~/artifacts
+            adb shell getprop >> ~/artifacts/props.txt
+            adb logcat >> ~/artifacts/logcat.txt
+
       - run:
           name: Run Tests
           command: ./gradlew :launchdarkly-android-client-sdk:connectedAndroidTest --console=plain -PdisablePreDex
@@ -77,10 +82,18 @@ jobs:
       - run:
           name: Save test results
           command: |
-                mkdir -p ~/tests/test-results
-                find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} ~/tests/test-results/ \;
+                mkdir -p ~/test-results
+                cp -r ./launchdarkly-android-client-sdk/build/outputs/androidTest-results/* ~/test-results/
           when: always
+
+      - run:
+          name: Save artifacts
+          command: |
+            mv ./launchdarkly-android-client-sdk/build/reports ~/artifacts
+            mv ./launchdarkly-android-client-sdk/build/outputs ~/artifacts
+          when: always
+
       - store_test_results:
-            path: ~/tests
+            path: ~/test-results
       - store_artifacts:
-            path: ~/tests
+            path: ~/artifacts

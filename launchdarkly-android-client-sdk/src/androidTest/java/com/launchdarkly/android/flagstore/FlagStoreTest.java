@@ -50,6 +50,7 @@ public abstract class FlagStoreTest extends EasyMockSupport {
                         Objects.equals(flag.getFlagVersion(), received.getFlagVersion()) &&
                         Objects.equals(flag.getVariation(), received.getVariation()) &&
                         Objects.equals(flag.getTrackEvents(), received.getTrackEvents()) &&
+                        Objects.equals(flag.isTrackReason(), received.isTrackReason()) &&
                         Objects.equals(flag.getDebugEventsUntilDate(),
                                 received.getDebugEventsUntilDate()) &&
                         Objects.equals(flag.getReason(), received.getReason());
@@ -77,15 +78,15 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         assertEquals(expected.getFlagVersion(), received.getFlagVersion());
         assertEquals(expected.getVariation(), received.getVariation());
         assertEquals(expected.getTrackEvents(), received.getTrackEvents());
+        assertEquals(expected.isTrackReason(), received.isTrackReason());
         assertEquals(expected.getDebugEventsUntilDate(), received.getDebugEventsUntilDate());
         assertEquals(expected.getReason(), received.getReason());
     }
 
     private List<Flag> makeTestFlags() {
         // This test assumes that if the store correctly serializes and deserializes one kind of
-        // EvaluationReason, it can handle any kind,
-        // since the actual marshaling is being done by UserFlagResponse. Therefore, the other
-        // variants of EvaluationReason are tested by
+        // EvaluationReason, it can handle any kind, since the actual marshaling is being done by
+        // UserFlagResponse. Therefore, the other variants of EvaluationReason are tested by
         // FlagTest.
         final EvaluationReason reason = EvaluationReason.ruleMatch(1, "id");
         final JsonObject jsonObj = new JsonObject();
@@ -100,10 +101,15 @@ public abstract class FlagStoreTest extends EasyMockSupport {
                 .version(2)
                 .debugEventsUntilDate(123456789L)
                 .trackEvents(true)
+                .trackReason(true)
                 .build();
         final Flag testFlag3 = new Flag("testFlag3", jsonObj, 250, 102, 3,
-                false, 2500000000L, reason);
-        return Arrays.asList(testFlag1, testFlag2, testFlag3);
+                false, false, 2500000000L, reason);
+        final Flag testFlag4 = new FlagBuilder("_flag-with-very-long-key-name-as-well-as-period.-and-underscore_.")
+                .value(new JsonPrimitive("String value"))
+                .flagVersion(4)
+                .build();
+        return Arrays.asList(testFlag1, testFlag2, testFlag3, testFlag4);
     }
 
     private static Flag eqFlag(Flag in) {
@@ -329,23 +335,6 @@ public abstract class FlagStoreTest extends EasyMockSupport {
             final Flag retrieved = flagStore.getFlag(flag.getKey());
             assertNotNull(retrieved);
             assertExpectedFlag(flag, retrieved);
-        }
-    }
-
-    @Test
-    public void testDelete() {
-        final List<Flag> testFlags = makeTestFlags();
-        FlagStore flagStore = createFlagStore("abc");
-
-        flagStore.applyFlagUpdates(testFlags);
-        flagStore.clear();
-
-        // Get a new instance of FlagStore
-        flagStore = createFlagStore("abc");
-        assertEquals(0, flagStore.getAllFlags().size());
-        for (Flag flag : testFlags) {
-            final Flag retrieved = flagStore.getFlag(flag.getKey());
-            assertNull(retrieved);
         }
     }
 }

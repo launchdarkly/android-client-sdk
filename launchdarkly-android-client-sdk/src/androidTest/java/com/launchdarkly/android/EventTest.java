@@ -1,6 +1,5 @@
 package com.launchdarkly.android;
 
-import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.Gson;
@@ -9,9 +8,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.test.TestActivity;
 
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -28,13 +25,6 @@ import static org.junit.Assert.assertTrue;
  */
 @RunWith(AndroidJUnit4.class)
 public class EventTest {
-
-    @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void testPrivateAttributesAreConcatenated() {
@@ -233,7 +223,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final CustomEvent event = new CustomEvent("key1", user.getKey(), null);
+        final CustomEvent event = new CustomEvent("key1", user.getKey(), null, null);
 
         assertNull(event.user);
         assertEquals(user.getKey(), event.userKey);
@@ -246,10 +236,76 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final CustomEvent event = new CustomEvent("key1", user, null);
+        final CustomEvent event = new CustomEvent("key1", user, null, null);
 
         assertEquals(user, event.user);
         assertNull(event.userKey);
+    }
+
+    @Test
+    public void testCustomEventWithoutDataSerialization() {
+        final CustomEvent event = new CustomEvent("key1", "userkey", null, null);
+
+        LDConfig config = new LDConfig.Builder().build();
+        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonObject eventObject = jsonElement.getAsJsonObject();
+
+        assertEquals(4, eventObject.size());
+        assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
+        assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
+        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
+    }
+
+    @Test
+    public void testCustomEventWithDataSerialization() {
+        final CustomEvent event = new CustomEvent("key1", "userkey", new JsonPrimitive("abc"), null);
+
+        LDConfig config = new LDConfig.Builder().build();
+        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonObject eventObject = jsonElement.getAsJsonObject();
+
+        assertEquals(5, eventObject.size());
+        assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
+        assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
+        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals("abc", eventObject.getAsJsonPrimitive("data").getAsString());
+        assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
+    }
+
+    @Test
+    public void testCustomEventWithMetricSerialization() {
+        final CustomEvent event = new CustomEvent("key1", "userkey", null, 5.5);
+
+        LDConfig config = new LDConfig.Builder().build();
+        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonObject eventObject = jsonElement.getAsJsonObject();
+
+        assertEquals(5, eventObject.size());
+        assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
+        assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
+        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals(5.5, eventObject.getAsJsonPrimitive("metricValue").getAsDouble(), 0);
+        assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
+    }
+
+    @Test
+    public void testCustomEventWithDataAndMetricSerialization() {
+        JsonObject eventData = new JsonObject();
+        eventData.add("data", new JsonPrimitive(10));
+        final CustomEvent event = new CustomEvent("key1", "userkey", eventData, -10.0);
+
+        LDConfig config = new LDConfig.Builder().build();
+        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonObject eventObject = jsonElement.getAsJsonObject();
+
+        assertEquals(6, eventObject.size());
+        assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
+        assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
+        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals(-10, eventObject.getAsJsonPrimitive("metricValue").getAsDouble(), 0);
+        assertEquals(eventData, eventObject.getAsJsonObject("data"));
+        assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
 
     @Test

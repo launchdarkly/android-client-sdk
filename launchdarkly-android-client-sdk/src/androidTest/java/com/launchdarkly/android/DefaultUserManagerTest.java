@@ -1,6 +1,5 @@
 package com.launchdarkly.android;
 
-import android.os.ConditionVariable;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
@@ -23,7 +22,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertFalse;
@@ -36,7 +34,7 @@ import static org.easymock.EasyMock.expectLastCall;
 import static org.easymock.EasyMock.reset;
 
 @RunWith(AndroidJUnit4.class)
-public class UserManagerTest extends EasyMockSupport {
+public class DefaultUserManagerTest extends EasyMockSupport {
 
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
@@ -52,59 +50,16 @@ public class UserManagerTest extends EasyMockSupport {
     @Mock
     private FeatureFlagFetcher fetcher;
 
-    private UserManager userManager;
+    private DefaultUserManager userManager;
 
     @Before
     public void before() {
-        userManager = new UserManager(activityTestRule.getActivity().getApplication(), fetcher, "test", "test");
+        userManager = new DefaultUserManager(activityTestRule.getActivity().getApplication(), fetcher, "test", "test");
     }
 
     @Test
     public void testFailedFetchThrowsException() {
         setUserAndFailToFetchFlags("userKey");
-    }
-
-    private class AwaitableCallback<T> implements Util.ResultCallback<T> {
-        private volatile Throwable errResult = null;
-        private volatile T result = null;
-        private ConditionVariable state = new ConditionVariable();
-
-        @Override
-        public void onSuccess(T result) {
-            this.result = result;
-            state.open();
-        }
-
-        @Override
-        public void onError(Throwable e) {
-            errResult = e;
-            state.open();
-        }
-
-        synchronized T await() throws ExecutionException {
-            state.block();
-            if (errResult != null) {
-                throw new ExecutionException(errResult);
-            }
-            return result;
-        }
-
-        synchronized T await(long timeoutMillis) throws ExecutionException, TimeoutException {
-            boolean opened = state.block(timeoutMillis);
-            if (!opened) {
-                throw new TimeoutException();
-            }
-            if (errResult != null) {
-                throw new ExecutionException(errResult);
-            }
-            return result;
-        }
-
-        synchronized void reset() {
-            state.close();
-            errResult = null;
-            result = null;
-        }
     }
 
     private void addSimpleFlag(JsonObject jsonObject, String flagKey, String value) {
@@ -589,7 +544,6 @@ public class UserManagerTest extends EasyMockSupport {
         }
         awaitableCallback.reset();
 
-        //noinspection ConstantConditions
         userManager.putCurrentUserFlags(null, awaitableCallback);
         try {
             awaitableCallback.await();

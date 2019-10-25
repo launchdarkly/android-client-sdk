@@ -1,6 +1,5 @@
 package com.launchdarkly.android;
 
-import android.support.test.annotation.UiThreadTest;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
@@ -53,7 +52,6 @@ public class MultiEnvironmentLDClientTest {
         ldUser = new LDUser.Builder("userKey").build();
     }
 
-    @UiThreadTest
     @Test
     public void testOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
@@ -71,7 +69,6 @@ public class MultiEnvironmentLDClientTest {
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
     }
 
-    @UiThreadTest
     @Test
     public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
@@ -86,7 +83,6 @@ public class MultiEnvironmentLDClientTest {
         assertNull(ldClient.stringVariation("stringFlag", null));
     }
 
-    @UiThreadTest
     @Test
     public void testInitMissingApplication() {
         ExecutionException actualFutureException = null;
@@ -109,7 +105,6 @@ public class MultiEnvironmentLDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
-    @UiThreadTest
     @Test
     public void testInitMissingConfig() {
         ExecutionException actualFutureException = null;
@@ -132,7 +127,6 @@ public class MultiEnvironmentLDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
-    @UiThreadTest
     @Test
     public void testInitMissingUser() {
         ExecutionException actualFutureException = null;

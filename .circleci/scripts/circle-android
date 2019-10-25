@@ -1,0 +1,88 @@
+#!/usr/bin/env python
+
+# See LICENSE file in this directory for copyright and license information
+# Above LICENSE notice added 10/16/2019 by Gavin Whelan
+
+from sys import argv, exit, stdout
+from time import sleep, time
+from os import system
+from subprocess import check_output, CalledProcessError
+from threading import Thread, Event
+from functools import partial
+
+class StoppableThread(Thread):
+
+  def __init__(self):
+    super(StoppableThread, self).__init__()
+    self._stop_event = Event()
+    self.daemon = True
+
+  def stopped(self):
+    return self._stop_event.is_set()
+
+  def run(self):
+    while not self.stopped():
+      stdout.write('.')
+      stdout.flush()
+      sleep(2)
+
+  def stop(self):
+    self._stop_event.set()
+
+def shell_getprop(name):
+    try:
+        return check_output(['adb', 'shell', 'getprop', name]).strip()
+    except CalledProcessError as e:
+        return ''
+
+start_time = time()
+
+def wait_for(name, fn):
+  stdout.write('Waiting for %s' % name)
+  spinner = StoppableThread()
+  spinner.start()
+  stdout.flush()
+  while True:
+    if fn():
+      spinner.stop()
+      time_taken = int(time() - start_time)
+      print('\n%s is ready after %d seconds' % (name, time_taken))
+      break
+    sleep(1)
+
+def device_ready():
+    return system('adb wait-for-device') == 0
+
+def shell_ready():
+    return system('adb shell true &> /dev/null') == 0
+
+def prop_has_value(prop, value):
+    return shell_getprop(prop) == value
+
+def wait_for_sys_prop(name, prop, value):
+    #     return shell_getprop('init.svc.bootanim') == 'stopped'
+    wait_for(name, partial(prop_has_value, prop, value))
+
+usage = """
+%s, a collection of tools for CI with android.
+
+Usage:
+  %s wait-for-boot - wait for a device to fully boot.
+    (adb wait-for-device only waits for it to be ready for shell access).
+"""
+
+if __name__ == "__main__":
+
+    if len(argv) != 2 or argv[1] != 'wait-for-boot':
+        print(usage % (argv[0], argv[0]))
+        exit(0)
+
+    wait_for('Device', device_ready)
+    wait_for('Shell', shell_ready)
+    wait_for_sys_prop('Boot animation complete', 'init.svc.bootanim', 'stopped')
+    wait_for_sys_prop('Boot animation exited', 'service.bootanim.exit', '1')
+    wait_for_sys_prop('System boot complete', 'sys.boot_completed', '1')
+    wait_for_sys_prop('GSM Ready', 'gsm.sim.state', 'READY')
+    #wait_for_sys_prop('init.svc.clear-bcb' ,'init.svc.clear-bcb', 'stopped')
+
+

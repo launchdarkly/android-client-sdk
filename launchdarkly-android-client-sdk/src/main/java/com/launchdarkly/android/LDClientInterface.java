@@ -57,6 +57,18 @@ public interface LDClientInterface extends Closeable {
     /**
      * Tracks that a user performed an event.
      *
+     * @param eventName   the name of the event
+     * @param data        a JSON object containing additional data associated with the event
+     * @param metricValue A numeric value used by the LaunchDarkly experimentation feature in
+     *                    numeric custom metrics. Can be omitted if this event is used by only
+     *                    non-numeric metrics. This field will also be returned as part of the
+     *                    custom event for Data Export.
+     */
+    void track(String eventName, JsonElement data, Double metricValue);
+
+    /**
+     * Tracks that a user performed an event.
+     *
      * @param eventName the name of the event
      * @param data      a JSON object containing additional data associated with the event
      */

@@ -14,16 +14,23 @@ public class Flag implements FlagUpdate, FlagInterface {
     private final Integer flagVersion;
     private final Integer variation;
     private final Boolean trackEvents;
+    private final Boolean trackReason;
     private final Long debugEventsUntilDate;
     private final EvaluationReason reason;
 
+    @Deprecated
     public Flag(@NonNull String key, JsonElement value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Long debugEventsUntilDate, EvaluationReason reason) {
+        this(key, value, version, flagVersion, variation, trackEvents, null, debugEventsUntilDate, reason);
+    }
+
+    public Flag(@NonNull String key, JsonElement value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason) {
         this.key = key;
         this.value = value;
         this.version = version;
         this.flagVersion = flagVersion;
         this.variation = variation;
         this.trackEvents = trackEvents;
+        this.trackReason = trackReason;
         this.debugEventsUntilDate = debugEventsUntilDate;
         this.reason = reason;
     }
@@ -52,6 +59,8 @@ public class Flag implements FlagUpdate, FlagInterface {
     public boolean getTrackEvents() {
         return trackEvents == null ? false : trackEvents;
     }
+
+    public boolean isTrackReason() { return trackReason == null ? false : trackReason; }
 
     public Long getDebugEventsUntilDate() {
         return debugEventsUntilDate;

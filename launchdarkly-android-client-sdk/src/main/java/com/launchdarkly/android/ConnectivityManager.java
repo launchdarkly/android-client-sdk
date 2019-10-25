@@ -95,10 +95,7 @@ class ConnectivityManager {
                     initialized = true;
                     connectionInformation.setLastSuccessfulConnection(getCurrentTimestamp());
                     saveConnectionInformation();
-                    if (initCallback != null) {
-                        initCallback.onSuccess(null);
-                        initCallback = null;
-                    }
+                    callInitCallback();
                 }
             }
 
@@ -118,10 +115,7 @@ class ConnectivityManager {
                     } catch (LaunchDarklyException ex) {
                         Timber.e(e, "Error getting LDClient for ConnectivityManager");
                     }
-                    if (initCallback != null) {
-                        initCallback.onSuccess(null);
-                        initCallback = null;
-                    }
+                    callInitCallback();
                 }
             }
         };
@@ -131,6 +125,11 @@ class ConnectivityManager {
 
     boolean isInitialized() {
         return initialized;
+    }
+
+    private void callInitCallback() {
+        voidSuccess(initCallback);
+        initCallback = null;
     }
 
     private void readStoredConnectionState() {
@@ -192,7 +191,7 @@ class ConnectivityManager {
         if (streamUpdateProcessor != null) {
             streamUpdateProcessor.stop(onCompleteListener);
         } else {
-            onCompleteListener.onSuccess(null);
+            voidSuccess(onCompleteListener);
         }
     }
 
@@ -239,6 +238,7 @@ class ConnectivityManager {
             case SET_OFFLINE:
             case OFFLINE:
                 initialized = true;
+                callInitCallback();
                 stopPolling();
                 stopStreaming();
                 break;
@@ -253,6 +253,8 @@ class ConnectivityManager {
                 startPolling();
                 break;
             case BACKGROUND_POLLING:
+                initialized = true;
+                callInitCallback();
                 stopStreaming();
                 stopPolling();
                 startBackgroundPolling();

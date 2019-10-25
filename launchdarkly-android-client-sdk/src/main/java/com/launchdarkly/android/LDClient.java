@@ -46,8 +46,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private final Application application;
     private final LDConfig config;
-    private final UserManager userManager;
-    private final EventProcessor eventProcessor;
+    private final DefaultUserManager userManager;
+    private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private ConnectivityReceiver connectivityReceiver;
     private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
@@ -211,9 +211,9 @@ public class LDClient implements LDClientInterface, Closeable {
         this.config = config;
         this.application = application;
         FeatureFlagFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
-        this.userManager = UserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
+        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
 
-        eventProcessor = new EventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
+        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
         connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -224,12 +224,17 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public void track(String eventName, JsonElement data) {
+    public void track(String eventName, JsonElement data, Double metricValue) {
         if (config.inlineUsersInEvents()) {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data));
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
         } else {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data));
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data, metricValue));
         }
+    }
+
+    @Override
+    public void track(String eventName, JsonElement data) {
+        track(eventName, data, null);
     }
 
     @Override
@@ -385,10 +390,10 @@ public class LDClient implements LDClientInterface, Closeable {
                     result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), value);
                 }
             }
+            sendFlagRequestEvent(flagKey, flag, valueJson, fallbackJson, flag.isTrackReason() | includeReasonInEvent ? result.getReason() : null);
         }
 
         updateSummaryEvents(flagKey, flag, valueJson, fallbackJson);
-        sendFlagRequestEvent(flagKey, flag, valueJson, fallbackJson, includeReasonInEvent ? result.getReason() : null);
         Timber.d("returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKey());
         return result;
     }
@@ -431,6 +436,11 @@ public class LDClient implements LDClientInterface, Closeable {
         for (LDClient client : instances.values()) {
             client.flushInternal();
         }
+    }
+
+    @VisibleForTesting
+    void blockingFlush() {
+        eventProcessor.blockingFlush();
     }
 
     @Override
@@ -580,10 +590,6 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback, EvaluationReason reason) {
-        if (flag == null) {
-            return;
-        }
-
         int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
         if (flag.getTrackEvents()) {

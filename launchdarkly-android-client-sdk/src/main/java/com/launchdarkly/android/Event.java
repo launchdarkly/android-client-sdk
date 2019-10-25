@@ -47,17 +47,21 @@ class IdentifyEvent extends GenericEvent {
 
 class CustomEvent extends GenericEvent {
     @Expose
-    private final JsonElement data;
+    final JsonElement data;
+    @Expose
+    final Double metricValue;
 
-    CustomEvent(String key, LDUser user, JsonElement data) {
+    CustomEvent(String key, LDUser user, JsonElement data, Double metricValue) {
         super("custom", key, user);
         this.data = data;
+        this.metricValue = metricValue;
     }
 
-    CustomEvent(String key, String userKey, JsonElement data) {
+    CustomEvent(String key, String userKey, JsonElement data, Double metricValue) {
         super("custom", key, null);
         this.data = data;
         this.userKey = userKey;
+        this.metricValue = metricValue;
     }
 }
 
