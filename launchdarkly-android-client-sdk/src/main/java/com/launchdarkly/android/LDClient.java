@@ -58,7 +58,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * will complete once the client has been initialized with the latest feature flag values. For
      * immediate access to the Client (possibly with out of date feature flags), it is safe to ignore
      * the return value of this method, and afterward call {@link #get()}
-     * <p/>
+     * <p>
      * If the client has already been initialized, is configured for offline mode, or the device is
      * not connected to the internet, this method will return a {@link Future} that is
      * already in the completed state.

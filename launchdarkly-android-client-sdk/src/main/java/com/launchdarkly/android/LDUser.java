@@ -29,12 +29,12 @@ import timber.log.Timber;
  * mandatory property property is the {@code key}, which must uniquely identify each user. For
  * authenticated users, this may be a username or e-mail address. For anonymous users, this could be
  * an IP address or session ID.
- * <p/>
+ * <p>
  * Besides the mandatory {@code key}, {@code LDUser} supports two kinds of optional attributes:
  * interpreted attributes (e.g. {@code ip} and {@code country}) and custom attributes.  LaunchDarkly
  * can parse interpreted attributes and attach meaning to them. For example, from an {@code ip}
  * address, LaunchDarkly can do a geo IP lookup and determine the user's country.
- * <p/>
+ * <p>
  * Custom attributes are not parsed by LaunchDarkly. They can be used in custom rules-- for example,
  * a custom attribute such as "customer_ranking" can be used to launch a feature to the top 10% of
  * users on a site.
@@ -192,7 +192,6 @@ public class LDUser {
     /**
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDUser} objects. Builder calls can be chained, enabling the following pattern:
-     * <p/>
      * <pre>
      * LDUser user = new LDUser.Builder("key")
      *      .country("US")

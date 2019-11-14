@@ -33,7 +33,6 @@ import java.util.regex.Pattern;
 
 /**
  * <a href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a> country code.
- * <p/>
  * <p>
  * Enum names of this enum themselves are represented by
  * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2">ISO 3166-1 alpha-2</a>
@@ -47,7 +46,6 @@ import java.util.regex.Pattern;
  * corresponds to a given alpha-2/alpha-3/numeric code ({@link #getByCode(String)},
  * {@link #getByCode(int)}).
  * </p>
- * <p/>
  * <pre style="background-color: #EEEEEE; margin-left: 2em; margin-right: 2em; border: 1px solid black; padding: 0.5em;">
  * <span style="color: darkgreen;">// List all the country codes.</span>
  * for (CountryCode code : CountryCode.values())
@@ -55,10 +53,10 @@ import java.util.regex.Pattern;
  * <span style="color: darkgreen;">// For example, "[US] United States" is printed.</span>
  * System.out.format(<span style="color: darkred;">"[%s] %s\n"</span>, code, code.{@link #getName()});
  * }
- * <p/>
+ * <p>
  * <span style="color: darkgreen;">// Get a CountryCode instance by ISO 3166-1 code.</span>
  * CountryCode code = CountryCode.{@link #getByCode(String) getByCode}(<span style="color: darkred;">"JP"</span>);
- * <p/>
+ * <p>
  * <span style="color: darkgreen;">// Print all the information. Output will be:</span>
  * <span style="color: darkgreen;">//</span>
  * <span style="color: darkgreen;">//     Country name            = Japan</span>
@@ -72,16 +70,16 @@ import java.util.regex.Pattern;
  * System.out.println(<span style="color: darkred;">"ISO 3166-1 alpha-3 code = "</span> + code.{@link #getAlpha3()});
  * System.out.println(<span style="color: darkred;">"ISO 3166-1 numeric code = "</span> + code.{@link #getNumeric()});
  * System.out.println(<span style="color: darkred;">"Assignment state        = "</span> + code.{@link #getAssignment()});
- * <p/>
+ * <p>
  * <span style="color: darkgreen;">// Convert to a Locale instance.</span>
  * {@link Locale} locale = code.{@link #toLocale()};
- * <p/>
+ * <p>
  * <span style="color: darkgreen;">// Get a CountryCode by a Locale instance.</span>
  * code = CountryCode.{@link #getByLocale(Locale) getByLocale}(locale);
- * <p/>
+ * <p>
  * <span style="color: darkgreen;">// Get the currency of the country.</span>
  * {@link Currency} currency = code.{@link #getCurrency()};
- * <p/>
+ * <p>
  * <span style="color: darkgreen;">// Get a list by a regular expression for names.
  * //
  * // The list will contain:
@@ -1818,7 +1816,6 @@ public enum LDCountryCode {
      * <a href="http://en.wikipedia.org/wiki/East_Timor">East Timor</a>
      * [<a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#TP">TP</a>, TPTL, 0,
      * Traditionally reserved]
-     * <p/>
      * <p>
      * ISO 3166-1 numeric code is unknown.
      * </p>
@@ -2033,7 +2030,6 @@ public enum LDCountryCode {
      * <a href="http://en.wikipedia.org/wiki/Zaire">Zaire</a>
      * [<a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#ZR">ZR</a>, ZRCD, 0,
      * Traditionally reserved]
-     * <p/>
      * <p>
      * ISO 3166-1 numeric code is unknown.
      * </p>
@@ -2059,7 +2055,7 @@ public enum LDCountryCode {
         /**
          * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#Officially_assigned_code_elements"
          * >Officially assigned</a>.
-         * <p/>
+         * <p>
          * Assigned to a country, territory, or area of geographical interest.
          */
         OFFICIALLY_ASSIGNED,
@@ -2067,7 +2063,7 @@ public enum LDCountryCode {
         /**
          * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#User-assigned_code_elements"
          * >User assigned</a>.
-         * <p/>
+         * <p>
          * Free for assignment at the disposal of users.
          */
         USER_ASSIGNED,
@@ -2075,7 +2071,7 @@ public enum LDCountryCode {
         /**
          * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#Exceptional_reservations"
          * >Exceptionally reserved</a>.
-         * <p/>
+         * <p>
          * Reserved on request for restricted use.
          */
         EXCEPTIONALLY_RESERVED,
@@ -2083,7 +2079,7 @@ public enum LDCountryCode {
         /**
          * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#Transitional_reservations"
          * >Transitionally reserved</a>.
-         * <p/>
+         * <p>
          * Deleted from ISO 3166-1 but reserved transitionally.
          */
         TRANSITIONALLY_RESERVED,
@@ -2091,7 +2087,7 @@ public enum LDCountryCode {
         /**
          * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#Indeterminate_reservations"
          * >Indeterminately reserved</a>.
-         * <p/>
+         * <p>
          * Used in coding systems associated with ISO 3166-1.
          */
         INDETERMINATELY_RESERVED,
@@ -2099,7 +2095,7 @@ public enum LDCountryCode {
         /**
          * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#Codes_currently_agreed_not_to_use"
          * >Not used</a>.
-         * <p/>
+         * <p>
          * Not used in ISO 3166-1 in deference to international property
          * organization names.
          */
@@ -2202,20 +2198,17 @@ public enum LDCountryCode {
 
     /**
      * Convert this {@code CountryCode} instance to a {@link Locale} instance.
-     * <p/>
      * <p>
      * In most cases, this method creates a new {@code Locale} instance
      * every time it is called, but some {@code CountryCode} instances return
      * their corresponding entries in {@code Locale} class. For example,
      * {@link #CA CountryCode.CA} always returns {@link Locale#CANADA}.
      * </p>
-     * <p/>
      * <p>
      * The table below lists {@code CountryCode} entries whose {@code toLocale()}
      * do not create new Locale instances but return entries in
      * {@code Locale} class.
      * </p>
-     * <p/>
      * <table border="1" style="border-collapse: collapse;" cellpadding="5" summary="">
      * <tr bgcolor="#FF8C00">
      * <th>CountryCode</th>
@@ -2272,7 +2265,6 @@ public enum LDCountryCode {
 
     /**
      * Get the currency.
-     * <p/>
      * <p>
      * This method is an alias of {@link Currency}{@code .}{@link
      * Currency#getInstance(Locale) getInstance}{@code (}{@link
@@ -2280,13 +2272,11 @@ public enum LDCountryCode {
      * returns {@code null} when {@code Currency.getInstance(Locale)}
      * throws {@code IllegalArgumentException}.
      * </p>
-     * <p/>
      * <p>
      * This method returns {@code null} when the territory represented by
      * this {@code CountryCode} instance does not have a currency.
      * {@link #AQ} (Antarctica) is one example.
      * </p>
-     * <p/>
      * <p>
      * In addition, this method returns {@code null} also when the ISO 3166
      * code represented by this {@code CountryCode} instance is not
@@ -2315,7 +2305,6 @@ public enum LDCountryCode {
      * Get a {@code CountryCode} that corresponds to the given ISO 3166-1
      * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2">alpha-2</a> or
      * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-3">alpha-3</a> code.
-     * <p/>
      * <p>
      * This method calls {@link #getByCode(String, boolean) getByCode}{@code (code, true)}.
      * Note that the behavior has changed since the version 1.13. In the older versions,
@@ -2337,7 +2326,6 @@ public enum LDCountryCode {
      * Get a {@code CountryCode} that corresponds to the given ISO 3166-1
      * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2">alpha-2</a> or
      * <a href="http://en.wikipedia.org/wiki/ISO_3166-1_alpha-3">alpha-3</a> code.
-     * <p/>
      * <p>
      * This method calls {@link #getByCode(String, boolean) getByCode}{@code (code, false)}.
      * </p>
@@ -2467,7 +2455,6 @@ public enum LDCountryCode {
 
     /**
      * Get a list of {@code CountryCode} by a name regular expression.
-     * <p/>
      * <p>
      * This method is almost equivalent to {@link #findByName(Pattern)
      * findByName}{@code (Pattern.compile(regex))}.
@@ -2495,19 +2482,15 @@ public enum LDCountryCode {
 
     /**
      * Get a list of {@code CountryCode} by a name pattern.
-     * <p/>
      * <p>
      * For example, the list obtained by the code snippet below:
      * </p>
-     * <p/>
      * <pre style="background-color: #EEEEEE; margin-left: 2em; margin-right: 2em; border: 1px solid black; padding: 0.5em;">
      * Pattern pattern = Pattern.compile(<span style="color: darkred;">".*United.*"</span>);
      * List&lt;CountryCode&gt; list = CountryCode.findByName(pattern);</pre>
-     * <p/>
      * <p>
      * contains 6 {@code CountryCode}s as listed below.
      * </p>
-     * <p/>
      * <ol>
      * <li>{@link #AE} : United Arab Emirates
      * <li>{@link #GB} : United Kingdom
