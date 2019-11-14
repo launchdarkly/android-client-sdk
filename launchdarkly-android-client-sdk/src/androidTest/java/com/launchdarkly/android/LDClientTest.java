@@ -212,7 +212,6 @@ public class LDClientTest {
             CustomEvent event = (CustomEvent) events[1];
             assertEquals("userKey", event.userKey);
             assertEquals("test-event", event.key);
-            assertEquals(System.currentTimeMillis(), event.creationDate, 500);
             assertNull(event.data);
             assertNull(event.metricValue);
         }
@@ -240,7 +239,6 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
                 assertEquals(testData, event.data);
                 assertNull(event.metricValue);
             }
@@ -266,7 +264,6 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
                 assertNull(event.data);
                 assertNull(event.metricValue);
             }
@@ -292,7 +289,6 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
                 assertNull(event.data);
                 assertEquals(5.5, event.metricValue, 0);
             }
@@ -318,7 +314,6 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
                 assertNull(event.data);
                 assertNull(event.metricValue);
             }
@@ -347,7 +342,6 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
                 assertEquals(testData, event.data);
                 assertEquals(-10.0, event.metricValue);
             }
@@ -385,7 +379,6 @@ public class LDClientTest {
                 assertFalse(event.value.getAsBoolean());
                 assertFalse(event.defaultVal.getAsBoolean());
                 assertEquals(testReason, event.reason);
-                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
                 assertTrue(events[2] instanceof SummaryEvent);
             }
         }
