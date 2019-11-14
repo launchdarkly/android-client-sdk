@@ -53,10 +53,10 @@ import java.util.regex.Pattern;
  * <span style="color: darkgreen;">// For example, "[US] United States" is printed.</span>
  * System.out.format(<span style="color: darkred;">"[%s] %s\n"</span>, code, code.{@link #getName()});
  * }
- * <p>
+ * 
  * <span style="color: darkgreen;">// Get a CountryCode instance by ISO 3166-1 code.</span>
  * CountryCode code = CountryCode.{@link #getByCode(String) getByCode}(<span style="color: darkred;">"JP"</span>);
- * <p>
+ * 
  * <span style="color: darkgreen;">// Print all the information. Output will be:</span>
  * <span style="color: darkgreen;">//</span>
  * <span style="color: darkgreen;">//     Country name            = Japan</span>
@@ -70,16 +70,16 @@ import java.util.regex.Pattern;
  * System.out.println(<span style="color: darkred;">"ISO 3166-1 alpha-3 code = "</span> + code.{@link #getAlpha3()});
  * System.out.println(<span style="color: darkred;">"ISO 3166-1 numeric code = "</span> + code.{@link #getNumeric()});
  * System.out.println(<span style="color: darkred;">"Assignment state        = "</span> + code.{@link #getAssignment()});
- * <p>
+ * 
  * <span style="color: darkgreen;">// Convert to a Locale instance.</span>
  * {@link Locale} locale = code.{@link #toLocale()};
- * <p>
+ * 
  * <span style="color: darkgreen;">// Get a CountryCode by a Locale instance.</span>
  * code = CountryCode.{@link #getByLocale(Locale) getByLocale}(locale);
- * <p>
+ * 
  * <span style="color: darkgreen;">// Get the currency of the country.</span>
  * {@link Currency} currency = code.{@link #getCurrency()};
- * <p>
+ * 
  * <span style="color: darkgreen;">// Get a list by a regular expression for names.
  * //
  * // The list will contain:
@@ -2210,7 +2210,7 @@ public enum LDCountryCode {
      * {@code Locale} class.
      * </p>
      * <table border="1" style="border-collapse: collapse;" cellpadding="5" summary="">
-     * <tr bgcolor="#FF8C00">
+     * <tr>
      * <th>CountryCode</th>
      * <th>Locale</th>
      * </tr>

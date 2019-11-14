@@ -401,7 +401,7 @@ public class LDClient implements LDClientInterface, Closeable {
     /**
      * Closes the client. This should only be called at the end of a client's lifecycle.
      *
-     * @throws IOException
+     * @throws IOException declared by the Closeable interface, but will not be thrown by the client
      */
     @Override
     public void close() throws IOException {

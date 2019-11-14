@@ -274,14 +274,14 @@ public interface LDClientInterface extends Closeable {
     ConnectionInformation getConnectionInformation();
 
     /**
-     *
-     * @param LDStatusListener
+     * Unregisters a {@link LDStatusListener} so it will no longer be called on connection status updates.
+     * @param LDStatusListener the listener to be removed
      */
     void unregisterStatusListener(LDStatusListener LDStatusListener);
 
     /**
-     *
-     * @param LDStatusListener
+     * Registers a {@link LDStatusListener} to be called on connection status updates.
+     * @param LDStatusListener the listener to be called on a connection status update
      */
     void registerStatusListener(LDStatusListener LDStatusListener);
 
