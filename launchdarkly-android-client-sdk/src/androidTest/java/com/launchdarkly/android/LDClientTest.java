@@ -28,7 +28,6 @@ import okhttp3.mockwebserver.RecordedRequest;
 
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertFalse;
-import static junit.framework.Assert.assertNotNull;
 import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 import static junit.framework.Assert.fail;
@@ -37,6 +36,8 @@ import static org.hamcrest.MatcherAssert.assertThat;
 
 @RunWith(AndroidJUnit4.class)
 public class LDClientTest {
+
+    private static final String mobileKey = "test-mobile-key";
 
     @Rule
     public final ActivityTestRule<TestActivity> activityTestRule =
@@ -191,277 +192,223 @@ public class LDClientTest {
 
     @Test
     public void testTrack() throws IOException, InterruptedException {
-        MockWebServer mockEventsServer = new MockWebServer();
-        mockEventsServer.start();
-        // Enqueue a successful empty response
-        mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
 
-        HttpUrl baseUrl = mockEventsServer.url("/mobile");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
 
-        LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-sdk-key")
-                .setEventsUri(Uri.parse(baseUrl.url().toString()))
-                .build();
+            // Don't wait as we are not set offline
+            ldClient = LDClient.init(application, ldConfig, ldUser, 0);
 
-        // Don't wait as we are not set offline
-        ldClient = LDClient.init(application, ldConfig, ldUser, 0);
+            ldClient.track("test-event");
+            ldClient.blockingFlush();
 
-        ldClient.track("test-event");
-        ldClient.blockingFlush();
-
-        RecordedRequest eventPost = mockEventsServer.takeRequest();
-        assertEquals("POST", eventPost.getMethod());
-        assertEquals("/mobile", eventPost.getPath());
-        assertNotNull(eventPost.getHeader("Authorization"));
-
-        Event[] events = TestUtil.getEventDeserializerGson().fromJson(eventPost.getBody().readUtf8(), Event[].class);
-        assertEquals(2, events.length);
-        assertTrue(events[0] instanceof IdentifyEvent);
-        assertTrue(events[1] instanceof CustomEvent);
-        CustomEvent event = (CustomEvent) events[1];
-        assertEquals("userKey", event.userKey);
-        assertEquals("test-event", event.key);
-        assertEquals(System.currentTimeMillis(), event.creationDate, 500);
-        assertNull(event.data);
-        assertNull(event.metricValue);
+            Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
+            assertEquals(2, events.length);
+            assertTrue(events[0] instanceof IdentifyEvent);
+            assertTrue(events[1] instanceof CustomEvent);
+            CustomEvent event = (CustomEvent) events[1];
+            assertEquals("userKey", event.userKey);
+            assertEquals("test-event", event.key);
+            assertEquals(System.currentTimeMillis(), event.creationDate, 500);
+            assertNull(event.data);
+            assertNull(event.metricValue);
+        }
     }
 
     @Test
     public void testTrackData() throws IOException, InterruptedException {
-        MockWebServer mockEventsServer = new MockWebServer();
-        mockEventsServer.start();
-        // Enqueue a successful empty response
-        mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
 
-        HttpUrl baseUrl = mockEventsServer.url("/mobile");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            // Don't wait as we are not set offline
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                JsonPrimitive testData = new JsonPrimitive("abc");
 
-        LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-sdk-key")
-                .setEventsUri(Uri.parse(baseUrl.url().toString()))
-                .build();
+                client.track("test-event", testData);
+                client.blockingFlush();
 
-        // Don't wait as we are not set offline
-        ldClient = LDClient.init(application, ldConfig, ldUser, 0);
-
-        JsonPrimitive testData = new JsonPrimitive("abc");
-
-        ldClient.track("test-event", testData);
-        ldClient.blockingFlush();
-
-        RecordedRequest eventPost = mockEventsServer.takeRequest();
-        assertEquals("POST", eventPost.getMethod());
-        assertEquals("/mobile", eventPost.getPath());
-        assertNotNull(eventPost.getHeader("Authorization"));
-
-        Event[] events = TestUtil.getEventDeserializerGson().fromJson(eventPost.getBody().readUtf8(), Event[].class);
-        assertEquals(2, events.length);
-        assertTrue(events[0] instanceof IdentifyEvent);
-        assertTrue(events[1] instanceof CustomEvent);
-        CustomEvent event = (CustomEvent) events[1];
-        assertEquals("userKey", event.userKey);
-        assertEquals("test-event", event.key);
-        assertEquals(System.currentTimeMillis(), event.creationDate, 500);
-        assertEquals(testData, event.data);
-        assertNull(event.metricValue);
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertEquals(2, events.length);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof CustomEvent);
+                CustomEvent event = (CustomEvent) events[1];
+                assertEquals("userKey", event.userKey);
+                assertEquals("test-event", event.key);
+                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
+                assertEquals(testData, event.data);
+                assertNull(event.metricValue);
+            }
+        }
     }
 
     @Test
     public void testTrackDataNull() throws IOException, InterruptedException {
-        MockWebServer mockEventsServer = new MockWebServer();
-        mockEventsServer.start();
-        // Enqueue a successful empty response
-        mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
 
-        HttpUrl baseUrl = mockEventsServer.url("/mobile");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.track("test-event", null);
+                client.blockingFlush();
 
-        LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-sdk-key")
-                .setEventsUri(Uri.parse(baseUrl.url().toString()))
-                .build();
-
-        // Don't wait as we are not set offline
-        ldClient = LDClient.init(application, ldConfig, ldUser, 0);
-
-        ldClient.track("test-event", null);
-        ldClient.blockingFlush();
-
-        RecordedRequest eventPost = mockEventsServer.takeRequest();
-        assertEquals("POST", eventPost.getMethod());
-        assertEquals("/mobile", eventPost.getPath());
-        assertNotNull(eventPost.getHeader("Authorization"));
-
-        Event[] events = TestUtil.getEventDeserializerGson().fromJson(eventPost.getBody().readUtf8(), Event[].class);
-        assertEquals(2, events.length);
-        assertTrue(events[0] instanceof IdentifyEvent);
-        assertTrue(events[1] instanceof CustomEvent);
-        CustomEvent event = (CustomEvent) events[1];
-        assertEquals("userKey", event.userKey);
-        assertEquals("test-event", event.key);
-        assertEquals(System.currentTimeMillis(), event.creationDate, 500);
-        assertNull(event.data);
-        assertNull(event.metricValue);
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertEquals(2, events.length);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof CustomEvent);
+                CustomEvent event = (CustomEvent) events[1];
+                assertEquals("userKey", event.userKey);
+                assertEquals("test-event", event.key);
+                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
+                assertNull(event.data);
+                assertNull(event.metricValue);
+            }
+        }
     }
 
     @Test
     public void testTrackMetric() throws IOException, InterruptedException {
-        MockWebServer mockEventsServer = new MockWebServer();
-        mockEventsServer.start();
-        // Enqueue a successful empty response
-        mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
 
-        HttpUrl baseUrl = mockEventsServer.url("/mobile");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.track("test-event", null, 5.5);
+                client.blockingFlush();
 
-        LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-sdk-key")
-                .setEventsUri(Uri.parse(baseUrl.url().toString()))
-                .build();
-
-        // Don't wait as we are not set offline
-        ldClient = LDClient.init(application, ldConfig, ldUser, 0);
-
-        ldClient.track("test-event", null, 5.5);
-        ldClient.blockingFlush();
-
-        RecordedRequest eventPost = mockEventsServer.takeRequest();
-        assertEquals("POST", eventPost.getMethod());
-        assertEquals("/mobile", eventPost.getPath());
-        assertNotNull(eventPost.getHeader("Authorization"));
-
-        Event[] events = TestUtil.getEventDeserializerGson().fromJson(eventPost.getBody().readUtf8(), Event[].class);
-        assertEquals(2, events.length);
-        assertTrue(events[0] instanceof IdentifyEvent);
-        assertTrue(events[1] instanceof CustomEvent);
-        CustomEvent event = (CustomEvent) events[1];
-        assertEquals("userKey", event.userKey);
-        assertEquals("test-event", event.key);
-        assertEquals(System.currentTimeMillis(), event.creationDate, 500);
-        assertNull(event.data);
-        assertEquals(5.5, event.metricValue, 0);
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertEquals(2, events.length);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof CustomEvent);
+                CustomEvent event = (CustomEvent) events[1];
+                assertEquals("userKey", event.userKey);
+                assertEquals("test-event", event.key);
+                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
+                assertNull(event.data);
+                assertEquals(5.5, event.metricValue, 0);
+            }
+        }
     }
 
     @Test
     public void testTrackMetricNull() throws IOException, InterruptedException {
-        MockWebServer mockEventsServer = new MockWebServer();
-        mockEventsServer.start();
-        // Enqueue a successful empty response
-        mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
 
-        HttpUrl baseUrl = mockEventsServer.url("/mobile");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.track("test-event", null, null);
+                client.blockingFlush();
 
-        LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-sdk-key")
-                .setEventsUri(Uri.parse(baseUrl.url().toString()))
-                .build();
-
-        // Don't wait as we are not set offline
-        ldClient = LDClient.init(application, ldConfig, ldUser, 0);
-
-        ldClient.track("test-event", null, null);
-        ldClient.blockingFlush();
-
-        RecordedRequest eventPost = mockEventsServer.takeRequest();
-        assertEquals("POST", eventPost.getMethod());
-        assertEquals("/mobile", eventPost.getPath());
-        assertNotNull(eventPost.getHeader("Authorization"));
-
-        Event[] events = TestUtil.getEventDeserializerGson().fromJson(eventPost.getBody().readUtf8(), Event[].class);
-        assertEquals(2, events.length);
-        assertTrue(events[0] instanceof IdentifyEvent);
-        assertTrue(events[1] instanceof CustomEvent);
-        CustomEvent event = (CustomEvent) events[1];
-        assertEquals("userKey", event.userKey);
-        assertEquals("test-event", event.key);
-        assertEquals(System.currentTimeMillis(), event.creationDate, 500);
-        assertNull(event.data);
-        assertNull(event.metricValue);
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertEquals(2, events.length);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof CustomEvent);
+                CustomEvent event = (CustomEvent) events[1];
+                assertEquals("userKey", event.userKey);
+                assertEquals("test-event", event.key);
+                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
+                assertNull(event.data);
+                assertNull(event.metricValue);
+            }
+        }
     }
 
     @Test
     public void testTrackDataAndMetric() throws IOException, InterruptedException {
-        MockWebServer mockEventsServer = new MockWebServer();
-        mockEventsServer.start();
-        // Enqueue a successful empty response
-        mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
 
-        HttpUrl baseUrl = mockEventsServer.url("/mobile");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                JsonObject testData = new JsonObject();
+                testData.add("data", new JsonPrimitive(10));
 
-        LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-sdk-key")
-                .setEventsUri(Uri.parse(baseUrl.url().toString()))
-                .build();
+                client.track("test-event", testData, -10.0);
+                client.blockingFlush();
 
-        // Don't wait as we are not set offline
-        ldClient = LDClient.init(application, ldConfig, ldUser, 0);
-
-        JsonObject testData = new JsonObject();
-        testData.add("data", new JsonPrimitive(10));
-
-        ldClient.track("test-event", testData, -10.0);
-        ldClient.blockingFlush();
-
-        RecordedRequest eventPost = mockEventsServer.takeRequest();
-        assertEquals("POST", eventPost.getMethod());
-        assertEquals("/mobile", eventPost.getPath());
-        assertNotNull(eventPost.getHeader("Authorization"));
-
-        Event[] events = TestUtil.getEventDeserializerGson().fromJson(eventPost.getBody().readUtf8(), Event[].class);
-        assertEquals(2, events.length);
-        assertTrue(events[0] instanceof IdentifyEvent);
-        assertTrue(events[1] instanceof CustomEvent);
-        CustomEvent event = (CustomEvent) events[1];
-        assertEquals("userKey", event.userKey);
-        assertEquals("test-event", event.key);
-        assertEquals(System.currentTimeMillis(), event.creationDate, 500);
-        assertEquals(testData, event.data);
-        assertEquals(-10.0, event.metricValue);
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertEquals(2, events.length);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof CustomEvent);
+                CustomEvent event = (CustomEvent) events[1];
+                assertEquals("userKey", event.userKey);
+                assertEquals("test-event", event.key);
+                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
+                assertEquals(testData, event.data);
+                assertEquals(-10.0, event.metricValue);
+            }
+        }
     }
 
     @Test
     public void variationFlagTrackReasonGeneratesEventWithReason() throws IOException, InterruptedException {
-        // Setup events server
-        MockWebServer mockEventsServer = new MockWebServer();
-        mockEventsServer.start();
-        // Enqueue a successful empty response
-        mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
 
-        HttpUrl baseUrl = mockEventsServer.url("/mobile");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
 
-        String mobileKey = "test-mobile-key";
-        LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey(mobileKey)
-                .setEventsUri(Uri.parse(baseUrl.url().toString()))
-                .build();
+            // Setup flag store with test flag
+            TestUtil.markMigrationComplete(application);
+            EvaluationReason testReason = EvaluationReason.off();
+            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application).createFlagStore(mobileKey + ldUser.getSharedPrefsKey());
+            flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").trackEvents(true).trackReason(true).reason(testReason).build());
 
-        // Setup flag store with test flag
-        TestUtil.markMigrationComplete(application);
-        EvaluationReason testReason = EvaluationReason.off();
-        FlagStore flagStore = new SharedPrefsFlagStoreFactory(application).createFlagStore(mobileKey + ldUser.getSharedPrefsKey());
-        flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").trackEvents(true).trackReason(true).reason(testReason).build());
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.boolVariation("track-reason-flag", false);
+                client.blockingFlush();
 
-        // Don't wait as we are not set offline
-        ldClient = LDClient.init(application, ldConfig, ldUser, 0);
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 3);
+                assertEquals(3, events.length);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof FeatureRequestEvent);
+                FeatureRequestEvent event = (FeatureRequestEvent) events[1];
+                assertEquals("track-reason-flag", event.key);
+                assertEquals("userKey", event.userKey);
+                assertNull(event.variation);
+                assertNull(event.version);
+                assertFalse(event.value.getAsBoolean());
+                assertFalse(event.defaultVal.getAsBoolean());
+                assertEquals(testReason, event.reason);
+                assertEquals(System.currentTimeMillis(), event.creationDate, 500);
+                assertTrue(events[2] instanceof SummaryEvent);
+            }
+        }
+    }
 
-        ldClient.boolVariation("track-reason-flag", false);
-        ldClient.blockingFlush();
+    private Event[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws InterruptedException {
+        RecordedRequest r = server.takeRequest();
+        assertEquals("POST", r.getMethod());
+        assertEquals("/mobile", r.getPath());
+        assertEquals(LDConfig.AUTH_SCHEME + mobileKey, r.getHeader("Authorization"));
+        String body = r.getBody().readUtf8();
+        System.out.println(body);
+        Event[] events = TestUtil.getEventDeserializerGson().fromJson(body, Event[].class);
+        if (events.length != expectedCount) {
+            assertTrue("count should be " + expectedCount + " for: " + body, false);
+        }
+        return events;
+    }
 
-        RecordedRequest eventPost = mockEventsServer.takeRequest();
-        assertEquals("POST", eventPost.getMethod());
-        assertEquals("/mobile", eventPost.getPath());
-        assertNotNull(eventPost.getHeader("Authorization"));
-
-        Event[] events = TestUtil.getEventDeserializerGson().fromJson(eventPost.getBody().readUtf8(), Event[].class);
-        assertEquals(3, events.length);
-        assertTrue(events[0] instanceof IdentifyEvent);
-        assertTrue(events[1] instanceof FeatureRequestEvent);
-        FeatureRequestEvent event = (FeatureRequestEvent) events[1];
-        assertEquals("track-reason-flag", event.key);
-        assertEquals("userKey", event.userKey);
-        assertNull(event.variation);
-        assertNull(event.version);
-        assertFalse(event.value.getAsBoolean());
-        assertFalse(event.defaultVal.getAsBoolean());
-        assertEquals(testReason, event.reason);
-        assertEquals(System.currentTimeMillis(), event.creationDate, 500);
-        assertTrue(events[2] instanceof SummaryEvent);
+    private LDConfig.Builder baseConfigBuilder(MockWebServer server) {
+        HttpUrl baseUrl = server.url("/mobile");
+        return new LDConfig.Builder()
+            .setMobileKey(mobileKey)
+            .setEventsUri(Uri.parse(baseUrl.toString()));
     }
 }
