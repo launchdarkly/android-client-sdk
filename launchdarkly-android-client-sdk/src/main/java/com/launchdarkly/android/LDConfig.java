@@ -418,6 +418,7 @@ public class LDConfig {
          *
          * @param backgroundPollingIntervalMillis the feature flag polling interval when in the background,
          *                                        in milliseconds
+         * @return the builder
          */
         public LDConfig.Builder setBackgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
             this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
@@ -430,6 +431,7 @@ public class LDConfig {
          * The default value is false (flag updates <i>will</i> be done in the background).
          *
          * @param disableBackgroundUpdating true if the client should skip updating flags when in the background
+         * @return the builder
          */
         public LDConfig.Builder setDisableBackgroundUpdating(boolean disableBackgroundUpdating) {
             this.disableBackgroundUpdating = disableBackgroundUpdating;

@@ -5,9 +5,8 @@ import android.support.annotation.Nullable;
 import com.google.gson.JsonElement;
 
 /**
- * Created by jamesthacker on 4/12/18.
+ * Used internally by the SDK.
  */
-
 public interface SummaryEventSharedPreferences {
 
     void clear();
