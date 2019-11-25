@@ -20,7 +20,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 import timber.log.Timber;
 
@@ -106,7 +105,7 @@ public class LDUser {
         }
 
         this.ip = builder.ip;
-        this.country = builder.country == null ? null : (builder.country.getAlpha2());
+        this.country = builder.country;
         this.secondary = builder.secondary;
         this.firstName = builder.firstName;
         this.lastName = builder.lastName;
@@ -211,7 +210,7 @@ public class LDUser {
         private String email;
         private String name;
         private String avatar;
-        private LDCountryCode country;
+        private String country;
 
         private final Map<String, JsonElement> custom;
 
@@ -242,8 +241,7 @@ public class LDUser {
             this.email = user.getEmail();
             this.name = user.getName();
             this.avatar = user.getAvatar();
-            this.country = user.getCountry() != null ? LDCountryCode.valueOf(user.getCountry()) :
-                    null;
+            this.country = user.getCountry();
             this.custom = new HashMap<>(user.custom);
 
             this.privateAttributeNames = new HashSet<>(user.getPrivateAttributeNames());
@@ -282,25 +280,18 @@ public class LDUser {
         }
 
         /**
-         * Set the country for a user. The country should be a valid <a
-         * href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a> alpha-2 or alpha-3 code. If
-         * it is not a valid ISO-3166-1 code, an attempt will be made to look up the country by its
-         * name. If that fails, a warning will be logged, and the country will not be set.
+         * Set the country for a user.
          *
          * @param s the country for the user
          * @return the builder
          */
         public Builder country(String s) {
-            this.country = countryCode(s);
+            this.country = s;
             return this;
         }
 
         /**
-         * Set the country for a user. The country should be a valid <a
-         * href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a> alpha-2 or alpha-3 code. If
-         * it is not a valid ISO-3166-1 code, an attempt will be made to look up the country by its
-         * name. If that fails, a warning will be logged, and the country will not be set. Private
-         * attributes are not recorded in events.
+         * Set the country for a user. Private attributes are not recorded in events.
          *
          * @param s the country for the user
          * @return the builder
@@ -308,54 +299,6 @@ public class LDUser {
         public Builder privateCountry(String s) {
             privateAttributeNames.add(COUNTRY);
             return country(s);
-        }
-
-        private LDCountryCode countryCode(String s) {
-            LDCountryCode countryCode = LDCountryCode.getByCode(s, false);
-
-            if (countryCode == null) {
-                List<LDCountryCode> codes = LDCountryCode.findByName("^" + Pattern.quote(s) + ".*");
-
-                if (codes.isEmpty()) {
-                    Timber.w("Invalid country. Expected valid ISO-3166-1 code: %s", s);
-                } else if (codes.size() > 1) {
-                    // See if any of the codes is an exact match
-                    for (LDCountryCode c : codes) {
-                        if (c.getName().equals(s)) {
-                            countryCode = c;
-                            return countryCode;
-                        }
-                    }
-                    Timber.w("Ambiguous country. Provided code matches multiple countries: %s", s);
-                    countryCode = codes.get(0);
-                } else {
-                    countryCode = codes.get(0);
-                }
-
-            }
-            return countryCode;
-        }
-
-        /**
-         * Set the country for a user.
-         *
-         * @param country the country for the user
-         * @return the builder
-         */
-        public Builder country(LDCountryCode country) {
-            this.country = country;
-            return this;
-        }
-
-        /**
-         * Set the country for a user. Private attributes are not recorded in events.
-         *
-         * @param country the country for the user
-         * @return the builder
-         */
-        public Builder privateCountry(LDCountryCode country) {
-            privateAttributeNames.add(COUNTRY);
-            return country(country);
         }
 
         /**
