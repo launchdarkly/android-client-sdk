@@ -20,16 +20,16 @@ import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIB
 
 /**
  * Usage:
- * <p/>
+ * <p>
  * 1. Get the Foreground Singleton, passing a Context or Application object unless you
  * are sure that the Singleton has definitely already been initialised elsewhere.
- * <p/>
+ * <p>
  * 2.a) Perform a direct, synchronous check: Foreground.isForeground() / .isBackground()
- * <p/>
+ * <p>
  * or
- * <p/>
+ * <p>
  * 2.b) Register to be notified (useful in Service or other non-UI components):
- * <p/>
+ * <p>
  * Foreground.Listener myListener = new Foreground.Listener(){
  * void onBecameForeground(){
  * // ... whatever you want to do
@@ -38,12 +38,12 @@ import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIB
  * // ... whatever you want to do
  * }
  * }
- * <p/>
+ * <p>
  * void onCreate(){
  * super.onCreate();
  * Foreground.get(this).addListener(listener);
  * }
- * <p/>
+ * <p>
  * void onDestroy(){
  * super.onCreate();
  * Foreground.get(this).removeListener(listener);

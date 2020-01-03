@@ -47,7 +47,9 @@ jobs:
           timeout: 1200
           no_output_timeout: 2h
 
-      - run: ./gradlew :launchdarkly-android-client-sdk:assembleDebug --console=plain -PdisablePreDex
+      - run:
+          name: Compile
+          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebug --console=plain -PdisablePreDex
 
       - run:
           name: Wait for emulator to boot
@@ -73,12 +75,18 @@ jobs:
             adb logcat >> ~/artifacts/logcat.txt
 
       - run:
-          name: Run Tests
+          name: Run tests
           command: ./gradlew :launchdarkly-android-client-sdk:connectedAndroidTest --console=plain -PdisablePreDex
           no_output_timeout: 2h
 
-      - run: ./gradlew packageRelease --console=plain -PdisablePreDex
+      - run:
+          name: Validate package creation
+          command: ./gradlew packageRelease --console=plain -PdisablePreDex
 
+      - run:
+          name: Validate Javadoc
+          command: ./gradlew Javadoc
+      
       - run:
           name: Save test results
           command: |

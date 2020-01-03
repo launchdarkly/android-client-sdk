@@ -3,6 +3,12 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.9.1] - 2020-01-03
+### Fixed:
+- Removed possibility of fatal `SecurityException` on Samsung devices that would be triggered when the SDK attempted to register an alarm to trigger a future poll when the application process already had 500 alarms registered. This limit is only present on Samsung's versions of Android Lollipop and later. The SDK will now catch this error if it occurs to prevent killing the host application.
+- Rarely, the client would deliver its initial "identify" event to LaunchDarkly immediately rather than waiting for the configured flush interval.
+- Fixed some malformed Javadoc comments.
+
 ## [2.9.0] - 2019-10-25
 ### Added
 - Added support for new LaunchDarkly experimentation features. See `LDClient.track(String, JsonElement, Double)` for recording numeric metrics.

@@ -7,7 +7,7 @@ apply plugin: 'io.codearte.nexus-staging'
 
 allprojects {
     group = 'com.launchdarkly'
-    version = '2.9.0'
+    version = '2.9.1'
     sourceCompatibility = 1.7
     targetCompatibility = 1.7
 }
@@ -38,10 +38,6 @@ android {
 
     testOptions {
         execution 'ANDROID_TEST_ORCHESTRATOR'
-    }
-
-    configurations {
-        javadocDeps
     }
 
     compileOptions {
@@ -89,10 +85,6 @@ dependencies {
     androidTestImplementation 'org.easymock:easymock:3.6'
     androidTestImplementation 'junit:junit:4.12'
     androidTestImplementation "com.squareup.okhttp3:mockwebserver:$okhttpVersion"
-
-    javadocDeps "com.google.code.gson:gson:$gsonVersion"
-    javadocDeps "com.squareup.okhttp3:okhttp:$okhttpVersion"
-    javadocDeps "com.launchdarkly:okhttp-eventsource:$eventsourceVersion"
 }
 
 repositories {
@@ -125,10 +117,15 @@ task sourcesJar(type: Jar) {
 }
 
 task javadoc(type: Javadoc) {
-    failOnError false
     source = android.sourceSets.main.java.srcDirs
     classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
-    classpath += configurations.javadocDeps
+}
+
+afterEvaluate {
+// https://stackoverflow.com/questions/34571371/android-studio-javadoc-cannot-find-symbol/34572606#34572606
+    javadoc.classpath += files(android.libraryVariants.collect { variant ->
+        variant.javaCompile.classpath.files
+    })
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {

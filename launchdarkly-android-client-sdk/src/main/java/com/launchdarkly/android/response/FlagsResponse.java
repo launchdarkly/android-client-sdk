@@ -7,9 +7,7 @@ import com.launchdarkly.android.flagstore.Flag;
 import java.util.List;
 
 /**
- * Used for cases where the server sends a collection of flags as a key-value object. Uses custom
- * deserializer in {@link com.launchdarkly.android.gson.FlagsResponseSerialization} to get a list of
- * {@link com.launchdarkly.android.flagstore.Flag} objects.
+ * Used for cases where the server sends a collection of flags as a key-value object.
  */
 public class FlagsResponse {
     @NonNull

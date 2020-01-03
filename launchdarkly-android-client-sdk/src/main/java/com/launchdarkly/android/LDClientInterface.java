@@ -37,7 +37,7 @@ public interface LDClientInterface extends Closeable {
      * Shuts down any network connections maintained by the client and puts the client in offline
      * mode, preventing the client from opening new network connections until
      * <code>setOnline()</code> is called.
-     * <p/>
+     * <p>
      * Note: The client automatically monitors the device's network connectivity and app foreground
      * status, so calling <code>setOffline()</code> or <code>setOnline()</code> is normally
      * unnecessary in most situations.
@@ -47,7 +47,7 @@ public interface LDClientInterface extends Closeable {
     /**
      * Restores network connectivity for the client, if the client was previously in offline mode.
      * This operation may be throttled if it is called too frequently.
-     * <p/>
+     * <p>
      * Note: The client automatically monitors the device's network connectivity and app foreground
      * status, so calling <code>setOffline()</code> or <code>setOnline()</code> is normally
      * unnecessary in most situations.
@@ -274,14 +274,14 @@ public interface LDClientInterface extends Closeable {
     ConnectionInformation getConnectionInformation();
 
     /**
-     *
-     * @param LDStatusListener
+     * Unregisters a {@link LDStatusListener} so it will no longer be called on connection status updates.
+     * @param LDStatusListener the listener to be removed
      */
     void unregisterStatusListener(LDStatusListener LDStatusListener);
 
     /**
-     *
-     * @param LDStatusListener
+     * Registers a {@link LDStatusListener} to be called on connection status updates.
+     * @param LDStatusListener the listener to be called on a connection status update
      */
     void registerStatusListener(LDStatusListener LDStatusListener);
 
