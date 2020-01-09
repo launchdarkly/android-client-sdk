@@ -231,6 +231,7 @@ public class LDUser {
             privateAttributeNames = new HashSet<>();
         }
 
+        @SuppressWarnings("deprecation")
         public Builder(LDUser user) {
             this.key = user.getKey();
             this.anonymous = user.getAnonymous();
@@ -281,6 +282,12 @@ public class LDUser {
 
         /**
          * Set the country for a user.
+         * <p>
+         * In 2.x.x the SDK attempted to look the country up as a <a
+         * href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a> alpha-2 or alpha-3 code.
+         * When it was not a valid ISO-3166-1 code, an attempt was made to look up the country by
+         * its name. If that failed, the country was not set. After 3.0.0 the SDK instead treats
+         * the country field as a normal String.
          *
          * @param s the country for the user
          * @return the builder
@@ -292,6 +299,12 @@ public class LDUser {
 
         /**
          * Set the country for a user. Private attributes are not recorded in events.
+         * <p>
+         * In 2.x.x the SDK attempted to look the country up as a <a
+         * href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a> alpha-2 or alpha-3 code.
+         * When it was not a valid ISO-3166-1 code, an attempt was made to look up the country by
+         * its name. If that failed, the country was not set. After 3.0.0 the SDK instead treats
+         * the country field as a normal String.
          *
          * @param s the country for the user
          * @return the builder

@@ -33,11 +33,15 @@ public class PollingUpdater extends BroadcastReceiver {
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
-        alarmMgr.setInexactRepeating(
-                AlarmManager.ELAPSED_REALTIME,
-                SystemClock.elapsedRealtime() + initialDelayMillis,
-                intervalMillis,
-                pendingIntent);
+        try {
+            alarmMgr.setInexactRepeating(
+                    AlarmManager.ELAPSED_REALTIME,
+                    SystemClock.elapsedRealtime() + initialDelayMillis,
+                    intervalMillis,
+                    pendingIntent);
+        } catch (SecurityException ex) {
+            Timber.w(ex, "SecurityException when setting background polling alarm");
+        }
     }
 
     synchronized static void stop(Context context) {
