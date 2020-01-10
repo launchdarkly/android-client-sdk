@@ -7,7 +7,6 @@ import android.content.SharedPreferences;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
-import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.File;
 import java.util.ArrayList;

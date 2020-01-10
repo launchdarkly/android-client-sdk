@@ -5,8 +5,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.support.annotation.NonNull;
 
-import com.launchdarkly.android.gson.GsonCache;
-
 import java.util.Calendar;
 import java.util.TimeZone;
 

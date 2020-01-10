@@ -3,7 +3,9 @@ package com.launchdarkly.android;
 import android.support.annotation.NonNull;
 
 import com.google.gson.annotations.Expose;
+import com.google.gson.annotations.JsonAdapter;
 
+@JsonAdapter(LDFailureSerialization.class)
 public class LDFailure extends LaunchDarklyException {
     public enum FailureType {
         INVALID_RESPONSE_BODY,

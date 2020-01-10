@@ -119,8 +119,8 @@ public interface LDClientInterface extends Closeable {
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
-     * Note that this will only work if you have set {@code evaluationReasons} to true in
-     * {@link LDConfig.Builder#evaluationReasons}. Otherwise, the {@code reason} property of the result
+     * Note that this will only work if you have set {@code evaluationReasons} to true with
+     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -148,8 +148,8 @@ public interface LDClientInterface extends Closeable {
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
-     * Note that this will only work if you have set {@code evaluationReasons} to true in
-     * {@link LDConfig.Builder#evaluationReasons}. Otherwise, the {@code reason} property of the result
+     * Note that this will only work if you have set {@code evaluationReasons} to true with
+     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -177,8 +177,8 @@ public interface LDClientInterface extends Closeable {
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
-     * Note that this will only work if you have set {@code evaluationReasons} to true in
-     * {@link LDConfig.Builder#evaluationReasons}. Otherwise, the {@code reason} property of the result
+     * Note that this will only work if you have set {@code evaluationReasons} to true with
+     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -206,8 +206,8 @@ public interface LDClientInterface extends Closeable {
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
-     * Note that this will only work if you have set {@code evaluationReasons} to true in
-     * {@link LDConfig.Builder#evaluationReasons}. Otherwise, the {@code reason} property of the result
+     * Note that this will only work if you have set {@code evaluationReasons} to true with
+     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -234,8 +234,8 @@ public interface LDClientInterface extends Closeable {
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
-     * Note that this will only work if you have set {@code evaluationReasons} to true in
-     * {@link LDConfig.Builder#evaluationReasons}. Otherwise, the {@code reason} property of the result
+     * Note that this will only work if you have set {@code evaluationReasons} to true with
+     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate

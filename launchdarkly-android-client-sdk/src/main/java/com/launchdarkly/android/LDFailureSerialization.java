@@ -1,4 +1,4 @@
-package com.launchdarkly.android.gson;
+package com.launchdarkly.android;
 
 import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
@@ -12,8 +12,7 @@ import com.launchdarkly.android.LDInvalidResponseCodeFailure;
 
 import java.lang.reflect.Type;
 
-@Deprecated
-public class LDFailureSerialization implements JsonSerializer<LDFailure>, JsonDeserializer<LDFailure> {
+class LDFailureSerialization implements JsonSerializer<LDFailure>, JsonDeserializer<LDFailure> {
     @Override
     public LDFailure deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
         JsonObject in = json.getAsJsonObject();

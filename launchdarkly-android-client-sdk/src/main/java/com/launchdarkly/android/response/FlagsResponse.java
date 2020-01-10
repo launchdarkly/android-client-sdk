@@ -9,6 +9,8 @@ import java.util.List;
 /**
  * Used for cases where the server sends a collection of flags as a key-value object.
  */
+@SuppressWarnings("deprecation")
+@Deprecated
 public class FlagsResponse {
     @NonNull
     private final List<Flag> flags;

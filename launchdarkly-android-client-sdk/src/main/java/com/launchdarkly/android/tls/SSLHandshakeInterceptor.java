@@ -13,6 +13,7 @@ import timber.log.Timber;
 /**
  * Intercepts the SSL connection and prints TLS version and CipherSuite in the log.
  */
+@Deprecated
 public class SSLHandshakeInterceptor implements okhttp3.Interceptor {
 
     @Override

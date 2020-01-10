@@ -5,10 +5,6 @@ import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 
-import com.launchdarkly.android.tls.ModernTLSSocketFactory;
-import com.launchdarkly.android.tls.SSLHandshakeInterceptor;
-import com.launchdarkly.android.tls.TLSUtils;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.security.GeneralSecurityException;

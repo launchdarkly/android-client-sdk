@@ -1,4 +1,4 @@
-package com.launchdarkly.android.flagstore.sharedprefs;
+package com.launchdarkly.android;
 
 import android.annotation.SuppressLint;
 import android.app.Application;
@@ -7,14 +7,6 @@ import android.content.SharedPreferences;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Pair;
-
-import com.launchdarkly.android.Util;
-import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagStore;
-import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
-import com.launchdarkly.android.flagstore.FlagUpdate;
-import com.launchdarkly.android.flagstore.StoreUpdatedListener;
-import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.File;
 import java.lang.ref.WeakReference;
@@ -26,8 +18,6 @@ import java.util.Set;
 
 import timber.log.Timber;
 
-@SuppressWarnings("deprecation")
-@Deprecated
 class SharedPrefsFlagStore implements FlagStore {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";

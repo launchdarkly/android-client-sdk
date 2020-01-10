@@ -1,12 +1,7 @@
 package com.launchdarkly.android;
 
-/*
-  Created by jamesthacker on 4/2/18.
- */
-
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Looper;
 import android.support.annotation.NonNull;
 
 import java.util.Random;

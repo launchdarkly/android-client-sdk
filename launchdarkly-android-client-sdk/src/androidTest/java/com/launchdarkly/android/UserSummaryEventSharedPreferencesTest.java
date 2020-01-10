@@ -18,10 +18,6 @@ import static junit.framework.Assert.assertNotNull;
 import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 
-/**
- * Created by jamesthacker on 4/16/18.
- */
-
 @RunWith(AndroidJUnit4.class)
 public class UserSummaryEventSharedPreferencesTest {
 

@@ -10,8 +10,6 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 
 import com.google.gson.JsonElement;
-import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.gson.GsonCache;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -31,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import timber.log.Timber;
 
-import static com.launchdarkly.android.tls.TLSUtils.patchTLSIfNeeded;
+import static com.launchdarkly.android.TLSUtils.patchTLSIfNeeded;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
