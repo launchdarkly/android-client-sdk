@@ -1,9 +1,8 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.support.annotation.NonNull;
 
 import com.google.gson.JsonElement;
-import com.launchdarkly.android.EvaluationReason;
 
 public class FlagBuilder {
 

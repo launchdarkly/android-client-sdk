@@ -16,9 +16,8 @@ import com.google.gson.JsonPrimitive;
 import timber.log.Timber;
 
 /**
- * Created by jamesthacker on 4/12/18.
+ * Used internally by the SDK.
  */
-
 public class UserSummaryEventSharedPreferences implements SummaryEventSharedPreferences {
 
     private final SharedPreferences sharedPreferences;

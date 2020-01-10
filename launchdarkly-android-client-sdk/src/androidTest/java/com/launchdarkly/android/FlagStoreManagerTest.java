@@ -1,10 +1,8 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.util.Pair;
-
-import com.launchdarkly.android.FeatureFlagChangeListener;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockSupport;

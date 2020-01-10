@@ -7,9 +7,6 @@ import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.flagstore.FlagBuilder;
-import com.launchdarkly.android.flagstore.FlagStore;
-import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreFactory;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Before;

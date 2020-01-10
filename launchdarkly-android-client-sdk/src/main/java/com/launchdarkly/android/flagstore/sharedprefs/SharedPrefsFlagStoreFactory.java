@@ -6,6 +6,8 @@ import android.support.annotation.NonNull;
 import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.flagstore.FlagStoreFactory;
 
+@SuppressWarnings("deprecation")
+@Deprecated
 public class SharedPrefsFlagStoreFactory implements FlagStoreFactory {
 
     private final Application application;

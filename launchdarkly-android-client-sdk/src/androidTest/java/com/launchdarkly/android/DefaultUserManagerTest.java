@@ -4,8 +4,6 @@ import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
-import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagStore;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.easymock.Capture;

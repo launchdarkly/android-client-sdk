@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.launchdarkly.android.LDFailure;
 import com.launchdarkly.android.response.FlagsResponse;
 
+@SuppressWarnings("deprecation")
+@Deprecated
 public class GsonCache {
 
     private static final Gson gson = createGson();

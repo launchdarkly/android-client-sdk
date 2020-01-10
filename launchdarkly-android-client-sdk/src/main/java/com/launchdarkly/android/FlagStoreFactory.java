@@ -1,4 +1,4 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.support.annotation.NonNull;
 
@@ -6,9 +6,7 @@ import android.support.annotation.NonNull;
  * This interface is used to provide a mechanism for a FlagStoreManager to create FlagStores without
  * being dependent on a concrete FlagStore class.
  */
-@SuppressWarnings("deprecation")
-@Deprecated
-public interface FlagStoreFactory {
+interface FlagStoreFactory {
 
     /**
      * Create a new flag store

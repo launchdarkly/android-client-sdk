@@ -12,10 +12,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertTrue;
 
-/**
- * Created by jamesthacker on 4/2/18.
- */
-
 @RunWith(AndroidJUnit4.class)
 public class ThrottlerTest {
 

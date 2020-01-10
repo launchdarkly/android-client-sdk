@@ -1,4 +1,4 @@
-package com.launchdarkly.android.flagstore.sharedprefs;
+package com.launchdarkly.android;
 
 import android.app.Application;
 import android.content.Context;
@@ -7,14 +7,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.util.Pair;
-
-import com.launchdarkly.android.LDAllFlagsListener;
-import com.launchdarkly.android.FeatureFlagChangeListener;
-import com.launchdarkly.android.flagstore.FlagStore;
-import com.launchdarkly.android.flagstore.FlagStoreFactory;
-import com.launchdarkly.android.flagstore.FlagStoreManager;
-import com.launchdarkly.android.flagstore.FlagStoreUpdateType;
-import com.launchdarkly.android.flagstore.StoreUpdatedListener;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -31,9 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import timber.log.Timber;
 
-@SuppressWarnings("deprecation")
-@Deprecated
-public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListener {
+class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListener {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     private static final int MAX_USERS = 5;
@@ -48,7 +38,7 @@ public class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdat
     private final ConcurrentHashMap<String, Set<FeatureFlagChangeListener>> listeners;
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners;
 
-    public SharedPrefsFlagStoreManager(@NonNull Application application,
+    SharedPrefsFlagStoreManager(@NonNull Application application,
                                        @NonNull String mobileKey,
                                        @NonNull FlagStoreFactory flagStoreFactory) {
         this.mobileKey = mobileKey;

@@ -1,4 +1,4 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.util.Pair;
 
@@ -7,9 +7,7 @@ import java.util.List;
 /**
  * Listener interface for receiving FlagStore update callbacks
  */
-@SuppressWarnings("deprecation")
-@Deprecated
-public interface StoreUpdatedListener {
+interface StoreUpdatedListener {
     /**
      * Called by a FlagStore when the store is updated.
      *

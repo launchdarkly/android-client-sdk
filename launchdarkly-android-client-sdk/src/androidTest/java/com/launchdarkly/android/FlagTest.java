@@ -1,13 +1,10 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.EvaluationReason;
-import com.launchdarkly.android.TimberLoggingRule;
-import com.launchdarkly.android.gson.GsonCache;
 
 import org.junit.Before;
 import org.junit.Rule;

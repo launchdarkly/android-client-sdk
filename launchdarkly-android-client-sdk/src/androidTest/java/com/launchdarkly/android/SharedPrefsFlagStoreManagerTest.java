@@ -1,13 +1,9 @@
-package com.launchdarkly.android.flagstore.sharedprefs;
+package com.launchdarkly.android;
 
 import android.app.Application;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
-import com.launchdarkly.android.TimberLoggingRule;
-import com.launchdarkly.android.flagstore.FlagStoreFactory;
-import com.launchdarkly.android.flagstore.FlagStoreManager;
-import com.launchdarkly.android.flagstore.FlagStoreManagerTest;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Before;

@@ -1,7 +1,4 @@
-package com.launchdarkly.android.flagstore;
-
-import com.launchdarkly.android.LDAllFlagsListener;
-import com.launchdarkly.android.FeatureFlagChangeListener;
+package com.launchdarkly.android;
 
 import java.util.Collection;
 
@@ -9,9 +6,7 @@ import java.util.Collection;
  * A FlagStoreManager is responsible for managing FlagStores for active and recently active users,
  * as well as providing flagKey specific update callbacks.
  */
-@SuppressWarnings("deprecation")
-@Deprecated
-public interface FlagStoreManager {
+interface FlagStoreManager {
 
     /**
      * Loads the FlagStore for the particular userKey. If too many users have a locally cached

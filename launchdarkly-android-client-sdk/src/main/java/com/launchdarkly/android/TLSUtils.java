@@ -1,10 +1,19 @@
-package com.launchdarkly.android.tls;
+package com.launchdarkly.android;
+
+import android.app.Application;
+import android.support.annotation.NonNull;
+
+import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
+import com.google.android.gms.common.GooglePlayServicesRepairableException;
+import com.google.android.gms.security.ProviderInstaller;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.security.GeneralSecurityException;
 import java.security.KeyManagementException;
+import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -13,12 +22,74 @@ import java.util.List;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
+
+import okhttp3.CipherSuite;
+import okhttp3.Handshake;
+import okhttp3.Response;
+import okhttp3.TlsVersion;
+import timber.log.Timber;
+
+class TLSUtils {
+
+    static X509TrustManager defaultTrustManager() throws GeneralSecurityException {
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm());
+        trustManagerFactory.init((KeyStore) null);
+        TrustManager[] trustManagers = trustManagerFactory.getTrustManagers();
+        if (trustManagers.length != 1 || !(trustManagers[0] instanceof X509TrustManager)) {
+            throw new IllegalStateException("Unexpected default trust managers:"
+                    + Arrays.toString(trustManagers));
+        }
+        return (X509TrustManager) trustManagers[0];
+    }
+
+    static void patchTLSIfNeeded(Application application) {
+        try {
+            SSLContext.getInstance("TLSv1.2");
+        } catch (NoSuchAlgorithmException e) {
+            Timber.w("No TLSv1.2 implementation available, attempting patch.");
+            try {
+                ProviderInstaller.installIfNeeded(application.getApplicationContext());
+            } catch (GooglePlayServicesRepairableException e1) {
+                Timber.w("Patch failed, Google Play Services too old.");
+            } catch (GooglePlayServicesNotAvailableException e1) {
+                Timber.w("Patch failed, no Google Play Services available.");
+            }
+        }
+    }
+}
+
+/**
+ * Intercepts the SSL connection and prints TLS version and CipherSuite in the log.
+ */
+class SSLHandshakeInterceptor implements okhttp3.Interceptor {
+
+    @Override
+    public Response intercept(@NonNull Chain chain) throws IOException {
+        final Response response = chain.proceed(chain.request());
+        printTlsAndCipherSuiteInfo(response);
+        return response;
+    }
+
+    private void printTlsAndCipherSuiteInfo(Response response) {
+        if (response != null) {
+            Handshake handshake = response.handshake();
+            if (handshake != null) {
+                final CipherSuite cipherSuite = handshake.cipherSuite();
+                final TlsVersion tlsVersion = handshake.tlsVersion();
+                Timber.v("TLS: %s, CipherSuite: %s", tlsVersion, cipherSuite);
+            }
+        }
+    }
+}
 
 /**
  * An {@link SSLSocketFactory} that tries to ensure modern TLS versions are used.
  */
-@Deprecated
-public class ModernTLSSocketFactory extends SSLSocketFactory {
+class ModernTLSSocketFactory extends SSLSocketFactory {
     private static final String TLS_1_2 = "TLSv1.2";
     private static final String TLS_1_1 = "TLSv1.1";
     private static final String TLS_1 = "TLSv1";

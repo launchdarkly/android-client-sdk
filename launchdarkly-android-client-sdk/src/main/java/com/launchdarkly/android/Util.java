@@ -7,13 +7,14 @@ import android.net.NetworkInfo;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
-import com.launchdarkly.android.gson.GsonCache;
-
 import java.util.HashMap;
 import java.util.Map;
 
 import timber.log.Timber;
 
+/**
+ * Used internally by the SDK.
+ */
 public class Util {
 
     /**

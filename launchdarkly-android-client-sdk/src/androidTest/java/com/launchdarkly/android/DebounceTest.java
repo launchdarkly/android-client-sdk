@@ -9,9 +9,6 @@ import java.util.concurrent.Callable;
 
 import static org.junit.Assert.assertEquals;
 
-/**
- * Created by pwray on 2017-09-27.
- */
 @RunWith(AndroidJUnit4.class)
 public class DebounceTest {
 

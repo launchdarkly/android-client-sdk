@@ -1,4 +1,4 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.support.annotation.Nullable;
 
@@ -10,9 +10,7 @@ import java.util.List;
  * persistent store. Individual flags can be retrieved by a flagKey, or all flags retrieved. Allows
  * replacing backing store for flags at a future date, as well as mocking for unit testing.
  */
-@SuppressWarnings("deprecation")
-@Deprecated
-public interface FlagStore {
+interface FlagStore {
 
     /**
      * Delete the backing persistent store for this identifier entirely. Further operations on a

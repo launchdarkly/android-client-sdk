@@ -6,8 +6,6 @@ import android.support.annotation.NonNull;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.launchdarkly.android.tls.ModernTLSSocketFactory;
-import com.launchdarkly.android.tls.TLSUtils;
 
 import java.io.File;
 import java.io.IOException;

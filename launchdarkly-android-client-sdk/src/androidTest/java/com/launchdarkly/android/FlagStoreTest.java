@@ -1,11 +1,10 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.util.Pair;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.EvaluationReason;
 
 import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;

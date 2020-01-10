@@ -18,6 +18,7 @@ import javax.net.ssl.X509TrustManager;
 
 import timber.log.Timber;
 
+@Deprecated
 public class TLSUtils {
 
     public static X509TrustManager defaultTrustManager() throws GeneralSecurityException {

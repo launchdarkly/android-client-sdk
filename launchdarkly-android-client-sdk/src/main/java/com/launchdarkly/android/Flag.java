@@ -1,13 +1,10 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.support.annotation.NonNull;
 
 import com.google.gson.JsonElement;
-import com.launchdarkly.android.EvaluationReason;
 
-@SuppressWarnings("deprecation")
-@Deprecated
-public class Flag implements FlagUpdate, FlagInterface {
+class Flag implements FlagUpdate, FlagInterface {
 
     @NonNull
     private final String key;
