@@ -15,6 +15,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -25,6 +26,7 @@ import okhttp3.mockwebserver.RecordedRequest;
 
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertFalse;
+import static junit.framework.Assert.assertNotNull;
 import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 import static junit.framework.Assert.fail;
@@ -192,7 +194,7 @@ public class LDClientTest {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
 
@@ -219,7 +221,7 @@ public class LDClientTest {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             // Don't wait as we are not set offline
@@ -247,7 +249,7 @@ public class LDClientTest {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
@@ -272,7 +274,7 @@ public class LDClientTest {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
@@ -297,7 +299,7 @@ public class LDClientTest {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
@@ -322,7 +324,7 @@ public class LDClientTest {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
@@ -346,11 +348,51 @@ public class LDClientTest {
     }
 
     @Test
+    public void eventIncludesPayloadId() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.blockingFlush();
+            }
+
+            RecordedRequest r = mockEventsServer.takeRequest();
+            String headerVal = r.getHeader("X-LaunchDarkly-Payload-ID");
+            assertNotNull(headerVal);
+            // Throws if invalid UUID
+            assertNotNull(UUID.fromString(headerVal));
+        }
+    }
+
+    @Test
+    public void eventPayloadIdDiffersBetweenRequests() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.blockingFlush();
+                client.identify(ldUser);
+                client.blockingFlush();
+            }
+
+            String firstPayloadId = mockEventsServer.takeRequest().getHeader("X-LaunchDarkly-Payload-ID");
+            String secondPayloadId = mockEventsServer.takeRequest().getHeader("X-LaunchDarkly-Payload-ID");
+            assertFalse(firstPayloadId.equals(secondPayloadId));
+        }
+    }
+
+    @Test
     public void variationFlagTrackReasonGeneratesEventWithReason() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse().addHeader("Date", ""));
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
 

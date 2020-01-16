@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -152,6 +153,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     .post(RequestBody.create(JSON, content))
                     .addHeader("Content-Type", "application/json")
                     .addHeader("X-LaunchDarkly-Event-Schema", "3")
+                    .addHeader("X-LaunchDarkly-Payload-ID", UUID.randomUUID().toString())
                     .build();
 
             Timber.d("Posting %s event(s) to %s", events.size(), request.url());
@@ -165,12 +167,14 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                 Timber.d("Events Response Date: %s", response.header("Date"));
 
                 String dateString = response.header("Date");
-                SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
-                try {
-                    Date date = sdf.parse(dateString);
-                    currentTimeMs = date.getTime();
-                } catch (ParseException pe) {
-                    Timber.e(pe, "Failed to parse date header");
+                if (dateString != null) {
+                    SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
+                    try {
+                        Date date = sdf.parse(dateString);
+                        currentTimeMs = date.getTime();
+                    } catch (ParseException pe) {
+                        Timber.e(pe, "Failed to parse date header");
+                    }
                 }
             } catch (IOException e) {
                 Timber.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
