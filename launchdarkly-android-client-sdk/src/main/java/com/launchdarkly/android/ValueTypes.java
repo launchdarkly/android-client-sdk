@@ -86,29 +86,6 @@ abstract class ValueTypes {
         }
     };
 
-    // Used for maintaining compatible behavior in allowing evaluation of Json flags as Strings
-    // TODO(gwhelanld): remove in 3.0.0
-    public static final Converter<String> STRINGCOMPAT = new Converter<String>() {
-        @Override
-        public String valueFromJson(@NonNull JsonElement jsonValue) {
-            if (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) {
-                return jsonValue.getAsString();
-            } else if (!jsonValue.isJsonPrimitive() && !jsonValue.isJsonNull()) {
-                Timber.w("JSON flag requested as String. For backwards compatibility " +
-                        "returning a serialized representation of flag value. " +
-                        "This behavior will be removed in the next major version (3.0.0)");
-                return GsonCache.getGson().toJson(jsonValue);
-            }
-            return null;
-        }
-
-        @NonNull
-        @Override
-        public JsonElement valueToJson(@NonNull String value) {
-            return new JsonPrimitive(value);
-        }
-    };
-
     public static final Converter<JsonElement> JSON = new Converter<JsonElement>() {
         @Override
         public JsonElement valueFromJson(@NonNull JsonElement jsonValue) {

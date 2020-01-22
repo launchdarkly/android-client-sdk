@@ -338,14 +338,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public String stringVariation(String flagKey, String fallback) {
-        // TODO(gwhelanld): Change to ValueTypes.String in 3.0.0
-        return variationDetailInternal(flagKey, fallback, ValueTypes.STRINGCOMPAT, false).getValue();
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, false).getValue();
     }
 
     @Override
     public EvaluationDetail<String> stringVariationDetail(String flagKey, String fallback) {
-        // TODO(gwhelanld): Change to ValueTypes.String in 3.0.0
-        return variationDetailInternal(flagKey, fallback, ValueTypes.STRINGCOMPAT, true);
+        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, true);
     }
 
     @Override
