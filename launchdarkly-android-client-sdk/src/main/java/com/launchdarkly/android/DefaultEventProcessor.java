@@ -32,6 +32,7 @@ import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
 import static com.launchdarkly.android.Util.isClientConnected;
+import static com.launchdarkly.android.Util.isHttpErrorRecoverable;
 
 class DefaultEventProcessor implements EventProcessor, Closeable {
     private final BlockingQueue<Event> queue;
@@ -148,38 +149,62 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
 
         private void postEvents(List<Event> events) {
             String content = config.getFilteredEventGson().toJson(events);
-            Request request = config.getRequestBuilderFor(environmentName)
-                    .url(config.getEventsUri().toString())
-                    .post(RequestBody.create(JSON, content))
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("X-LaunchDarkly-Event-Schema", "3")
-                    .addHeader("X-LaunchDarkly-Payload-ID", UUID.randomUUID().toString())
-                    .build();
+            String eventPayloadId = UUID.randomUUID().toString();
+            String url = config.getEventsUri().toString();
 
-            Timber.d("Posting %s event(s) to %s", events.size(), request.url());
+            Timber.d("Posting %s event(s) to %s", events.size(), url);
 
             Timber.d("Events body: %s", content);
 
-            Response response = null;
-            try {
-                response = client.newCall(request).execute();
-                Timber.d("Events Response: %s", response.code());
-                Timber.d("Events Response Date: %s", response.header("Date"));
-
-                String dateString = response.header("Date");
-                if (dateString != null) {
-                    SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
+            for (int attempt = 0; attempt < 2; attempt++) {
+                if (attempt > 0) {
+                    Timber.w("Will retry posting events after 1 second");
                     try {
-                        Date date = sdf.parse(dateString);
-                        currentTimeMs = date.getTime();
-                    } catch (ParseException pe) {
-                        Timber.e(pe, "Failed to parse date header");
-                    }
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {}
                 }
-            } catch (IOException e) {
-                Timber.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
-            } finally {
-                if (response != null) response.close();
+
+                Request request = config.getRequestBuilderFor(environmentName)
+                        .url(url)
+                        .post(RequestBody.create(JSON, content))
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("X-LaunchDarkly-Event-Schema", "3")
+                        .addHeader("X-LaunchDarkly-Payload-ID", eventPayloadId)
+                        .build();
+
+                Response response = null;
+                try {
+                    response = client.newCall(request).execute();
+                    Timber.d("Events Response: %s", response.code());
+                    Timber.d("Events Response Date: %s", response.header("Date"));
+
+                    if (!response.isSuccessful()) {
+                        Timber.w("Unexpected response status when posting events: %d", response.code());
+                        if (isHttpErrorRecoverable(response.code())) {
+                            continue;
+                        }
+                    }
+
+                    tryUpdateDate(response);
+                    break;
+                } catch (IOException e) {
+                    Timber.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+                } finally {
+                    if (response != null) response.close();
+                }
+            }
+        }
+
+        private void tryUpdateDate(Response response) {
+            String dateString = response.header("Date");
+            if (dateString != null) {
+                SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
+                try {
+                    Date date = sdf.parse(dateString);
+                    currentTimeMs = date.getTime();
+                } catch (ParseException pe) {
+                    Timber.e(pe, "Failed to parse date header");
+                }
             }
         }
     }

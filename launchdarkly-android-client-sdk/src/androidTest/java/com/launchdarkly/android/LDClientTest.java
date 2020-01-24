@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.HttpUrl;
 import okhttp3.mockwebserver.MockResponse;
@@ -384,6 +385,25 @@ public class LDClientTest {
             String firstPayloadId = mockEventsServer.takeRequest().getHeader("X-LaunchDarkly-Payload-ID");
             String secondPayloadId = mockEventsServer.takeRequest().getHeader("X-LaunchDarkly-Payload-ID");
             assertFalse(firstPayloadId.equals(secondPayloadId));
+        }
+    }
+
+    @Test
+    public void eventPayloadIdSameOnRetry() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a failure followed by successful response
+            mockEventsServer.enqueue(new MockResponse().setResponseCode(429));
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.blockingFlush();
+            }
+
+            String initialPayloadId = mockEventsServer.takeRequest(0, TimeUnit.SECONDS).getHeader("X-LaunchDarkly-Payload-ID");
+            String retryPayloadId = mockEventsServer.takeRequest(0, TimeUnit.SECONDS).getHeader("X-LaunchDarkly-Payload-ID");
+            assertTrue(initialPayloadId.equals(retryPayloadId));
         }
     }
 
