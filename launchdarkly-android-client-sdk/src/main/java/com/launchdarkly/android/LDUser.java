@@ -348,7 +348,7 @@ public class LDUser {
          *
          * @param country the country for the user
          * @return the builder
-         * @deprecated As of version 2.9.1, in 3.0.0 the SDK will no longer include the
+         * @deprecated As of version 2.10.0, in 3.0.0 the SDK will no longer include the
          * LDCountryCode class. Applications should use {@link #country(String)} instead.
          * */
         @Deprecated
@@ -363,7 +363,7 @@ public class LDUser {
          *
          * @param country the country for the user
          * @return the builder
-         * @deprecated As of version 2.9.1, in 3.0.0 the SDK will no longer include the
+         * @deprecated As of version 2.10.0, in 3.0.0 the SDK will no longer include the
          * LDCountryCode class. Applications should use {@link #privateCountry(String)} instead.
          */
         @Deprecated
