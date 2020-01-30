@@ -7,14 +7,6 @@ import android.support.annotation.VisibleForTesting;
 import android.util.Base64;
 
 import com.google.gson.JsonObject;
-import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagStore;
-import com.launchdarkly.android.flagstore.FlagStoreManager;
-import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreFactory;
-import com.launchdarkly.android.flagstore.sharedprefs.SharedPrefsFlagStoreManager;
-import com.launchdarkly.android.gson.GsonCache;
-import com.launchdarkly.android.response.DeleteFlagResponse;
-import com.launchdarkly.android.response.FlagsResponse;
 
 import java.util.Collection;
 import java.util.List;

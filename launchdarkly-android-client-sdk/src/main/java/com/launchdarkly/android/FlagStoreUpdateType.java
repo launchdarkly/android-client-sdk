@@ -1,10 +1,9 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 /**
  * Types of updates that a FlagStore can report
  */
-@Deprecated
-public enum FlagStoreUpdateType {
+enum FlagStoreUpdateType {
     /**
      * The flag was deleted
      */

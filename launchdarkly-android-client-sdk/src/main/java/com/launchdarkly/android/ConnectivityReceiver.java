@@ -6,6 +6,9 @@ import android.content.Intent;
 
 import static com.launchdarkly.android.Util.isInternetConnected;
 
+/**
+ * Used internally by the SDK.
+ */
 public class ConnectivityReceiver extends BroadcastReceiver {
 
     static final String CONNECTIVITY_CHANGE = "android.net.conn.CONNECTIVITY_CHANGE";

@@ -5,7 +5,6 @@ import android.support.annotation.Nullable;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.gson.GsonCache;
 
 import timber.log.Timber;
 

@@ -1,16 +1,9 @@
-package com.launchdarkly.android.flagstore.sharedprefs;
+package com.launchdarkly.android;
 
 import android.app.Application;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
-import com.launchdarkly.android.TimberLoggingRule;
-import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagBuilder;
-import com.launchdarkly.android.flagstore.FlagStore;
-import com.launchdarkly.android.flagstore.FlagStoreTest;
-import com.launchdarkly.android.flagstore.FlagUpdate;
-import com.launchdarkly.android.response.DeleteFlagResponse;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Assert;

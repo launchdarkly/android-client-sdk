@@ -20,9 +20,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-/**
- * Created by Farhan on 2018-01-02.
- */
 @RunWith(AndroidJUnit4.class)
 public class LDUserTest {
 

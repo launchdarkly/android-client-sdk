@@ -1,4 +1,4 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 import android.support.annotation.NonNull;
 
@@ -8,8 +8,7 @@ import com.launchdarkly.android.EvaluationReason;
 /**
  * Public interface for a Flag, to be used if exposing Flag model to public API methods.
  */
-@Deprecated
-public interface FlagInterface {
+interface FlagInterface {
 
     /**
      * Getter for flag's key

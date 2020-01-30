@@ -1,12 +1,10 @@
-package com.launchdarkly.android.flagstore;
+package com.launchdarkly.android;
 
 /**
  * Interfaces for classes that are tied to a flagKey and can take an existing flag and determine
  * whether it should be updated/deleted/left the same based on its update payload.
  */
-@SuppressWarnings("deprecation")
-@Deprecated
-public interface FlagUpdate {
+interface FlagUpdate {
 
     /**
      * Given an existing Flag retrieved by the flagKey returned by flagToUpdate(), updateFlag should

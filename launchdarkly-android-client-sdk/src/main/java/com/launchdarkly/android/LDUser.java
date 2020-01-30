@@ -211,6 +211,7 @@ public class LDUser {
         private String email;
         private String name;
         private String avatar;
+        @SuppressWarnings("deprecation")
         private LDCountryCode country;
 
         private final Map<String, JsonElement> custom;
@@ -232,6 +233,7 @@ public class LDUser {
             privateAttributeNames = new HashSet<>();
         }
 
+        @SuppressWarnings("deprecation")
         public Builder(LDUser user) {
             this.key = user.getKey();
             this.anonymous = user.getAnonymous();
@@ -282,10 +284,12 @@ public class LDUser {
         }
 
         /**
-         * Set the country for a user. The country should be a valid <a
+         * Set the country for a user. In 2.x.x the SDK will attempt to look the country up as a <a
          * href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a> alpha-2 or alpha-3 code. If
          * it is not a valid ISO-3166-1 code, an attempt will be made to look up the country by its
-         * name. If that fails, a warning will be logged, and the country will not be set.
+         * name. If that fails, a warning will be logged, and the country will not be set. In the
+         * next major release (3.0.0) the SDK will not attempt attempt this lookup, and instead
+         * treat the country field as a normal String.
          *
          * @param s the country for the user
          * @return the builder
@@ -296,11 +300,12 @@ public class LDUser {
         }
 
         /**
-         * Set the country for a user. The country should be a valid <a
+         * Set the country for a user. In 2.x.x the SDK will attempt to look the country up as a <a
          * href="http://en.wikipedia.org/wiki/ISO_3166-1">ISO 3166-1</a> alpha-2 or alpha-3 code. If
          * it is not a valid ISO-3166-1 code, an attempt will be made to look up the country by its
-         * name. If that fails, a warning will be logged, and the country will not be set. Private
-         * attributes are not recorded in events.
+         * name. If that fails, a warning will be logged, and the country will not be set. In the
+         * next major release (3.0.0) the SDK will not attempt attempt this lookup, and instead
+         * treat the country field as a normal String. Private attributes are not recorded in events.
          *
          * @param s the country for the user
          * @return the builder
@@ -310,6 +315,8 @@ public class LDUser {
             return country(s);
         }
 
+
+        @SuppressWarnings("deprecation")
         private LDCountryCode countryCode(String s) {
             LDCountryCode countryCode = LDCountryCode.getByCode(s, false);
 
@@ -341,7 +348,11 @@ public class LDUser {
          *
          * @param country the country for the user
          * @return the builder
-         */
+         * @deprecated As of version 2.10.0, in 3.0.0 the SDK will no longer include the
+         * LDCountryCode class. Applications should use {@link #country(String)} instead.
+         * */
+        @Deprecated
+        @SuppressWarnings("deprecation")
         public Builder country(LDCountryCode country) {
             this.country = country;
             return this;
@@ -352,7 +363,11 @@ public class LDUser {
          *
          * @param country the country for the user
          * @return the builder
+         * @deprecated As of version 2.10.0, in 3.0.0 the SDK will no longer include the
+         * LDCountryCode class. Applications should use {@link #privateCountry(String)} instead.
          */
+        @Deprecated
+        @SuppressWarnings("deprecation")
         public Builder privateCountry(LDCountryCode country) {
             privateAttributeNames.add(COUNTRY);
             return country(country);

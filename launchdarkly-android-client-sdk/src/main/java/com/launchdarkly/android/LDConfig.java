@@ -198,6 +198,16 @@ public class LDConfig {
         return evaluationReasons;
     }
 
+    /**
+     * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
+     * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
+     * <pre>
+     * LDConfig config = new LDConfig.Builder()
+     *          .setMobileKey("mobile-key")
+     *          .setEvaluationReasons(true)
+     *          .build();
+     * </pre>
+     */
     public static class Builder {
         private String mobileKey;
         private Map<String, String> secondaryMobileKeys;

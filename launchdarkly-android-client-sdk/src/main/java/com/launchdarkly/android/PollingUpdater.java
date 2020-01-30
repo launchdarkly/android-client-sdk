@@ -9,6 +9,9 @@ import android.os.SystemClock;
 
 import timber.log.Timber;
 
+/**
+ * Used internally by the SDK.
+ */
 public class PollingUpdater extends BroadcastReceiver {
 
     private static int backgroundPollingIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;

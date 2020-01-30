@@ -5,7 +5,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Created by jkodumal on 9/18/17.
+ * Used internally by the SDK.
  */
 public class Debounce {
     private volatile Callable<Void> pending;

@@ -9,6 +9,72 @@ import java.util.concurrent.TimeoutException;
 
 import timber.log.Timber;
 
+class LDSuccessFuture<T> implements Future<T> {
+    private final T result;
+
+    LDSuccessFuture(T result) {
+        this.result = result;
+    }
+
+    @Override
+    public boolean cancel(boolean mayInterruptIfRunning) {
+        return false;
+    }
+
+    @Override
+    public boolean isCancelled() {
+        return false;
+    }
+
+    @Override
+    public boolean isDone() {
+        return true;
+    }
+
+    @Override
+    public T get() {
+        return result;
+    }
+
+    @Override
+    public T get(long timeout, @NonNull TimeUnit unit) {
+        return result;
+    }
+}
+
+class LDFailedFuture<T> implements Future<T> {
+    private final Throwable error;
+
+    LDFailedFuture(Throwable error) {
+        this.error = error;
+    }
+
+    @Override
+    public boolean cancel(boolean mayInterruptIfRunning) {
+        return false;
+    }
+
+    @Override
+    public boolean isCancelled() {
+        return false;
+    }
+
+    @Override
+    public boolean isDone() {
+        return true;
+    }
+
+    @Override
+    public T get() throws ExecutionException {
+        throw new ExecutionException(error);
+    }
+
+    @Override
+    public T get(long timeout, @NonNull TimeUnit unit) throws ExecutionException {
+        throw new ExecutionException(error);
+    }
+}
+
 class LDAwaitFuture<T> implements Future<T> {
     private volatile T result = null;
     private volatile Throwable error = null;

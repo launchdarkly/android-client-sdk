@@ -3,10 +3,6 @@ package com.launchdarkly.android;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.Gson;
-import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagBuilder;
-import com.launchdarkly.android.gson.GsonCache;
-import com.launchdarkly.android.response.DeleteFlagResponse;
 
 import org.junit.Rule;
 import org.junit.Test;

@@ -96,6 +96,8 @@ import java.util.regex.Pattern;
  *
  * @author Takahiko Kawasaki
  */
+@SuppressWarnings({"deprecation", "DeprecatedIsStillUsed"})
+@Deprecated
 public enum LDCountryCode {
     /**
      * <a href="http://en.wikipedia.org/wiki/Ascension_Island">Ascension Island</a>

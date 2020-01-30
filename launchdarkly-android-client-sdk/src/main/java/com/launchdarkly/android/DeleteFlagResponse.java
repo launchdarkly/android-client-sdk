@@ -1,16 +1,11 @@
-package com.launchdarkly.android.response;
+package com.launchdarkly.android;
 
-import com.launchdarkly.android.flagstore.Flag;
-import com.launchdarkly.android.flagstore.FlagUpdate;
-
-@SuppressWarnings("deprecation")
-@Deprecated
-public class DeleteFlagResponse implements FlagUpdate {
+class DeleteFlagResponse implements FlagUpdate {
 
     private final String key;
     private final Integer version;
 
-    public DeleteFlagResponse(String key, Integer version) {
+    DeleteFlagResponse(String key, Integer version) {
         this.key = key;
         this.version = version;
     }
