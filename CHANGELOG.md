@@ -3,6 +3,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.10.0] - 2020-01-30
+### Added
+- The SDK now specifies a uniquely identifiable request header when sending events to LaunchDarkly to ensure that events are only processed once, even if the SDK sends them two times due to a failed initial attempt.
+### Deprecated
+- All classes in sub-packages, which were only intended for use by the SDK. These classes will be removed in the next major release.
+- `LDCountryCode`, as well as `LDUser` setters that took `LDCountryCode` as an argument. The `String` overloads should be used instead, as these will be removed in the next major release. Until that release the additional validation on the country fields will remain, see the Javadoc for more information.
+
 ## [2.9.1] - 2020-01-03
 ### Fixed:
 - Removed possibility of fatal `SecurityException` on Samsung devices that would be triggered when the SDK attempted to register an alarm to trigger a future poll when the application process already had 500 alarms registered. This limit is only present on Samsung's versions of Android Lollipop and later. The SDK will now catch this error if it occurs to prevent killing the host application.
