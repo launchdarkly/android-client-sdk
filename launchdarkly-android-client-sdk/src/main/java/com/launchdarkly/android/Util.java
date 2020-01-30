@@ -81,4 +81,23 @@ public class Util {
         void onSuccess(T result);
         void onError(Throwable e);
     }
+
+    /**
+     * Tests whether an HTTP error status represents a condition that might resolve on its own if we retry.
+     * @param statusCode the HTTP status
+     * @return true if retrying makes sense; false if it should be considered a permanent failure
+     */
+    static boolean isHttpErrorRecoverable(int statusCode) {
+        if (statusCode >= 400 && statusCode < 500) {
+            switch (statusCode) {
+                case 400: // bad request
+                case 408: // request timeout
+                case 429: // too many requests
+                    return true;
+                default:
+                    return false; // all other 4xx errors are unrecoverable
+            }
+        }
+        return true;
+    }
 }
