@@ -85,7 +85,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                 }
             });
 
-            scheduler.scheduleAtFixedRate(consumer, 0, config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
+            scheduler.scheduleAtFixedRate(consumer, config.getEventsFlushIntervalMillis(), config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
         }
     }
 
