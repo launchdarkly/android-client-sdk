@@ -68,9 +68,9 @@ public class EvaluationDetail<T> {
         if (other instanceof EvaluationDetail) {
             @SuppressWarnings("unchecked")
             EvaluationDetail<T> o = (EvaluationDetail<T>) other;
-            return Util.objectsEqual(reason, o.reason) &&
-                    Util.objectsEqual(variationIndex, o.variationIndex) &&
-                    Util.objectsEqual(value, o.value);
+            return LDUtil.objectsEqual(reason, o.reason) &&
+                    LDUtil.objectsEqual(variationIndex, o.variationIndex) &&
+                    LDUtil.objectsEqual(value, o.value);
         }
         return false;
     }

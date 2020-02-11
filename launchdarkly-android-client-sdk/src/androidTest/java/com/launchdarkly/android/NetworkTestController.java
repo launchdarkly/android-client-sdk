@@ -21,7 +21,7 @@ public class NetworkTestController {
     public static void enableNetwork() throws InterruptedException {
         setNetwork(true);
         // Wait for update to happen
-        while (!Util.isInternetConnected(context)) {
+        while (!LDUtil.isInternetConnected(context)) {
             Thread.sleep(10);
         }
     }
@@ -29,7 +29,7 @@ public class NetworkTestController {
     public static void disableNetwork() throws InterruptedException {
         setNetwork(false);
         // Wait for update to happen
-        while (Util.isInternetConnected(context)) {
+        while (LDUtil.isInternetConnected(context)) {
             Thread.sleep(10);
         }
     }

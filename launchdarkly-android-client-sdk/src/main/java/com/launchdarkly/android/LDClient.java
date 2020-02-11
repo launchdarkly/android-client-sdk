@@ -115,7 +115,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
-        Util.ResultCallback<Void> completeWhenCounterZero = new Util.ResultCallback<Void>() {
+        LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (initCounter.decrementAndGet() == 0) {
@@ -208,10 +208,10 @@ public class LDClient implements LDClientInterface, Closeable {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.application = application;
-        FeatureFlagFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
+        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
         this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
 
-        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
+        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventStore(), environmentName);
         connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -252,7 +252,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private synchronized void identifyInternal(@NonNull LDUser user,
-                                               Util.ResultCallback<Void> onCompleteListener) {
+                                               LDUtil.ResultCallback<Void> onCompleteListener) {
         userManager.setCurrentUser(user);
         connectivityManager.reloadUser(onCompleteListener);
         sendEvent(new IdentifyEvent(user));
@@ -261,7 +261,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static synchronized Future<Void> identifyInstances(@NonNull LDUser user) {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
         final AtomicInteger identifyCounter = new AtomicInteger(instances.size());
-        Util.ResultCallback<Void> completeWhenCounterZero = new Util.ResultCallback<Void>() {
+        LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (identifyCounter.decrementAndGet() == 0) {
@@ -625,11 +625,11 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     private void updateSummaryEvents(String flagKey, Flag flag, JsonElement result, JsonElement fallback) {
         if (flag == null) {
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, null);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, -1, null);
         } else {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, version, variation);
         }
     }
 
@@ -654,7 +654,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
-        return userManager.getSummaryEventSharedPreferences();
+    SummaryEventStore getSummaryEventStore() {
+        return userManager.getSummaryEventStore();
     }
 }

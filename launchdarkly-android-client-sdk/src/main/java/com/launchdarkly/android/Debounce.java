@@ -7,6 +7,8 @@ import java.util.concurrent.Executors;
 /**
  * Used internally by the SDK.
  */
+@SuppressWarnings("DeprecatedIsStillUsed")
+@Deprecated
 public class Debounce {
     private volatile Callable<Void> pending;
     private volatile Callable<Void> inFlight = null;

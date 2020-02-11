@@ -46,7 +46,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     @SuppressWarnings("unused")
     @Mock
-    private FeatureFlagFetcher fetcher;
+    private FeatureFetcher fetcher;
 
     private DefaultUserManager userManager;
 
@@ -566,7 +566,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     private void setUserAwait(String userKey, final JsonObject flags) throws ExecutionException {
         LDUser user = new LDUser.Builder(userKey).build();
-        final Capture<Util.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
+        final Capture<LDUtil.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
         fetcher.fetch(eq(user), capture(callbackCapture));
         expectLastCall().andAnswer(new IAnswer<Void>() {
             @Override
@@ -587,7 +587,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     private void setUserClear(String userKey, final JsonObject flags) throws ExecutionException {
         LDUser user = new LDUser.Builder(userKey).build();
-        final Capture<Util.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
+        final Capture<LDUtil.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
         fetcher.fetch(eq(user), capture(callbackCapture));
         expectLastCall().andAnswer(new IAnswer<Void>() {
             @Override
@@ -610,7 +610,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
     private void setUserAndFailToFetchFlags(String userKey) {
         LDUser user = new LDUser.Builder(userKey).build();
         final LaunchDarklyException expectedException = new LaunchDarklyException("Could not fetch feature flags");
-        final Capture<Util.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
+        final Capture<LDUtil.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
         fetcher.fetch(eq(user), capture(callbackCapture));
         expectLastCall().andAnswer(new IAnswer<Void>() {
             @Override
