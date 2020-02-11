@@ -34,7 +34,6 @@ class StreamUpdateProcessor {
     private final LDConfig config;
     private final UserManager userManager;
     private volatile boolean running = false;
-    @SuppressWarnings("deprecation")
     private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
@@ -46,7 +45,6 @@ class StreamUpdateProcessor {
         this.userManager = userManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
-        //noinspection deprecation
         queue = new Debounce();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }

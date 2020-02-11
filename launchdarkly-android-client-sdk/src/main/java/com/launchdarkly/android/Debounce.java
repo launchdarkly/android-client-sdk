@@ -4,17 +4,12 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Used internally by the SDK.
- */
-@SuppressWarnings("DeprecatedIsStillUsed")
-@Deprecated
-public class Debounce {
+class Debounce {
     private volatile Callable<Void> pending;
     private volatile Callable<Void> inFlight = null;
     private final ExecutorService service = Executors.newSingleThreadExecutor();
 
-    public synchronized void call(Callable<Void> task) {
+    synchronized void call(Callable<Void> task) {
         pending = task;
 
         schedulePending();

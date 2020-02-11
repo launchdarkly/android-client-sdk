@@ -11,7 +11,7 @@ class FlagsResponse {
     @NonNull
     private final List<Flag> flags;
 
-    public FlagsResponse(@NonNull List<Flag> flags) {
+    FlagsResponse(@NonNull List<Flag> flags) {
         this.flags = flags;
     }
 

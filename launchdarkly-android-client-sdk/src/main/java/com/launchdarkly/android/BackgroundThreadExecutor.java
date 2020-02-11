@@ -9,9 +9,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Farhan
- * 2018-01-15
- * <p>
  * Executes all threads with priority android.os.Process.THREAD_PRIORITY_BACKGROUND.
  */
 class BackgroundThreadExecutor {
