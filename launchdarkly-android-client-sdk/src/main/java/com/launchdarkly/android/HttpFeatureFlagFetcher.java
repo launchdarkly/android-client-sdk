@@ -25,9 +25,9 @@ import okhttp3.ResponseBody;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.GSON;
-import static com.launchdarkly.android.Util.isClientConnected;
+import static com.launchdarkly.android.LDUtil.isClientConnected;
 
-class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
+class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
@@ -65,7 +65,7 @@ class HttpFeatureFlagFetcher implements FeatureFlagFetcher {
     }
 
     @Override
-    public synchronized void fetch(LDUser user, final Util.ResultCallback<JsonObject> callback) {
+    public synchronized void fetch(LDUser user, final LDUtil.ResultCallback<JsonObject> callback) {
         if (user != null && isClientConnected(context, environmentName)) {
 
             final Request request = config.isUseReport()

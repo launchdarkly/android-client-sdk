@@ -31,8 +31,8 @@ import okhttp3.Response;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
-import static com.launchdarkly.android.Util.isClientConnected;
-import static com.launchdarkly.android.Util.isHttpErrorRecoverable;
+import static com.launchdarkly.android.LDUtil.isClientConnected;
+import static com.launchdarkly.android.LDUtil.isHttpErrorRecoverable;
 
 class DefaultEventProcessor implements EventProcessor, Closeable {
     private final BlockingQueue<Event> queue;
@@ -42,16 +42,16 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     private final LDConfig config;
     private final String environmentName;
     private ScheduledExecutorService scheduler;
-    private final SummaryEventSharedPreferences summaryEventSharedPreferences;
+    private final SummaryEventStore summaryEventStore;
     private long currentTimeMs = System.currentTimeMillis();
 
-    DefaultEventProcessor(Context context, LDConfig config, SummaryEventSharedPreferences summaryEventSharedPreferences, String environmentName) {
+    DefaultEventProcessor(Context context, LDConfig config, SummaryEventStore summaryEventStore, String environmentName) {
         this.context = context;
         this.config = config;
         this.environmentName = environmentName;
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
-        this.summaryEventSharedPreferences = summaryEventSharedPreferences;
+        this.summaryEventStore = summaryEventStore;
 
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
@@ -135,7 +135,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
             if (isClientConnected(context, environmentName)) {
                 List<Event> events = new ArrayList<>(queue.size() + 1);
                 queue.drainTo(events);
-                SummaryEvent summaryEvent = summaryEventSharedPreferences.getSummaryEventAndClear();
+                SummaryEvent summaryEvent = summaryEventStore.getSummaryEventAndClear();
 
                 if (summaryEvent != null) {
                     events.add(summaryEvent);

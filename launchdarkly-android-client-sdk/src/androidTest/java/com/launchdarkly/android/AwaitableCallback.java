@@ -5,7 +5,7 @@ import android.os.ConditionVariable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
-public class AwaitableCallback<T> implements Util.ResultCallback<T> {
+public class AwaitableCallback<T> implements LDUtil.ResultCallback<T> {
     private volatile Throwable errResult = null;
     private volatile T result = null;
     private ConditionVariable state = new ConditionVariable();

@@ -374,6 +374,7 @@ public class LDClientTest {
             mockEventsServer.start();
             // Enqueue a successful empty response
             mockEventsServer.enqueue(new MockResponse());
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {

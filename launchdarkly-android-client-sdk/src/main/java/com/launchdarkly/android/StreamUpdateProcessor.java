@@ -34,17 +34,19 @@ class StreamUpdateProcessor {
     private final LDConfig config;
     private final UserManager userManager;
     private volatile boolean running = false;
+    @SuppressWarnings("deprecation")
     private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
     private final String environmentName;
-    private final Util.ResultCallback<Void> notifier;
+    private final LDUtil.ResultCallback<Void> notifier;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, Util.ResultCallback<Void> notifier) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, LDUtil.ResultCallback<Void> notifier) {
         this.config = config;
         this.userManager = userManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
+        //noinspection deprecation
         queue = new Debounce();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
@@ -146,7 +148,7 @@ class StreamUpdateProcessor {
     }
 
     private void handle(final String name, final String eventData,
-                        @NonNull final Util.ResultCallback<Void> onCompleteListener) {
+                        @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
         switch (name.toLowerCase()) {
             case PUT: userManager.putCurrentUserFlags(eventData, onCompleteListener); break;
             case PATCH: userManager.patchCurrentUserFlags(eventData, onCompleteListener); break;
@@ -169,7 +171,7 @@ class StreamUpdateProcessor {
         }
     }
 
-    synchronized void stop(final Util.ResultCallback<Void> onCompleteListener) {
+    synchronized void stop(final LDUtil.ResultCallback<Void> onCompleteListener) {
         Timber.d("Stopping.");
         // We do this in a separate thread because closing the stream involves a network
         // operation and we don't want to do a network operation on the main thread.
