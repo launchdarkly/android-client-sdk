@@ -2,6 +2,9 @@ package com.launchdarkly.android;
 
 public interface ConnectionInformation {
 
+    /**
+     * Enumerated type defining the possible values of {@link ConnectionInformation#getConnectionMode()}.
+     */
     enum ConnectionMode {
         STREAMING(true, true),
         POLLING(true, true),
