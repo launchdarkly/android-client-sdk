@@ -39,8 +39,8 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners;
 
     SharedPrefsFlagStoreManager(@NonNull Application application,
-                                       @NonNull String mobileKey,
-                                       @NonNull FlagStoreFactory flagStoreFactory) {
+                                @NonNull String mobileKey,
+                                @NonNull FlagStoreFactory flagStoreFactory) {
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
         this.usersSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);

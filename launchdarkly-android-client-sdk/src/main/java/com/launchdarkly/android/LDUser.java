@@ -24,7 +24,7 @@ import java.util.Set;
 import timber.log.Timber;
 
 /**
- * A {@code LDUser} object contains specific attributes of a user browsing your site. The only
+ * A {@code LDUser} object contains specific attributes for a user of your application. The only
  * mandatory property property is the {@code key}, which must uniquely identify each user. For
  * authenticated users, this may be a username or e-mail address. For anonymous users, this could be
  * an IP address or session ID.
