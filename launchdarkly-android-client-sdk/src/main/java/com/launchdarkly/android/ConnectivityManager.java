@@ -80,6 +80,7 @@ class ConnectivityManager {
                 synchronized (ConnectivityManager.this) {
                     if (isInternetConnected(application) && !setOffline &&
                             connectionInformation.getConnectionMode() != backgroundMode) {
+                        throttler.cancel();
                         attemptTransition(backgroundMode);
                     }
                 }
@@ -304,6 +305,7 @@ class ConnectivityManager {
         stopStreaming();
         stopPolling();
         setOffline = true;
+        callInitCallback();
     }
 
     synchronized void setOnline() {
@@ -328,6 +330,7 @@ class ConnectivityManager {
 
     synchronized void reloadUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
         throttler.cancel();
+        callInitCallback();
         removeForegroundListener();
         removeNetworkListener();
         stopPolling();
