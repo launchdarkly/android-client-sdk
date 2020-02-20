@@ -275,7 +275,7 @@ public class MainActivity extends AppCompatActivity {
                         result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
                             @Override
                             public String get() {
-                                return ldClient.boolVariation(flagKey, false).toString();
+                                return String.valueOf(ldClient.boolVariation(flagKey, false));
                             }
                         });
                         logResult = result == null ? "no result" : result;
@@ -286,7 +286,7 @@ public class MainActivity extends AppCompatActivity {
                         result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
                             @Override
                             public String get() {
-                                return ldClient.intVariation(flagKey, 0).toString();
+                                return String.valueOf(ldClient.intVariation(flagKey, 0));
                             }
                         });
                         logResult = result == null ? "no result" : result;
@@ -297,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
                         result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
                             @Override
                             public String get() {
-                                return ldClient.floatVariation(flagKey, 0F).toString();
+                                return String.valueOf(ldClient.floatVariation(flagKey, 0F));
                             }
                         });
                         logResult = result == null ? "no result" : result;

@@ -114,7 +114,7 @@ public interface LDClientInterface extends Closeable {
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
-    Boolean boolVariation(String flagKey, Boolean fallback);
+    boolean boolVariation(String flagKey, boolean fallback);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -124,12 +124,12 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #boolVariation(String, Boolean)})
+     * @param fallback fallback value in case of errors evaluating the flag (see {@link #boolVariation(String, boolean)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      * @since 2.7.0
      */
-    EvaluationDetail<Boolean> boolVariationDetail(String flagKey, Boolean fallback);
+    EvaluationDetail<Boolean> boolVariationDetail(String flagKey, boolean fallback);
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
@@ -143,7 +143,7 @@ public interface LDClientInterface extends Closeable {
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
-    Integer intVariation(String flagKey, Integer fallback);
+    int intVariation(String flagKey, int fallback);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -153,12 +153,12 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #intVariation(String, Integer)})
+     * @param fallback fallback value in case of errors evaluating the flag (see {@link #intVariation(String, int)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      * @since 2.7.0
      */
-    EvaluationDetail<Integer> intVariationDetail(String flagKey, Integer fallback);
+    EvaluationDetail<Integer> intVariationDetail(String flagKey, int fallback);
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
@@ -172,7 +172,7 @@ public interface LDClientInterface extends Closeable {
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
-    Float floatVariation(String flagKey, Float fallback);
+    float floatVariation(String flagKey, float fallback);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -182,12 +182,12 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #floatVariation(String, Float)})
+     * @param fallback fallback value in case of errors evaluating the flag (see {@link #floatVariation(String, float)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      * @since 2.7.0
      */
-    EvaluationDetail<Float> floatVariationDetail(String flagKey, Float fallback);
+    EvaluationDetail<Float> floatVariationDetail(String flagKey, float fallback);
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:

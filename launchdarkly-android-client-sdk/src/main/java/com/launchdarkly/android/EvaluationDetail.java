@@ -3,7 +3,7 @@ package com.launchdarkly.android;
 import java.util.Arrays;
 
 /**
- * An object returned by the "variation detail" methods such as {@link LDClientInterface#boolVariationDetail(String, Boolean)},
+ * An object returned by the "variation detail" methods such as {@link LDClientInterface#boolVariationDetail(String, boolean)},
  * combining the result of a flag evaluation with an explanation of how it was calculated.
  *
  * @since 2.7.0

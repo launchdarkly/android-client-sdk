@@ -307,32 +307,32 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public Boolean boolVariation(String flagKey, Boolean fallback) {
+    public boolean boolVariation(String flagKey, boolean fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, false).getValue();
     }
 
     @Override
-    public EvaluationDetail<Boolean> boolVariationDetail(String flagKey, Boolean fallback) {
+    public EvaluationDetail<Boolean> boolVariationDetail(String flagKey, boolean fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, true);
     }
 
     @Override
-    public Integer intVariation(String flagKey, Integer fallback) {
+    public int intVariation(String flagKey, int fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.INT, false).getValue();
     }
 
     @Override
-    public EvaluationDetail<Integer> intVariationDetail(String flagKey, Integer fallback) {
+    public EvaluationDetail<Integer> intVariationDetail(String flagKey, int fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.INT, true);
     }
 
     @Override
-    public Float floatVariation(String flagKey, Float fallback) {
+    public float floatVariation(String flagKey, float fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, false).getValue();
     }
 
     @Override
-    public EvaluationDetail<Float> floatVariationDetail(String flagKey, Float fallback) {
+    public EvaluationDetail<Float> floatVariationDetail(String flagKey, float fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, true);
     }
 

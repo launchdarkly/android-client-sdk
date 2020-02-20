@@ -5,7 +5,7 @@ import com.google.gson.annotations.JsonAdapter;
 
 /**
  * Describes the reason that a flag evaluation produced a particular value. This is returned by
- * methods such as {@link LDClientInterface#boolVariationDetail(String, Boolean)}.
+ * methods such as {@link LDClientInterface#boolVariationDetail(String, boolean)}.
  * <p>
  * Note that this is an enum-like class hierarchy rather than an enum, because some of the
  * possible reasons have their own properties.

@@ -482,7 +482,7 @@ public class LDConfig {
         /**
          * If enabled, LaunchDarkly will provide additional information about how flag values were
          * calculated. The additional information will then be available through the client's
-         * "detail" methods ({@link LDClientInterface#boolVariationDetail(String, Boolean)}, etc.).
+         * "detail" methods ({@link LDClientInterface#boolVariationDetail(String, boolean)}, etc.).
          *
          * Since this increases the size of network requests, the default is false (detail
          * information will not be sent).
