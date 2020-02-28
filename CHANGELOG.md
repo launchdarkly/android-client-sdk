@@ -2,6 +2,14 @@
 
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
+## [2.11.0] - 2020-02-28
+### Added
+- The SDK now periodically sends diagnostic data to LaunchDarkly, describing the version and configuration of the SDK, the Android API SDK version number, and performance statistics. No credentials, Android device IDs, or other identifiable values are included. This behavior can be disabled with `LDConfig.Builder.setDiagnosticOptOut(boolean)` or configured with `LDConfig.Builder.setDiagnosticRecordingInterval(int)`.
+- New `LDConfig.Builder` field setters `setWrapperName(String)` and `setWrapperVersion(String)`. These allow a library wrapping the SDK (for example, the React Native SDK) to identify itself for usage data.
+### Fixed
+- Fixed an issue where in some cases the future associated with an `init` or `identify` call would never complete if the network status or foreground state changed before the future had completed. Also improved test coverage of this behavior.
+### Deprecated
+- `UserSummaryEventSharedPreferences`, `SummaryEventSharedPreferences`, `FeatureFlagFetcher`, `Util`, and `Debounce`. These classes were only intended for internal SDK use, and will be removed in the next major release to reduce the number of exposed classes.
 
 ## [2.10.0] - 2020-01-30
 ### Added
