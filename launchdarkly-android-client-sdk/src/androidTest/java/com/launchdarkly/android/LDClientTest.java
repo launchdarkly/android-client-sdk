@@ -455,7 +455,7 @@ public class LDClientTest {
     }
 
     private LDConfig.Builder baseConfigBuilder(MockWebServer server) {
-        HttpUrl baseUrl = server.url("/mobile");
+        HttpUrl baseUrl = server.url("/");
         return new LDConfig.Builder()
                 .setMobileKey(mobileKey)
                 .setDiagnosticOptOut(true)

@@ -104,7 +104,7 @@ class DiagnosticEventProcessor {
     private void sendDiagnosticEventSync(DiagnosticEvent diagnosticEvent) {
         String content = GsonCache.getGson().toJson(diagnosticEvent);
         Request.Builder requestBuilder = config.getRequestBuilderFor(environment)
-                .url(config.getEventsUri().toString() + "/events/diagnostic")
+                .url(config.getEventsUri().buildUpon().appendEncodedPath("mobile/events/diagnostic").build().toString())
                 .addHeader("Content-Type", "application/json");
         Request request = requestBuilder.post(RequestBody.create(JSON, content)).build();
         Timber.d("Posting diagnostic event to %s with body %s", request.url(), content);

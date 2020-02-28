@@ -5,7 +5,6 @@ import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.launchdarkly.android.gson.GsonCache;
 
 import junit.framework.Assert;
 

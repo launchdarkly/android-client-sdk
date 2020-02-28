@@ -138,7 +138,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         private void postEvents(List<Event> events) {
             String content = config.getFilteredEventGson().toJson(events);
             String eventPayloadId = UUID.randomUUID().toString();
-            String url = config.getEventsUri().toString();
+            String url = config.getEventsUri().buildUpon().appendPath("mobile").build().toString();
 
             Timber.d("Posting %s event(s) to %s", events.size(), url);
 

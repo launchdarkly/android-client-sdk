@@ -4,7 +4,6 @@ import android.support.test.runner.AndroidJUnit4;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.launchdarkly.android.gson.GsonCache;
 
 import org.junit.Rule;
 import org.junit.Test;

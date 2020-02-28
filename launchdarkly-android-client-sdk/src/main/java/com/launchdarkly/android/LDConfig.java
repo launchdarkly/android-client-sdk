@@ -30,7 +30,7 @@ public class LDConfig {
     static final String primaryEnvironmentName = "default";
 
     static final Uri DEFAULT_BASE_URI = Uri.parse("https://app.launchdarkly.com");
-    static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com/mobile");
+    static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com");
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
     static final int DEFAULT_EVENTS_CAPACITY = 100;
