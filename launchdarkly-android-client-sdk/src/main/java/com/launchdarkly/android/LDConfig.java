@@ -40,6 +40,8 @@ public class LDConfig {
     static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
     static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
     static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
+    static final int DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 900_000; // 15 minutes
+    static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
     private final Map<String, String> mobileKeys;
 
@@ -52,11 +54,13 @@ public class LDConfig {
     private final int connectionTimeoutMillis;
     private final int pollingIntervalMillis;
     private final int backgroundPollingIntervalMillis;
+    private final int diagnosticRecordingIntervalMillis;
 
     private final boolean stream;
     private final boolean offline;
     private final boolean disableBackgroundUpdating;
     private final boolean useReport;
+    private final boolean diagnosticOptOut;
 
     private final boolean allAttributesPrivate;
     private final Set<String> privateAttributeNames;
@@ -67,23 +71,30 @@ public class LDConfig {
 
     private final boolean evaluationReasons;
 
+    private String wrapperName;
+    private String wrapperVersion;
+
     LDConfig(Map<String, String> mobileKeys,
-                    Uri baseUri,
-                    Uri eventsUri,
-                    Uri streamUri,
-                    int eventsCapacity,
-                    int eventsFlushIntervalMillis,
-                    int connectionTimeoutMillis,
-                    boolean offline,
-                    boolean stream,
-                    int pollingIntervalMillis,
-                    int backgroundPollingIntervalMillis,
-                    boolean disableBackgroundUpdating,
-                    boolean useReport,
-                    boolean allAttributesPrivate,
-                    Set<String> privateAttributeNames,
-                    boolean inlineUsersInEvents,
-                    boolean evaluationReasons) {
+             Uri baseUri,
+             Uri eventsUri,
+             Uri streamUri,
+             int eventsCapacity,
+             int eventsFlushIntervalMillis,
+             int connectionTimeoutMillis,
+             boolean offline,
+             boolean stream,
+             int pollingIntervalMillis,
+             int backgroundPollingIntervalMillis,
+             boolean disableBackgroundUpdating,
+             boolean useReport,
+             boolean allAttributesPrivate,
+             Set<String> privateAttributeNames,
+             boolean inlineUsersInEvents,
+             boolean evaluationReasons,
+             boolean diagnosticOptOut,
+             int diagnosticRecordingIntervalMillis,
+             String wrapperName,
+             String wrapperVersion) {
 
         this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
@@ -102,6 +113,10 @@ public class LDConfig {
         this.privateAttributeNames = privateAttributeNames;
         this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
+        this.diagnosticOptOut = diagnosticOptOut;
+        this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
+        this.wrapperName = wrapperName;
+        this.wrapperVersion = wrapperVersion;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -117,9 +132,23 @@ public class LDConfig {
         if (key == null)
             throw new IllegalArgumentException("No environment by that name.");
 
-        return new Request.Builder()
-                .addHeader("Authorization", LDConfig.AUTH_SCHEME + key)
+        return getRequestBuilderForKey(key);
+    }
+
+    Request.Builder getRequestBuilderForKey(String sdkKey) {
+        Request.Builder requestBuilder = new Request.Builder()
+                .addHeader("Authorization", LDConfig.AUTH_SCHEME + sdkKey)
                 .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
+
+        if (getWrapperName() != null) {
+            String wrapperVersion = "";
+            if (getWrapperVersion() != null) {
+                wrapperVersion = "/" + getWrapperVersion();
+            }
+            requestBuilder.addHeader("X-LaunchDarkly-Wrapper", wrapperName + wrapperVersion);
+        }
+
+        return requestBuilder;
     }
 
     public String getMobileKey() {
@@ -198,6 +227,22 @@ public class LDConfig {
         return evaluationReasons;
     }
 
+    boolean getDiagnosticOptOut() {
+        return diagnosticOptOut;
+    }
+
+    int getDiagnosticRecordingIntervalMillis() {
+        return diagnosticRecordingIntervalMillis;
+    }
+
+    String getWrapperName() {
+        return wrapperName;
+    }
+
+    String getWrapperVersion() {
+        return wrapperVersion;
+    }
+
     /**
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
@@ -221,17 +266,22 @@ public class LDConfig {
         private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
         private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
         private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
+        private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
 
         private boolean offline = false;
         private boolean stream = true;
         private boolean disableBackgroundUpdating = false;
         private boolean useReport = false;
+        private boolean diagnosticOptOut = false;
 
         private boolean allAttributesPrivate = false;
         private Set<String> privateAttributeNames = new HashSet<>();
 
         private boolean inlineUsersInEvents = false;
         private boolean evaluationReasons = false;
+
+        private String wrapperName;
+        private String wrapperVersion;
 
         /**
          * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
@@ -496,6 +546,64 @@ public class LDConfig {
         }
 
         /**
+         * Set to true to opt out of sending diagnostics data.
+         *
+         * Unless the diagnosticOptOut field is set to true, the client will send some diagnostics data to the
+         * LaunchDarkly servers in order to assist in the development of future SDK improvements. These diagnostics
+         * consist of an initial payload containing some details of SDK in use, the SDK's configuration, and the platform
+         * the SDK is being run on; as well as payloads sent periodically with information on irregular occurrences such
+         * as dropped events.
+         *
+         * @param diagnosticOptOut true if you want to opt out of sending any diagnostics data.
+         * @return the builder
+         */
+        public LDConfig.Builder setDiagnosticOptOut(boolean diagnosticOptOut) {
+            this.diagnosticOptOut = diagnosticOptOut;
+            return this;
+        }
+
+        /**
+         * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
+         * milliseconds) and the minimum value is 60,000.
+         *
+         * @see #setDiagnosticOptOut(boolean) for more information on the diagnostics data being sent.
+         *
+         * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
+         * @return the builder
+         */
+        public LDConfig.Builder setDiagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
+            this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
+            return this;
+        }
+
+        /**
+         * For use by wrapper libraries to set an identifying name for the wrapper being used. This will be sent in
+         * User-Agent headers during requests to the LaunchDarkly servers to allow recording metrics on the usage of
+         * these wrapper libraries.
+         *
+         * @param wrapperName An identifying name for the wrapper library
+         * @return the builder
+         */
+        public LDConfig.Builder setWrapperName(String wrapperName) {
+            this.wrapperName = wrapperName;
+            return this;
+        }
+
+        /**
+         * For use by wrapper libraries to report the version of the library in use. If the wrapper
+         * name has not been set with {@link #setWrapperName(String)} this field will be ignored.
+         * Otherwise the version string will be included in the User-Agent headers along with the
+         * wrapperName during requests to the LaunchDarkly servers.
+         *
+         * @param wrapperVersion Version string for the wrapper library
+         * @return the builder
+         */
+        public LDConfig.Builder setWrapperVersion(String wrapperVersion) {
+            this.wrapperVersion = wrapperVersion;
+            return this;
+        }
+
+        /**
          * Returns the configured {@link LDConfig} object.
          * @return the configuration
          */
@@ -528,6 +636,11 @@ public class LDConfig {
                 eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
             }
 
+            if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
+                Timber.w("diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.", diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
+                diagnosticRecordingIntervalMillis = MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+            }
+
             HashMap<String, String> mobileKeys;
             if (secondaryMobileKeys == null) {
                 mobileKeys = new HashMap<>();
@@ -554,7 +667,11 @@ public class LDConfig {
                     allAttributesPrivate,
                     privateAttributeNames,
                     inlineUsersInEvents,
-                    evaluationReasons);
+                    evaluationReasons,
+                    diagnosticOptOut,
+                    diagnosticRecordingIntervalMillis,
+                    wrapperName,
+                    wrapperVersion);
         }
     }
 }

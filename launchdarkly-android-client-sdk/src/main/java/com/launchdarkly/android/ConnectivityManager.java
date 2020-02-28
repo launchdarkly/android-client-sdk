@@ -40,7 +40,8 @@ class ConnectivityManager {
                         @NonNull final LDConfig ldConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final UserManager userManager,
-                        @NonNull final String environmentName) {
+                        @NonNull final String environmentName,
+                        final DiagnosticStore diagnosticStore) {
         this.application = application;
         this.eventProcessor = eventProcessor;
         this.userManager = userManager;
@@ -119,7 +120,7 @@ class ConnectivityManager {
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName, monitor) : null;
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName, diagnosticStore, monitor) : null;
     }
 
     boolean isInitialized() {
@@ -161,8 +162,8 @@ class ConnectivityManager {
         if (connectionInformation.getLastFailure() == null) {
             editor.putString("lastFailure", null);
         } else {
-                String failJson = GsonCache.getGson().toJson(connectionInformation.getLastFailure());
-                editor.putString("lastFailure", failJson);
+            String failJson = GsonCache.getGson().toJson(connectionInformation.getLastFailure());
+            editor.putString("lastFailure", failJson);
         }
         editor.apply();
     }
@@ -177,6 +178,10 @@ class ConnectivityManager {
     }
 
     private void startBackgroundPolling() {
+        if (initCallback != null) {
+            initCallback.onSuccess(null);
+            initCallback = null;
+        }
         PollingUpdater.startBackgroundPolling(application);
     }
 
