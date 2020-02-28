@@ -14,6 +14,7 @@ import com.google.gson.JsonElement;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -27,6 +28,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import okhttp3.ConnectionPool;
+import okhttp3.OkHttpClient;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.TLSUtils.patchTLSIfNeeded;
@@ -47,6 +50,8 @@ public class LDClient implements LDClientInterface, Closeable {
     private final DefaultUserManager userManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
+    private final DiagnosticEventProcessor diagnosticEventProcessor;
+    private final DiagnosticStore diagnosticStore;
     private ConnectivityReceiver connectivityReceiver;
     private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
             Collections.synchronizedList(new ArrayList<WeakReference<LDStatusListener>>());
@@ -94,6 +99,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         patchTLSIfNeeded(application);
+        Foreground.init(application);
 
         instances = new HashMap<>();
 
@@ -208,17 +214,44 @@ public class LDClient implements LDClientInterface, Closeable {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.application = application;
+        String sdkKey = config.getMobileKeys().get(environmentName);
         FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
-        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
+        OkHttpClient sharedEventClient = makeSharedEventClient();
+        if (config.getDiagnosticOptOut()) {
+            this.diagnosticStore = null;
+            this.diagnosticEventProcessor = null;
+        } else {
+            this.diagnosticStore = new DiagnosticStore(application, sdkKey);
+            this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, sharedEventClient);
+        }
+        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey);
 
-        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventStore(), environmentName);
-        connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName);
+        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventStore(), environmentName, diagnosticStore, sharedEventClient);
+        connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName, diagnosticStore);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();
             IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
             application.registerReceiver(connectivityReceiver, filter);
         }
+    }
+
+    private OkHttpClient makeSharedEventClient() {
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+                .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
+                .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+                .retryOnConnectionFailure(true)
+                .addInterceptor(new SSLHandshakeInterceptor());
+
+        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
+            try {
+                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
+            } catch (GeneralSecurityException ignored) {
+                // TLS is not available, so don't set up the socket factory, swallow the exception
+            }
+        }
+
+        return builder.build();
     }
 
     @Override
@@ -407,6 +440,9 @@ public class LDClient implements LDClientInterface, Closeable {
     private void closeInternal() {
         connectivityManager.shutdown();
         eventProcessor.close();
+        if (diagnosticEventProcessor != null) {
+            diagnosticEventProcessor.close();
+        }
         if (connectivityReceiver != null && application != null) {
             application.unregisterReceiver(connectivityReceiver);
             connectivityReceiver = null;
@@ -610,6 +646,7 @@ public class LDClient implements LDClientInterface, Closeable {
             boolean processed = eventProcessor.sendEvent(event);
             if (!processed) {
                 Timber.w("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+                diagnosticStore.incrementDroppedEventCount();
             }
         }
     }
@@ -635,7 +672,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     static synchronized void triggerPollInstances() {
         if (instances == null) {
-            Timber.w("LDClient.getEnvironmentNames() was called before init()!");
+            Timber.w("Cannot perform poll when LDClient has not been initialized!");
             return;
         }
         for (LDClient instance : instances.values()) {

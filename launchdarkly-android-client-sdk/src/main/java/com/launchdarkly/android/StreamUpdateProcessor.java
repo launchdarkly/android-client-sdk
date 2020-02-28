@@ -39,12 +39,15 @@ class StreamUpdateProcessor {
     private final ExecutorService executor;
     private final String environmentName;
     private final LDUtil.ResultCallback<Void> notifier;
+    private final DiagnosticStore diagnosticStore;
+    private long eventSourceStarted;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, LDUtil.ResultCallback<Void> notifier) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, DiagnosticStore diagnosticStore, LDUtil.ResultCallback<Void> notifier) {
         this.config = config;
         this.userManager = userManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
+        this.diagnosticStore = diagnosticStore;
         queue = new Debounce();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
@@ -52,16 +55,29 @@ class StreamUpdateProcessor {
     synchronized void start() {
         if (!running && !connection401Error) {
             Timber.d("Starting.");
-            Headers headers = new Headers.Builder()
+
+            Headers.Builder headersBuilder = new Headers.Builder()
                     .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKeys().get(environmentName))
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
-                    .add("Accept", "text/event-stream")
-                    .build();
+                    .add("Accept", "text/event-stream");
+
+            if (config.getWrapperName() != null) {
+                String wrapperVersion = "";
+                if (config.getWrapperVersion() != null) {
+                    wrapperVersion = "/" + config.getWrapperVersion();
+                }
+                headersBuilder.add("X-LaunchDarkly-Wrapper", config.getWrapperName() + wrapperVersion);
+            }
+
+            Headers headers = headersBuilder.build();
 
             EventHandler handler = new EventHandler() {
                 @Override
                 public void onOpen() {
                     Timber.i("Started LaunchDarkly EventStream");
+                    if (diagnosticStore != null) {
+                        diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), false);
+                    }
                 }
 
                 @Override
@@ -85,6 +101,9 @@ class StreamUpdateProcessor {
                 public void onError(Throwable t) {
                     Timber.e(t, "Encountered EventStream error connecting to URI: %s", getUri(userManager.getCurrentUser()));
                     if (t instanceof UnsuccessfulResponseException) {
+                        if (diagnosticStore != null) {
+                            diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
+                        }
                         int code = ((UnsuccessfulResponseException) t).getCode();
                         if (code >= 400 && code < 500) {
                             Timber.e("Encountered non-retriable error: %s. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
@@ -100,6 +119,7 @@ class StreamUpdateProcessor {
                             }
                             stop(null);
                         } else {
+                            eventSourceStarted = System.currentTimeMillis();
                             notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, true));
                         }
                     } else {
@@ -118,6 +138,7 @@ class StreamUpdateProcessor {
 
             builder.maxReconnectTimeMs(MAX_RECONNECT_TIME_MS);
 
+            eventSourceStarted = System.currentTimeMillis();
             es = builder.build();
             es.start();
 
@@ -169,7 +190,7 @@ class StreamUpdateProcessor {
         }
     }
 
-    synchronized void stop(final LDUtil.ResultCallback<Void> onCompleteListener) {
+    void stop(final LDUtil.ResultCallback<Void> onCompleteListener) {
         Timber.d("Stopping.");
         // We do this in a separate thread because closing the stream involves a network
         // operation and we don't want to do a network operation on the main thread.

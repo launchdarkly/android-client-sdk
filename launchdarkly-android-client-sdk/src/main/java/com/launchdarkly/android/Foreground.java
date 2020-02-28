@@ -6,7 +6,7 @@ import android.app.Application;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
+import android.os.HandlerThread;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -61,9 +61,16 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
     private static Foreground instance;
     private boolean foreground = false;
     private boolean paused = true;
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final HandlerThread listenerThread;
+    private final Handler handler;
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
     private Runnable check;
+
+    Foreground() {
+        listenerThread = new HandlerThread("LDForegroundListener");
+        listenerThread.start();
+        handler = new Handler(listenerThread.getLooper());
+    }
 
     /**
      * Its not strictly necessary to use this method - _usually_ invoking
@@ -136,18 +143,25 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
         boolean wasBackground = !foreground;
         foreground = true;
 
-        if (check != null)
+        if (check != null) {
             handler.removeCallbacks(check);
+            check = null;
+        }
 
         if (wasBackground) {
-            Timber.d("went foreground");
-            for (Listener l : listeners) {
-                try {
-                    l.onBecameForeground();
-                } catch (Exception exc) {
-                    Timber.e(exc, "Listener threw exception!");
-                }
-            }
+            handler.post(new Runnable() {
+                             @Override
+                             public void run() {
+                                 Timber.d("went foreground");
+                                 for (Listener l : listeners) {
+                                     try {
+                                         l.onBecameForeground();
+                                     } catch (Exception exc) {
+                                         Timber.e(exc, "Listener threw exception!");
+                                     }
+                                 }
+                             }
+                         });
         } else {
             Timber.d("still foreground");
         }
@@ -157,8 +171,10 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
     public void onActivityPaused(Activity activity) {
         paused = true;
 
-        if (check != null)
+        if (check != null) {
             handler.removeCallbacks(check);
+            check = null;
+        }
 
         handler.postDelayed(check = new Runnable() {
             @Override

@@ -185,7 +185,7 @@ class DefaultUserManager implements UserManager {
                         onCompleteListener.onSuccess(null);
                     } else {
                         Timber.d("Invalid PATCH payload: %s", json);
-                        onCompleteListener.onError(new LDFailure("Invalid PUT payload",
+                        onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
                                 LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     }
                 }
