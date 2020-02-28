@@ -9,6 +9,7 @@ import java.util.concurrent.Callable;
 
 import static org.junit.Assert.assertEquals;
 
+@SuppressWarnings("deprecation")
 @RunWith(AndroidJUnit4.class)
 public class DebounceTest {
 

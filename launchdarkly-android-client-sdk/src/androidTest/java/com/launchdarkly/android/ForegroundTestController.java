@@ -3,6 +3,13 @@ package com.launchdarkly.android;
 import android.app.Application;
 import android.os.ConditionVariable;
 
+/**
+ * Test fixture for allowing testing of behavior dependent on the SDK detecting whether the
+ * application is currently in the foreground or the background. For the test controller to work
+ * correctly, {@link ForegroundTestController#setup(boolean)} must be called before any other code
+ * initializes the {@link Foreground} class. This is so the test controller can pre-initialize the
+ * class with a proxy application class.
+ */
 public class ForegroundTestController {
 
     private static ForegroundApplication foregroundApplication;
@@ -27,7 +34,8 @@ public class ForegroundTestController {
         instance.addListener(waitChangeListener);
         foregroundApplication.moveToBackground();
         waitChangeListener.block();
-        instance.removeListener(waitChangeListener);    }
+        instance.removeListener(waitChangeListener);
+    }
 
     private static class WaitChangeListener implements Foreground.Listener {
 

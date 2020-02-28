@@ -11,7 +11,7 @@ import java.util.TimeZone;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.ConnectionInformation.ConnectionMode;
-import static com.launchdarkly.android.Util.isInternetConnected;
+import static com.launchdarkly.android.LDUtil.isInternetConnected;
 
 class ConnectivityManager {
 
@@ -31,8 +31,8 @@ class ConnectivityManager {
     private final Foreground.Listener foregroundListener;
     private final String environmentName;
     private final int pollingInterval;
-    private Util.ResultCallback<Void> monitor;
-    private Util.ResultCallback<Void> initCallback = null;
+    private LDUtil.ResultCallback<Void> monitor;
+    private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
     private volatile boolean setOffline;
 
@@ -40,7 +40,8 @@ class ConnectivityManager {
                         @NonNull final LDConfig ldConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final UserManager userManager,
-                        @NonNull final String environmentName) {
+                        @NonNull final String environmentName,
+                        final DiagnosticStore diagnosticStore) {
         this.application = application;
         this.eventProcessor = eventProcessor;
         this.userManager = userManager;
@@ -80,13 +81,14 @@ class ConnectivityManager {
                 synchronized (ConnectivityManager.this) {
                     if (isInternetConnected(application) && !setOffline &&
                             connectionInformation.getConnectionMode() != backgroundMode) {
+                        throttler.cancel();
                         attemptTransition(backgroundMode);
                     }
                 }
             }
         };
 
-        monitor = new Util.ResultCallback<Void>() {
+        monitor = new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 synchronized (ConnectivityManager.this) {
@@ -118,7 +120,7 @@ class ConnectivityManager {
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName, monitor) : null;
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName, diagnosticStore, monitor) : null;
     }
 
     boolean isInitialized() {
@@ -160,8 +162,8 @@ class ConnectivityManager {
         if (connectionInformation.getLastFailure() == null) {
             editor.putString("lastFailure", null);
         } else {
-                String failJson = GsonCache.getGson().toJson(connectionInformation.getLastFailure());
-                editor.putString("lastFailure", failJson);
+            String failJson = GsonCache.getGson().toJson(connectionInformation.getLastFailure());
+            editor.putString("lastFailure", failJson);
         }
         editor.apply();
     }
@@ -176,6 +178,10 @@ class ConnectivityManager {
     }
 
     private void startBackgroundPolling() {
+        if (initCallback != null) {
+            initCallback.onSuccess(null);
+            initCallback = null;
+        }
         PollingUpdater.startBackgroundPolling(application);
     }
 
@@ -185,7 +191,7 @@ class ConnectivityManager {
         }
     }
 
-    private void stopStreaming(final Util.ResultCallback<Void> onCompleteListener) {
+    private void stopStreaming(final LDUtil.ResultCallback<Void> onCompleteListener) {
         if (streamUpdateProcessor != null) {
             streamUpdateProcessor.stop(onCompleteListener);
         } else {
@@ -266,13 +272,13 @@ class ConnectivityManager {
         return Foreground.get(application).isForeground();
     }
 
-    private void voidSuccess(Util.ResultCallback<Void> listener) {
+    private void voidSuccess(LDUtil.ResultCallback<Void> listener) {
         if (listener != null) {
             listener.onSuccess(null);
         }
     }
 
-    synchronized boolean startUp(Util.ResultCallback<Void> onCompleteListener) {
+    synchronized boolean startUp(LDUtil.ResultCallback<Void> onCompleteListener) {
         initialized = false;
         if (setOffline) {
             initialized = true;
@@ -304,6 +310,7 @@ class ConnectivityManager {
         stopStreaming();
         stopPolling();
         setOffline = true;
+        callInitCallback();
     }
 
     synchronized void setOnline() {
@@ -326,12 +333,13 @@ class ConnectivityManager {
         return setOffline;
     }
 
-    synchronized void reloadUser(final Util.ResultCallback<Void> onCompleteListener) {
+    synchronized void reloadUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
         throttler.cancel();
+        callInitCallback();
         removeForegroundListener();
         removeNetworkListener();
         stopPolling();
-        stopStreaming(new Util.ResultCallback<Void>() {
+        stopStreaming(new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 startUp(onCompleteListener);

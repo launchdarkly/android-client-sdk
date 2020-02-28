@@ -4,7 +4,7 @@ import android.support.annotation.NonNull;
 
 import com.google.gson.JsonElement;
 
-class Flag implements FlagUpdate, FlagInterface {
+class Flag implements FlagUpdate {
 
     @NonNull
     private final String key;
@@ -17,12 +17,7 @@ class Flag implements FlagUpdate, FlagInterface {
     private final Long debugEventsUntilDate;
     private final EvaluationReason reason;
 
-    @Deprecated
-    public Flag(@NonNull String key, JsonElement value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Long debugEventsUntilDate, EvaluationReason reason) {
-        this(key, value, version, flagVersion, variation, trackEvents, null, debugEventsUntilDate, reason);
-    }
-
-    public Flag(@NonNull String key, JsonElement value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason) {
+    Flag(@NonNull String key, JsonElement value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason) {
         this.key = key;
         this.value = value;
         this.version = version;
@@ -35,46 +30,45 @@ class Flag implements FlagUpdate, FlagInterface {
     }
 
     @NonNull
-    public String getKey() {
+    String getKey() {
         return key;
     }
 
-    public JsonElement getValue() {
+    JsonElement getValue() {
         return value;
     }
 
-    public Integer getVersion() {
+    Integer getVersion() {
         return version;
     }
 
-    public Integer getFlagVersion() {
+    Integer getFlagVersion() {
         return flagVersion;
     }
 
-    public Integer getVariation() {
+    Integer getVariation() {
         return variation;
     }
 
-    public boolean getTrackEvents() {
+    boolean getTrackEvents() {
         return trackEvents == null ? false : trackEvents;
     }
 
-    public boolean isTrackReason() { return trackReason == null ? false : trackReason; }
+    boolean isTrackReason() { return trackReason == null ? false : trackReason; }
 
-    public Long getDebugEventsUntilDate() {
+    Long getDebugEventsUntilDate() {
         return debugEventsUntilDate;
     }
 
-    @Override
-    public EvaluationReason getReason() {
+    EvaluationReason getReason() {
         return reason;
     }
 
-    public boolean isVersionMissing() {
+    boolean isVersionMissing() {
         return version == null;
     }
 
-    public int getVersionForEvents() {
+    int getVersionForEvents() {
         if (flagVersion == null) {
             return version == null ? -1 : version;
         }

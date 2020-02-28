@@ -374,6 +374,7 @@ public class LDClientTest {
             mockEventsServer.start();
             // Enqueue a successful empty response
             mockEventsServer.enqueue(new MockResponse());
+            mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
@@ -460,7 +461,8 @@ public class LDClientTest {
     private LDConfig.Builder baseConfigBuilder(MockWebServer server) {
         HttpUrl baseUrl = server.url("/mobile");
         return new LDConfig.Builder()
-            .setMobileKey(mobileKey)
-            .setEventsUri(Uri.parse(baseUrl.toString()));
+                .setMobileKey(mobileKey)
+                .setDiagnosticOptOut(true)
+                .setEventsUri(Uri.parse(baseUrl.toString()));
     }
 }

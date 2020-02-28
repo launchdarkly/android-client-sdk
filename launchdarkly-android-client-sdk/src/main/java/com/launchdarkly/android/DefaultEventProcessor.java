@@ -1,13 +1,11 @@
 package com.launchdarkly.android;
 
 import android.content.Context;
-import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.security.GeneralSecurityException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -23,7 +21,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -31,8 +28,8 @@ import okhttp3.Response;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
-import static com.launchdarkly.android.Util.isClientConnected;
-import static com.launchdarkly.android.Util.isHttpErrorRecoverable;
+import static com.launchdarkly.android.LDUtil.isClientConnected;
+import static com.launchdarkly.android.LDUtil.isHttpErrorRecoverable;
 
 class DefaultEventProcessor implements EventProcessor, Closeable {
     private final BlockingQueue<Event> queue;
@@ -42,32 +39,20 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     private final LDConfig config;
     private final String environmentName;
     private ScheduledExecutorService scheduler;
-    private final SummaryEventSharedPreferences summaryEventSharedPreferences;
+    private final SummaryEventStore summaryEventStore;
     private long currentTimeMs = System.currentTimeMillis();
+    private DiagnosticStore diagnosticStore;
 
-    DefaultEventProcessor(Context context, LDConfig config, SummaryEventSharedPreferences summaryEventSharedPreferences, String environmentName) {
+    DefaultEventProcessor(Context context, LDConfig config, SummaryEventStore summaryEventStore, String environmentName,
+                          final DiagnosticStore diagnosticStore, final OkHttpClient sharedClient) {
         this.context = context;
         this.config = config;
         this.environmentName = environmentName;
         this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
         this.consumer = new Consumer(config);
-        this.summaryEventSharedPreferences = summaryEventSharedPreferences;
-
-        OkHttpClient.Builder builder = new OkHttpClient.Builder()
-                .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
-                .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
-                .retryOnConnectionFailure(true)
-                .addInterceptor(new SSLHandshakeInterceptor());
-
-        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
-            try {
-                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
-            } catch (GeneralSecurityException ignored) {
-                // TLS is not available, so don't set up the socket factory, swallow the exception
-            }
-        }
-
-        client = builder.build();
+        this.summaryEventStore = summaryEventStore;
+        this.client = sharedClient;
+        this.diagnosticStore = diagnosticStore;
     }
 
     public void start() {
@@ -134,8 +119,11 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         synchronized void flush() {
             if (isClientConnected(context, environmentName)) {
                 List<Event> events = new ArrayList<>(queue.size() + 1);
-                queue.drainTo(events);
-                SummaryEvent summaryEvent = summaryEventSharedPreferences.getSummaryEventAndClear();
+                long eventsInBatch = queue.drainTo(events);
+                if (diagnosticStore != null) {
+                    diagnosticStore.recordEventsInLastBatch(eventsInBatch);
+                }
+                SummaryEvent summaryEvent = summaryEventStore.getSummaryEventAndClear();
 
                 if (summaryEvent != null) {
                     events.add(summaryEvent);

@@ -7,6 +7,10 @@ import com.google.gson.annotations.JsonAdapter;
 
 @JsonAdapter(LDFailureSerialization.class)
 public class LDFailure extends LaunchDarklyException {
+
+    /**
+     * Enumerated type defining the possible values of {@link LDFailure#getFailureType()}.
+     */
     public enum FailureType {
         INVALID_RESPONSE_BODY,
         NETWORK_FAILURE,

@@ -229,7 +229,7 @@ public abstract class EvaluationReason {
         public boolean equals(Object other) {
             if (other instanceof RuleMatch) {
                 RuleMatch o = (RuleMatch) other;
-                return ruleIndex == o.ruleIndex && Util.objectsEqual(ruleId, o.ruleId);
+                return ruleIndex == o.ruleIndex && LDUtil.objectsEqual(ruleId, o.ruleId);
             }
             return false;
         }

@@ -14,6 +14,7 @@ import com.google.gson.JsonElement;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -27,6 +28,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import okhttp3.ConnectionPool;
+import okhttp3.OkHttpClient;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.TLSUtils.patchTLSIfNeeded;
@@ -47,6 +50,8 @@ public class LDClient implements LDClientInterface, Closeable {
     private final DefaultUserManager userManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
+    private final DiagnosticEventProcessor diagnosticEventProcessor;
+    private final DiagnosticStore diagnosticStore;
     private ConnectivityReceiver connectivityReceiver;
     private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
             Collections.synchronizedList(new ArrayList<WeakReference<LDStatusListener>>());
@@ -94,6 +99,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         patchTLSIfNeeded(application);
+        Foreground.init(application);
 
         instances = new HashMap<>();
 
@@ -115,7 +121,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
-        Util.ResultCallback<Void> completeWhenCounterZero = new Util.ResultCallback<Void>() {
+        LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (initCounter.decrementAndGet() == 0) {
@@ -208,17 +214,44 @@ public class LDClient implements LDClientInterface, Closeable {
         Timber.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.application = application;
-        FeatureFlagFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
-        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, config.getMobileKeys().get(environmentName));
+        String sdkKey = config.getMobileKeys().get(environmentName);
+        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName);
+        OkHttpClient sharedEventClient = makeSharedEventClient();
+        if (config.getDiagnosticOptOut()) {
+            this.diagnosticStore = null;
+            this.diagnosticEventProcessor = null;
+        } else {
+            this.diagnosticStore = new DiagnosticStore(application, sdkKey);
+            this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, sharedEventClient);
+        }
+        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey);
 
-        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventSharedPreferences(), environmentName);
-        connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName);
+        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventStore(), environmentName, diagnosticStore, sharedEventClient);
+        connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName, diagnosticStore);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();
             IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
             application.registerReceiver(connectivityReceiver, filter);
         }
+    }
+
+    private OkHttpClient makeSharedEventClient() {
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+                .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
+                .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+                .retryOnConnectionFailure(true)
+                .addInterceptor(new SSLHandshakeInterceptor());
+
+        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
+            try {
+                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
+            } catch (GeneralSecurityException ignored) {
+                // TLS is not available, so don't set up the socket factory, swallow the exception
+            }
+        }
+
+        return builder.build();
     }
 
     @Override
@@ -252,7 +285,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private synchronized void identifyInternal(@NonNull LDUser user,
-                                               Util.ResultCallback<Void> onCompleteListener) {
+                                               LDUtil.ResultCallback<Void> onCompleteListener) {
         userManager.setCurrentUser(user);
         connectivityManager.reloadUser(onCompleteListener);
         sendEvent(new IdentifyEvent(user));
@@ -261,7 +294,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static synchronized Future<Void> identifyInstances(@NonNull LDUser user) {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
         final AtomicInteger identifyCounter = new AtomicInteger(instances.size());
-        Util.ResultCallback<Void> completeWhenCounterZero = new Util.ResultCallback<Void>() {
+        LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (identifyCounter.decrementAndGet() == 0) {
@@ -409,6 +442,9 @@ public class LDClient implements LDClientInterface, Closeable {
     private void closeInternal() {
         connectivityManager.shutdown();
         eventProcessor.close();
+        if (diagnosticEventProcessor != null) {
+            diagnosticEventProcessor.close();
+        }
         if (connectivityReceiver != null && application != null) {
             application.unregisterReceiver(connectivityReceiver);
             connectivityReceiver = null;
@@ -612,6 +648,7 @@ public class LDClient implements LDClientInterface, Closeable {
             boolean processed = eventProcessor.sendEvent(event);
             if (!processed) {
                 Timber.w("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+                diagnosticStore.incrementDroppedEventCount();
             }
         }
     }
@@ -627,17 +664,17 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     private void updateSummaryEvents(String flagKey, Flag flag, JsonElement result, JsonElement fallback) {
         if (flag == null) {
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, -1, null);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, -1, null);
         } else {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
-            userManager.getSummaryEventSharedPreferences().addOrUpdateEvent(flagKey, result, fallback, version, variation);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, version, variation);
         }
     }
 
     static synchronized void triggerPollInstances() {
         if (instances == null) {
-            Timber.w("LDClient.getEnvironmentNames() was called before init()!");
+            Timber.w("Cannot perform poll when LDClient has not been initialized!");
             return;
         }
         for (LDClient instance : instances.values()) {
@@ -656,7 +693,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
-        return userManager.getSummaryEventSharedPreferences();
+    SummaryEventStore getSummaryEventStore() {
+        return userManager.getSummaryEventStore();
     }
 }

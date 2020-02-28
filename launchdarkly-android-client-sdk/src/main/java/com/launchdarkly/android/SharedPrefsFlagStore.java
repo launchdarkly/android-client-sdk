@@ -59,7 +59,7 @@ class SharedPrefsFlagStore implements FlagStore {
     @Nullable
     @Override
     public Flag getFlag(String flagKey) {
-        return Util.sharedPrefsGetGson(sharedPreferences, Flag.class, flagKey);
+        return LDUtil.sharedPrefsGetGson(sharedPreferences, Flag.class, flagKey);
     }
 
     private Pair<String, FlagStoreUpdateType> applyFlagUpdateNoCommit(@NonNull SharedPreferences.Editor editor, @NonNull FlagUpdate flagUpdate) {
@@ -144,7 +144,7 @@ class SharedPrefsFlagStore implements FlagStore {
 
     @Override
     public Collection<Flag> getAllFlags() {
-        return Util.sharedPrefsGetAllGson(sharedPreferences, Flag.class).values();
+        return LDUtil.sharedPrefsGetAllGson(sharedPreferences, Flag.class).values();
     }
 
     @Override

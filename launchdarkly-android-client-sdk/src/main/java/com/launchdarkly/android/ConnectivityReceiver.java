@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-import static com.launchdarkly.android.Util.isInternetConnected;
+import static com.launchdarkly.android.LDUtil.isInternetConnected;
 
 /**
  * Used internally by the SDK.

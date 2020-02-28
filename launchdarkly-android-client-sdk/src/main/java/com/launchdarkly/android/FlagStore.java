@@ -1,6 +1,8 @@
 package com.launchdarkly.android;
 
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.util.Pair;
 
 import java.util.Collection;
 import java.util.List;
@@ -83,4 +85,111 @@ interface FlagStore {
      * Remove the currently registered listener if one exists.
      */
     void unregisterOnStoreUpdatedListener();
+}
+
+/**
+ * Types of updates that a FlagStore can report
+ */
+enum FlagStoreUpdateType {
+    /**
+     * The flag was deleted
+     */
+    FLAG_DELETED,
+    /**
+     * The flag has been updated or replaced
+     */
+    FLAG_UPDATED,
+    /**
+     * A new flag has been created
+     */
+    FLAG_CREATED
+}
+
+/**
+ * Listener interface for receiving FlagStore update callbacks
+ */
+interface StoreUpdatedListener {
+    /**
+     * Called by a FlagStore when the store is updated.
+     *
+     * @param updates Pairs of flag keys that were updated and the type of update that occurred.
+     */
+    void onStoreUpdate(List<Pair<String, FlagStoreUpdateType>> updates);
+}
+
+/**
+ * This interface is used to provide a mechanism for a FlagStoreManager to create FlagStores without
+ * being dependent on a concrete FlagStore class.
+ */
+interface FlagStoreFactory {
+
+    /**
+     * Create a new flag store
+     *
+     * @param identifier identifier to associate all flags under
+     * @return A new instance of a FlagStore backed by a concrete implementation.
+     */
+    FlagStore createFlagStore(@NonNull String identifier);
+
+}
+
+/**
+ * A FlagStoreManager is responsible for managing FlagStores for active and recently active users,
+ * as well as providing flagKey specific update callbacks.
+ */
+interface FlagStoreManager {
+
+    /**
+     * Loads the FlagStore for the particular userKey. If too many users have a locally cached
+     * FlagStore, deletes the oldest.
+     *
+     * @param userKey The key representing the user to switch to
+     */
+    void switchToUser(String userKey);
+
+    /**
+     * Gets the current user's flag store.
+     *
+     * @return The flag store for the current user.
+     */
+    FlagStore getCurrentUserStore();
+
+    /**
+     * Register a listener to be called when a flag with the given key is created or updated.
+     * Multiple listeners can be registered to a single key.
+     *
+     * @param key      Flag key to register the listener to.
+     * @param listener The listener to be called when the flag is updated.
+     */
+    void registerListener(String key, FeatureFlagChangeListener listener);
+
+    /**
+     * Unregister a specific listener registered to the given key.
+     *
+     * @param key      Flag key to unregister the listener from.
+     * @param listener The specific listener to be unregistered.
+     */
+    void unRegisterListener(String key, FeatureFlagChangeListener listener);
+
+    /**
+     * Register a listener to be called whenever new flag data is received.
+     *
+     * @param listener The listener to be called new flag data is received.
+     */
+    void registerAllFlagsListener(LDAllFlagsListener listener);
+
+    /**
+     * Unregister a listener previously registered with registerAllFlagsListener.
+     *
+     * @param listener The specific listener to be unregistered.
+     */
+    void unregisterAllFlagsListener(LDAllFlagsListener listener);
+
+    /**
+     * Gets all the listeners currently registered to the given key.
+     *
+     * @param key The key to return the listeners for.
+     * @return A collection of listeners registered to the key.
+     */
+    Collection<FeatureFlagChangeListener> getListenersByKey(String key);
 }

@@ -18,12 +18,11 @@ import timber.log.Timber;
 /**
  * Used internally by the SDK.
  */
-@Deprecated
-public class UserSummaryEventSharedPreferences implements SummaryEventSharedPreferences {
+class SharedPrefsSummaryEventStore implements SummaryEventStore {
 
     private final SharedPreferences sharedPreferences;
 
-    UserSummaryEventSharedPreferences(Application application, String name) {
+    SharedPrefsSummaryEventStore(Application application, String name) {
         this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);
     }
 

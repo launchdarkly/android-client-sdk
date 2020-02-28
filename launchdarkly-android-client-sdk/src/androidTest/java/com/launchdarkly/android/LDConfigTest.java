@@ -33,6 +33,7 @@ public class LDConfigTest {
         assertEquals(LDConfig.DEFAULT_EVENTS_CAPACITY, config.getEventsCapacity());
         assertEquals(LDConfig.DEFAULT_FLUSH_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
+        assertEquals(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
 
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
         assertFalse(config.isDisableBackgroundPolling());
@@ -40,6 +41,10 @@ public class LDConfigTest {
         assertNull(config.getMobileKey());
         assertFalse(config.inlineUsersInEvents());
         assertFalse(config.isEvaluationReasons());
+        assertFalse(config.getDiagnosticOptOut());
+
+        assertNull(config.getWrapperName());
+        assertNull(config.getWrapperVersion());
     }
 
 
@@ -116,6 +121,26 @@ public class LDConfigTest {
     }
 
     @Test
+    public void testBuilderDiagnosticRecordingInterval() {
+        LDConfig config = new LDConfig.Builder()
+                .setDiagnosticRecordingIntervalMillis(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1)
+                .build();
+
+        assertFalse(config.getDiagnosticOptOut());
+        assertEquals(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1, config.getDiagnosticRecordingIntervalMillis());
+    }
+
+    @Test
+    public void testBuilderDiagnosticRecordingIntervalBelowMinimum() {
+        LDConfig config = new LDConfig.Builder()
+                .setDiagnosticRecordingIntervalMillis(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS - 1)
+                .build();
+
+        assertFalse(config.getDiagnosticOptOut());
+        assertEquals(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
+    }
+
+    @Test
     public void testBuilderUseReportDefaultGet() {
         LDConfig config = new LDConfig.Builder()
                 .build();
@@ -124,7 +149,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void testBuilderUseReporSetToGet() {
+    public void testBuilderUseReportSetToGet() {
         LDConfig config = new LDConfig.Builder()
                 .setUseReport(false)
                 .build();
@@ -179,5 +204,24 @@ public class LDConfigTest {
         LDConfig config = new LDConfig.Builder().setEvaluationReasons(true).build();
 
         assertTrue(config.isEvaluationReasons());
+    }
+
+    @Test
+    public void testBuilderDiagnosticOptOut() {
+        LDConfig config = new LDConfig.Builder().setDiagnosticOptOut(true).build();
+
+        assertTrue(config.getDiagnosticOptOut());
+    }
+
+    @Test
+    public void testBuilderWrapperName() {
+        LDConfig config = new LDConfig.Builder().setWrapperName("Scala").build();
+        assertEquals("Scala", config.getWrapperName());
+    }
+
+    @Test
+    public void testBuilderWrapperVersion() {
+        LDConfig config = new LDConfig.Builder().setWrapperVersion("0.1.0").build();
+        assertEquals("0.1.0", config.getWrapperVersion());
     }
 }

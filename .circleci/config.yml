@@ -71,13 +71,18 @@ jobs:
           background: true
           command: |
             mkdir -p ~/artifacts
-            adb shell getprop >> ~/artifacts/props.txt
-            adb logcat >> ~/artifacts/logcat.txt
+            adb shell getprop | tee -a ~/artifacts/props.txt
+            adb logcat | tee -a ~/artifacts/logcat.txt
 
       - run:
           name: Run tests
           command: ./gradlew :launchdarkly-android-client-sdk:connectedAndroidTest --console=plain -PdisablePreDex
           no_output_timeout: 2h
+
+      - run:
+          name: Stop emulator
+          command: adb emu kill || true
+          when: always
 
       - run:
           name: Validate package creation
@@ -99,6 +104,7 @@ jobs:
           command: |
             mv ./launchdarkly-android-client-sdk/build/reports ~/artifacts
             mv ./launchdarkly-android-client-sdk/build/outputs ~/artifacts
+            mv ./launchdarkly-android-client-sdk/build/docs    ~/artifacts
           when: always
 
       - store_test_results:

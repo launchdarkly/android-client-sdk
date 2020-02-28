@@ -21,26 +21,26 @@ import timber.log.Timber;
  */
 class DefaultUserManager implements UserManager {
 
-    private final FeatureFlagFetcher fetcher;
+    private final FeatureFetcher fetcher;
 
     private final Application application;
     private final FlagStoreManager flagStoreManager;
-    private final SummaryEventSharedPreferences summaryEventSharedPreferences;
+    private final SummaryEventStore summaryEventStore;
     private final String environmentName;
 
     private LDUser currentUser;
 
     private final ExecutorService executor;
 
-    static synchronized DefaultUserManager newInstance(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
+    static synchronized DefaultUserManager newInstance(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey) {
         return new DefaultUserManager(application, fetcher, environmentName, mobileKey);
     }
 
-    DefaultUserManager(Application application, FeatureFlagFetcher fetcher, String environmentName, String mobileKey) {
+    DefaultUserManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey) {
         this.application = application;
         this.fetcher = fetcher;
         this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey, new SharedPrefsFlagStoreFactory(application));
-        this.summaryEventSharedPreferences = new UserSummaryEventSharedPreferences(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
+        this.summaryEventStore = new SharedPrefsSummaryEventStore(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
         this.environmentName = environmentName;
 
         executor = new BackgroundThreadExecutor().newFixedThreadPool(1);
@@ -54,8 +54,8 @@ class DefaultUserManager implements UserManager {
         return flagStoreManager.getCurrentUserStore();
     }
 
-    SummaryEventSharedPreferences getSummaryEventSharedPreferences() {
-        return summaryEventSharedPreferences;
+    SummaryEventStore getSummaryEventStore() {
+        return summaryEventStore;
     }
 
     /**
@@ -71,9 +71,9 @@ class DefaultUserManager implements UserManager {
         flagStoreManager.switchToUser(user.getSharedPrefsKey());
     }
 
-    public void updateCurrentUser(final Util.ResultCallback<Void> onCompleteListener) {
+    public void updateCurrentUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
         fetcher.fetch(currentUser,
-                new Util.ResultCallback<JsonObject>() {
+                new LDUtil.ResultCallback<JsonObject>() {
                     @Override
                     public void onSuccess(JsonObject result) {
                         saveFlagSettings(result, onCompleteListener);
@@ -81,7 +81,7 @@ class DefaultUserManager implements UserManager {
 
                     @Override
                     public void onError(Throwable e) {
-                        if (Util.isClientConnected(application, environmentName)) {
+                        if (LDUtil.isClientConnected(application, environmentName)) {
                             Timber.e(e, "Error when attempting to set user: [%s] [%s]",
                                     currentUser.getAsUrlSafeBase64(),
                                     userBase64ToJson(currentUser.getAsUrlSafeBase64()));
@@ -116,7 +116,7 @@ class DefaultUserManager implements UserManager {
      * @param flagsJson
      */
     @SuppressWarnings("JavaDoc")
-    private void saveFlagSettings(JsonObject flagsJson, Util.ResultCallback<Void> onCompleteListener) {
+    private void saveFlagSettings(JsonObject flagsJson, LDUtil.ResultCallback<Void> onCompleteListener) {
         Timber.d("saveFlagSettings for user key: %s", currentUser.getKey());
 
         try {
@@ -133,7 +133,7 @@ class DefaultUserManager implements UserManager {
         return new String(Base64.decode(base64, Base64.URL_SAFE));
     }
 
-    public void deleteCurrentUserFlag(@NonNull final String json, final Util.ResultCallback<Void> onCompleteListener) {
+    public void deleteCurrentUserFlag(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
             executor.submit(new Runnable() {
@@ -156,7 +156,7 @@ class DefaultUserManager implements UserManager {
         }
     }
 
-    public void putCurrentUserFlags(final String json, final Util.ResultCallback<Void> onCompleteListener) {
+    public void putCurrentUserFlags(final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
             executor.submit(new Runnable() {
@@ -174,7 +174,7 @@ class DefaultUserManager implements UserManager {
         }
     }
 
-    public void patchCurrentUserFlags(@NonNull final String json, final Util.ResultCallback<Void> onCompleteListener) {
+    public void patchCurrentUserFlags(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
             executor.submit(new Runnable() {
@@ -185,7 +185,7 @@ class DefaultUserManager implements UserManager {
                         onCompleteListener.onSuccess(null);
                     } else {
                         Timber.d("Invalid PATCH payload: %s", json);
-                        onCompleteListener.onError(new LDFailure("Invalid PUT payload",
+                        onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
                                 LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     }
                 }
