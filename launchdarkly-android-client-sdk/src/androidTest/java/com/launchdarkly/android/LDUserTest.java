@@ -7,6 +7,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.launchdarkly.android.value.LDValue;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -55,16 +56,16 @@ public class LDUserTest {
         assertEquals("tester one", ldUser.getName());
         assertEquals("1.1.1.1", ldUser.getIp());
         assertEquals("b", ldUser.getSecondary());
-        assertEquals(new JsonPrimitive("cvaluestring"), ldUser.getCustom("ckeystring"));
-        assertEquals(new JsonPrimitive(7.3), ldUser.getCustom("ckeynum"));
-        assertEquals(new JsonPrimitive(false), ldUser.getCustom("ckeybool"));
-        assertEquals(3, ldUser.getCustom("ckeynumlist").getAsJsonArray().size());
-        assertTrue(ldUser.getCustom("ckeynumlist").getAsJsonArray().contains(new JsonPrimitive(1)));
-        assertTrue(ldUser.getCustom("ckeynumlist").getAsJsonArray().contains(new JsonPrimitive(2)));
-        assertTrue(ldUser.getCustom("ckeynumlist").getAsJsonArray().contains(new JsonPrimitive(3)));
-        assertEquals(2, ldUser.getCustom("ckeystringlist").getAsJsonArray().size());
-        assertTrue(ldUser.getCustom("ckeystringlist").getAsJsonArray().contains(new JsonPrimitive("abc")));
-        assertTrue(ldUser.getCustom("ckeystringlist").getAsJsonArray().contains(new JsonPrimitive("def")));
+        assertEquals(LDValue.of("cvaluestring"), ldUser.getCustom("ckeystring"));
+        assertEquals(LDValue.of(7.3), ldUser.getCustom("ckeynum"));
+        assertEquals(LDValue.of(false), ldUser.getCustom("ckeybool"));
+        assertEquals(3, ldUser.getCustom("ckeynumlist").size());
+        assertEquals(LDValue.of(1), ldUser.getCustom("ckeynumlist").get(0));
+        assertEquals(LDValue.of(2), ldUser.getCustom("ckeynumlist").get(1));
+        assertEquals(LDValue.of(3), ldUser.getCustom("ckeynumlist").get(2));
+        assertEquals(2, ldUser.getCustom("ckeystringlist").size());
+        assertEquals(LDValue.of("abc"), ldUser.getCustom("ckeystringlist").get(0));
+        assertEquals(LDValue.of("def"), ldUser.getCustom("ckeystringlist").get(1));
 
         assertEquals(0, ldUser.getPrivateAttributeNames().size());
 
@@ -136,16 +137,16 @@ public class LDUserTest {
         assertEquals("tester one", ldUser.getName());
         assertEquals("1.1.1.1", ldUser.getIp());
         assertEquals("b", ldUser.getSecondary());
-        assertEquals(new JsonPrimitive("cvaluestring"), ldUser.getCustom("ckeystring"));
-        assertEquals(new JsonPrimitive(7.3), ldUser.getCustom("ckeynum"));
-        assertEquals(new JsonPrimitive(false), ldUser.getCustom("ckeybool"));
-        assertEquals(3, ldUser.getCustom("ckeynumlist").getAsJsonArray().size());
-        assertTrue(ldUser.getCustom("ckeynumlist").getAsJsonArray().contains(new JsonPrimitive(1)));
-        assertTrue(ldUser.getCustom("ckeynumlist").getAsJsonArray().contains(new JsonPrimitive(2)));
-        assertTrue(ldUser.getCustom("ckeynumlist").getAsJsonArray().contains(new JsonPrimitive(3)));
-        assertEquals(2, ldUser.getCustom("ckeystringlist").getAsJsonArray().size());
-        assertTrue(ldUser.getCustom("ckeystringlist").getAsJsonArray().contains(new JsonPrimitive("abc")));
-        assertTrue(ldUser.getCustom("ckeystringlist").getAsJsonArray().contains(new JsonPrimitive("def")));
+        assertEquals(LDValue.of("cvaluestring"), ldUser.getCustom("ckeystring"));
+        assertEquals(LDValue.of(7.3), ldUser.getCustom("ckeynum"));
+        assertEquals(LDValue.of(false), ldUser.getCustom("ckeybool"));
+        assertEquals(3, ldUser.getCustom("ckeynumlist").size());
+        assertEquals(LDValue.of(1), ldUser.getCustom("ckeynumlist").get(0));
+        assertEquals(LDValue.of(2), ldUser.getCustom("ckeynumlist").get(1));
+        assertEquals(LDValue.of(3), ldUser.getCustom("ckeynumlist").get(2));
+        assertEquals(2, ldUser.getCustom("ckeystringlist").size());
+        assertEquals(LDValue.of("abc"), ldUser.getCustom("ckeystringlist").get(0));
+        assertEquals(LDValue.of("def"), ldUser.getCustom("ckeystringlist").get(1));
 
         assertEquals(13, ldUser.getPrivateAttributeNames().size());
         assertTrue(ldUser.getPrivateAttributeNames().contains(LDUser.AVATAR));

@@ -3,11 +3,11 @@ package com.launchdarkly.android;
 import android.support.annotation.IntRange;
 import android.support.annotation.Nullable;
 
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
+import com.launchdarkly.android.value.LDValue;
 
 import timber.log.Timber;
 
@@ -47,17 +47,17 @@ class IdentifyEvent extends GenericEvent {
 
 class CustomEvent extends GenericEvent {
     @Expose
-    final JsonElement data;
+    final LDValue data;
     @Expose
     final Double metricValue;
 
-    CustomEvent(String key, LDUser user, JsonElement data, Double metricValue) {
+    CustomEvent(String key, LDUser user, LDValue data, Double metricValue) {
         super("custom", key, user);
         this.data = data;
         this.metricValue = metricValue;
     }
 
-    CustomEvent(String key, String userKey, JsonElement data, Double metricValue) {
+    CustomEvent(String key, String userKey, LDValue data, Double metricValue) {
         super("custom", key, null);
         this.data = data;
         this.userKey = userKey;
@@ -67,11 +67,11 @@ class CustomEvent extends GenericEvent {
 
 class FeatureRequestEvent extends GenericEvent {
     @Expose
-    JsonElement value;
+    LDValue value;
 
     @Expose
     @SerializedName("default")
-    JsonElement defaultVal;
+    LDValue defaultVal;
 
     @Expose
     Integer version;
@@ -92,7 +92,7 @@ class FeatureRequestEvent extends GenericEvent {
      * @param version    The stored version of the feature flag
      * @param variation  The stored variation of the feature flag
      */
-    FeatureRequestEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal,
+    FeatureRequestEvent(String key, LDUser user, LDValue value, LDValue defaultVal,
                         @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
                         @Nullable Integer variation,
                         @Nullable EvaluationReason reason) {
@@ -113,7 +113,7 @@ class FeatureRequestEvent extends GenericEvent {
      * @param version    The stored version of the feature flag
      * @param variation  The stored variation of the feature flag
      */
-    FeatureRequestEvent(String key, String userKey, JsonElement value, JsonElement defaultVal,
+    FeatureRequestEvent(String key, String userKey, LDValue value, LDValue defaultVal,
                         @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
                         @Nullable Integer variation,
                         @Nullable EvaluationReason reason) {
@@ -143,7 +143,7 @@ class FeatureRequestEvent extends GenericEvent {
 
 class DebugEvent extends FeatureRequestEvent {
 
-    DebugEvent(String key, LDUser user, JsonElement value, JsonElement defaultVal, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version, @Nullable Integer variation, @Nullable EvaluationReason reason) {
+    DebugEvent(String key, LDUser user, LDValue value, LDValue defaultVal, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version, @Nullable Integer variation, @Nullable EvaluationReason reason) {
         super(key, user, value, defaultVal, version, variation, reason);
         this.kind = "debug";
     }

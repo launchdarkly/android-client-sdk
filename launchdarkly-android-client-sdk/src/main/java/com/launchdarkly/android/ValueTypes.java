@@ -5,6 +5,8 @@ import android.support.annotation.Nullable;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
+import com.launchdarkly.android.value.LDValue;
+import com.launchdarkly.android.value.LDValueType;
 
 import timber.log.Timber;
 
@@ -13,88 +15,103 @@ import timber.log.Timber;
  */
 abstract class ValueTypes {
     /**
-     * Implements JSON serialization and deserialization for a specific type.
+     * Implements LDValue conversion for a specific type.
      * @param <T> the requested value type
      */
-    public interface Converter<T> {
+    interface Converter<T> {
         /**
-         * Converts a JSON value to the desired type. The JSON value is guaranteed to be non-null.
-         * @param jsonValue the JSON value
+         * Converts an LDValue to the desired type. The LDValue is guaranteed to be non-null.
+         * @param ldValue the JSON value
          * @return the converted value, or null if the JSON value was not of the correct type
          */
         @Nullable
-        T valueFromJson(@NonNull JsonElement jsonValue);
+        T extractValue(@NonNull LDValue ldValue);
 
         /**
-         * Converts a value to JSON. The value is guaranteed to be non-null.
+         * Converts a value to an LDValue. The value is guaranteed to be non-null.
          * @param value the value
          * @return the JSON value
          */
         @NonNull
-        JsonElement valueToJson(@NonNull T value);
+        LDValue embedValue(@NonNull T value);
     }
 
-    public static final Converter<Boolean> BOOLEAN = new Converter<Boolean>() {
+    static final Converter<Boolean> BOOLEAN = new Converter<Boolean>() {
         @Override
-        public Boolean valueFromJson(@NonNull JsonElement jsonValue) {
-            return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isBoolean()) ? jsonValue.getAsBoolean() : null;
+        public Boolean extractValue(@NonNull LDValue ldValue) {
+            return (ldValue.isBoolean() ? ldValue.booleanValue() : null);
         }
 
         @NonNull
         @Override
-        public JsonElement valueToJson(@NonNull Boolean value) {
-            return new JsonPrimitive(value);
+        public LDValue embedValue(@NonNull Boolean value) {
+            return LDValue.of(value);
         }
     };
 
-    public static final Converter<Integer> INT = new Converter<Integer>() {
+    static final Converter<Integer> INT = new Converter<Integer>() {
         @Override
-        public Integer valueFromJson(@NonNull JsonElement jsonValue) {
-            return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsInt() : null;
+        public Integer extractValue(@NonNull LDValue ldValue) {
+            return (ldValue.isNumber() ? ldValue.intValue() : null);
         }
 
         @NonNull
         @Override
-        public JsonElement valueToJson(@NonNull Integer value) {
-            return new JsonPrimitive(value);
+        public LDValue embedValue(@NonNull Integer value) {
+            return LDValue.of(value);
         }
     };
 
-    public static final Converter<Float> FLOAT = new Converter<Float>() {
+    static final Converter<Float> FLOAT = new Converter<Float>() {
         @Override
-        public Float valueFromJson(@NonNull JsonElement jsonValue) {
-            return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsFloat() : null;
+        public Float extractValue(@NonNull LDValue ldValue) {
+            return (ldValue.isNumber() ? ldValue.floatValue() : null);
         }
 
         @NonNull
         @Override
-        public JsonElement valueToJson(@NonNull Float value) {
-            return new JsonPrimitive(value);
+        public LDValue embedValue(@NonNull Float value) {
+            return LDValue.of(value);
         }
     };
 
-    public static final Converter<String> STRING = new Converter<String>() {
+    static final Converter<String> STRING = new Converter<String>() {
         @Override
-        public String valueFromJson(@NonNull JsonElement jsonValue) {
-            return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) ? jsonValue.getAsString() : null;
+        public String extractValue(@NonNull LDValue ldValue) {
+            return ldValue.stringValue();
         }
 
         @NonNull
         @Override
-        public JsonElement valueToJson(@NonNull String value) {
-            return new JsonPrimitive(value);
+        public LDValue embedValue(@NonNull String value) {
+            return LDValue.of(value);
         }
     };
 
-    public static final Converter<JsonElement> JSON = new Converter<JsonElement>() {
+    static final Converter<JsonElement> JSON = new Converter<JsonElement>() {
         @Override
-        public JsonElement valueFromJson(@NonNull JsonElement jsonValue) {
-            return jsonValue;
+        public JsonElement extractValue(@NonNull LDValue ldValue) {
+            //noinspection deprecation
+            return ldValue.asJsonElement();
         }
 
         @NonNull
         @Override
-        public JsonElement valueToJson(@NonNull JsonElement value) {
+        public LDValue embedValue(@NonNull JsonElement value) {
+            //noinspection deprecation
+            return LDValue.fromJsonElement(value);
+        }
+    };
+
+    static final Converter<LDValue> LDVALUE = new Converter<LDValue>() {
+        @Override
+        public LDValue extractValue(@NonNull LDValue ldValue) {
+            return ldValue;
+        }
+
+        @NonNull
+        @Override
+        public LDValue embedValue(@NonNull LDValue value) {
             return value;
         }
     };

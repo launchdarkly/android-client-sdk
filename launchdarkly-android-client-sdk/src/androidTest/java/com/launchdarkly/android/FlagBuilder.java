@@ -2,13 +2,13 @@ package com.launchdarkly.android;
 
 import android.support.annotation.NonNull;
 
-import com.google.gson.JsonElement;
+import com.launchdarkly.android.value.LDValue;
 
 public class FlagBuilder {
 
     @NonNull
     private String key;
-    private JsonElement value = null;
+    private LDValue value = null;
     private Integer version = null;
     private Integer flagVersion = null;
     private Integer variation = null;
@@ -21,7 +21,7 @@ public class FlagBuilder {
         this.key = key;
     }
 
-    public FlagBuilder value(JsonElement value) {
+    public FlagBuilder value(LDValue value) {
         this.value = value;
         return this;
     }

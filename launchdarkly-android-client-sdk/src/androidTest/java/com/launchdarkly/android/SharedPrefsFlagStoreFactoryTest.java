@@ -4,10 +4,6 @@ import android.app.Application;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 
-import com.launchdarkly.android.TimberLoggingRule;
-import com.launchdarkly.android.FlagStore;
-import com.launchdarkly.android.SharedPrefsFlagStore;
-import com.launchdarkly.android.SharedPrefsFlagStoreFactory;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Rule;
