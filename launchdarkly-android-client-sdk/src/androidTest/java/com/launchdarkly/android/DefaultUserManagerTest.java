@@ -90,8 +90,8 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         assertEquals(2, flagStore.getAllFlags().size());
-        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
-        assertEquals(expectedStringFlagValue, flagStore.getFlag("stringFlag1").getValue().getAsString());
+        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().booleanValue());
+        assertEquals(expectedStringFlagValue, flagStore.getFlag("stringFlag1").getValue().stringValue());
     }
 
     @Test
@@ -182,14 +182,14 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         assertEquals(2, flagStore.getAllFlags().size());
-        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
-        assertEquals(expectedStringFlagValue, flagStore.getFlag("stringFlag1").getValue().getAsString());
+        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().booleanValue());
+        assertEquals(expectedStringFlagValue, flagStore.getFlag("stringFlag1").getValue().stringValue());
 
         AwaitableCallback<Void> deleteAwait = new AwaitableCallback<>();
         userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}", deleteAwait);
         deleteAwait.await();
         assertNull(flagStore.getFlag("stringFlag1"));
-        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
+        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().booleanValue());
 
         deleteAwait.reset();
         userManager.deleteCurrentUserFlag("{\"key\":\"nonExistentFlag\",\"version\":16,\"value\":false}", deleteAwait);
@@ -262,7 +262,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
-        assertEquals("string1", flagStore.getFlag("stringFlag1").getValue().getAsString());
+        assertEquals("string1", flagStore.getFlag("stringFlag1").getValue().stringValue());
 
         userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":127}", awaitableCallback);
         awaitableCallback.await();
@@ -289,24 +289,24 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.reset();
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
-        assertEquals(false, flagStore.getFlag("new-flag").getValue().getAsBoolean());
+        assertEquals(false, flagStore.getFlag("new-flag").getValue().booleanValue());
 
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":16,\"value\":\"string2\"}", awaitableCallback);
         awaitableCallback.await();
         awaitableCallback.reset();
-        assertEquals("string2", flagStore.getFlag("stringFlag1").getValue().getAsString());
+        assertEquals("string2", flagStore.getFlag("stringFlag1").getValue().stringValue());
 
         userManager.patchCurrentUserFlags("{\"key\":\"boolFlag1\",\"version\":16,\"value\":false}", awaitableCallback);
         awaitableCallback.await();
         awaitableCallback.reset();
-        assertEquals(false, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
+        assertEquals(false, flagStore.getFlag("boolFlag1").getValue().booleanValue());
 
-        assertEquals(3.0f, flagStore.getFlag("floatFlag1").getValue().getAsFloat());
+        assertEquals(3.0f, flagStore.getFlag("floatFlag1").getValue().floatValue());
 
         userManager.patchCurrentUserFlags("{\"key\":\"floatFlag2\",\"version\":16,\"value\":8.0}", awaitableCallback);
         awaitableCallback.await();
-        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().getAsFloat());
+        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().floatValue());
     }
 
     @Test
@@ -323,7 +323,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         Flag flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertNull(flag1.getVersion());
 
         //// case 2: value exists in shared preferences without version.
@@ -332,7 +332,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertNull(flag1.getVersion());
 
         // version does not exist in shared preferences but exists in patch.
@@ -342,7 +342,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertEquals(558, (int) flag1.getVersion());
         assertEquals(3, (int) flag1.getFlagVersion());
         assertEquals(3, flag1.getVersionForEvents());
@@ -353,7 +353,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertEquals(558, (int) flag1.getVersion());
         assertEquals(3, (int) flag1.getFlagVersion());
         assertEquals(3, flag1.getVersionForEvents());
@@ -365,7 +365,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertNull(flag1.getVersion());
         assertNull(flag1.getFlagVersion());
         assertEquals(-1, flag1.getVersionForEvents());
@@ -376,7 +376,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":559,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}", awaitableCallback);
         awaitableCallback.await();
         flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().getAsString());
+        assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertEquals(559, (int) flag1.getVersion());
         assertEquals(3, (int) flag1.getFlagVersion());
         assertEquals(3, flag1.getVersionForEvents());
@@ -404,7 +404,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.reset();
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         Flag stringFlag1 = flagStore.getFlag("stringFlag1");
-        assertEquals("string1", stringFlag1.getValue().getAsString());
+        assertEquals("string1", stringFlag1.getValue().stringValue());
         assertNull(stringFlag1.getFlagVersion());
         assertEquals(125, stringFlag1.getVersionForEvents());
 
@@ -412,7 +412,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         stringFlag1 = flagStore.getFlag("stringFlag1");
-        assertEquals("string2", stringFlag1.getValue().getAsString());
+        assertEquals("string2", stringFlag1.getValue().stringValue());
         assertEquals(126, (int) stringFlag1.getVersion());
         assertNull(stringFlag1.getFlagVersion());
         assertEquals(126, stringFlag1.getVersionForEvents());
@@ -421,7 +421,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         awaitableCallback.reset();
         stringFlag1 = flagStore.getFlag("stringFlag1");
-        assertEquals("string3", stringFlag1.getValue().getAsString());
+        assertEquals("string3", stringFlag1.getValue().stringValue());
         assertEquals(127, (int) stringFlag1.getVersion());
         assertEquals(3, (int) stringFlag1.getFlagVersion());
         assertEquals(3, stringFlag1.getVersionForEvents());
@@ -429,7 +429,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag20\",\"version\":1,\"value\":\"stringValue\"}", awaitableCallback);
         awaitableCallback.await();
         Flag stringFlag20 = flagStore.getFlag("stringFlag20");
-        assertEquals("stringValue", stringFlag20.getValue().getAsString());
+        assertEquals("stringValue", stringFlag20.getValue().stringValue());
     }
 
     @Test
@@ -511,13 +511,13 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
 
-        assertEquals("string2", flagStore.getFlag("stringFlag1").getValue().getAsString());
-        assertEquals(false, flagStore.getFlag("boolFlag1").getValue().getAsBoolean());
+        assertEquals("string2", flagStore.getFlag("stringFlag1").getValue().stringValue());
+        assertEquals(false, flagStore.getFlag("boolFlag1").getValue().booleanValue());
 
         // Should no exist as was deleted by PUT.
         assertNull(flagStore.getFlag("floatFlag1"));
 
-        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().getAsFloat());
+        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().floatValue());
     }
 
     @Test
@@ -635,7 +635,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     private void assertFlagValue(String flagKey, String expectedValue) {
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
-        assertEquals(expectedValue, flagStore.getFlag(flagKey).getValue().getAsString());
+        assertEquals(expectedValue, flagStore.getFlag(flagKey).getValue().stringValue());
     }
 
 }

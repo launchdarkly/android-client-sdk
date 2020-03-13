@@ -5,13 +5,12 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import android.util.Base64;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonPrimitive;
 import com.google.gson.TypeAdapter;
 import com.google.gson.annotations.Expose;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import com.launchdarkly.android.value.ArrayBuilder;
+import com.launchdarkly.android.value.LDValue;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -82,7 +81,7 @@ public class LDUser {
     @Expose
     private final String country;
     @Expose
-    private final Map<String, JsonElement> custom;
+    private final Map<String, LDValue> custom;
 
     @NonNull
     @Expose(deserialize = false, serialize = false)
@@ -173,7 +172,7 @@ public class LDUser {
         return anonymous;
     }
 
-    JsonElement getCustom(String key) {
+    LDValue getCustom(String key) {
         if (custom != null) {
             return custom.get(key);
         }
@@ -199,6 +198,7 @@ public class LDUser {
      *      .build()
      * </pre>
      */
+    @SuppressWarnings("WeakerAccess")
     public static class Builder {
 
         private String key;
@@ -214,7 +214,7 @@ public class LDUser {
         @SuppressWarnings("deprecation")
         private LDCountryCode country;
 
-        private final Map<String, JsonElement> custom;
+        private final Map<String, LDValue> custom;
 
         @NonNull
         private final Set<String> privateAttributeNames;
@@ -228,8 +228,8 @@ public class LDUser {
             this.key = key;
             this.custom = new HashMap<>();
 
-            custom.put(LDUser.OS, new JsonPrimitive(Build.VERSION.SDK_INT));
-            custom.put(LDUser.DEVICE, new JsonPrimitive(Build.MODEL + " " + Build.PRODUCT));
+            custom.put(LDUser.OS, LDValue.of(Build.VERSION.SDK_INT));
+            custom.put(LDUser.DEVICE, LDValue.of(Build.MODEL + " " + Build.PRODUCT));
             privateAttributeNames = new HashSet<>();
         }
 
@@ -503,7 +503,7 @@ public class LDUser {
             }
         }
 
-        private Builder customJson(String k, JsonElement v) {
+        private Builder customValue(String k, LDValue v) {
             checkCustomAttribute(k);
             if (k != null && v != null) {
                 custom.put(k, v);
@@ -521,7 +521,7 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, String v) {
-            return customJson(k, new JsonPrimitive(v));
+            return customValue(k, LDValue.of(v));
         }
 
         /**
@@ -536,7 +536,7 @@ public class LDUser {
          */
         public Builder privateCustom(String k, String v) {
             privateAttributeNames.add(k);
-            return customJson(k, new JsonPrimitive(v));
+            return customValue(k, LDValue.of(v));
         }
 
         /**
@@ -550,7 +550,7 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, Number n) {
-            return customJson(k, new JsonPrimitive(n));
+            return customValue(k, LDValue.of(n.doubleValue()));
         }
 
         /**
@@ -566,7 +566,7 @@ public class LDUser {
          */
         public Builder privateCustom(String k, Number n) {
             privateAttributeNames.add(k);
-            return customJson(k, new JsonPrimitive(n));
+            return customValue(k, LDValue.of(n.doubleValue()));
         }
 
         /**
@@ -580,7 +580,7 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, Boolean b) {
-            return customJson(k, new JsonPrimitive(b));
+            return customValue(k, LDValue.of(b));
         }
 
         /**
@@ -596,7 +596,7 @@ public class LDUser {
          */
         public Builder privateCustom(String k, Boolean b) {
             privateAttributeNames.add(k);
-            return customJson(k, new JsonPrimitive(b));
+            return customValue(k, LDValue.of(b));
         }
 
         /**
@@ -626,13 +626,13 @@ public class LDUser {
          * @return the builder
          */
         public Builder customString(String k, List<String> vs) {
-            JsonArray array = new JsonArray();
+            ArrayBuilder arrayBuilder = new ArrayBuilder();
             for (String v : vs) {
                 if (v != null) {
-                    array.add(new JsonPrimitive(v));
+                    arrayBuilder.add(LDValue.of(v));
                 }
             }
-            return customJson(k, array);
+            return customValue(k, arrayBuilder.build());
         }
 
         /**
@@ -662,13 +662,13 @@ public class LDUser {
          * @return the builder
          */
         public Builder customNumber(String k, List<Number> vs) {
-            JsonArray array = new JsonArray();
+            ArrayBuilder arrayBuilder = new ArrayBuilder();
             for (Number v : vs) {
                 if (v != null) {
-                    array.add(new JsonPrimitive(v));
+                    arrayBuilder.add(LDValue.of(v.doubleValue()));
                 }
             }
-            return customJson(k, array);
+            return customValue(k, arrayBuilder.build());
         }
 
         /**
@@ -754,7 +754,7 @@ public class LDUser {
         private void writeCustomAttrs(JsonWriter out, LDUser user,
                                       Set<String> privateAttrs) throws IOException {
             boolean beganObject = false;
-            for (Map.Entry<String, JsonElement> entry : user.custom.entrySet()) {
+            for (Map.Entry<String, LDValue> entry : user.custom.entrySet()) {
                 if (isPrivate(entry.getKey(), user)) {
                     privateAttrs.add(entry.getKey());
                 } else {
@@ -764,7 +764,7 @@ public class LDUser {
                         beganObject = true;
                     }
                     out.name(entry.getKey());
-                    LDConfig.GSON.getAdapter(JsonElement.class).write(out, entry.getValue());
+                    LDConfig.GSON.getAdapter(LDValue.class).write(out, entry.getValue());
                 }
             }
             if (beganObject) {

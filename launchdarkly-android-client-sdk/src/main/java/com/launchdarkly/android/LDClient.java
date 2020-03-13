@@ -10,6 +10,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 
 import com.google.gson.JsonElement;
+import com.launchdarkly.android.value.LDValue;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -254,13 +255,10 @@ public class LDClient implements LDClientInterface, Closeable {
         return builder.build();
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void track(String eventName, JsonElement data, Double metricValue) {
-        if (config.inlineUsersInEvents()) {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
-        } else {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data, metricValue));
-        }
+        trackMetric(eventName, LDValue.fromJsonElement(data), metricValue);
     }
 
     @Override
@@ -268,9 +266,21 @@ public class LDClient implements LDClientInterface, Closeable {
         track(eventName, data, null);
     }
 
+    public void trackMetric(String eventName, LDValue data, Double metricValue) {
+        if (config.inlineUsersInEvents()) {
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
+        } else {
+            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data, metricValue));
+        }
+    }
+
+    public void trackData(String eventName, LDValue data) {
+        trackMetric(eventName, data, null);
+    }
+
     @Override
     public void track(String eventName) {
-        track(eventName, null);
+        trackData(eventName, null);
     }
 
     @Override
@@ -319,21 +329,21 @@ public class LDClient implements LDClientInterface, Closeable {
     public Map<String, ?> allFlags() {
         Map<String, Object> result = new HashMap<>();
         for (Flag flag : userManager.getCurrentUserFlagStore().getAllFlags()) {
-            JsonElement jsonVal = flag.getValue();
-            if (jsonVal == null || jsonVal.isJsonNull()) {
+            LDValue value = flag.getValue();
+            if (value.isNull()) {
                 // TODO(gwhelanld): Include null flag values in results in 3.0.0
                 continue;
-            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isBoolean()) {
-                result.put(flag.getKey(), jsonVal.getAsBoolean());
-            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isNumber()) {
-                result.put(flag.getKey(), jsonVal.getAsFloat());
-            } else if (jsonVal.isJsonPrimitive() && jsonVal.getAsJsonPrimitive().isString()) {
-                result.put(flag.getKey(), jsonVal.getAsString());
+            } else if (value.isBoolean()) {
+                result.put(flag.getKey(), value.booleanValue());
+            } else if (value.isNumber()) {
+                result.put(flag.getKey(), value.floatValue());
+            } else if (value.isString()) {
+                result.put(flag.getKey(), value.stringValue());
             } else {
                 // Returning JSON flag as String for backwards compatibility. In the next major
-                // release (3.0.0) this method will return a Map containing JsonElements for JSON
+                // release (3.0.0) this method will return a Map containing LDValue for JSON
                 // flags
-                result.put(flag.getKey(), GsonCache.getGson().toJson(jsonVal));
+                result.put(flag.getKey(), value.toJsonString());
             }
         }
         return result;
@@ -391,6 +401,14 @@ public class LDClient implements LDClientInterface, Closeable {
         return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, true);
     }
 
+    public LDValue jsonValueVariation(String flagKey, LDValue fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.LDVALUE, false).getValue();
+    }
+
+    public EvaluationDetail<LDValue> jsonValueVariationDetail(String flagKey, LDValue fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.LDVALUE, true);
+    }
+
     private <T> EvaluationDetail<T> variationDetailInternal(String flagKey, T fallback, ValueTypes.Converter<T> typeConverter, boolean includeReasonInEvent) {
         if (flagKey == null) {
             Timber.e("Attempted to get flag with a null value for key. Returning fallback: %s", fallback);
@@ -398,33 +416,33 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
-        JsonElement fallbackJson = fallback == null ? null : typeConverter.valueToJson(fallback);
-        JsonElement valueJson = fallbackJson;
+        LDValue fallbackValue = fallback == null ? null : typeConverter.embedValue(fallback);
+        LDValue flagValue = fallbackValue;
         EvaluationDetail<T> result;
 
         if (flag == null) {
             Timber.e("Attempted to get non-existent flag for key: %s Returning fallback: %s", flagKey, fallback);
             result = EvaluationDetail.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND, fallback);
         } else {
-            valueJson = flag.getValue();
-            if (valueJson == null || valueJson.isJsonNull()) {
+            flagValue = flag.getValue();
+            if (flagValue.isNull()) {
                 Timber.e("Attempted to get flag without value for key: %s Returning fallback: %s", flagKey, fallback);
                 result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), fallback);
-                valueJson = fallbackJson;
+                flagValue = fallbackValue;
             } else {
-                T value = typeConverter.valueFromJson(valueJson);
+                T value = typeConverter.extractValue(flagValue);
                 if (value == null) {
                     Timber.e("Attempted to get flag with wrong type for key: %s Returning fallback: %s", flagKey, fallback);
                     result = EvaluationDetail.error(EvaluationReason.ErrorKind.WRONG_TYPE, fallback);
-                    valueJson = fallbackJson;
+                    flagValue = fallbackValue;
                 } else {
                     result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), value);
                 }
             }
-            sendFlagRequestEvent(flagKey, flag, valueJson, fallbackJson, flag.isTrackReason() | includeReasonInEvent ? result.getReason() : null);
+            sendFlagRequestEvent(flagKey, flag, flagValue, fallbackValue, flag.isTrackReason() | includeReasonInEvent ? result.getReason() : null);
         }
 
-        updateSummaryEvents(flagKey, flag, valueJson, fallbackJson);
+        updateSummaryEvents(flagKey, flag, flagValue, fallbackValue);
         Timber.d("returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKey());
         return result;
     }
@@ -623,7 +641,7 @@ public class LDClient implements LDClientInterface, Closeable {
         connectivityManager.onNetworkConnectivityChange(connectedToInternet);
     }
 
-    private void sendFlagRequestEvent(String flagKey, Flag flag, JsonElement value, JsonElement fallback, EvaluationReason reason) {
+    private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue fallback, EvaluationReason reason) {
         int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
         if (flag.getTrackEvents()) {
@@ -662,13 +680,14 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param result   The value that was returned in the evaluation of the flagKey
      * @param fallback The fallback value used in the evaluation of the flagKey
      */
-    private void updateSummaryEvents(String flagKey, Flag flag, JsonElement result, JsonElement fallback) {
+    @SuppressWarnings("deprecation")
+    private void updateSummaryEvents(String flagKey, Flag flag, LDValue result, LDValue fallback) {
         if (flag == null) {
-            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, -1, null);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result).asJsonElement(), LDValue.normalize(fallback).asJsonElement(), -1, null);
         } else {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
-            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, version, variation);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result).asJsonElement(), LDValue.normalize(fallback).asJsonElement(), version, variation);
         }
     }
 
