@@ -564,7 +564,7 @@ public class LDConfig {
 
         /**
          * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
-         * milliseconds) and the minimum value is 60,000.
+         * milliseconds) and the minimum value is 300,000 (5 minutes).
          *
          * @see #setDiagnosticOptOut(boolean) for more information on the diagnostics data being sent.
          *
