@@ -455,6 +455,7 @@ public class LDClient implements LDClientInterface, Closeable {
         for (LDClient client : instances.values()) {
             client.closeInternal();
         }
+        instances = null;
     }
 
     @Override
