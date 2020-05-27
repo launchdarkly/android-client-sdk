@@ -34,6 +34,7 @@ public class LDConfig {
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
     static final int DEFAULT_EVENTS_CAPACITY = 100;
+    static final int DEFAULT_MAX_CACHED_USERS = 5;
     static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
@@ -55,6 +56,7 @@ public class LDConfig {
     private final int pollingIntervalMillis;
     private final int backgroundPollingIntervalMillis;
     private final int diagnosticRecordingIntervalMillis;
+    private final int maxCachedUsers;
 
     private final boolean stream;
     private final boolean offline;
@@ -94,7 +96,8 @@ public class LDConfig {
              boolean diagnosticOptOut,
              int diagnosticRecordingIntervalMillis,
              String wrapperName,
-             String wrapperVersion) {
+             String wrapperVersion,
+             int maxCachedUsers) {
 
         this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
@@ -117,6 +120,7 @@ public class LDConfig {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
+        this.maxCachedUsers = maxCachedUsers;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -243,6 +247,10 @@ public class LDConfig {
         return wrapperVersion;
     }
 
+    int getMaxCachedUsers() {
+        return maxCachedUsers;
+    }
+
     /**
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
@@ -267,6 +275,7 @@ public class LDConfig {
         private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
         private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
         private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+        private int maxCachedUsers = DEFAULT_MAX_CACHED_USERS;
 
         private boolean offline = false;
         private boolean stream = true;
@@ -604,6 +613,22 @@ public class LDConfig {
         }
 
         /**
+         * Sets the maximum number of users to cache the flag values for locally in the device's
+         * SharedPreferences.
+         * <p>
+         * Note that the active user is not considered part of this limit, as it will always be
+         * served from the backing SharedPreferences.
+         *
+         * @param maxCachedUsers The maximum number of users to cache, negative values represent
+         *                       allowing an unlimited number of cached users.
+         * @return the builder
+         */
+        public LDConfig.Builder setMaxCachedUsers(int maxCachedUsers) {
+            this.maxCachedUsers = maxCachedUsers;
+            return this;
+        }
+
+        /**
          * Returns the configured {@link LDConfig} object.
          * @return the configuration
          */
@@ -671,7 +696,8 @@ public class LDConfig {
                     diagnosticOptOut,
                     diagnosticRecordingIntervalMillis,
                     wrapperName,
-                    wrapperVersion);
+                    wrapperVersion,
+                    maxCachedUsers);
         }
     }
 }

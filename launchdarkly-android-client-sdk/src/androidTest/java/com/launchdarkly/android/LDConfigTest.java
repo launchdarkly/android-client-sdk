@@ -224,4 +224,14 @@ public class LDConfigTest {
         LDConfig config = new LDConfig.Builder().setWrapperVersion("0.1.0").build();
         assertEquals("0.1.0", config.getWrapperVersion());
     }
+
+    @Test
+    public void testBuilderMaxCachedUsers() {
+        LDConfig config = new LDConfig.Builder().setMaxCachedUsers(0).build();
+        assertEquals(0, config.getMaxCachedUsers());
+        config = new LDConfig.Builder().setMaxCachedUsers(10).build();
+        assertEquals(10, config.getMaxCachedUsers());
+        config = new LDConfig.Builder().setMaxCachedUsers(-1).build();
+        assertEquals(-1, config.getMaxCachedUsers());
+    }
 }
