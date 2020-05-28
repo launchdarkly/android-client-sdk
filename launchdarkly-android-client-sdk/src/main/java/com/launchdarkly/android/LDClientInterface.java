@@ -4,6 +4,7 @@ package com.launchdarkly.android;
 import android.app.Application;
 
 import com.google.gson.JsonElement;
+import com.launchdarkly.android.value.LDValue;
 
 import java.io.Closeable;
 import java.util.Map;
@@ -58,12 +59,34 @@ public interface LDClientInterface extends Closeable {
      * Tracks that a user performed an event.
      *
      * @param eventName   the name of the event
-     * @param data        a JSON object containing additional data associated with the event
+     * @param data        a {@link LDValue} containing additional data associated with the event; may be null
      * @param metricValue A numeric value used by the LaunchDarkly experimentation feature in
      *                    numeric custom metrics. Can be omitted if this event is used by only
      *                    non-numeric metrics. This field will also be returned as part of the
      *                    custom event for Data Export.
      */
+    void trackMetric(String eventName, LDValue data, double metricValue);
+
+    /**
+     * Tracks that a user performed an event.
+     *
+     * @param eventName the name of the event
+     * @param data      a {@link LDValue} containing additional data associated with the event
+     */
+    void trackData(String eventName, LDValue data);
+
+    /**
+     * Tracks that a user performed an event.
+     *
+     * @param eventName   the name of the event
+     * @param data        a JSON object containing additional data associated with the event
+     * @param metricValue A numeric value used by the LaunchDarkly experimentation feature in
+     *                    numeric custom metrics. Can be omitted if this event is used by only
+     *                    non-numeric metrics. This field will also be returned as part of the
+     *                    custom event for Data Export.
+     * @deprecated Use {@link #trackMetric(String, LDValue, double)}.
+     */
+    @Deprecated
     void track(String eventName, JsonElement data, Double metricValue);
 
     /**
@@ -71,7 +94,9 @@ public interface LDClientInterface extends Closeable {
      *
      * @param eventName the name of the event
      * @param data      a JSON object containing additional data associated with the event
+     * @deprecated Use {@link #trackData(String, LDValue)}.
      */
+    @Deprecated
     void track(String eventName, JsonElement data);
 
     /**
@@ -228,7 +253,10 @@ public interface LDClientInterface extends Closeable {
      * @param flagKey key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
+     * @deprecated Use {@link #jsonValueVariation(String, LDValue)}. Gson types may be removed
+     * from the public API in the future.
      */
+    @Deprecated
     JsonElement jsonVariation(String flagKey, JsonElement fallback);
 
     /**
@@ -241,10 +269,42 @@ public interface LDClientInterface extends Closeable {
      * @param flagKey key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag (see {@link #jsonVariation(String, JsonElement)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
+     * @since 2.7.0
+     * @deprecated Use {@link #jsonValueVariationDetail(String, LDValue)}. Gson types may be removed
+     * from the public API in the future.
+     */
+    @Deprecated
+    EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback);
+
+    /**
+     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
+     * <ol>
+     * <li>Flag is missing</li>
+     * <li>Any other error</li>
+     * </ol>
+     *
+     * Note that a null fallback value will be normalized to a LDValue.ofNull() before being returned by this method.
+     *
+     * @param flagKey key for the flag to evaluate
+     * @param fallback fallback value in case of errors evaluating the flag
+     * @return value of the flag or fallback
+     */
+    LDValue jsonValueVariation(String flagKey, LDValue fallback);
+
+    /**
+     * Returns the flag value for the current user, along with information about how it was calculated.
+     *
+     * Note that this will only work if you have set {@code evaluationReasons} to true with
+     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
+     * will be null.
+     *
+     * @param flagKey key for the flag to evaluate
+     * @param fallback fallback value in case of errors evaluating the flag (see {@link #jsonValueVariation(String, LDValue)})
+     * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      * @since 2.7.0
      */
-    EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback);
+    EvaluationDetail<LDValue> jsonValueVariationDetail(String flagKey, LDValue fallback);
 
     /**
      * Registers a {@link FeatureFlagChangeListener} to be called when the <code>flagKey</code> changes

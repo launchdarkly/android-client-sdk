@@ -76,6 +76,9 @@ public class LDClientTest {
         JsonObject expectedJson = new JsonObject();
         expectedJson.addProperty("field", "value");
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+
+        LDValue expectedValue = LDValue.buildObject().put("field", "value").build();
+        assertEquals(expectedValue, ldClient.jsonValueVariation("valueFlag", expectedValue));
     }
 
     @Test
@@ -84,12 +87,13 @@ public class LDClientTest {
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
-        assertNull(ldClient.jsonVariation("jsonFlag", null));
 
         assertNull(ldClient.boolVariation("boolFlag", null));
         assertNull(ldClient.floatVariation("floatFlag", null));
         assertNull(ldClient.intVariation("intFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
+        assertNull(ldClient.jsonVariation("jsonFlag", null));
+        assertEquals(LDValue.ofNull(), ldClient.jsonValueVariation("valueFlag", null));
     }
 
     @Test
@@ -187,9 +191,50 @@ public class LDClientTest {
                 JsonObject expectedJson = new JsonObject();
                 expectedJson.addProperty("field", "value");
                 assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+
+                LDValue expectedValue = LDValue.buildObject().put("field", "value").build();
+                assertEquals(expectedValue, ldClient.jsonValueVariation("valueFlag", expectedValue));
             }
         });
         backgroundComplete.get();
+    }
+
+    @Test
+    public void eventGenerationDoesNotCrash() throws IOException {
+        // The only reason this test starts an event server is so we don't wait a full second
+        // during tests for a retry when doing the blockingFlush.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+
+            // Don't wait as we are not set offline
+            ldClient = LDClient.init(application, ldConfig, ldUser, 0);
+
+            // Do a variety of evaluations
+            assertTrue(ldClient.boolVariation("boolFlag", true));
+            assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
+            assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
+            assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
+
+            JsonObject expectedJson = new JsonObject();
+            expectedJson.addProperty("field", "value");
+            assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+
+            LDValue expectedValue = LDValue.buildObject().put("field", "value").build();
+            assertEquals(expectedValue, ldClient.jsonValueVariation("valueFlag", expectedValue));
+
+            assertNull(ldClient.boolVariation("boolFlag", null));
+            assertNull(ldClient.floatVariation("floatFlag", null));
+            assertNull(ldClient.intVariation("intFlag", null));
+            assertNull(ldClient.stringVariation("stringFlag", null));
+            assertNull(ldClient.jsonVariation("jsonFlag", null));
+            assertEquals(LDValue.ofNull(), ldClient.jsonValueVariation("valueFlag", null));
+
+            ldClient.blockingFlush();
+        }
     }
 
     @Test
@@ -275,6 +320,7 @@ public class LDClientTest {
         }
     }
 
+    @SuppressWarnings("deprecation")
     @Test
     public void testTrackDataNull() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
@@ -350,6 +396,7 @@ public class LDClientTest {
         }
     }
 
+    @SuppressWarnings("deprecation")
     @Test
     public void testTrackMetric() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
@@ -425,6 +472,7 @@ public class LDClientTest {
         }
     }
 
+    @SuppressWarnings("deprecation")
     @Test
     public void testTrackMetricNull() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {

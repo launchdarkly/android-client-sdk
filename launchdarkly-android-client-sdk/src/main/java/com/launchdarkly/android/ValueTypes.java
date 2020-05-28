@@ -4,7 +4,6 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
 import com.google.gson.JsonElement;
-import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.value.LDValue;
 import com.launchdarkly.android.value.LDValueType;
 
@@ -39,7 +38,7 @@ abstract class ValueTypes {
     static final Converter<Boolean> BOOLEAN = new Converter<Boolean>() {
         @Override
         public Boolean extractValue(@NonNull LDValue ldValue) {
-            return (ldValue.isBoolean() ? ldValue.booleanValue() : null);
+            return ldValue.isBoolean() ? ldValue.booleanValue() : null;
         }
 
         @NonNull
@@ -52,7 +51,7 @@ abstract class ValueTypes {
     static final Converter<Integer> INT = new Converter<Integer>() {
         @Override
         public Integer extractValue(@NonNull LDValue ldValue) {
-            return (ldValue.isNumber() ? ldValue.intValue() : null);
+            return ldValue.isNumber() ? ldValue.intValue() : null;
         }
 
         @NonNull
@@ -65,7 +64,7 @@ abstract class ValueTypes {
     static final Converter<Float> FLOAT = new Converter<Float>() {
         @Override
         public Float extractValue(@NonNull LDValue ldValue) {
-            return (ldValue.isNumber() ? ldValue.floatValue() : null);
+            return ldValue.isNumber() ? ldValue.floatValue() : null;
         }
 
         @NonNull
@@ -78,7 +77,7 @@ abstract class ValueTypes {
     static final Converter<String> STRING = new Converter<String>() {
         @Override
         public String extractValue(@NonNull LDValue ldValue) {
-            return ldValue.stringValue();
+            return ldValue.isString() ? ldValue.stringValue() : null;
         }
 
         @NonNull

@@ -255,18 +255,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return builder.build();
     }
 
-    @SuppressWarnings("deprecation")
-    @Override
-    public void track(String eventName, JsonElement data, Double metricValue) {
-        trackMetric(eventName, LDValue.fromJsonElement(data), metricValue);
-    }
-
-    @Override
-    public void track(String eventName, JsonElement data) {
-        track(eventName, data, null);
-    }
-
-    public void trackMetric(String eventName, LDValue data, Double metricValue) {
+    private void trackInternal(String eventName, LDValue data, Double metricValue) {
         if (config.inlineUsersInEvents()) {
             sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
         } else {
@@ -274,13 +263,31 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
+    @Override
+    @Deprecated
+    public void track(String eventName, JsonElement data, Double metricValue) {
+        trackInternal(eventName, LDValue.fromJsonElement(data), metricValue);
+    }
+
+    @Override
+    @Deprecated
+    public void track(String eventName, JsonElement data) {
+        trackInternal(eventName, LDValue.fromJsonElement(data), null);
+    }
+
+    @Override
+    public void trackMetric(String eventName, LDValue data, double metricValue) {
+        trackInternal(eventName, data, metricValue);
+    }
+
+    @Override
     public void trackData(String eventName, LDValue data) {
-        trackMetric(eventName, data, null);
+        trackInternal(eventName, data, null);
     }
 
     @Override
     public void track(String eventName) {
-        trackData(eventName, null);
+        trackInternal(eventName, null, null);
     }
 
     @Override
@@ -392,21 +399,25 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
+    @Deprecated
     public JsonElement jsonVariation(String flagKey, JsonElement fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, false).getValue();
     }
 
     @Override
+    @Deprecated
     public EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, true);
     }
 
+    @Override
     public LDValue jsonValueVariation(String flagKey, LDValue fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.LDVALUE, false).getValue();
+        return variationDetailInternal(flagKey, LDValue.normalize(fallback), ValueTypes.LDVALUE, false).getValue();
     }
 
+    @Override
     public EvaluationDetail<LDValue> jsonValueVariationDetail(String flagKey, LDValue fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.LDVALUE, true);
+        return variationDetailInternal(flagKey, LDValue.normalize(fallback), ValueTypes.LDVALUE, true);
     }
 
     private <T> EvaluationDetail<T> variationDetailInternal(String flagKey, T fallback, ValueTypes.Converter<T> typeConverter, boolean includeReasonInEvent) {

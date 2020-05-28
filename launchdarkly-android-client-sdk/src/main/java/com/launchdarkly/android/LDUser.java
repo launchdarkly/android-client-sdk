@@ -521,7 +521,7 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, String v) {
-            return customValue(k, LDValue.of(v));
+            return customValue(k, v == null ? null : LDValue.of(v));
         }
 
         /**
@@ -536,7 +536,7 @@ public class LDUser {
          */
         public Builder privateCustom(String k, String v) {
             privateAttributeNames.add(k);
-            return customValue(k, LDValue.of(v));
+            return customValue(k, v == null ? null : LDValue.of(v));
         }
 
         /**
@@ -550,7 +550,7 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, Number n) {
-            return customValue(k, LDValue.of(n.doubleValue()));
+            return customValue(k, n == null ? null : LDValue.of(n.doubleValue()));
         }
 
         /**
@@ -566,7 +566,7 @@ public class LDUser {
          */
         public Builder privateCustom(String k, Number n) {
             privateAttributeNames.add(k);
-            return customValue(k, LDValue.of(n.doubleValue()));
+            return customValue(k, n == null ? null : LDValue.of(n.doubleValue()));
         }
 
         /**
@@ -580,7 +580,7 @@ public class LDUser {
          * @return the builder
          */
         public Builder custom(String k, Boolean b) {
-            return customValue(k, LDValue.of(b));
+            return customValue(k, b == null ? null : LDValue.of(b));
         }
 
         /**
@@ -596,7 +596,7 @@ public class LDUser {
          */
         public Builder privateCustom(String k, Boolean b) {
             privateAttributeNames.add(k);
-            return customValue(k, LDValue.of(b));
+            return customValue(k, b == null ? null : LDValue.of(b));
         }
 
         /**
