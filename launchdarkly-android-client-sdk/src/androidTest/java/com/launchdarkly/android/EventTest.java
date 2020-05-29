@@ -5,10 +5,9 @@ import android.support.test.runner.AndroidJUnit4;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.ObjectBuilder;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -195,7 +194,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user.getKey(), LDValue.ofNull(), LDValue.ofNull(), -1, -1, null);
+        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user.getKey(), JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1, null);
 
         assertNull(event.user);
         assertEquals(user.getKey(), event.userKey);
@@ -208,7 +207,7 @@ public class EventTest {
 
         LDUser user = builder.build();
 
-        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), -1, -1, null);
+        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, -1, null);
 
         assertEquals(user, event.user);
         assertNull(event.userKey);
@@ -256,23 +255,8 @@ public class EventTest {
     }
 
     @Test
-    public void testCustomEventWithNullValueDataSerialization() {
-        final CustomEvent event = new CustomEvent("key1", "userkey", LDValue.ofNull(), null);
-
-        LDConfig config = new LDConfig.Builder().build();
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
-        JsonObject eventObject = jsonElement.getAsJsonObject();
-
-        assertEquals(4, eventObject.size());
-        assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
-        assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
-        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
-        assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
-    }
-
-    @Test
     public void testCustomEventWithDataSerialization() {
-        final CustomEvent event = new CustomEvent("key1", "userkey", LDValue.of("abc"), null);
+        final CustomEvent event = new CustomEvent("key1", "userkey", new JsonPrimitive("abc"), null);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -302,13 +286,11 @@ public class EventTest {
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testCustomEventWithDataAndMetricSerialization() {
-        LDValue objVal = new ObjectBuilder()
-                .put("data", LDValue.of(10))
-                .build();
-        final CustomEvent event = new CustomEvent("key1", "userkey", objVal, -10.0);
+        JsonObject eventData = new JsonObject();
+        eventData.add("data", new JsonPrimitive(10));
+        final CustomEvent event = new CustomEvent("key1", "userkey", eventData, -10.0);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -319,7 +301,7 @@ public class EventTest {
         assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
         assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
         assertEquals(-10, eventObject.getAsJsonPrimitive("metricValue").getAsDouble(), 0);
-        assertEquals(objVal.asJsonElement(), eventObject.getAsJsonObject("data"));
+        assertEquals(eventData, eventObject.getAsJsonObject("data"));
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
 
@@ -332,9 +314,9 @@ public class EventTest {
 
         final EvaluationReason reason = EvaluationReason.fallthrough();
 
-        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, null, null);
-        final FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), -1, 20, null);
-        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, 20, reason);
+        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, null, null);
+        final FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, -1, 20, null);
+        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, 20, reason);
 
         assertEquals(5, hasVersionEvent.version, 0.0f);
         assertNull(hasVersionEvent.variation);
@@ -356,7 +338,7 @@ public class EventTest {
         LDUser user = builder.build();
         final EvaluationReason reason = EvaluationReason.fallthrough();
 
-        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, 20, reason);
+        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, JsonNull.INSTANCE, JsonNull.INSTANCE, 5, 20, reason);
 
         LDConfig config = new LDConfig.Builder()
                 .build();

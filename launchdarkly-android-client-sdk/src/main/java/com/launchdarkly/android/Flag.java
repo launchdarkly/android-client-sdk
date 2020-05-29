@@ -2,13 +2,13 @@ package com.launchdarkly.android;
 
 import android.support.annotation.NonNull;
 
-import com.launchdarkly.android.value.LDValue;
+import com.google.gson.JsonElement;
 
 class Flag implements FlagUpdate {
 
     @NonNull
     private final String key;
-    private final LDValue value;
+    private final JsonElement value;
     private final Integer version;
     private final Integer flagVersion;
     private final Integer variation;
@@ -17,7 +17,7 @@ class Flag implements FlagUpdate {
     private final Long debugEventsUntilDate;
     private final EvaluationReason reason;
 
-    Flag(@NonNull String key, LDValue value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason) {
+    Flag(@NonNull String key, JsonElement value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason) {
         this.key = key;
         this.value = value;
         this.version = version;
@@ -34,10 +34,8 @@ class Flag implements FlagUpdate {
         return key;
     }
 
-    @NonNull
-    LDValue getValue() {
-        // normalize() ensures that nulls become LDValue.ofNull() - Gson may give us nulls
-        return LDValue.normalize(value);
+    JsonElement getValue() {
+        return value;
     }
 
     Integer getVersion() {

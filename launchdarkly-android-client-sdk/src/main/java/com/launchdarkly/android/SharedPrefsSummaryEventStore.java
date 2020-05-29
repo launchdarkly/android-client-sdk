@@ -1,5 +1,6 @@
 package com.launchdarkly.android;
 
+import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -86,6 +87,10 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
 
     @Override
     public synchronized SummaryEvent getSummaryEvent() {
+        return getSummaryEventNoSync();
+    }
+
+    private SummaryEvent getSummaryEventNoSync() {
         JsonObject features = getFeaturesJsonObject();
         if (features.keySet().size() == 0) {
             return null;
@@ -106,8 +111,10 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
 
     @Override
     public synchronized SummaryEvent getSummaryEventAndClear() {
-        SummaryEvent summaryEvent = getSummaryEvent();
-        clear();
+        SummaryEvent summaryEvent = getSummaryEventNoSync();
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.clear();
+        editor.apply();
         return summaryEvent;
     }
 
@@ -143,6 +150,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         return returnObject;
     }
 
+    @SuppressLint("ApplySharedPref")
     @Nullable
     private JsonObject getValueAsJsonObject(String flagResponseKey) {
         String storedFlag;
@@ -151,7 +159,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         } catch (ClassCastException castException) {
             // An old version of shared preferences is stored, so clear it.
             // The flag responses will get re-synced with the server
-            clear();
+            sharedPreferences.edit().clear().commit();
             return null;
         }
 
@@ -168,7 +176,9 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
     }
 
     public synchronized void clear() {
-        sharedPreferences.edit().clear().apply();
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.clear();
+        editor.apply();
     }
 
 }

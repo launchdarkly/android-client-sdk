@@ -2,9 +2,9 @@ package com.launchdarkly.android;
 
 import android.util.Pair;
 
-import com.launchdarkly.android.value.ArrayBuilder;
-import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.ObjectBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 
 import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;
@@ -88,25 +88,24 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         // UserFlagResponse. Therefore, the other variants of EvaluationReason are tested by
         // FlagTest.
         final EvaluationReason reason = EvaluationReason.ruleMatch(1, "id");
-        final LDValue objectVal = new ObjectBuilder()
-                .put("bool", true)
-                .put("num", 3.4)
-                .put("string", "string")
-                .put("array", new ArrayBuilder().build())
-                .put("obj", new ObjectBuilder().build())
-                .build();
+        final JsonObject jsonObj = new JsonObject();
+        jsonObj.add("bool", new JsonPrimitive(true));
+        jsonObj.add("num", new JsonPrimitive(3.4));
+        jsonObj.add("string", new JsonPrimitive("string"));
+        jsonObj.add("array", new JsonArray());
+        jsonObj.add("obj", new JsonObject());
         final Flag testFlag1 = new FlagBuilder("testFlag1").build();
         final Flag testFlag2 = new FlagBuilder("testFlag2")
-                .value(new ArrayBuilder().build())
+                .value(new JsonArray())
                 .version(2)
                 .debugEventsUntilDate(123456789L)
                 .trackEvents(true)
                 .trackReason(true)
                 .build();
-        final Flag testFlag3 = new Flag("testFlag3", objectVal, 250, 102, 3,
+        final Flag testFlag3 = new Flag("testFlag3", jsonObj, 250, 102, 3,
                 false, false, 2500000000L, reason);
         final Flag testFlag4 = new FlagBuilder("_flag-with-very-long-key-name-as-well-as-period.-and-underscore_.")
-                .value(LDValue.of("String value"))
+                .value(new JsonPrimitive("String value"))
                 .flagVersion(4)
                 .build();
         return Arrays.asList(testFlag1, testFlag2, testFlag3, testFlag4);

@@ -8,8 +8,6 @@ import android.support.test.runner.AndroidJUnit4;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.test.TestActivity;
-import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.ObjectBuilder;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -76,9 +74,6 @@ public class LDClientTest {
         JsonObject expectedJson = new JsonObject();
         expectedJson.addProperty("field", "value");
         assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
-
-        LDValue expectedValue = LDValue.buildObject().put("field", "value").build();
-        assertEquals(expectedValue, ldClient.jsonValueVariation("valueFlag", expectedValue));
     }
 
     @Test
@@ -87,13 +82,12 @@ public class LDClientTest {
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
+        assertNull(ldClient.jsonVariation("jsonFlag", null));
 
         assertNull(ldClient.boolVariation("boolFlag", null));
         assertNull(ldClient.floatVariation("floatFlag", null));
         assertNull(ldClient.intVariation("intFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
-        assertNull(ldClient.jsonVariation("jsonFlag", null));
-        assertEquals(LDValue.ofNull(), ldClient.jsonValueVariation("valueFlag", null));
     }
 
     @Test
@@ -191,9 +185,6 @@ public class LDClientTest {
                 JsonObject expectedJson = new JsonObject();
                 expectedJson.addProperty("field", "value");
                 assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
-
-                LDValue expectedValue = LDValue.buildObject().put("field", "value").build();
-                assertEquals(expectedValue, ldClient.jsonValueVariation("valueFlag", expectedValue));
             }
         });
         backgroundComplete.get();
@@ -223,15 +214,11 @@ public class LDClientTest {
             expectedJson.addProperty("field", "value");
             assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
 
-            LDValue expectedValue = LDValue.buildObject().put("field", "value").build();
-            assertEquals(expectedValue, ldClient.jsonValueVariation("valueFlag", expectedValue));
-
             assertNull(ldClient.boolVariation("boolFlag", null));
             assertNull(ldClient.floatVariation("floatFlag", null));
             assertNull(ldClient.intVariation("intFlag", null));
             assertNull(ldClient.stringVariation("stringFlag", null));
             assertNull(ldClient.jsonVariation("jsonFlag", null));
-            assertEquals(LDValue.ofNull(), ldClient.jsonValueVariation("valueFlag", null));
 
             ldClient.blockingFlush();
         }
@@ -264,7 +251,6 @@ public class LDClientTest {
         }
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testTrackData() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
@@ -287,40 +273,12 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(testData, event.data.asJsonElement());
-                assertNull(event.metricValue);
-            }
-        }
-    }
-
-    @Test
-    public void testTrackDataValue() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-            // Don't wait as we are not set offline
-            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                LDValue testData = LDValue.of("abc");
-                client.trackData("test-event", testData);
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof CustomEvent);
-                CustomEvent event = (CustomEvent) events[1];
-                assertEquals("userKey", event.userKey);
-                assertEquals("test-event", event.key);
                 assertEquals(testData, event.data);
                 assertNull(event.metricValue);
             }
         }
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testTrackDataNull() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
@@ -347,57 +305,6 @@ public class LDClientTest {
     }
 
     @Test
-    public void testTrackDataValueNull() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.trackData("test-event", null);
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof CustomEvent);
-                CustomEvent event = (CustomEvent) events[1];
-                assertEquals("userKey", event.userKey);
-                assertEquals("test-event", event.key);
-                assertNull(event.data);
-                assertNull(event.metricValue);
-            }
-        }
-    }
-
-    @Test
-    public void testTrackDataValueOfNull() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.trackData("test-event", LDValue.ofNull());
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof CustomEvent);
-                CustomEvent event = (CustomEvent) events[1];
-                assertEquals("userKey", event.userKey);
-                assertEquals("test-event", event.key);
-                assertNull(event.data);
-                assertNull(event.metricValue);
-            }
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    @Test
     public void testTrackMetric() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
@@ -423,57 +330,6 @@ public class LDClientTest {
     }
 
     @Test
-    public void testTrackMetricNullData() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.trackMetric("test-event", null, 5.5);
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof CustomEvent);
-                CustomEvent event = (CustomEvent) events[1];
-                assertEquals("userKey", event.userKey);
-                assertEquals("test-event", event.key);
-                assertNull(event.data);
-                assertEquals(5.5, event.metricValue, 0);
-            }
-        }
-    }
-
-    @Test
-    public void testTrackMetricOfNullData() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.trackMetric("test-event", LDValue.ofNull(), 5.5);
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof CustomEvent);
-                CustomEvent event = (CustomEvent) events[1];
-                assertEquals("userKey", event.userKey);
-                assertEquals("test-event", event.key);
-                assertNull(event.data);
-                assertEquals(5.5, event.metricValue, 0);
-            }
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    @Test
     public void testTrackMetricNull() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
@@ -498,7 +354,6 @@ public class LDClientTest {
         }
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testTrackDataAndMetric() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
@@ -521,36 +376,7 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(testData, event.data.asJsonElement());
-                assertEquals(-10.0, event.metricValue);
-            }
-        }
-    }
-
-    @Test
-    public void testTrackDataAndMetricValue() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                LDValue testVal = new ObjectBuilder()
-                        .put("data", LDValue.of(10))
-                        .build();
-
-                client.trackMetric("test-event", testVal, -10.0);
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof CustomEvent);
-                CustomEvent event = (CustomEvent) events[1];
-                assertEquals("userKey", event.userKey);
-                assertEquals("test-event", event.key);
-                assertEquals(testVal, event.data);
+                assertEquals(testData, event.data);
                 assertEquals(-10.0, event.metricValue);
             }
         }
@@ -644,8 +470,8 @@ public class LDClientTest {
                 assertEquals("userKey", event.userKey);
                 assertNull(event.variation);
                 assertNull(event.version);
-                assertFalse(event.value.booleanValue());
-                assertFalse(event.defaultVal.booleanValue());
+                assertFalse(event.value.getAsBoolean());
+                assertFalse(event.defaultVal.getAsBoolean());
                 assertEquals(testReason, event.reason);
                 assertTrue(events[2] instanceof SummaryEvent);
             }

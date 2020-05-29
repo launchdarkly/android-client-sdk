@@ -1,11 +1,10 @@
 package com.launchdarkly.android;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.value.ArrayBuilder;
-import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.ObjectBuilder;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -57,30 +56,27 @@ public class FlagTest {
 
     @Test
     public void valueIsSerialized() {
-        LDValue boolVal = LDValue.of(true);
-        LDValue stringVal = LDValue.of("string");
-        LDValue numVal = LDValue.of(5.3);
-        LDValue arrVal = new ArrayBuilder()
-                .add(boolVal)
-                .add(stringVal)
-                .add(numVal)
-                .add(new ArrayBuilder().build())
-                .add(new ObjectBuilder().build())
-                .build();
-        LDValue objVal = new ObjectBuilder()
-                .put("bool", boolVal)
-                .put("num", numVal)
-                .put("string", stringVal)
-                .put("array", arrVal)
-                .put("obj", new ObjectBuilder().build())
-                .build();
+        JsonElement jsonBool = new JsonPrimitive(true);
+        JsonElement jsonString = new JsonPrimitive("string");
+        JsonElement jsonNum = new JsonPrimitive(5.3);
+        JsonArray jsonArray = new JsonArray();
+        jsonArray.add(jsonBool);
+        jsonArray.add(jsonString);
+        jsonArray.add(jsonNum);
+        jsonArray.add(new JsonArray());
+        jsonArray.add(new JsonObject());
+        JsonObject jsonObj = new JsonObject();
+        jsonObj.add("bool", jsonBool);
+        jsonObj.add("num", jsonNum);
+        jsonObj.add("string", jsonString);
+        jsonObj.add("array", jsonArray);
+        jsonObj.add("obj", new JsonObject());
 
-        List<LDValue> testValues = Arrays.asList(boolVal, stringVal, numVal, arrVal, objVal);
-        for (LDValue value : testValues) {
+        List<JsonElement> testValues = Arrays.asList(jsonBool, jsonString, jsonNum, jsonArray, jsonObj);
+        for (JsonElement value : testValues) {
             final Flag r = new FlagBuilder("flag").value(value).build();
             final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
-            //noinspection deprecation
-            assertEquals(value.asJsonElement(), json.get("value"));
+            assertEquals(value, json.get("value"));
         }
     }
 
@@ -88,21 +84,14 @@ public class FlagTest {
     public void valueIsDeserialized() {
         final String jsonStr = "{\"value\": \"yes\"}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertEquals(LDValue.of("yes"), r.getValue());
-    }
-
-    @Test
-    public void nullValueIsReturnedAsLDValue() {
-        final String jsonStr = "{\"value\": null}";
-        final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertEquals(LDValue.ofNull(), r.getValue());
+        assertEquals(new JsonPrimitive("yes"), r.getValue());
     }
 
     @Test
     public void valueDefaultWhenOmitted() {
         final String jsonStr = "{\"key\": \"flag\"}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertEquals(LDValue.ofNull(), r.getValue());
+        assertNull(r.getValue());
     }
 
     @Test
@@ -279,7 +268,7 @@ public class FlagTest {
 
     @Test
     public void emptyPropertiesAreNotSerialized() {
-        final Flag r = new FlagBuilder("flag").value(LDValue.of("yes")).version(99).flagVersion(100).trackEvents(false).build();
+        final Flag r = new FlagBuilder("flag").value(new JsonPrimitive("yes")).version(99).flagVersion(100).trackEvents(false).build();
         final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
         assertEquals(5, json.keySet().size());
         assertTrue(json.keySet().containsAll(Arrays.asList("key", "trackEvents", "value", "version", "flagVersion")));
