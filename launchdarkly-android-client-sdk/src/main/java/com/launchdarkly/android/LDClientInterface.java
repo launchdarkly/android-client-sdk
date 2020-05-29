@@ -241,7 +241,6 @@ public interface LDClientInterface extends Closeable {
      * @param flagKey key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag (see {@link #jsonVariation(String, JsonElement)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
-     *
      * @since 2.7.0
      */
     EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback);

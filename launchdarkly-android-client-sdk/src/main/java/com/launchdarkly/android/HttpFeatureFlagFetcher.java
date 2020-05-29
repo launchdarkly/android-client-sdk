@@ -45,7 +45,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         this.environmentName = environmentName;
         this.context = context;
 
-        File cacheDir = context.getCacheDir();
+        File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
         Timber.d("Using cache at: %s", cacheDir.getAbsolutePath());
 
         OkHttpClient.Builder builder = new OkHttpClient.Builder()

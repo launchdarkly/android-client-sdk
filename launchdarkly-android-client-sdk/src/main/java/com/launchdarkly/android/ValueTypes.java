@@ -34,7 +34,7 @@ abstract class ValueTypes {
         JsonElement valueToJson(@NonNull T value);
     }
 
-    public static final Converter<Boolean> BOOLEAN = new Converter<Boolean>() {
+    static final Converter<Boolean> BOOLEAN = new Converter<Boolean>() {
         @Override
         public Boolean valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isBoolean()) ? jsonValue.getAsBoolean() : null;
@@ -47,7 +47,7 @@ abstract class ValueTypes {
         }
     };
 
-    public static final Converter<Integer> INT = new Converter<Integer>() {
+    static final Converter<Integer> INT = new Converter<Integer>() {
         @Override
         public Integer valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsInt() : null;
@@ -60,7 +60,7 @@ abstract class ValueTypes {
         }
     };
 
-    public static final Converter<Float> FLOAT = new Converter<Float>() {
+    static final Converter<Float> FLOAT = new Converter<Float>() {
         @Override
         public Float valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsFloat() : null;
@@ -73,7 +73,7 @@ abstract class ValueTypes {
         }
     };
 
-    public static final Converter<String> STRING = new Converter<String>() {
+    static final Converter<String> STRING = new Converter<String>() {
         @Override
         public String valueFromJson(@NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) ? jsonValue.getAsString() : null;
@@ -88,7 +88,7 @@ abstract class ValueTypes {
 
     // Used for maintaining compatible behavior in allowing evaluation of Json flags as Strings
     // TODO(gwhelanld): remove in 3.0.0
-    public static final Converter<String> STRINGCOMPAT = new Converter<String>() {
+    static final Converter<String> STRINGCOMPAT = new Converter<String>() {
         @Override
         public String valueFromJson(@NonNull JsonElement jsonValue) {
             if (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) {
@@ -109,7 +109,7 @@ abstract class ValueTypes {
         }
     };
 
-    public static final Converter<JsonElement> JSON = new Converter<JsonElement>() {
+    static final Converter<JsonElement> JSON = new Converter<JsonElement>() {
         @Override
         public JsonElement valueFromJson(@NonNull JsonElement jsonValue) {
             return jsonValue;

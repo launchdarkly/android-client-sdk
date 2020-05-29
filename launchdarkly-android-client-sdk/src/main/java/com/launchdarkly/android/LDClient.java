@@ -224,7 +224,7 @@ public class LDClient implements LDClientInterface, Closeable {
             this.diagnosticStore = new DiagnosticStore(application, sdkKey);
             this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, sharedEventClient);
         }
-        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey);
+        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedUsers());
 
         eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventStore(), environmentName, diagnosticStore, sharedEventClient);
         connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName, diagnosticStore);

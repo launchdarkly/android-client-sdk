@@ -46,7 +46,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
                         continue;
                     }
                     // Both are unknown and same value
-                    if (isUnknown && value.equals(asJsonObject.get("value"))) {
+                    if (isUnknown && LDUtil.objectsEqual(value, asJsonObject.get("value"))) {
                         variationExists = true;
                         int currentCount = asJsonObject.get("count").getAsInt();
                         asJsonObject.add("count", new JsonPrimitive(++currentCount));

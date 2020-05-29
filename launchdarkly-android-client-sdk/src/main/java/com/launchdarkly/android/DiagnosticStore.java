@@ -67,8 +67,9 @@ class DiagnosticStore {
         this.newId = true;
     }
 
-    private void resetStatsStore() {
+    private void resetStatsStore(long dataSince) {
         diagSharedPrefs.edit()
+                .putLong(DATA_SINCE_KEY, dataSince)
                 .putLong(DROPPED_EVENTS_KEY, 0)
                 .putLong(EVENT_BATCH_KEY, 0)
                 .putString(STREAM_INITS_KEY, "[]")
@@ -124,14 +125,15 @@ class DiagnosticStore {
 
     DiagnosticEvent.Statistics getCurrentStatsAndReset() {
         List<DiagnosticEvent.StreamInit> streamInits = getStreamInits();
+        long currentTime = System.currentTimeMillis();
         DiagnosticEvent.Statistics event =
-                new DiagnosticEvent.Statistics(System.currentTimeMillis(),
+                new DiagnosticEvent.Statistics(currentTime,
                         getDiagnosticId(),
                         diagSharedPrefs.getLong(DATA_SINCE_KEY, -1),
                         diagSharedPrefs.getLong(DROPPED_EVENTS_KEY, -1),
                         diagSharedPrefs.getLong(EVENT_BATCH_KEY, 0),
                         streamInits);
-        resetStatsStore();
+        resetStatsStore(currentTime);
         return event;
     }
 

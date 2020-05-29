@@ -7,9 +7,6 @@
     <!-- For detecting internet connectivity: -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- For background updates: -->
-    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
-
     <application
         android:label="@string/app_name">
         <receiver android:name=".PollingUpdater" />

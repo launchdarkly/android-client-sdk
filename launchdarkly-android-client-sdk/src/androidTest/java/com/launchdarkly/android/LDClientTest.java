@@ -191,6 +191,40 @@ public class LDClientTest {
     }
 
     @Test
+    public void eventGenerationDoesNotCrash() throws IOException {
+        // The only reason this test starts an event server is so we don't wait a full second
+        // during tests for a retry when doing the blockingFlush.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+
+            // Don't wait as we are not set offline
+            ldClient = LDClient.init(application, ldConfig, ldUser, 0);
+
+            // Do a variety of evaluations
+            assertTrue(ldClient.boolVariation("boolFlag", true));
+            assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
+            assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
+            assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
+
+            JsonObject expectedJson = new JsonObject();
+            expectedJson.addProperty("field", "value");
+            assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+
+            assertNull(ldClient.boolVariation("boolFlag", null));
+            assertNull(ldClient.floatVariation("floatFlag", null));
+            assertNull(ldClient.intVariation("intFlag", null));
+            assertNull(ldClient.stringVariation("stringFlag", null));
+            assertNull(ldClient.jsonVariation("jsonFlag", null));
+
+            ldClient.blockingFlush();
+        }
+    }
+
+    @Test
     public void testTrack() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();

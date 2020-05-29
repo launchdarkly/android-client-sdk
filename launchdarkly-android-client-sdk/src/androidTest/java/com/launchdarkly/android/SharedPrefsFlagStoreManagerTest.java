@@ -27,8 +27,8 @@ public class SharedPrefsFlagStoreManagerTest extends FlagStoreManagerTest {
         this.testApplication = activityTestRule.getActivity().getApplication();
     }
 
-    public FlagStoreManager createFlagStoreManager(String mobileKey, FlagStoreFactory flagStoreFactory) {
-        return new SharedPrefsFlagStoreManager(testApplication, mobileKey, flagStoreFactory);
+    public FlagStoreManager createFlagStoreManager(String mobileKey, FlagStoreFactory flagStoreFactory, int maxCachedUsers) {
+        return new SharedPrefsFlagStoreManager(testApplication, mobileKey, flagStoreFactory, maxCachedUsers);
     }
 
 }

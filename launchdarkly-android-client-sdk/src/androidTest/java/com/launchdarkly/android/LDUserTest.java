@@ -18,6 +18,7 @@ import java.util.Set;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
@@ -263,5 +264,21 @@ public class LDUserTest {
         assertEquals(2, privateAttrs.size());
         assertTrue(privateAttrs.contains(new JsonPrimitive(LDUser.AVATAR)));
         assertTrue(privateAttrs.contains(new JsonPrimitive("privateValue1")));
+    }
+
+    @Test
+    public void nullCustomValuesIgnoredInArrays() {
+        LDUser user = new LDUser.Builder("1")
+                .customNumber("nums", Arrays.<Number>asList(5.5, null, -2))
+                .customString("strs", Arrays.asList("abc", null, "def"))
+                .build();
+        JsonArray expectedNumJsonArray = new JsonArray();
+        expectedNumJsonArray.add(5.5);
+        expectedNumJsonArray.add(-2);
+        JsonArray expectedStrJsonArray = new JsonArray();
+        expectedStrJsonArray.add("abc");
+        expectedStrJsonArray.add("def");
+        assertEquals(user.getCustom("nums"), expectedNumJsonArray);
+        assertEquals(user.getCustom("strs"), expectedStrJsonArray);
     }
 }
