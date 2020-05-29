@@ -4,10 +4,10 @@
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 ## [2.12.0] - 2020-05-29
 ### Added
-- Added a new configuration option, `maxCachedUsers` to LDConfig. This option allows configuration of the limit to how many users have their flag values cached locally in the device's SharedPreferences.
+- Added a new configuration option, `maxCachedUsers` to LDConfig. This option allows configuration of the limit to how many users have their flag values cached locally in the device's SharedPreferences. 
 ### Fixed
 - Fixed a NPE that could occur when calling a variation methods with a flag key that does not exist locally or is of the wrong type. This issue could only occur if a null fallback value was provided.
-- Previously, the SDK manifest required the SET_ALARM permisison. This permission was never used, so it has been removed.
+- Previously, the SDK manifest required the SET_ALARM permission. This permission was never used, so it has been removed.
 ### Changed
 - For polling requests, the SDK uses OkHttp with a cache configured. Previously the cache directory was set to the main application cache directory. This has been changed to a subdirectory of the application cached directory.
 ### Deprecated
