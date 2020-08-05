@@ -101,12 +101,14 @@ class DiagnosticEventProcessor {
         });
     }
 
-    private void sendDiagnosticEventSync(DiagnosticEvent diagnosticEvent) {
+    void sendDiagnosticEventSync(DiagnosticEvent diagnosticEvent) {
         String content = GsonCache.getGson().toJson(diagnosticEvent);
         Request.Builder requestBuilder = config.getRequestBuilderFor(environment)
                 .url(config.getEventsUri().toString() + "/events/diagnostic")
-                .addHeader("Content-Type", "application/json");
-        Request request = requestBuilder.post(RequestBody.create(JSON, content)).build();
+                .addHeader("Content-Type", "application/json")
+                .post(RequestBody.create(JSON, content));
+
+        Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
         Timber.d("Posting diagnostic event to %s with body %s", request.url(), content);
 
         Response response = null;

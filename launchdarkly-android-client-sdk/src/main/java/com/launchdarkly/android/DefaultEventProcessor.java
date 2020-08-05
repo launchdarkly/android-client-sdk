@@ -152,13 +152,14 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     } catch (InterruptedException e) {}
                 }
 
-                Request request = config.getRequestBuilderFor(environmentName)
+                Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName)
                         .url(url)
                         .post(RequestBody.create(JSON, content))
                         .addHeader("Content-Type", "application/json")
                         .addHeader("X-LaunchDarkly-Event-Schema", "3")
-                        .addHeader("X-LaunchDarkly-Payload-ID", eventPayloadId)
-                        .build();
+                        .addHeader("X-LaunchDarkly-Payload-ID", eventPayloadId);
+
+                Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
 
                 Response response = null;
                 try {

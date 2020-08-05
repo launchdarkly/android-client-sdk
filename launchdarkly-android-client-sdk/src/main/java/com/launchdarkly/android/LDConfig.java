@@ -8,6 +8,7 @@ import com.google.gson.GsonBuilder;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -73,8 +74,10 @@ public class LDConfig {
 
     private final boolean evaluationReasons;
 
-    private String wrapperName;
-    private String wrapperVersion;
+    private final String wrapperName;
+    private final String wrapperVersion;
+
+    private final Map<String, String> additionalHeaders;
 
     LDConfig(Map<String, String> mobileKeys,
              Uri baseUri,
@@ -97,7 +100,8 @@ public class LDConfig {
              int diagnosticRecordingIntervalMillis,
              String wrapperName,
              String wrapperVersion,
-             int maxCachedUsers) {
+             int maxCachedUsers,
+             Map<String, String> additionalHeaders) {
 
         this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
@@ -121,6 +125,12 @@ public class LDConfig {
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
         this.maxCachedUsers = maxCachedUsers;
+
+        if (additionalHeaders != null) {
+            this.additionalHeaders = Collections.unmodifiableMap(new LinkedHashMap<>(additionalHeaders));
+        } else {
+            this.additionalHeaders = null;
+        }
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -153,6 +163,15 @@ public class LDConfig {
         }
 
         return requestBuilder;
+    }
+
+    Request buildRequestWithAdditionalHeaders(Request.Builder requestBuilder) {
+        if (getAdditionalHeaders() != null) {
+            for (Map.Entry<String, String> entry: getAdditionalHeaders().entrySet()) {
+                requestBuilder.header(entry.getKey(), entry.getValue());
+            }
+        }
+        return requestBuilder.build();
     }
 
     public String getMobileKey() {
@@ -251,6 +270,10 @@ public class LDConfig {
         return maxCachedUsers;
     }
 
+    Map<String, String> getAdditionalHeaders() {
+        return additionalHeaders;
+    }
+
     /**
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
@@ -291,6 +314,7 @@ public class LDConfig {
 
         private String wrapperName;
         private String wrapperVersion;
+        private Map<String, String> additionalHeaders;
 
         /**
          * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
@@ -629,6 +653,18 @@ public class LDConfig {
         }
 
         /**
+         * Additional headers that should be added to all HTTP requests from SDK components to
+         * LaunchDarkly services
+         *
+         * @param additionalHeaders A map of header keys to header values
+         * @return the builder
+         */
+        public LDConfig.Builder setAdditionalHeaders(Map<String, String> additionalHeaders) {
+            this.additionalHeaders = additionalHeaders;
+            return this;
+        }
+
+        /**
          * Returns the configured {@link LDConfig} object.
          * @return the configuration
          */
@@ -697,7 +733,8 @@ public class LDConfig {
                     diagnosticRecordingIntervalMillis,
                     wrapperName,
                     wrapperVersion,
-                    maxCachedUsers);
+                    maxCachedUsers,
+                    additionalHeaders);
         }
     }
 }
