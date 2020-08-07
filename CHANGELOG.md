@@ -2,6 +2,11 @@
 
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
+
+## [2.13.0] - 2020-08-07
+### Added
+- Allow specifying additional headers to be included on HTTP requests to LaunchDarkly services using `LDConfig.Builder.setAdditionalHeaders`. This feature is to enable certain proxy configurations, and is not needed for normal use.
+
 ## [2.12.0] - 2020-05-29
 ### Added
 - Added a new configuration option, `maxCachedUsers` to LDConfig. This option allows configuration of the limit to how many users have their flag values cached locally in the device's SharedPreferences. 
