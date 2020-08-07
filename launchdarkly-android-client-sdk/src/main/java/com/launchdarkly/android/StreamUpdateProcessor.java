@@ -9,6 +9,7 @@ import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 
 import java.net.URI;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 
@@ -62,6 +63,12 @@ class StreamUpdateProcessor {
                     .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKeys().get(environmentName))
                     .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
                     .add("Accept", "text/event-stream");
+
+            if (config.getAdditionalHeaders() != null) {
+                for (Map.Entry<String, String> entry: config.getAdditionalHeaders().entrySet()) {
+                    headersBuilder.set(entry.getKey(), entry.getValue());
+                }
+            }
 
             if (config.getWrapperName() != null) {
                 String wrapperVersion = "";
