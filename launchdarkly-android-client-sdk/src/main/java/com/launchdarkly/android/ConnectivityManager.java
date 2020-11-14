@@ -15,7 +15,7 @@ import static com.launchdarkly.android.LDUtil.isInternetConnected;
 
 class ConnectivityManager {
 
-    private static final long MAX_RETRY_TIME_MS = 3_600_000; // 1 hour
+    private static final long MAX_RETRY_TIME_MS = 60_000; // 60 seconds
     private static final long RETRY_TIME_MS = 1_000; // 1 second
 
     private final ConnectionMode foregroundMode;
@@ -31,7 +31,7 @@ class ConnectivityManager {
     private final Foreground.Listener foregroundListener;
     private final String environmentName;
     private final int pollingInterval;
-    private LDUtil.ResultCallback<Void> monitor;
+    private final LDUtil.ResultCallback<Void> monitor;
     private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
     private volatile boolean setOffline;
