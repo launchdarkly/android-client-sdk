@@ -360,13 +360,25 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
+    @Deprecated
     public Float floatVariation(String flagKey, Float fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, false).getValue();
     }
 
     @Override
+    @Deprecated
     public EvaluationDetail<Float> floatVariationDetail(String flagKey, Float fallback) {
         return variationDetailInternal(flagKey, fallback, ValueTypes.FLOAT, true);
+    }
+
+    @Override
+    public double doubleVariation(String flagKey, double fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.DOUBLE, false).getValue();
+    }
+
+    @Override
+    public EvaluationDetail<Double> doubleVariationDetail(String flagKey, double fallback) {
+        return variationDetailInternal(flagKey, fallback, ValueTypes.DOUBLE, true);
     }
 
     @Override
