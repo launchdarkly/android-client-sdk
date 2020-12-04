@@ -73,14 +73,14 @@ abstract class ValueTypes {
 
     static final Converter<Double> DOUBLE = new Converter<Double>() {
         @Override
-        public Double valueFromJson(@NonNull JsonElement jsonValue) {
-            return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsDouble() : null;
+        public Double extractValue(@NonNull LDValue ldValue) {
+            return (ldValue.isNumber() ? ldValue.doubleValue() : null);
         }
 
         @NonNull
         @Override
-        public JsonElement valueToJson(@NonNull Double value) {
-            return new JsonPrimitive(value);
+        public LDValue embedValue(@NonNull Double value) {
+            return LDValue.of(value);
         }
     };
 
