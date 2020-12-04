@@ -28,7 +28,9 @@ public class LDConfigTest {
         assertTrue(config.isStream());
         assertFalse(config.isOffline());
 
-        assertEquals(LDConfig.DEFAULT_BASE_URI, config.getBaseUri());
+        //noinspection deprecation
+        assertEquals(LDConfig.DEFAULT_POLL_URI, config.getBaseUri());
+        assertEquals(LDConfig.DEFAULT_POLL_URI, config.getPollUri());
         assertEquals(LDConfig.DEFAULT_EVENTS_URI, config.getEventsUri());
         assertEquals(LDConfig.DEFAULT_STREAM_URI, config.getStreamUri());
 

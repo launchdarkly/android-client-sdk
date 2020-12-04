@@ -118,7 +118,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getDefaultRequest(LDUser user) {
-        String uri = config.getBaseUri() + "/msdk/evalx/users/" + user.getAsUrlSafeBase64();
+        String uri = config.getPollUri() + "/msdk/evalx/users/" + user.getAsUrlSafeBase64();
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }
@@ -129,7 +129,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getReportRequest(LDUser user) {
-        String reportUri = config.getBaseUri() + "/msdk/evalx/user";
+        String reportUri = config.getPollUri() + "/msdk/evalx/user";
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }

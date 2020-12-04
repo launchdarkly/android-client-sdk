@@ -30,7 +30,7 @@ public class LDConfig {
 
     static final String primaryEnvironmentName = "default";
 
-    static final Uri DEFAULT_BASE_URI = Uri.parse("https://app.launchdarkly.com");
+    static final Uri DEFAULT_POLL_URI = Uri.parse("https://app.launchdarkly.com");
     static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com");
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
@@ -47,7 +47,7 @@ public class LDConfig {
 
     private final Map<String, String> mobileKeys;
 
-    private final Uri baseUri;
+    private final Uri pollUri;
     private final Uri eventsUri;
     private final Uri streamUri;
 
@@ -80,7 +80,7 @@ public class LDConfig {
     private final Map<String, String> additionalHeaders;
 
     LDConfig(Map<String, String> mobileKeys,
-             Uri baseUri,
+             Uri pollUri,
              Uri eventsUri,
              Uri streamUri,
              int eventsCapacity,
@@ -104,7 +104,7 @@ public class LDConfig {
              Map<String, String> additionalHeaders) {
 
         this.mobileKeys = mobileKeys;
-        this.baseUri = baseUri;
+        this.pollUri = pollUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
         this.eventsCapacity = eventsCapacity;
@@ -182,8 +182,24 @@ public class LDConfig {
         return mobileKeys;
     }
 
+    /**
+     * Get the currently configured URI for polling requests.
+     *
+     * @return the base URI configured to be used for poll requests.
+     * @deprecated Please use {@link #getPollUri()} instead.
+     */
+    @Deprecated
     public Uri getBaseUri() {
-        return baseUri;
+        return pollUri;
+    }
+
+    /**
+     * Get the currently configured base URI for polling requests.
+     *
+     * @return the base URI configured to be used for poll requests.
+     */
+    public Uri getPollUri() {
+        return pollUri;
     }
 
     public Uri getEventsUri() {
@@ -288,7 +304,7 @@ public class LDConfig {
         private String mobileKey;
         private Map<String, String> secondaryMobileKeys;
 
-        private Uri baseUri = DEFAULT_BASE_URI;
+        private Uri pollUri = DEFAULT_POLL_URI;
         private Uri eventsUri = DEFAULT_EVENTS_URI;
         private Uri streamUri = DEFAULT_STREAM_URI;
 
@@ -403,9 +419,22 @@ public class LDConfig {
          *
          * @param baseUri the URI of the main LaunchDarkly service
          * @return the builder
+         * @deprecated Please use {@link #setPollUri(Uri)} instead.
          */
+        @Deprecated
         public LDConfig.Builder setBaseUri(Uri baseUri) {
-            this.baseUri = baseUri;
+            this.pollUri = baseUri;
+            return this;
+        }
+
+        /**
+         * Set the base URI for polling requests to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
+         *
+         * @param pollUri the URI of the main LaunchDarkly service
+         * @return the builder
+         */
+        public LDConfig.Builder setPollUri(Uri pollUri) {
+            this.pollUri = pollUri;
             return this;
         }
 
@@ -713,7 +742,7 @@ public class LDConfig {
 
             return new LDConfig(
                     mobileKeys,
-                    baseUri,
+                    pollUri,
                     eventsUri,
                     streamUri,
                     eventsCapacity,

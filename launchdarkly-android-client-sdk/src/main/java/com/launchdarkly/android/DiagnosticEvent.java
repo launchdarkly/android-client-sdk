@@ -45,7 +45,7 @@ class DiagnosticEvent {
         private final int maxCachedUsers;
 
         DiagnosticConfiguration(LDConfig config) {
-            this.customBaseURI = !LDConfig.DEFAULT_BASE_URI.equals(config.getBaseUri());
+            this.customBaseURI = !LDConfig.DEFAULT_POLL_URI.equals(config.getPollUri());
             this.customEventsURI = !LDConfig.DEFAULT_EVENTS_URI.equals(config.getEventsUri());
             this.customStreamURI = !LDConfig.DEFAULT_STREAM_URI.equals(config.getStreamUri());
             this.eventsCapacity = config.getEventsCapacity();
