@@ -26,12 +26,12 @@ import timber.log.Timber;
 class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListener {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
-    private static final int MAX_USERS = 5;
 
     @NonNull
     private final FlagStoreFactory flagStoreFactory;
     @NonNull
     private final String mobileKey;
+    private final int maxCachedUsers;
 
     private FlagStore currentFlagStore;
     private final SharedPreferences usersSharedPrefs;
@@ -40,9 +40,11 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
 
     SharedPrefsFlagStoreManager(@NonNull Application application,
                                 @NonNull String mobileKey,
-                                @NonNull FlagStoreFactory flagStoreFactory) {
+                                @NonNull FlagStoreFactory flagStoreFactory,
+                                int maxCachedUsers) {
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
+        this.maxCachedUsers = maxCachedUsers;
         this.usersSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
         this.listeners = new ConcurrentHashMap<>();
         this.allFlagsListeners = new CopyOnWriteArrayList<>();
@@ -50,10 +52,11 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
 
     @Override
     public void switchToUser(String userKey) {
+        String storeId = storeIdentifierForUser(userKey);
         if (currentFlagStore != null) {
             currentFlagStore.unregisterOnStoreUpdatedListener();
         }
-        currentFlagStore = flagStoreFactory.createFlagStore(storeIdentifierForUser(userKey));
+        currentFlagStore = flagStoreFactory.createFlagStore(storeId);
         currentFlagStore.registerOnStoreUpdatedListener(this);
 
         // Store the user's key and the current time in usersSharedPrefs so it can be removed when
@@ -63,12 +66,15 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
                 .apply();
 
         int usersStored = usersSharedPrefs.getAll().size();
-        if (usersStored > MAX_USERS) {
-            Iterator<String> oldestFirstUsers = getAllUsers().iterator();
+        // Negative numbers represent an unlimited number of cached users. The active user is not
+        // considered a cached user, so we subtract one.
+        int usersToRemove = maxCachedUsers >= 0 ? usersStored - maxCachedUsers - 1 : 0;
+        if (usersToRemove > 0) {
+            Iterator<String> oldestFirstUsers = getCachedUsers(storeId).iterator();
             // Remove oldest users until we are at MAX_USERS.
-            while (usersStored-- > MAX_USERS) {
+            for (int i = 0; i < usersToRemove; i++) {
                 String removed = oldestFirstUsers.next();
-                Timber.d("Exceeded max # of users: [%s] Removing user: [%s]", MAX_USERS, removed);
+                Timber.d("Exceeded max # of users: [%s] Removing user: [%s]", maxCachedUsers, removed);
                 // Load FlagStore for oldest user and delete it.
                 flagStoreFactory.createFlagStore(storeIdentifierForUser(removed)).delete();
                 // Remove entry from usersSharedPrefs.
@@ -121,9 +127,10 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         allFlagsListeners.remove(listener);
     }
 
-    // Gets all users sorted by creation time (oldest first)
-    private Collection<String> getAllUsers() {
+    // Gets cached users (does not include the active user) sorted by creation time (oldest first)
+    private Collection<String> getCachedUsers(String activeUser) {
         Map<String, ?> all = usersSharedPrefs.getAll();
+        all.remove(activeUser);
         TreeMap<Long, String> sortedMap = new TreeMap<>();
         //get typed versions of the users' timestamps and insert into sorted TreeMap
         for (String k : all.keySet()) {

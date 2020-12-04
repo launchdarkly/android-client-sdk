@@ -265,4 +265,16 @@ public class LDUserTest {
         assertTrue(privateAttrs.contains(new JsonPrimitive(LDUser.AVATAR)));
         assertTrue(privateAttrs.contains(new JsonPrimitive("privateValue1")));
     }
+
+    @Test
+    public void nullCustomValuesIgnoredInArrays() {
+        LDUser user = new LDUser.Builder("1")
+                .customNumber("nums", Arrays.<Number>asList(5.5, null, -2))
+                .customString("strs", Arrays.asList("abc", null, "def"))
+                .build();
+        LDValue expectedNumArray = LDValue.buildArray().add(5.5).add(-2).build();
+        LDValue expectedStrArray = LDValue.buildArray().add("abc").add("def").build();
+        assertEquals(user.getCustom("nums"), expectedNumArray);
+        assertEquals(user.getCustom("strs"), expectedStrArray);
+    }
 }

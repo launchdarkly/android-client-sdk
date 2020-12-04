@@ -32,14 +32,14 @@ class DefaultUserManager implements UserManager {
 
     private final ExecutorService executor;
 
-    static synchronized DefaultUserManager newInstance(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey) {
-        return new DefaultUserManager(application, fetcher, environmentName, mobileKey);
+    static synchronized DefaultUserManager newInstance(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey, int maxCachedUsers) {
+        return new DefaultUserManager(application, fetcher, environmentName, mobileKey, maxCachedUsers);
     }
 
-    DefaultUserManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey) {
+    DefaultUserManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey, int maxCachedUsers) {
         this.application = application;
         this.fetcher = fetcher;
-        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey, new SharedPrefsFlagStoreFactory(application));
+        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey, new SharedPrefsFlagStoreFactory(application), maxCachedUsers);
         this.summaryEventStore = new SharedPrefsSummaryEventStore(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
         this.environmentName = environmentName;
 

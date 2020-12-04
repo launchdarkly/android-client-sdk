@@ -45,7 +45,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         this.environmentName = environmentName;
         this.context = context;
 
-        File cacheDir = context.getCacheDir();
+        File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
         Timber.d("Using cache at: %s", cacheDir.getAbsolutePath());
 
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
@@ -123,9 +123,9 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
             uri += "?withReasons=true";
         }
         Timber.d("Attempting to fetch Feature flags using uri: %s", uri);
-        return config.getRequestBuilderFor(environmentName) // default GET verb
-                .url(uri)
-                .build();
+        Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName) // default GET verb
+                .url(uri);
+        return config.buildRequestWithAdditionalHeaders(requestBuilder);
     }
 
     private Request getReportRequest(LDUser user) {
@@ -136,9 +136,9 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         Timber.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), userJson);
-        return config.getRequestBuilderFor(environmentName)
+        Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName)
                 .method("REPORT", reportBody) // custom REPORT verb
-                .url(reportUri)
-                .build();
+                .url(reportUri);
+        return config.buildRequestWithAdditionalHeaders(requestBuilder);
     }
 }

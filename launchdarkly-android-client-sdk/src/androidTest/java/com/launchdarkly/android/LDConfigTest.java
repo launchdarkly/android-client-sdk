@@ -6,7 +6,10 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.util.HashMap;
 import java.util.HashSet;
+
+import okhttp3.Request;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -45,6 +48,7 @@ public class LDConfigTest {
 
         assertNull(config.getWrapperName());
         assertNull(config.getWrapperVersion());
+        assertNull(config.getAdditionalHeaders());
     }
 
 
@@ -223,5 +227,52 @@ public class LDConfigTest {
     public void testBuilderWrapperVersion() {
         LDConfig config = new LDConfig.Builder().setWrapperVersion("0.1.0").build();
         assertEquals("0.1.0", config.getWrapperVersion());
+    }
+
+    @Test
+    public void testBuilderMaxCachedUsers() {
+        LDConfig config = new LDConfig.Builder().setMaxCachedUsers(0).build();
+        assertEquals(0, config.getMaxCachedUsers());
+        config = new LDConfig.Builder().setMaxCachedUsers(10).build();
+        assertEquals(10, config.getMaxCachedUsers());
+        config = new LDConfig.Builder().setMaxCachedUsers(-1).build();
+        assertEquals(-1, config.getMaxCachedUsers());
+    }
+
+    @Test
+    public void canSetAdditionalHeaders() {
+        HashMap<String, String> additionalHeaders = new HashMap<>();
+        additionalHeaders.put("Proxy-Authorization", "token");
+        additionalHeaders.put("Authorization", "foo");
+        LDConfig config = new LDConfig.Builder().setAdditionalHeaders(additionalHeaders).build();
+        assertEquals(2, config.getAdditionalHeaders().size());
+        assertEquals("token", config.getAdditionalHeaders().get("Proxy-Authorization"));
+        assertEquals("foo", config.getAdditionalHeaders().get("Authorization"));
+    }
+
+    @Test
+    public void buildRequestWithAdditionalHeadersNull() {
+        LDConfig config = new LDConfig.Builder().build();
+        Request.Builder requestBuilder = new Request.Builder()
+                .url("http://example.com")
+                .header("Authorization", "test-key");
+        Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
+        assertEquals(1, request.headers().size());
+        assertEquals("test-key", request.header("Authorization"));
+    }
+
+    @Test
+    public void buildRequestWithAdditionalHeaders() {
+        HashMap<String, String> additionalHeaders = new HashMap<>();
+        additionalHeaders.put("Proxy-Authorization", "token");
+        additionalHeaders.put("Authorization", "foo");
+        LDConfig config = new LDConfig.Builder().setAdditionalHeaders(additionalHeaders).build();
+        Request.Builder requestBuilder = new Request.Builder()
+                .url("http://example.com")
+                .header("Authorization", "test-key");
+        Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
+        assertEquals(2, request.headers().size());
+        assertEquals("token", request.header("Proxy-Authorization"));
+        assertEquals("foo", request.header("Authorization"));
     }
 }

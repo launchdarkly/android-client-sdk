@@ -15,62 +15,61 @@ import java.util.concurrent.atomic.AtomicInteger;
 class Throttler {
 
     @NonNull
-    private final Runnable runnable;
+    private final Runnable taskRunnable;
     private final long maxRetryTimeMs;
     private final long retryTimeMs;
 
-    private final Random jitter;
-    private final AtomicInteger attempts;
-    private final AtomicBoolean maxAttemptsReached;
+    private final Random jitter = new Random();
+    private final AtomicInteger attempts = new AtomicInteger(-1);
+    private final AtomicBoolean queuedRun = new AtomicBoolean(false);
     private final HandlerThread handlerThread;
     private final Handler handler;
-    private final Runnable attemptsResetRunnable;
+    private final Runnable resetRunnable;
 
-    Throttler(@NonNull Runnable runnable, long retryTimeMs, long maxRetryTimeMs) {
-        this.runnable = runnable;
+    Throttler(@NonNull final Runnable runnable, long retryTimeMs, long maxRetryTimeMs) {
         this.retryTimeMs = retryTimeMs;
         this.maxRetryTimeMs = maxRetryTimeMs;
 
-        jitter = new Random();
-        attempts = new AtomicInteger(0);
-        maxAttemptsReached = new AtomicBoolean(false);
         handlerThread = new HandlerThread("LDThrottler");
         handlerThread.start();
         handler = new Handler(handlerThread.getLooper());
 
-        attemptsResetRunnable = new Runnable() {
+        taskRunnable = new Runnable() {
             @Override
             public void run() {
-                Throttler.this.runnable.run();
+                queuedRun.set(false);
+                runnable.run();
+            }
+        };
+        resetRunnable = new Runnable() {
+            @Override
+            public void run() {
                 attempts.set(0);
-                maxAttemptsReached.set(false);
             }
         };
     }
 
     void attemptRun() {
+        int attempt = attempts.getAndIncrement();
+        handler.removeCallbacks(resetRunnable);
+
         // First invocation is instant, as is the first invocation after throttling has ended
-        if (attempts.get() == 0) {
-            runnable.run();
-            attempts.getAndIncrement();
+        if (attempt <= 0) {
+            taskRunnable.run();
+            handler.postDelayed(resetRunnable, retryTimeMs);
             return;
         }
 
-        long jitterVal = calculateJitterVal(attempts.getAndIncrement());
-
-        // Once the max retry time is reached, just let it run out
-        if (!maxAttemptsReached.get()) {
-            if (jitterVal == maxRetryTimeMs) {
-                maxAttemptsReached.set(true);
-            }
+        if (!queuedRun.getAndSet(true)) {
+            long jitterVal = calculateJitterVal(attempt);
             long sleepTimeMs = backoffWithJitter(jitterVal);
-            handler.removeCallbacks(attemptsResetRunnable);
-            handler.postDelayed(attemptsResetRunnable, sleepTimeMs);
+            handler.postDelayed(taskRunnable, sleepTimeMs);
+            handler.postDelayed(resetRunnable, jitterVal);
         }
     }
 
     void cancel() {
-        handler.removeCallbacks(attemptsResetRunnable);
+        handler.removeCallbacks(taskRunnable);
     }
 
     long calculateJitterVal(int reconnectAttempts) {

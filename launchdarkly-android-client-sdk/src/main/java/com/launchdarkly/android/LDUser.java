@@ -29,14 +29,13 @@ import timber.log.Timber;
  * an IP address or session ID.
  * <p>
  * Besides the mandatory {@code key}, {@code LDUser} supports two kinds of optional attributes:
- * interpreted attributes (e.g. {@code ip} and {@code country}) and custom attributes.  LaunchDarkly
- * can parse interpreted attributes and attach meaning to them. For example, from an {@code ip}
- * address, LaunchDarkly can do a geo IP lookup and determine the user's country.
+ * built-in attributes (e.g. {@code name} and {@code email}) and custom attributes.
  * <p>
- * Custom attributes are not parsed by LaunchDarkly. They can be used in custom rules-- for example,
- * a custom attribute such as "customer_ranking" can be used to launch a feature to the top 10% of
- * users on a site.
- */
+ * For a more complete description of user attributes and how they can be referenced in feature flag
+ * rules, see the reference guides on
+ * <a href="https://docs.launchdarkly.com/home/managing-users/user-attributes">Setting user attributes</a>
+ * and <a href="https://docs.launchdarkly.com/home/managing-flags/targeting-users">Targeting users</a>.
+ * */
 public class LDUser {
     private static final UserHasher USER_HASHER = new UserHasher();
 
@@ -200,7 +199,7 @@ public class LDUser {
     @SuppressWarnings("WeakerAccess")
     public static class Builder {
 
-        private String key;
+        private final String key;
         private Boolean anonymous;
 
         private String secondary;
@@ -231,7 +230,6 @@ public class LDUser {
             privateAttributeNames = new HashSet<>();
         }
 
-        @SuppressWarnings("deprecation")
         public Builder(LDUser user) {
             this.key = user.getKey();
             this.anonymous = user.getAnonymous();

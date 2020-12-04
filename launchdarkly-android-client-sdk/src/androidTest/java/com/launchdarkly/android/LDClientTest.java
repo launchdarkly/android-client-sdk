@@ -17,6 +17,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -597,6 +598,27 @@ public class LDClientTest {
                 assertEquals(testReason, event.reason);
                 assertTrue(events[2] instanceof SummaryEvent);
             }
+        }
+    }
+
+    @Test
+    public void additionalHeadersIncludedInEventsRequest() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            HashMap<String, String> additionalHeaders = new HashMap<>();
+            additionalHeaders.put("Proxy-Authorization", "token");
+            additionalHeaders.put("Authorization", "foo");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).setAdditionalHeaders(additionalHeaders).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.blockingFlush();
+            }
+
+            RecordedRequest r = mockEventsServer.takeRequest();
+            assertEquals("token", r.getHeader("Proxy-Authorization"));
+            assertEquals("foo", r.getHeader("Authorization"));
         }
     }
 

@@ -42,6 +42,7 @@ class DiagnosticEvent {
         private final boolean evaluationReasonsRequested;
         private final int mobileKeyCount;
         private final int diagnosticRecordingIntervalMillis;
+        private final int maxCachedUsers;
 
         DiagnosticConfiguration(LDConfig config) {
             this.customBaseURI = !LDConfig.DEFAULT_BASE_URI.equals(config.getBaseUri());
@@ -60,6 +61,7 @@ class DiagnosticEvent {
             this.evaluationReasonsRequested = config.isEvaluationReasons();
             this.mobileKeyCount = config.getMobileKeys().size();
             this.diagnosticRecordingIntervalMillis = config.getDiagnosticRecordingIntervalMillis();
+            this.maxCachedUsers = config.getMaxCachedUsers();
         }
 
     }

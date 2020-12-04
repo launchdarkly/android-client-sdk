@@ -52,7 +52,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     @Before
     public void before() {
-        userManager = new DefaultUserManager(activityTestRule.getActivity().getApplication(), fetcher, "test", "test");
+        userManager = new DefaultUserManager(activityTestRule.getActivity().getApplication(), fetcher, "test", "test", 3);
     }
 
     @Test
@@ -111,13 +111,32 @@ public class DefaultUserManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void testCanStoreExactly5Users() throws ExecutionException {
+    public void usesCachedFlagsOnFailure() throws ExecutionException {
+        JsonObject flagsInitial = new JsonObject();
+        JsonObject flagsNew = new JsonObject();
+
+        addSimpleFlag(flagsInitial, "flagInitial", "value1");
+        addSimpleFlag(flagsNew, "flagNew", "value2");
+
+        setUserAwait("user1", flagsInitial);
+        assertFlagValue("flagInitial", "value1");
+
+        setUserAwait("user2", flagsNew);
+        assertFlagValue("flagNew", "value2");
+
+        setUserAndFailToFetchFlags("user1");
+        assertFlagValue("flagInitial", "value1");
+        assertNull(userManager.getCurrentUserFlagStore().getFlag("flagNew"));
+    }
+
+    @Test
+    public void cachesExactlyMaxCachedUsers() throws ExecutionException {
         JsonObject flags = new JsonObject();
         String flagKey = "stringFlag";
 
         String user1 = "user1";
-        String user5 = "user5";
-        List<String> users = Arrays.asList(user1, "user2", "user3", "user4", user5, "user6");
+        String user4 = "user4";
+        List<String> users = Arrays.asList(user1, "user2", "user3", user4, "user5");
 
         for (String user : users) {
             addSimpleFlag(flags, flagKey, user);
@@ -125,13 +144,14 @@ public class DefaultUserManagerTest extends EasyMockSupport {
             assertFlagValue(flagKey, user);
         }
 
-        //we now have 5 users in SharedPreferences. The very first one we added shouldn't be saved anymore.
+        // We have now added 5 users in SharedPreferences. The very first one we added shouldn't
+        // be saved anymore. (3 cached, one active, one evicted)
         setUserAndFailToFetchFlags(user1);
         assertNull(userManager.getCurrentUserFlagStore().getFlag(flagKey));
 
-        // user5 should still be saved:
-        setUserAndFailToFetchFlags(user5);
-        assertFlagValue(flagKey, user5);
+        // user4 should still be saved:
+        setUserAndFailToFetchFlags(user4);
+        assertFlagValue(flagKey, user4);
     }
 
     @Test

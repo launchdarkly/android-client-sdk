@@ -8,6 +8,7 @@ import com.google.gson.GsonBuilder;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -34,6 +35,7 @@ public class LDConfig {
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
     static final int DEFAULT_EVENTS_CAPACITY = 100;
+    static final int DEFAULT_MAX_CACHED_USERS = 5;
     static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
@@ -55,6 +57,7 @@ public class LDConfig {
     private final int pollingIntervalMillis;
     private final int backgroundPollingIntervalMillis;
     private final int diagnosticRecordingIntervalMillis;
+    private final int maxCachedUsers;
 
     private final boolean stream;
     private final boolean offline;
@@ -71,8 +74,10 @@ public class LDConfig {
 
     private final boolean evaluationReasons;
 
-    private String wrapperName;
-    private String wrapperVersion;
+    private final String wrapperName;
+    private final String wrapperVersion;
+
+    private final Map<String, String> additionalHeaders;
 
     LDConfig(Map<String, String> mobileKeys,
              Uri baseUri,
@@ -94,7 +99,9 @@ public class LDConfig {
              boolean diagnosticOptOut,
              int diagnosticRecordingIntervalMillis,
              String wrapperName,
-             String wrapperVersion) {
+             String wrapperVersion,
+             int maxCachedUsers,
+             Map<String, String> additionalHeaders) {
 
         this.mobileKeys = mobileKeys;
         this.baseUri = baseUri;
@@ -117,6 +124,13 @@ public class LDConfig {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
+        this.maxCachedUsers = maxCachedUsers;
+
+        if (additionalHeaders != null) {
+            this.additionalHeaders = Collections.unmodifiableMap(new LinkedHashMap<>(additionalHeaders));
+        } else {
+            this.additionalHeaders = null;
+        }
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
@@ -149,6 +163,15 @@ public class LDConfig {
         }
 
         return requestBuilder;
+    }
+
+    Request buildRequestWithAdditionalHeaders(Request.Builder requestBuilder) {
+        if (getAdditionalHeaders() != null) {
+            for (Map.Entry<String, String> entry: getAdditionalHeaders().entrySet()) {
+                requestBuilder.header(entry.getKey(), entry.getValue());
+            }
+        }
+        return requestBuilder.build();
     }
 
     public String getMobileKey() {
@@ -243,6 +266,14 @@ public class LDConfig {
         return wrapperVersion;
     }
 
+    int getMaxCachedUsers() {
+        return maxCachedUsers;
+    }
+
+    Map<String, String> getAdditionalHeaders() {
+        return additionalHeaders;
+    }
+
     /**
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
@@ -267,6 +298,7 @@ public class LDConfig {
         private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
         private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
         private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+        private int maxCachedUsers = DEFAULT_MAX_CACHED_USERS;
 
         private boolean offline = false;
         private boolean stream = true;
@@ -282,6 +314,7 @@ public class LDConfig {
 
         private String wrapperName;
         private String wrapperVersion;
+        private Map<String, String> additionalHeaders;
 
         /**
          * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
@@ -564,7 +597,7 @@ public class LDConfig {
 
         /**
          * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
-         * milliseconds) and the minimum value is 60,000.
+         * milliseconds) and the minimum value is 300,000 (5 minutes).
          *
          * @see #setDiagnosticOptOut(boolean) for more information on the diagnostics data being sent.
          *
@@ -600,6 +633,34 @@ public class LDConfig {
          */
         public LDConfig.Builder setWrapperVersion(String wrapperVersion) {
             this.wrapperVersion = wrapperVersion;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of users to cache the flag values for locally in the device's
+         * SharedPreferences.
+         * <p>
+         * Note that the active user is not considered part of this limit, as it will always be
+         * served from the backing SharedPreferences.
+         *
+         * @param maxCachedUsers The maximum number of users to cache, negative values represent
+         *                       allowing an unlimited number of cached users.
+         * @return the builder
+         */
+        public LDConfig.Builder setMaxCachedUsers(int maxCachedUsers) {
+            this.maxCachedUsers = maxCachedUsers;
+            return this;
+        }
+
+        /**
+         * Additional headers that should be added to all HTTP requests from SDK components to
+         * LaunchDarkly services
+         *
+         * @param additionalHeaders A map of header keys to header values
+         * @return the builder
+         */
+        public LDConfig.Builder setAdditionalHeaders(Map<String, String> additionalHeaders) {
+            this.additionalHeaders = additionalHeaders;
             return this;
         }
 
@@ -671,7 +732,9 @@ public class LDConfig {
                     diagnosticOptOut,
                     diagnosticRecordingIntervalMillis,
                     wrapperName,
-                    wrapperVersion);
+                    wrapperVersion,
+                    maxCachedUsers,
+                    additionalHeaders);
         }
     }
 }

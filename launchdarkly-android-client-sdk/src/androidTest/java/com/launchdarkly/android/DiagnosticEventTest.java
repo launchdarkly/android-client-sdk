@@ -43,6 +43,7 @@ public class DiagnosticEventTest {
         expected.addProperty("pollingIntervalMillis", 300_000);
         expected.addProperty("streamingDisabled", false);
         expected.addProperty("useReport", false);
+        expected.addProperty("maxCachedUsers", 5);
         Assert.assertEquals(expected, diagnosticJson);
     }
 
@@ -67,6 +68,7 @@ public class DiagnosticEventTest {
                 .setPollingIntervalMillis(600_000)
                 .setStream(false)
                 .setUseReport(true)
+                .setMaxCachedUsers(-1)
                 .build();
 
         DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);
@@ -88,6 +90,7 @@ public class DiagnosticEventTest {
         expected.addProperty("pollingIntervalMillis", 600_000);
         expected.addProperty("streamingDisabled", true);
         expected.addProperty("useReport", true);
+        expected.addProperty("maxCachedUsers", -1);
         Assert.assertEquals(expected, diagnosticJson);
     }
 

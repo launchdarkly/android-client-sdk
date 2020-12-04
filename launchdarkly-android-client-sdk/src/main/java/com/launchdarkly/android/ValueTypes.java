@@ -4,11 +4,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
 import com.google.gson.JsonElement;
-import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.LDValueType;
-
-import timber.log.Timber;
 
 /**
  * Allows the client's flag evaluation methods to treat the various supported data types generically.

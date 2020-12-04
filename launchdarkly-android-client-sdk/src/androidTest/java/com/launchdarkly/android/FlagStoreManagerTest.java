@@ -1,18 +1,20 @@
 package com.launchdarkly.android;
 
 import android.os.Looper;
-import android.support.annotation.NonNull;
 import android.util.Pair;
 
 import org.easymock.Capture;
+import org.easymock.EasyMock;
 import org.easymock.EasyMockSupport;
 import org.easymock.IAnswer;
+import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
 import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import static org.easymock.EasyMock.and;
 import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.anyString;
 import static org.easymock.EasyMock.capture;
@@ -22,17 +24,18 @@ import static org.easymock.EasyMock.expectLastCall;
 import static org.easymock.EasyMock.isA;
 import static org.easymock.EasyMock.newCapture;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
-    public abstract FlagStoreManager createFlagStoreManager(String mobileKey, FlagStoreFactory flagStoreFactory);
+    public abstract FlagStoreManager createFlagStoreManager(String mobileKey, FlagStoreFactory flagStoreFactory, int maxCachedUsers);
 
     @Test
     public void initialFlagStoreIsNull() {
-        final FlagStoreManager manager = createFlagStoreManager("testKey", null);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", null, 0);
         assertNull(manager.getCurrentUserStore());
     }
 
@@ -40,7 +43,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     public void testSwitchToUser() {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore mockStore = strictMock(FlagStore.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
 
         expect(mockCreate.createFlagStore(anyString())).andReturn(mockStore);
         mockStore.registerOnStoreUpdatedListener(isA(StoreUpdatedListener.class));
@@ -55,23 +58,111 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void deletesOlderThanLastFiveStoredUsers() throws InterruptedException {
+    public void deletePreviousUserAfterSwitchForZeroCached() throws InterruptedException {
+        final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
+        final FlagStore firstUserStore = strictMock(FlagStore.class);
+        final Capture<String> firstUserIdentifier = newCapture();
+        final FlagStore secondUserStore = strictMock(FlagStore.class);
+        final Capture<String> secondUserIdentifier = newCapture();
+
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
+
+        expect(mockCreate.createFlagStore(capture(firstUserIdentifier))).andReturn(firstUserStore).once();
+        firstUserStore.registerOnStoreUpdatedListener(isA(StoreUpdatedListener.class));
+        firstUserStore.unregisterOnStoreUpdatedListener();
+
+        expect(mockCreate.createFlagStore(capture(secondUserIdentifier))).andReturn(secondUserStore).once();
+        secondUserStore.registerOnStoreUpdatedListener(isA(StoreUpdatedListener.class));
+
+        expect(mockCreate.createFlagStore(captureEq(firstUserIdentifier))).andReturn(firstUserStore).once();
+        firstUserStore.delete();
+
+        replayAll();
+
+        manager.switchToUser("user1");
+        Thread.sleep(2);
+        manager.switchToUser("user2");
+
+        verifyAll();
+
+        assertSame(secondUserStore, manager.getCurrentUserStore());
+        assertNotEquals(firstUserIdentifier.getValue(), secondUserIdentifier.getValue());
+    }
+
+    @Test
+    public void canCacheManyUsersWithNegativeMaxCachedUsers() {
+        final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
+        final FlagStore fillerStore = strictMock(FlagStore.class);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate,-1);
+
+        checkOrder(fillerStore, false);
+        fillerStore.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
+        expectLastCall().anyTimes();
+        fillerStore.unregisterOnStoreUpdatedListener();
+        expectLastCall().anyTimes();
+        expect(mockCreate.createFlagStore(anyString())).andReturn(fillerStore).times(10);
+
+        replayAll();
+
+        for (int i = 0; i < 10; i++) {
+            manager.switchToUser("user" + i);
+        }
+
+        verifyAll();
+    }
+
+    @Test
+    public void deletesExcessUsersFromPreviousManager() throws InterruptedException {
+        final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
+        final FlagStore fillerStore1 = strictMock(FlagStore.class);
+        final FlagStore fillerStore2 = strictMock(FlagStore.class);
+        final FlagStore newStore = strictMock(FlagStore.class);
+        final Capture<String> storeId1 = newCapture();
+        final Capture<String> storeId2 = newCapture();
+        FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate,1);
+
+        fillerStore1.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
+        expectLastCall();
+        fillerStore1.unregisterOnStoreUpdatedListener();
+        expectLastCall();
+        fillerStore2.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
+        expectLastCall();
+        expect(mockCreate.createFlagStore(capture(storeId1))).andReturn(fillerStore1);
+        expect(mockCreate.createFlagStore(capture(storeId2))).andReturn(fillerStore2);
+
+        replayAll();
+
+        manager.switchToUser("user1");
+        Thread.sleep(2);
+        manager.switchToUser("user2");
+        Thread.sleep(2);
+
+        verifyAll();
+        resetAll();
+
+        checkOrder(mockCreate, false);
+        expect(mockCreate.createFlagStore(and(captureNeq(storeId1), captureNeq(storeId2)))).andReturn(newStore);
+        expect(mockCreate.createFlagStore(captureEq(storeId1))).andReturn(fillerStore1);
+        expect(mockCreate.createFlagStore(captureEq(storeId2))).andReturn(fillerStore2);
+        newStore.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
+        fillerStore1.delete();
+        expectLastCall();
+        fillerStore2.delete();
+
+        replayAll();
+
+        manager = createFlagStoreManager("testKey", mockCreate, 0);
+        manager.switchToUser("user3");
+
+        verifyAll();
+    }
+
+    public void verifyDeletesOldestWithMaxCachedUsers(int maxCachedUsers) throws InterruptedException {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore oldestStore = strictMock(FlagStore.class);
         final FlagStore fillerStore = strictMock(FlagStore.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, maxCachedUsers);
         final Capture<String> oldestIdentifier = newCapture();
-        final int[] oldestCountBox = {0};
-        final FlagStoreFactory delegate = new FlagStoreFactory() {
-            @Override
-            public FlagStore createFlagStore(@NonNull String identifier) {
-                if (identifier.equals(oldestIdentifier.getValue())) {
-                    oldestCountBox[0]++;
-                    return oldestStore;
-                }
-                return fillerStore;
-            }
-        };
 
         checkOrder(fillerStore, false);
         fillerStore.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
@@ -81,39 +172,47 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         //noinspection ConstantConditions
         expect(mockCreate.createFlagStore(capture(oldestIdentifier))).andReturn(oldestStore);
         oldestStore.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
-        expectLastCall().anyTimes();
+        expectLastCall();
         oldestStore.unregisterOnStoreUpdatedListener();
-        expectLastCall().anyTimes();
-        expect(mockCreate.createFlagStore(anyString())).andDelegateTo(delegate).times(6);
+        expectLastCall();
+        expect(mockCreate.createFlagStore(captureNeq(oldestIdentifier))).andReturn(fillerStore).times(maxCachedUsers + 1);
+        expect(mockCreate.createFlagStore(captureEq(oldestIdentifier))).andReturn(oldestStore);
         oldestStore.delete();
         expectLastCall();
 
         replayAll();
 
-        // Unfortunately we need to use Thread.sleep() to stagger the loading of users for this test
-        // otherwise the millisecond precision is not good enough to guarantee an ordering of the
-        // users for removing the oldest.
-        manager.switchToUser("oldest");
-        Thread.sleep(2);
-        manager.switchToUser("fourth");
-        Thread.sleep(2);
-        manager.switchToUser("third");
-        Thread.sleep(2);
-        manager.switchToUser("second");
-        Thread.sleep(2);
-        manager.switchToUser("first");
-        Thread.sleep(2);
-        manager.switchToUser("new");
+        // Adds 2 to maxCachedUsers as one is for the active user, and we want one extra to evict the last.
+        for (int i = 0; i < maxCachedUsers + 2; i++) {
+            manager.switchToUser("user" + i);
+            // Unfortunately we need to use Thread.sleep() to stagger the loading of users for this test
+            // otherwise the millisecond precision is not good enough to guarantee an ordering of the
+            // users for removing the oldest.
+            Thread.sleep(2);
+        }
 
         verifyAll();
+    }
 
-        assertEquals(1, oldestCountBox[0]);
+    @Test
+    public void deletesOldestWithDefaultMaxCachedUsers() throws InterruptedException {
+        verifyDeletesOldestWithMaxCachedUsers(5);
+    }
+
+    @Test
+    public void deletesOldestWithGreaterMaxCachedUsers() throws InterruptedException {
+        verifyDeletesOldestWithMaxCachedUsers(7);
+    }
+
+    @Test
+    public void deletesOldestWithLessMaxCachedUsers() throws InterruptedException {
+        verifyDeletesOldestWithMaxCachedUsers(3);
     }
 
     @Test
     public void testGetListenersForKey() {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
         final FeatureFlagChangeListener mockFlagListener = strictMock(FeatureFlagChangeListener.class);
         final FeatureFlagChangeListener mockFlagListener2 = strictMock(FeatureFlagChangeListener.class);
 
@@ -133,7 +232,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     public void listenerIsCalledOnCreate() throws InterruptedException {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore mockStore = strictMock(FlagStore.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
         final FeatureFlagChangeListener mockFlagListener = strictMock(FeatureFlagChangeListener.class);
         final Capture<StoreUpdatedListener> managerListener = newCapture();
         final CountDownLatch waitLatch = new CountDownLatch(1);
@@ -164,7 +263,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     public void listenerIsCalledOnUpdate() throws InterruptedException {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore mockStore = strictMock(FlagStore.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
         final FeatureFlagChangeListener mockFlagListener = strictMock(FeatureFlagChangeListener.class);
         final Capture<StoreUpdatedListener> managerListener = newCapture();
         final CountDownLatch waitLatch = new CountDownLatch(1);
@@ -195,7 +294,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     public void listenerIsNotCalledOnDelete() throws InterruptedException {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore mockStore = strictMock(FlagStore.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
         final FeatureFlagChangeListener mockFlagListener = strictMock(FeatureFlagChangeListener.class);
         final Capture<StoreUpdatedListener> managerListener = newCapture();
 
@@ -219,7 +318,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     public void listenerIsNotCalledAfterUnregistering() throws InterruptedException {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore mockStore = strictMock(FlagStore.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
         final FeatureFlagChangeListener mockFlagListener = strictMock(FeatureFlagChangeListener.class);
         final Capture<StoreUpdatedListener> managerListener = newCapture();
 
@@ -244,7 +343,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     public void listenerIsCalledOnMainThread() throws InterruptedException {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore mockStore = strictMock(FlagStore.class);
-        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate);
+        final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
         final FeatureFlagChangeListener mockFlagListener = strictMock(FeatureFlagChangeListener.class);
         final Capture<StoreUpdatedListener> managerListener = newCapture();
         final CountDownLatch waitLatch = new CountDownLatch(1);
@@ -269,5 +368,44 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         waitLatch.await(1000, TimeUnit.MILLISECONDS);
 
         verifyAll();
+    }
+
+    static <T> T captureEq(Capture<T> in) {
+        //noinspection unchecked
+        EasyMock.reportMatcher(new CaptureEq(in, false));
+        return null;
+    }
+
+    static <T> T captureNeq(Capture<T> in) {
+        //noinspection unchecked
+        EasyMock.reportMatcher(new CaptureEq(in, true));
+        return null;
+    }
+
+    static class CaptureEq<T> implements IArgumentMatcher {
+
+        private boolean invert;
+        private Capture<T> expected;
+
+        CaptureEq(Capture<T> expected, boolean invert) {
+            this.expected = expected;
+            this.invert = invert;
+        }
+
+        public boolean matches(Object actual) {
+            return invert != equalTo(actual);
+        }
+
+        private boolean equalTo(Object actual) {
+            return LDUtil.objectsEqual(expected.getValue(), actual);
+        }
+
+        public void appendTo(StringBuffer buffer) {
+            buffer.append("captureEq(expected: ");
+            buffer.append(expected.getValue());
+            buffer.append(", invert: ");
+            buffer.append(invert);
+            buffer.append(")");
+        }
     }
 }
