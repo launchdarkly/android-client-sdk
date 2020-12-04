@@ -170,8 +170,10 @@ public interface LDClientInterface extends Closeable {
      *
      * @param flagKey key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
+     * @deprecated Please use {@link #doubleVariation(String, double)} instead.
      * @return value of the flag or fallback
      */
+    @Deprecated
     float floatVariation(String flagKey, float fallback);
 
     /**
@@ -184,10 +186,38 @@ public interface LDClientInterface extends Closeable {
      * @param flagKey key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag (see {@link #floatVariation(String, float)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
-     *
+     * @deprecated Please use {@link #doubleVariationDetail(String, double)} instead.
      * @since 2.7.0
      */
+    @Deprecated
     EvaluationDetail<Float> floatVariationDetail(String flagKey, float fallback);
+
+    /**
+     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
+     * <ol>
+     * <li>Flag is missing</li>
+     * <li>The flag is not of a numeric type</li>
+     * <li>Any other error</li>
+     * </ol>
+     *
+     * @param flagKey key for the flag to evaluate
+     * @param fallback fallback value in case of errors evaluating the flag
+     * @return value of the flag or fallback
+     */
+    double doubleVariation(String flagKey, double fallback);
+
+    /**
+     * Returns the flag value for the current user, along with information about how it was calculated.
+     *
+     * Note that this will only work if you have set {@code evaluationReasons} to true with
+     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
+     * will be null.
+     *
+     * @param flagKey key for the flag to evaluate
+     * @param fallback fallback value in case of errors evaluating the flag (see {@link #doubleVariation(String, double)})
+     * @return an {@link EvaluationDetail} object containing the value and other information.
+     */
+    EvaluationDetail<Double> doubleVariationDetail(String flagKey, double fallback);
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
