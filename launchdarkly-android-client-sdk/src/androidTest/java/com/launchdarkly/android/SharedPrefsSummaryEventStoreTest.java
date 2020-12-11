@@ -89,8 +89,6 @@ public class SharedPrefsSummaryEventStoreTest {
 
         ldClient.boolVariation("boolFlag", true);
         ldClient.jsonVariation("jsonFlag", new JsonObject());
-        //noinspection deprecation
-        ldClient.floatVariation("floatFlag", 0.1f);
         ldClient.doubleVariation("doubleFlag", 0.2);
         ldClient.intVariation("intFlag", 6);
         ldClient.stringVariation("stringFlag", "string");
@@ -99,14 +97,12 @@ public class SharedPrefsSummaryEventStoreTest {
 
         Assert.assertTrue(features.keySet().contains("boolFlag"));
         Assert.assertTrue(features.keySet().contains("jsonFlag"));
-        Assert.assertTrue(features.keySet().contains("floatFlag"));
         Assert.assertTrue(features.keySet().contains("doubleFlag"));
         Assert.assertTrue(features.keySet().contains("intFlag"));
         Assert.assertTrue(features.keySet().contains("stringFlag"));
 
         Assert.assertEquals(true, features.get("boolFlag").getAsJsonObject().get("default").getAsBoolean());
         Assert.assertEquals(new JsonObject(), features.get("jsonFlag").getAsJsonObject().get("default").getAsJsonObject());
-        Assert.assertEquals(0.1f, features.get("floatFlag").getAsJsonObject().get("default").getAsFloat());
         Assert.assertEquals(0.2, features.get("doubleFlag").getAsJsonObject().get("default").getAsDouble());
         Assert.assertEquals(6, features.get("intFlag").getAsJsonObject().get("default").getAsInt());
         Assert.assertEquals("string", features.get("stringFlag").getAsJsonObject().get("default").getAsString());

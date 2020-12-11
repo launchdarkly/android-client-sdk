@@ -58,19 +58,6 @@ abstract class ValueTypes {
         }
     };
 
-    static final Converter<Float> FLOAT = new Converter<Float>() {
-        @Override
-        public Float extractValue(@NonNull LDValue ldValue) {
-            return (ldValue.isNumber() ? ldValue.floatValue() : null);
-        }
-
-        @NonNull
-        @Override
-        public LDValue embedValue(@NonNull Float value) {
-            return LDValue.of(value);
-        }
-    };
-
     static final Converter<Double> DOUBLE = new Converter<Double>() {
         @Override
         public Double extractValue(@NonNull LDValue ldValue) {

@@ -297,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
                         result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
                             @Override
                             public String get() {
-                                return String.valueOf(ldClient.floatVariation(flagKey, 0F));
+                                return String.valueOf(ldClient.doubleVariation(flagKey, 0.0));
                             }
                         });
                         logResult = result == null ? "no result" : result;
