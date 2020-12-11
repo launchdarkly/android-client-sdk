@@ -96,7 +96,6 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(null, ldConfig, ldUser);
 
         try {
@@ -118,7 +117,6 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(application, null, ldUser);
 
         try {
@@ -140,7 +138,6 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(application, ldConfig, null);
 
         try {
@@ -208,7 +205,6 @@ public class LDClientTest {
             ldClient.blockingFlush();
 
             Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-            assertEquals(2, events.length);
             assertTrue(events[0] instanceof IdentifyEvent);
             assertTrue(events[1] instanceof CustomEvent);
             CustomEvent event = (CustomEvent) events[1];
@@ -236,7 +232,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -263,7 +258,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -288,7 +282,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -313,7 +306,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -338,7 +330,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -363,7 +354,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -388,7 +378,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -413,7 +402,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -438,7 +426,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -467,7 +454,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -496,7 +482,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                assertEquals(2, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof CustomEvent);
                 CustomEvent event = (CustomEvent) events[1];
@@ -504,6 +489,64 @@ public class LDClientTest {
                 assertEquals("test-event", event.key);
                 assertEquals(testVal, event.data);
                 assertEquals(-10.0, event.metricValue);
+            }
+        }
+    }
+
+    @Test
+    public void testExplicitAlias() throws IOException, InterruptedException {
+        LDUser identifyUser = new LDUser.Builder("ident").anonymous(true).build();
+        LDUser aliasUser = new LDUser.Builder("alias").anonymous(true).build();
+
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).setAutoAliasingOptOut(true).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.identify(identifyUser);
+                client.alias(aliasUser, identifyUser);
+                client.blockingFlush();
+
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 3);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof IdentifyEvent);
+                assertTrue(events[2] instanceof AliasEvent);
+                IdentifyEvent identifyEvent = (IdentifyEvent) events[1];
+                AliasEvent aliasEvent = (AliasEvent) events[2];
+                assertEquals(identifyEvent.key, "ident");
+                assertEquals(aliasEvent.key, "alias");
+                assertEquals(aliasEvent.contextKind, "anonymousUser");
+                assertEquals(aliasEvent.previousKey, "ident");
+                assertEquals(aliasEvent.previousContextKind, "anonymousUser");
+            }
+        }
+    }
+
+    @Test
+    public void testAutoAlias() throws IOException, InterruptedException {
+        LDUser initialUser = new LDUser.Builder("init").anonymous(true).build();
+
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, initialUser, 0)) {
+                client.identify(ldUser);
+                client.blockingFlush();
+
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 3);
+                assertTrue(events[0] instanceof IdentifyEvent);
+                assertTrue(events[1] instanceof AliasEvent);
+                assertTrue(events[2] instanceof IdentifyEvent);
+                AliasEvent aliasEvent = (AliasEvent) events[1];
+                assertEquals(aliasEvent.key, "userKey");
+                assertEquals(aliasEvent.contextKind, "user");
+                assertEquals(aliasEvent.previousKey, "init");
+                assertEquals(aliasEvent.previousContextKind, "anonymousUser");
             }
         }
     }
@@ -564,7 +607,7 @@ public class LDClientTest {
 
             String initialPayloadId = mockEventsServer.takeRequest(0, TimeUnit.SECONDS).getHeader("X-LaunchDarkly-Payload-ID");
             String retryPayloadId = mockEventsServer.takeRequest(0, TimeUnit.SECONDS).getHeader("X-LaunchDarkly-Payload-ID");
-            assertTrue(initialPayloadId.equals(retryPayloadId));
+            assertEquals(initialPayloadId, retryPayloadId);
         }
     }
 
@@ -588,7 +631,6 @@ public class LDClientTest {
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 3);
-                assertEquals(3, events.length);
                 assertTrue(events[0] instanceof IdentifyEvent);
                 assertTrue(events[1] instanceof FeatureRequestEvent);
                 FeatureRequestEvent event = (FeatureRequestEvent) events[1];
@@ -634,7 +676,7 @@ public class LDClientTest {
         System.out.println(body);
         Event[] events = TestUtil.getEventDeserializerGson().fromJson(body, Event[].class);
         if (events.length != expectedCount) {
-            assertTrue("count should be " + expectedCount + " for: " + body, false);
+            fail("count should be " + expectedCount + " for: " + body);
         }
         return events;
     }

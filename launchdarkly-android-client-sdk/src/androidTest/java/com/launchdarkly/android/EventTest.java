@@ -189,60 +189,110 @@ public class EventTest {
     }
 
     @Test
-    public void testUserObjectRemovedFromFeatureEvent() {
-        LDUser.Builder builder = new LDUser.Builder("1")
-                .email("email@server.net");
+    public void featureRequestEventConstructor() {
+        LDUser user = new LDUser.Builder("1").email("email@server.net").build();
+        LDUser anonUser = new LDUser.Builder("3").email("email@server.net").anonymous(true).build();
+        LDValue val1 = LDValue.of(7);
+        LDValue val2 = LDValue.buildArray().add(5.4).add("abc").build();
+        FeatureRequestEvent fe1, fe2, de1, de2;
 
-        LDUser user = builder.build();
+        fe1 = new FeatureRequestEvent("key1", user, val1, LDValue.ofNull(), -1, 5, null, false, false);
+        fe2 = new FeatureRequestEvent("key2", anonUser, LDValue.ofNull(), val2, 3, null, null, true, false);
+        de1 = new FeatureRequestEvent("key3", user, val1, LDValue.ofNull(), -1, 3, null, false, true);
+        de2 = new FeatureRequestEvent("key4", anonUser, val2, val1, 4, null, null, true, true);
 
-        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user.getKey(), LDValue.ofNull(), LDValue.ofNull(), -1, -1, null);
+        assertEquals(fe1.kind, "feature");
+        assertEquals(fe2.kind, "feature");
+        assertEquals(de1.kind, "debug");
+        assertEquals(de2.kind, "debug");
 
-        assertNull(event.user);
-        assertEquals(user.getKey(), event.userKey);
+        assertEquals(fe1.key, "key1");
+        assertEquals(fe2.key, "key2");
+        assertEquals(de1.key, "key3");
+        assertEquals(de2.key, "key4");
+
+        assertEquals(fe1.userKey, "1");
+        assertNull(fe2.userKey);
+        assertNull(de1.userKey);
+        assertNull(de2.userKey);
+
+        assertNull(fe1.user);
+        assertEquals(fe2.user, anonUser);
+        assertEquals(de1.user, user);
+        assertEquals(de2.user, anonUser);
+
+        assertEquals(fe1.value, val1);
+        assertEquals(fe2.value, LDValue.ofNull());
+        assertEquals(de1.value, val1);
+        assertEquals(de2.value, val2);
+
+        assertEquals(fe1.defaultVal, LDValue.ofNull());
+        assertEquals(fe2.defaultVal, val2);
+        assertEquals(de1.defaultVal, LDValue.ofNull());
+        assertEquals(de2.defaultVal, val1);
+
+        assertNull(fe1.reason);
+        assertNull(fe2.reason);
+        assertNull(de1.reason);
+        assertNull(de2.reason);
+
+        assertNull(fe1.version);
+        assertEquals((long)fe2.version, 3);
+        assertNull(de1.version);
+        assertEquals((long)de2.version, 4);
+
+        assertEquals((long)fe1.variation, 5);
+        assertNull(fe2.variation);
+        assertEquals((long)de1.variation, 3);
+        assertNull(de2.variation);
+
+        assertNull(fe1.contextKind);
+        assertEquals(fe2.contextKind, "anonymousUser");
+        assertNull(de1.contextKind);
+        assertNull(de2.contextKind);
     }
 
     @Test
-    public void testFullUserObjectIncludedInFeatureEvent() {
-        LDUser.Builder builder = new LDUser.Builder("1")
-                .email("email@server.net");
-
-        LDUser user = builder.build();
-
-        final FeatureRequestEvent event = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), -1, -1, null);
-
-        assertEquals(user, event.user);
-        assertNull(event.userKey);
+    public void aliasEventConstructor() {
+        LDUser user = new LDUser.Builder("1").email("email@server.net").build();
+        LDUser anonUser = new LDUser.Builder("3").email("email@server.net").anonymous(true).build();
+        AliasEvent ae = new AliasEvent(user, anonUser);
+        assertEquals(ae.kind, "alias");
+        assertEquals(ae.key, "1");
+        assertEquals(ae.contextKind, "user");
+        assertEquals(ae.previousKey, "3");
+        assertEquals(ae.previousContextKind, "anonymousUser");
     }
 
     @Test
     public void testUserObjectRemovedFromCustomEvent() {
-        LDUser.Builder builder = new LDUser.Builder("1")
-                .email("email@server.net");
+        LDUser user = new LDUser.Builder("key1").email("email@server.net").build();
 
-        LDUser user = builder.build();
+        CustomEvent e1 = new CustomEvent("c1", user, null, null, false);
+        CustomEvent e2 = new CustomEvent("c2", user, null, null, true);
 
-        final CustomEvent event = new CustomEvent("key1", user.getKey(), null, null);
+        assertEquals(e1.userKey, "key1");
+        assertNull(e2.userKey);
 
-        assertNull(event.user);
-        assertEquals(user.getKey(), event.userKey);
+        assertNull(e1.user);
+        assertEquals(e2.user, user);
+
+        assertNull(e1.contextKind);
+        assertNull(e2.contextKind);
     }
 
     @Test
-    public void testFullUserObjectIncludedInCustomEvent() {
-        LDUser.Builder builder = new LDUser.Builder("1")
-                .email("email@server.net");
-
-        LDUser user = builder.build();
-
-        final CustomEvent event = new CustomEvent("key1", user, null, null);
-
-        assertEquals(user, event.user);
-        assertNull(event.userKey);
+    public void contextKindInCustomEvent() {
+        LDUser user = new LDUser.Builder("1").anonymous(true).build();
+        CustomEvent e1 = new CustomEvent("key1", user, null, null, false);
+        CustomEvent e2 = new CustomEvent("key2", user, null, null, true);
+        assertEquals(e1.contextKind, "anonymousUser");
+        assertEquals(e2.contextKind, "anonymousUser");
     }
 
     @Test
     public void testCustomEventWithoutDataSerialization() {
-        final CustomEvent event = new CustomEvent("key1", "userkey", null, null);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, null, false);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -251,13 +301,13 @@ public class EventTest {
         assertEquals(4, eventObject.size());
         assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
         assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
-        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals("a", eventObject.getAsJsonPrimitive("userKey").getAsString());
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
 
     @Test
     public void testCustomEventWithNullValueDataSerialization() {
-        final CustomEvent event = new CustomEvent("key1", "userkey", LDValue.ofNull(), null);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.ofNull(), null, false);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -266,13 +316,13 @@ public class EventTest {
         assertEquals(4, eventObject.size());
         assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
         assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
-        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals("a", eventObject.getAsJsonPrimitive("userKey").getAsString());
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
 
     @Test
     public void testCustomEventWithDataSerialization() {
-        final CustomEvent event = new CustomEvent("key1", "userkey", LDValue.of("abc"), null);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.of("abc"), null, false);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -281,14 +331,14 @@ public class EventTest {
         assertEquals(5, eventObject.size());
         assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
         assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
-        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals("a", eventObject.getAsJsonPrimitive("userKey").getAsString());
         assertEquals("abc", eventObject.getAsJsonPrimitive("data").getAsString());
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
 
     @Test
     public void testCustomEventWithMetricSerialization() {
-        final CustomEvent event = new CustomEvent("key1", "userkey", null, 5.5);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, 5.5, false);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -297,7 +347,7 @@ public class EventTest {
         assertEquals(5, eventObject.size());
         assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
         assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
-        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals("a", eventObject.getAsJsonPrimitive("userKey").getAsString());
         assertEquals(5.5, eventObject.getAsJsonPrimitive("metricValue").getAsDouble(), 0);
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
@@ -308,7 +358,7 @@ public class EventTest {
         LDValue objVal = new ObjectBuilder()
                 .put("data", LDValue.of(10))
                 .build();
-        final CustomEvent event = new CustomEvent("key1", "userkey", objVal, -10.0);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), objVal, -10.0, false);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -317,7 +367,7 @@ public class EventTest {
         assertEquals(6, eventObject.size());
         assertEquals("custom", eventObject.getAsJsonPrimitive("kind").getAsString());
         assertEquals("key1", eventObject.getAsJsonPrimitive("key").getAsString());
-        assertEquals("userkey", eventObject.getAsJsonPrimitive("userKey").getAsString());
+        assertEquals("a", eventObject.getAsJsonPrimitive("userKey").getAsString());
         assertEquals(-10, eventObject.getAsJsonPrimitive("metricValue").getAsDouble(), 0);
         assertEquals(objVal.asJsonElement(), eventObject.getAsJsonObject("data"));
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
@@ -325,16 +375,13 @@ public class EventTest {
 
     @Test
     public void testOptionalFieldsAreExcludedAppropriately() {
-        LDUser.Builder builder = new LDUser.Builder("1")
-                .email("email@server.net");
+        LDUser user = new LDUser.Builder("1").email("email@server.net").build();
 
-        LDUser user = builder.build();
+        EvaluationReason reason = EvaluationReason.fallthrough();
 
-        final EvaluationReason reason = EvaluationReason.fallthrough();
-
-        final FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, null, null);
-        final FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), -1, 20, null);
-        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, 20, reason);
+        FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, null, null, true, false);
+        FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), -1, 20, null, true, false);
+        FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, 20, reason, true, false);
 
         assertEquals(5, hasVersionEvent.version, 0.0f);
         assertNull(hasVersionEvent.variation);
@@ -351,12 +398,10 @@ public class EventTest {
 
     @Test
     public void reasonIsSerialized() {
-        LDUser.Builder builder = new LDUser.Builder("1")
-                .email("email@server.net");
-        LDUser user = builder.build();
-        final EvaluationReason reason = EvaluationReason.fallthrough();
+        LDUser user = new LDUser.Builder("1").email("email@server.net").build();
+        EvaluationReason reason = EvaluationReason.fallthrough();
 
-        final FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, 20, reason);
+        FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, 20, reason, true, false);
 
         LDConfig config = new LDConfig.Builder()
                 .build();

@@ -267,11 +267,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     public void trackMetric(String eventName, LDValue data, Double metricValue) {
-        if (config.inlineUsersInEvents()) {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
-        } else {
-            sendEvent(new CustomEvent(eventName, userManager.getCurrentUser().getKey(), data, metricValue));
-        }
+        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue, config.inlineUsersInEvents()));
     }
 
     public void trackData(String eventName, LDValue data) {
@@ -296,6 +292,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private synchronized void identifyInternal(@NonNull LDUser user,
                                                LDUtil.ResultCallback<Void> onCompleteListener) {
+        if (!config.isAutoAliasingOptOut()) {
+            LDUser previousUser = userManager.getCurrentUser();
+            if (Event.userContextKind(previousUser).equals("anonymousUser") && Event.userContextKind(user).equals("user")) {
+                sendEvent(new AliasEvent(user, previousUser));
+            }
+        }
         userManager.setCurrentUser(user);
         connectivityManager.reloadUser(onCompleteListener);
         sendEvent(new IdentifyEvent(user));
@@ -596,6 +598,16 @@ public class LDClient implements LDClientInterface, Closeable {
         userManager.unregisterAllFlagsListener(allFlagsListener);
     }
 
+    /**
+     * Alias associates two users for analytics purposes.
+     *
+     * @param user The first user
+     * @param previousUser The second user
+     */
+    public void alias(LDUser user, LDUser previousUser) {
+        sendEvent(new AliasEvent(user, previousUser));
+    }
+
     private void triggerPoll() {
         connectivityManager.triggerPoll();
     }
@@ -655,17 +667,15 @@ public class LDClient implements LDClientInterface, Closeable {
         int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
         if (flag.getTrackEvents()) {
-            if (config.inlineUsersInEvents()) {
-                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation, reason));
-            } else {
-                sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser().getKey(), value, fallback, version, variation, reason));
-            }
+            sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version,
+                    variation, reason, config.inlineUsersInEvents(), false));
         } else {
             Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {
                 long serverTimeMs = eventProcessor.getCurrentTimeMs();
                 if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    sendEvent(new DebugEvent(flagKey, userManager.getCurrentUser(), value, fallback, version, variation, reason));
+                    sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version,
+                            variation, reason, false, true));
                 }
             }
         }

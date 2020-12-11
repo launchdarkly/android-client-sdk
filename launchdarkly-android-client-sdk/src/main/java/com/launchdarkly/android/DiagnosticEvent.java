@@ -43,6 +43,7 @@ class DiagnosticEvent {
         private final int mobileKeyCount;
         private final int diagnosticRecordingIntervalMillis;
         private final int maxCachedUsers;
+        private final boolean autoAliasingOptOut;
 
         DiagnosticConfiguration(LDConfig config) {
             this.customBaseURI = !LDConfig.DEFAULT_POLL_URI.equals(config.getPollUri());
@@ -62,6 +63,7 @@ class DiagnosticEvent {
             this.mobileKeyCount = config.getMobileKeys().size();
             this.diagnosticRecordingIntervalMillis = config.getDiagnosticRecordingIntervalMillis();
             this.maxCachedUsers = config.getMaxCachedUsers();
+            this.autoAliasingOptOut = config.isAutoAliasingOptOut();
         }
 
     }

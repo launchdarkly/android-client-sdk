@@ -27,10 +27,10 @@ public class TestUtil {
                     return context.deserialize(json, FeatureRequestEvent.class);
                 case "custom":
                     return context.deserialize(json, CustomEvent.class);
-                case "debug":
-                    return context.deserialize(json, DebugEvent.class);
                 case "identify":
                     return context.deserialize(json, IdentifyEvent.class);
+                case "alias":
+                    return context.deserialize(json, AliasEvent.class);
             }
             return null;
         }

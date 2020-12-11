@@ -9,26 +9,43 @@ import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 import com.launchdarkly.android.value.LDValue;
 
-import timber.log.Timber;
-
 class Event {
-    @Expose
-    String kind;
+    @Expose String kind;
 
     Event(String kind) {
         this.kind = kind;
     }
+
+    static String userContextKind(LDUser user) {
+        if (user.getAnonymous() != null && user.getAnonymous()) {
+            return "anonymousUser";
+        }
+        return "user";
+    }
+}
+
+class AliasEvent extends Event {
+    @Expose String key;
+    @Expose String contextKind;
+    @Expose String previousKey;
+    @Expose String previousContextKind;
+    @Expose long creationDate;
+
+    AliasEvent(LDUser user, LDUser previousUser) {
+        super("alias");
+        this.key = user.getKey();
+        this.contextKind = Event.userContextKind(user);
+        this.previousKey = previousUser.getKey();
+        this.previousContextKind = Event.userContextKind(previousUser);
+        this.creationDate = System.currentTimeMillis();
+    }
 }
 
 class GenericEvent extends Event {
-    @Expose
-    Long creationDate;
-    @Expose
-    String key;
-    @Expose
-    LDUser user;
-    @Expose
-    String userKey;
+    @Expose long creationDate;
+    @Expose String key;
+    @Expose LDUser user;
+    @Expose String userKey;
 
     GenericEvent(String kind, String key, LDUser user) {
         super(kind);
@@ -39,129 +56,71 @@ class GenericEvent extends Event {
 }
 
 class IdentifyEvent extends GenericEvent {
-
     IdentifyEvent(LDUser user) {
         super("identify", user.getKey(), user);
     }
 }
 
 class CustomEvent extends GenericEvent {
-    @Expose
-    final LDValue data;
-    @Expose
-    final Double metricValue;
+    @Expose final LDValue data;
+    @Expose final Double metricValue;
+    @Expose String contextKind;
 
-    CustomEvent(String key, LDUser user, LDValue data, Double metricValue) {
-        super("custom", key, user);
+    CustomEvent(String key, LDUser user, LDValue data, Double metricValue, boolean inlineUser) {
+        super("custom", key, inlineUser ? user : null);
+        if (!inlineUser) {
+            this.userKey = user.getKey();
+        }
         this.data = data;
         this.metricValue = metricValue;
-    }
-
-    CustomEvent(String key, String userKey, LDValue data, Double metricValue) {
-        super("custom", key, null);
-        this.data = data;
-        this.userKey = userKey;
-        this.metricValue = metricValue;
+        if (Event.userContextKind(user).equals("anonymousUser")) {
+            this.contextKind = Event.userContextKind(user);
+        }
     }
 }
 
 class FeatureRequestEvent extends GenericEvent {
-    @Expose
-    LDValue value;
+    @Expose LDValue value;
+    @Expose @SerializedName("default") LDValue defaultVal;
+    @Expose Integer version;
+    @Expose Integer variation;
+    @Expose EvaluationReason reason;
+    @Expose String contextKind;
 
-    @Expose
-    @SerializedName("default")
-    LDValue defaultVal;
-
-    @Expose
-    Integer version;
-
-    @Expose
-    Integer variation;
-
-    @Expose
-    EvaluationReason reason;
-
-    /**
-     * Creates a FeatureRequestEvent which includes the full user object.
-     *
-     * @param key        The feature flag key
-     * @param user       The full user object
-     * @param value      The value of the feature flag
-     * @param defaultVal The default value of the feature flag
-     * @param version    The stored version of the feature flag
-     * @param variation  The stored variation of the feature flag
-     */
-    FeatureRequestEvent(String key, LDUser user, LDValue value, LDValue defaultVal,
+    FeatureRequestEvent(String key,
+                        LDUser user,
+                        LDValue value,
+                        LDValue defaultVal,
                         @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
                         @Nullable Integer variation,
-                        @Nullable EvaluationReason reason) {
-        super("feature", key, user);
+                        @Nullable EvaluationReason reason,
+                        boolean inlineUser,
+                        boolean debug) {
+        super(debug ? "debug" : "feature", key, inlineUser || debug ? user : null);
+        if (!debug) {
+            if (!inlineUser) {
+                this.userKey = user.getKey();
+            }
+            if (Event.userContextKind(user).equals("anonymousUser")) {
+                this.contextKind = Event.userContextKind(user);
+            }
+        }
         this.value = value;
         this.defaultVal = defaultVal;
-        setOptionalValues(version, variation, reason);
-    }
-
-
-    /**
-     * Creates a FeatureRequestEvent which includes only the userKey.  User will be null.
-     *
-     * @param key        The feature flag key
-     * @param userKey    The user key
-     * @param value      The value of the feature flag
-     * @param defaultVal The default value of the feature flag
-     * @param version    The stored version of the feature flag
-     * @param variation  The stored variation of the feature flag
-     */
-    FeatureRequestEvent(String key, String userKey, LDValue value, LDValue defaultVal,
-                        @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
-                        @Nullable Integer variation,
-                        @Nullable EvaluationReason reason) {
-        super("feature", key, null);
-        this.value = value;
-        this.defaultVal = defaultVal;
-        this.userKey = userKey;
-        setOptionalValues(version, variation, reason);
-    }
-
-    private void setOptionalValues(int version, @Nullable Integer variation, @Nullable EvaluationReason reason) {
+        this.reason = reason;
         if (version != -1) {
             this.version = version;
-        } else {
-            Timber.d("Feature Event: Ignoring version for flag: %s", key);
         }
-
         if (variation != null) {
             this.variation = variation;
-        } else {
-            Timber.d("Feature Event: Ignoring variation for flag: %s", key);
         }
-
-        this.reason = reason;
-    }
-}
-
-class DebugEvent extends FeatureRequestEvent {
-
-    DebugEvent(String key, LDUser user, LDValue value, LDValue defaultVal, @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version, @Nullable Integer variation, @Nullable EvaluationReason reason) {
-        super(key, user, value, defaultVal, version, variation, reason);
-        this.kind = "debug";
     }
 }
 
 class SummaryEvent extends Event {
-
-    @Expose
-    @SerializedName("startDate")
-    Long startDate;
-
-    @Expose
-    @SerializedName("endDate")
-    Long endDate;
-
-    @Expose
-    @SerializedName("features")
-    JsonObject features;
+    @Expose Long startDate;
+    @Expose Long endDate;
+    @Expose JsonObject features;
 
     SummaryEvent(Long startDate, Long endDate, JsonObject features) {
         super("summary");

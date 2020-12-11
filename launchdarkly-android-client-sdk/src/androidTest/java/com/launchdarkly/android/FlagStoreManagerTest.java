@@ -169,7 +169,6 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         expectLastCall().anyTimes();
         fillerStore.unregisterOnStoreUpdatedListener();
         expectLastCall().anyTimes();
-        //noinspection ConstantConditions
         expect(mockCreate.createFlagStore(capture(oldestIdentifier))).andReturn(oldestStore);
         oldestStore.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));
         expectLastCall();
@@ -384,8 +383,8 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
     static class CaptureEq<T> implements IArgumentMatcher {
 
-        private boolean invert;
-        private Capture<T> expected;
+        private final boolean invert;
+        private final Capture<T> expected;
 
         CaptureEq(Capture<T> expected, boolean invert) {
             this.expected = expected;
