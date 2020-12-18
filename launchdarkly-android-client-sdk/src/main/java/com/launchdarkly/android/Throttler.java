@@ -44,27 +44,31 @@ class Throttler {
         resetRunnable = new Runnable() {
             @Override
             public void run() {
-                attempts.set(0);
+                attempts.decrementAndGet();
             }
         };
     }
 
     void attemptRun() {
         int attempt = attempts.getAndIncrement();
-        handler.removeCallbacks(resetRunnable);
+
+        // Grace first run instant for client initialization
+        if (attempt < 0) {
+            taskRunnable.run();
+            return;
+        }
 
         // First invocation is instant, as is the first invocation after throttling has ended
-        if (attempt <= 0) {
+        if (attempt == 0) {
             taskRunnable.run();
             handler.postDelayed(resetRunnable, retryTimeMs);
             return;
         }
 
+        long jitterVal = calculateJitterVal(attempt);
+        handler.postDelayed(resetRunnable, jitterVal);
         if (!queuedRun.getAndSet(true)) {
-            long jitterVal = calculateJitterVal(attempt);
-            long sleepTimeMs = backoffWithJitter(jitterVal);
-            handler.postDelayed(taskRunnable, sleepTimeMs);
-            handler.postDelayed(resetRunnable, jitterVal);
+            handler.postDelayed(taskRunnable, backoffWithJitter(jitterVal));
         }
     }
 
