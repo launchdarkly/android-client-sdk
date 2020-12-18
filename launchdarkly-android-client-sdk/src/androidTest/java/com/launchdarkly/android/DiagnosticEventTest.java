@@ -57,7 +57,7 @@ public class DiagnosticEventTest {
                 .setDisableBackgroundUpdating(true)
                 .setBackgroundPollingIntervalMillis(900_000)
                 .setConnectionTimeoutMillis(5_000)
-                .setBaseUri(Uri.parse("https://1.1.1.1"))
+                .setPollUri(Uri.parse("https://1.1.1.1"))
                 .setEventsUri(Uri.parse("https://1.1.1.1"))
                 .setStreamUri(Uri.parse("https://1.1.1.1"))
                 .setDiagnosticRecordingIntervalMillis(1_800_000)

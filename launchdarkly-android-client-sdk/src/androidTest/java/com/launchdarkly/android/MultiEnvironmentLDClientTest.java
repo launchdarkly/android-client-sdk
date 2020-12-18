@@ -60,7 +60,9 @@ public class MultiEnvironmentLDClientTest {
         assertTrue(ldClient.isOffline());
 
         assertTrue(ldClient.boolVariation("boolFlag", true));
+        //noinspection deprecation
         assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
+        assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5));
         assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
         assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
 
@@ -76,8 +78,8 @@ public class MultiEnvironmentLDClientTest {
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
         assertNull(ldClient.jsonVariation("jsonFlag", null));
-
         assertNull(ldClient.boolVariation("boolFlag", null));
+        //noinspection deprecation
         assertNull(ldClient.floatVariation("floatFlag", null));
         assertNull(ldClient.intVariation("intFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));

@@ -68,7 +68,9 @@ public class LDClientTest {
         assertTrue(ldClient.isOffline());
 
         assertTrue(ldClient.boolVariation("boolFlag", true));
+        //noinspection deprecation
         assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
+        assertEquals(1.5, ldClient.doubleVariation("floatFlag", 1.5));
         assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
         assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
 
@@ -86,6 +88,7 @@ public class LDClientTest {
         assertNull(ldClient.jsonVariation("jsonFlag", null));
 
         assertNull(ldClient.boolVariation("boolFlag", null));
+        //noinspection deprecation
         assertNull(ldClient.floatVariation("floatFlag", null));
         assertNull(ldClient.intVariation("intFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
@@ -179,6 +182,7 @@ public class LDClientTest {
                 assertTrue(ldClient.isOffline());
 
                 assertTrue(ldClient.boolVariation("boolFlag", true));
+                //noinspection deprecation
                 assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
                 assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
                 assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
@@ -207,7 +211,9 @@ public class LDClientTest {
 
             // Do a variety of evaluations
             assertTrue(ldClient.boolVariation("boolFlag", true));
+            //noinspection deprecation
             assertEquals(1.0F, ldClient.floatVariation("floatFlag", 1.0F));
+            assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5));
             assertEquals(Integer.valueOf(1), ldClient.intVariation("intFlag", 1));
             assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
 
@@ -216,6 +222,7 @@ public class LDClientTest {
             assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
 
             assertNull(ldClient.boolVariation("boolFlag", null));
+            //noinspection deprecation
             assertNull(ldClient.floatVariation("floatFlag", null));
             assertNull(ldClient.intVariation("intFlag", null));
             assertNull(ldClient.stringVariation("stringFlag", null));

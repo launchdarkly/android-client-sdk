@@ -4,12 +4,14 @@ import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
@@ -78,9 +80,9 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
 
         String flagSummary = object.toString();
 
-        SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.putString(flagResponseKey, object.toString());
-        editor.apply();
+        sharedPreferences.edit()
+            .putString(flagResponseKey, object.toString())
+            .apply();
 
         Timber.d("Updated summary for flagKey %s to %s", flagResponseKey, flagSummary);
     }
@@ -90,20 +92,34 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         return getSummaryEventNoSync();
     }
 
-    private SummaryEvent getSummaryEventNoSync() {
-        JsonObject features = getFeaturesJsonObject();
-        if (features.keySet().size() == 0) {
-            return null;
+    private static Long removeStartDateFromFeatureSummary(@NonNull JsonObject featureSummary) {
+        JsonElement startDate = featureSummary.remove("startDate");
+        if (startDate != null && startDate.isJsonPrimitive()) {
+            try {
+                return startDate.getAsJsonPrimitive().getAsLong();
+            } catch (NumberFormatException ignored) {}
         }
+        return null;
+    }
+
+    private SummaryEvent getSummaryEventNoSync() {
         Long startDate = null;
-        for (String key : features.keySet()) {
-            JsonObject asJsonObject = features.get(key).getAsJsonObject();
-            if (asJsonObject.has("startDate")) {
-                startDate = asJsonObject.get("startDate").getAsLong();
-                asJsonObject.remove("startDate");
-                break;
+        JsonObject features = new JsonObject();
+        for (String key : sharedPreferences.getAll().keySet()) {
+            JsonObject featureSummary = getValueAsJsonObject(key);
+            if (featureSummary != null) {
+                Long featureStartDate = removeStartDateFromFeatureSummary(featureSummary);
+                if (featureStartDate != null) {
+                    startDate = featureStartDate;
+                }
+                features.add(key, featureSummary);
             }
         }
+
+        if (startDate == null) {
+            return null;
+        }
+
         SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
         Timber.d("Sending Summary Event: %s", summaryEvent.toString());
         return summaryEvent;
@@ -112,9 +128,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
     @Override
     public synchronized SummaryEvent getSummaryEventAndClear() {
         SummaryEvent summaryEvent = getSummaryEventNoSync();
-        SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.clear();
-        editor.apply();
+        clear();
         return summaryEvent;
     }
 
@@ -129,11 +143,10 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
 
     private void addNewCountersElement(JsonArray countersArray, @Nullable JsonElement value, int version, JsonElement variation) {
         JsonObject newCounter = new JsonObject();
+        newCounter.add("value", value);
         if (version == -1) {
             newCounter.add("unknown", new JsonPrimitive(true));
-            newCounter.add("value", value);
         } else {
-            newCounter.add("value", value);
             newCounter.add("version", new JsonPrimitive(version));
             newCounter.add("variation", variation);
         }
@@ -141,44 +154,27 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         countersArray.add(newCounter);
     }
 
-
-    private JsonObject getFeaturesJsonObject() {
-        JsonObject returnObject = new JsonObject();
-        for (String key : sharedPreferences.getAll().keySet()) {
-            returnObject.add(key, getValueAsJsonObject(key));
-        }
-        return returnObject;
-    }
-
     @SuppressLint("ApplySharedPref")
     @Nullable
     private JsonObject getValueAsJsonObject(String flagResponseKey) {
-        String storedFlag;
         try {
-            storedFlag = sharedPreferences.getString(flagResponseKey, null);
-        } catch (ClassCastException castException) {
-            // An old version of shared preferences is stored, so clear it.
-            // The flag responses will get re-synced with the server
-            sharedPreferences.edit().clear().commit();
-            return null;
+            String storedFlag = sharedPreferences.getString(flagResponseKey, null);
+            if (storedFlag == null) {
+                return null;
+            }
+            JsonElement element = new JsonParser().parse(storedFlag);
+            if (element instanceof JsonObject) {
+                return element.getAsJsonObject();
+            }
+        } catch (ClassCastException | JsonParseException ignored) {
+            // Fallthrough to clear
         }
-
-        if (storedFlag == null) {
-            return null;
-        }
-
-        JsonElement element = new JsonParser().parse(storedFlag);
-        if (element instanceof JsonObject) {
-            return (JsonObject) element;
-        }
-
+        // An old version of shared preferences is stored, so clear it.
+        sharedPreferences.edit().clear().commit();
         return null;
     }
 
     public synchronized void clear() {
-        SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.clear();
-        editor.apply();
+        sharedPreferences.edit().clear().apply();
     }
-
 }

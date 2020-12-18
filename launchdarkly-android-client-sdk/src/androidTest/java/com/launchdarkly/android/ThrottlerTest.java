@@ -10,32 +10,58 @@ import org.junit.runner.RunWith;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static junit.framework.Assert.assertEquals;
+import static junit.framework.Assert.assertFalse;
 import static junit.framework.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class ThrottlerTest {
 
-    private final AtomicBoolean hasRun = new AtomicBoolean(false);
     private Throttler throttler;
-    private static final long MAX_RETRY_TIME_MS = 600000;
-    private static final long RETRY_TIME_MS = 1000;
+    private final AtomicBoolean hasRun = new AtomicBoolean(false);
+    private final long MAX_RETRY_TIME_MS = 30_000;
 
     @Before
     public void setUp() {
-         throttler = new Throttler(new Runnable() {
+        hasRun.set(false);
+        throttler = new Throttler(new Runnable() {
             @Override
             public void run() {
                 hasRun.set(true);
             }
-        }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
-
+        }, 1_000, MAX_RETRY_TIME_MS);
     }
 
     @Test
-    public void testFirstRunIsInstant() {
+    public void initialRunsInstant() {
         throttler.attemptRun();
-        boolean result = this.hasRun.getAndSet(false);
-        assertTrue(result);
+        assertTrue(hasRun.get());
+
+        // Second run is instant on fresh throttler to not penalize `init`.
+        hasRun.set(false);
+        throttler.attemptRun();
+        assertTrue(hasRun.get());
+
+        // Third run should be delayed
+        hasRun.set(false);
+        throttler.attemptRun();
+        assertFalse(hasRun.get());
+    }
+
+    @Test
+    public void delaysResetThrottle() throws InterruptedException {
+        throttler.attemptRun();
+        throttler.attemptRun();
+        Thread.sleep(1_500);
+
+        // Delay should allow third run to be instant
+        hasRun.set(false);
+        throttler.attemptRun();
+        assertTrue(hasRun.get());
+
+        // Confirms second run after delay is throttled
+        hasRun.set(false);
+        throttler.attemptRun();
+        assertFalse(hasRun.get());
     }
 
     @Ignore("Useful for inspecting jitter values empirically")
