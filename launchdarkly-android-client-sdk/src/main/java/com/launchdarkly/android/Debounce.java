@@ -22,17 +22,14 @@ class Debounce {
 
         if (inFlight == null) {
             inFlight = pending;
-            service.submit(new Callable<Void>() {
-                @Override
-                public Void call() throws Exception {
-                    try {
-                        inFlight.call();
-                    } finally {
-                        inFlight = null;
-                        schedulePending();
-                    }
-                    return null;
+            service.submit(() -> {
+                try {
+                    inFlight.call();
+                } finally {
+                    inFlight = null;
+                    schedulePending();
                 }
+                return null;
             });
             pending = null;
         }

@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
 import android.app.Application;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 class SharedPrefsFlagStoreFactory implements FlagStoreFactory {
 

@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-import android.support.test.rule.ActivityTestRule;
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.rule.ActivityTestRule;
+import androidx.test.runner.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
@@ -657,5 +657,4 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         assertEquals(expectedValue, flagStore.getFlag(flagKey).getValue().stringValue());
     }
-
 }

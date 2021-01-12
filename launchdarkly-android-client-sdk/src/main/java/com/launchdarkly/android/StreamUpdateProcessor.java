@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
@@ -19,6 +19,7 @@ import okhttp3.RequestBody;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.GSON;
+import static com.launchdarkly.android.LDConfig.JSON;
 
 class StreamUpdateProcessor {
 
@@ -156,7 +157,7 @@ class StreamUpdateProcessor {
     @NonNull
     private RequestBody getRequestBody(@Nullable LDUser user) {
         Timber.d("Attempting to report user in stream");
-        return RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), GSON.toJson(user));
+        return RequestBody.create(GSON.toJson(user), JSON);
     }
 
     private URI getUri(@Nullable LDUser user) {
@@ -182,14 +183,10 @@ class StreamUpdateProcessor {
             case PING:
                 // We debounce ping requests as they trigger a separate asynchronous request for the
                 // flags, overriding all flag values.
-                Callable<Void> pingDebounceFunction = new Callable<Void>() {
-                    @Override
-                    public Void call() {
-                        userManager.updateCurrentUser(onCompleteListener);
-                        return null;
-                    }
-                };
-                queue.call(pingDebounceFunction);
+                queue.call(() -> {
+                    userManager.updateCurrentUser(onCompleteListener);
+                    return null;
+                });
                 break;
             default:
                 Timber.d("Found an unknown stream protocol: %s", name);
@@ -201,13 +198,10 @@ class StreamUpdateProcessor {
         Timber.d("Stopping.");
         // We do this in a separate thread because closing the stream involves a network
         // operation and we don't want to do a network operation on the main thread.
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                stopSync();
-                if (onCompleteListener != null) {
-                    onCompleteListener.onSuccess(null);
-                }
+        executor.execute(() -> {
+            stopSync();
+            if (onCompleteListener != null) {
+                onCompleteListener.onSuccess(null);
             }
         });
     }

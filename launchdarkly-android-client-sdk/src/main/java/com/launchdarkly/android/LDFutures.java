@@ -1,6 +1,6 @@
 package com.launchdarkly.android;
 
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;

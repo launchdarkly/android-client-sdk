@@ -1,11 +1,14 @@
 package com.launchdarkly.android;
 
+import android.os.Build;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
+import android.net.Network;
 import android.net.NetworkInfo;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,10 +23,31 @@ class LDUtil {
      * @param context Context for getting the ConnectivityManager
      * @return whether device is connected to the internet
      */
+    @SuppressWarnings("deprecation")
     static boolean isInternetConnected(Context context) {
         ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
-        return activeNetwork != null && activeNetwork.isConnectedOrConnecting();
+        // TODO: at the point our min version is >= 23 we can remove the old compat code
+        if (Build.VERSION.SDK_INT >= 23) {
+            Network net = cm.getActiveNetwork();
+            if (net == null)
+                return false;
+
+            NetworkCapabilities nwc = cm.getNetworkCapabilities(net);
+
+            // the older solution was cleaner but android went and
+            // deprecated it :^)
+            // hasTransport(NET_CAPABILITY_INTERNET) always returns false on emulators
+            // so we check these instead
+            return nwc != null && (
+                nwc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)
+            );
+        } else {
+            NetworkInfo active = cm.getActiveNetworkInfo();
+            return active != null && active.isConnectedOrConnecting();
+        }
     }
 
     /**
@@ -41,11 +65,6 @@ class LDUtil {
             Timber.e(e, "Exception caught when getting LDClient");
             return false;
         }
-    }
-
-    // Android API v16 doesn't support Objects.equals()
-    static <T> boolean objectsEqual(@Nullable T a, @Nullable T b) {
-        return a == b || (a != null && a.equals(b));
     }
 
     @NonNull

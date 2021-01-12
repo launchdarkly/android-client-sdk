@@ -1,6 +1,6 @@
 package com.launchdarkly.android;
 
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -29,12 +29,9 @@ public class DebounceTest {
         Integer expected = 1;
         final Integer[] actual = {0};
 
-        test.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                actual[0] = 1;
-                return null;
-            }
+        test.call(() -> {
+            actual[0] = 1;
+            return null;
         });
         Thread.sleep(3000);
 
@@ -47,20 +44,14 @@ public class DebounceTest {
         Integer expected = 2;
         final Integer[] actual = {0};
 
-        test.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                actual[0] = 1;
-                return null;
-            }
+        test.call(() -> {
+            actual[0] = 1;
+            return null;
         });
         Thread.sleep(3000);
-        test.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                actual[0] = 2;
-                return null;
-            }
+        test.call(() -> {
+            actual[0] = 2;
+            return null;
         });
         Thread.sleep(3000);
 
@@ -73,29 +64,21 @@ public class DebounceTest {
         Integer expected = 3;
         final Integer[] actual = {0};
 
-        test.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                actual[0] = 1;
-                return null;
-            }
+        test.call(() -> {
+            actual[0] = 1;
+            Thread.sleep(100);
+            return null;
         });
-        test.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                actual[0] = 2;
-                return null;
-            }
+        test.call(() -> {
+            actual[0] = 2;
+            return null;
         });
-        test.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                if (actual[0] == 1)
-                    actual[0] = 3;
-                return null;
-            }
+        test.call(() -> {
+            if (actual[0] == 1)
+                actual[0] = 3;
+            return null;
         });
-        Thread.sleep(1);
+        Thread.sleep(500);
 
         assertEquals(expected, actual[0]);
     }

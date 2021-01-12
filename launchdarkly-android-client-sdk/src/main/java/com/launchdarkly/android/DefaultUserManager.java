@@ -2,8 +2,8 @@ package com.launchdarkly.android;
 
 import android.app.Application;
 import android.content.SharedPreferences;
-import android.support.annotation.NonNull;
-import android.support.annotation.VisibleForTesting;
+import androidx.annotation.NonNull;
+import androidx.annotation.VisibleForTesting;
 import android.util.Base64;
 
 import com.google.gson.JsonObject;
@@ -136,17 +136,14 @@ class DefaultUserManager implements UserManager {
     public void deleteCurrentUserFlag(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
-            executor.submit(new Runnable() {
-                @Override
-                public void run() {
-                    if (deleteFlagResponse != null) {
-                        flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
-                        onCompleteListener.onSuccess(null);
-                    } else {
-                        Timber.d("Invalid DELETE payload: %s", json);
-                        onCompleteListener.onError(new LDFailure("Invalid DELETE payload",
-                                LDFailure.FailureType.INVALID_RESPONSE_BODY));
-                    }
+            executor.submit(() -> {
+                if (deleteFlagResponse != null) {
+                    flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
+                    onCompleteListener.onSuccess(null);
+                } else {
+                    Timber.d("Invalid DELETE payload: %s", json);
+                    onCompleteListener.onError(new LDFailure("Invalid DELETE payload",
+                            LDFailure.FailureType.INVALID_RESPONSE_BODY));
                 }
             });
         } catch (Exception ex) {
@@ -159,13 +156,10 @@ class DefaultUserManager implements UserManager {
     public void putCurrentUserFlags(final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
-            executor.submit(new Runnable() {
-                @Override
-                public void run() {
-                    Timber.d("PUT for user key: %s", currentUser.getKey());
-                    flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
-                    onCompleteListener.onSuccess(null);
-                }
+            executor.submit(() -> {
+                Timber.d("PUT for user key: %s", currentUser.getKey());
+                flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
+                onCompleteListener.onSuccess(null);
             });
         } catch (Exception ex) {
             Timber.d(ex, "Invalid PUT payload: %s", json);
@@ -177,17 +171,14 @@ class DefaultUserManager implements UserManager {
     public void patchCurrentUserFlags(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
-            executor.submit(new Runnable() {
-                @Override
-                public void run() {
-                    if (flag != null) {
-                        flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
-                        onCompleteListener.onSuccess(null);
-                    } else {
-                        Timber.d("Invalid PATCH payload: %s", json);
-                        onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
-                                LDFailure.FailureType.INVALID_RESPONSE_BODY));
-                    }
+            executor.submit(() -> {
+                if (flag != null) {
+                    flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
+                    onCompleteListener.onSuccess(null);
+                } else {
+                    Timber.d("Invalid PATCH payload: %s", json);
+                    onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
+                            LDFailure.FailureType.INVALID_RESPONSE_BODY));
                 }
             });
         } catch (Exception ex) {

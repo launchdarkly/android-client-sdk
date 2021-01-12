@@ -1,10 +1,21 @@
 package com.launchdarkly.android;
 
+import android.content.Context;
+
 import android.app.Activity;
 import android.app.Application;
 import android.net.Uri;
-import android.support.test.rule.ActivityTestRule;
-import android.support.test.runner.AndroidJUnit4;
+import android.net.NetworkCapabilities;
+import android.net.Network;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.rules.ActivityScenarioRule;
+import androidx.test.core.app.ActivityScenario;
+import android.os.StrictMode;
+import android.os.StrictMode.ThreadPolicy;
+import android.os.StrictMode.VmPolicy;
+import android.os.Build;
 
 import com.launchdarkly.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.android.test.TestActivity;
@@ -39,10 +50,26 @@ import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class ConnectivityManagerTest extends EasyMockSupport {
+    
+    // this is a workaround to android being [redacted]
+    // you cant run network tasks on the main thread
+    // even in tests so we need to spin up a thread each time
+    // there is *supposed* to be a way around this with 
+    // `StrictMode#setThreadPolicy` but its bugged and doesnt work
+    // on android emulators. or at least not the ones we run in CI
+    static void doTask(Runnable func) {
+        try {
+            Thread t = new Thread(func);
+            t.start();
+            t.join();
+        } catch (InterruptedException err) {
+            assert false : "failed to run thread";
+        }
+    }
 
     @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
+    public final ActivityScenarioRule<TestActivity> testScenario =
+            new ActivityScenarioRule<>(TestActivity.class);
 
     @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
@@ -61,18 +88,35 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     private ConnectivityManager connectivityManager;
     private MockWebServer mockStreamServer;
+    private ActivityScenario<TestActivity> scenario;
+
+    static {
+        StrictMode.setThreadPolicy(ThreadPolicy.LAX);
+        StrictMode.setVmPolicy(VmPolicy.LAX);
+    }
 
     @Before
-    public void before() throws IOException {
-        NetworkTestController.setup(activityTestRule.getActivity());
-        mockStreamServer = new MockWebServer();
-        mockStreamServer.start();
+    public void before() {
+        scenario = testScenario.getScenario();
+        scenario.onActivity(act -> {
+            ConnectivityManagerTest.doTask(() -> {
+                NetworkTestController.setup(act);
+                mockStreamServer = new MockWebServer();
+                try {
+                    mockStreamServer.start();
+                } catch (IOException err) { 
+                    // if this throws then we cant do any tests
+                    assert false : "failed to start mock stream server";
+                }
+            });
+        });
     }
 
     @After
     public void after() throws InterruptedException, IOException {
         NetworkTestController.enableNetwork();
         mockStreamServer.close();
+        scenario.close();
     }
 
     private void createTestManager(boolean setOffline, boolean streaming, boolean backgroundDisabled) {
@@ -80,10 +124,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     private void createTestManager(boolean setOffline, boolean streaming, boolean backgroundDisabled, String streamUri) {
-        Activity activity = activityTestRule.getActivity();
-        Application application = activity.getApplication();
+        Application app = ApplicationProvider.getApplicationContext();
 
-        LDConfig testConfig = new LDConfig.Builder()
+        LDConfig config = new LDConfig.Builder()
                 .setMobileKey("test-mobile-key")
                 .setOffline(setOffline)
                 .setStream(streaming)
@@ -91,7 +134,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .setStreamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
-        connectivityManager = new ConnectivityManager(application, testConfig, eventProcessor, userManager, "default", null);
+        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default", null);
     }
 
     private void awaitStartUp() throws ExecutionException {
@@ -181,12 +224,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void initPolling() throws ExecutionException {
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
         userManager.updateCurrentUser(capture(callbackCapture));
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                callbackCapture.getValue().onSuccess(null);
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onSuccess(null);
+            return null;
         });
         eventProcessor.start();
         replayAll();
@@ -210,12 +250,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         final Throwable testError = new Throwable();
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
         userManager.updateCurrentUser(capture(callbackCapture));
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                callbackCapture.getValue().onError(new LDFailure("failure", testError, LDFailure.FailureType.NETWORK_FAILURE));
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onError(new LDFailure("failure", testError, LDFailure.FailureType.NETWORK_FAILURE));
+            return null;
         });
         eventProcessor.start();
         replayAll();
@@ -243,12 +280,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         final Throwable testError = new Throwable();
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
         userManager.updateCurrentUser(capture(callbackCapture));
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                callbackCapture.getValue().onError(testError);
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onError(testError);
+            return null;
         });
         eventProcessor.start();
         replayAll();
@@ -284,19 +318,32 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertNoConnection();
     }
 
+    static boolean isRoamingConnected(Context context) {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        Network net = cm.getActiveNetwork();
+        if (net == null)
+            return false;
+
+        NetworkCapabilities nwc = cm.getNetworkCapabilities(net);
+
+        return nwc != null && nwc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+    }
+
     // This test requires either Android < API 21 or mobile data to be off on device/emulator.
     @Test
     public void reloadDeviceOffline() throws ExecutionException, InterruptedException {
-        NetworkTestController.disableNetwork();
-        createTestManager(false, true, false);
+        if (Build.VERSION.SDK_INT < 21 || !isRoamingConnected(ApplicationProvider.getApplicationContext())) {
+            NetworkTestController.disableNetwork();
+            createTestManager(false, true, false);
 
-        awaitStartUp();
-        awaitReloadUser();
+            awaitStartUp();
+            awaitReloadUser();
 
-        assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
-        assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
-        assertNoConnection();
+            assertTrue(connectivityManager.isInitialized());
+            assertFalse(connectivityManager.isOffline());
+            assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
+            assertNoConnection();
+        }
     }
 
     @Test

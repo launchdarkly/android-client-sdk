@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-import android.support.test.rule.ActivityTestRule;
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
@@ -27,10 +27,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 public class MultiEnvironmentLDClientTest {
 
     @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
-    @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     private LDClient ldClient;
@@ -54,7 +50,7 @@ public class MultiEnvironmentLDClientTest {
 
     @Test
     public void testOfflineClientReturnsFallbacks() {
-        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldUser, 1);
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -71,7 +67,7 @@ public class MultiEnvironmentLDClientTest {
 
     @Test
     public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
-        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldUser, 1);
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -107,7 +103,7 @@ public class MultiEnvironmentLDClientTest {
         LaunchDarklyException actualProvidedException = null;
 
         //noinspection ConstantConditions
-        ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), null, ldUser);
+        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), null, ldUser);
 
         try {
             ldClientFuture.get();
@@ -129,7 +125,7 @@ public class MultiEnvironmentLDClientTest {
         LaunchDarklyException actualProvidedException = null;
 
         //noinspection ConstantConditions
-        ldClientFuture = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, null);
+        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, null);
 
         try {
             ldClientFuture.get();

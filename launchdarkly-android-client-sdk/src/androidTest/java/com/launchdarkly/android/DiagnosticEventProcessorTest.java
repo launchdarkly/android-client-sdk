@@ -1,9 +1,8 @@
 package com.launchdarkly.android;
 
 import android.net.Uri;
-import android.support.test.rule.ActivityTestRule;
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.core.app.ApplicationProvider;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.After;
@@ -25,15 +24,11 @@ import static junit.framework.Assert.assertEquals;
 @RunWith(AndroidJUnit4.class)
 public class DiagnosticEventProcessorTest {
 
-    @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
     private MockWebServer mockEventsServer;
 
     @Before
     public void before() throws IOException {
-        NetworkTestController.setup(activityTestRule.getActivity());
+        NetworkTestController.setup(ApplicationProvider.getApplicationContext());
         mockEventsServer = new MockWebServer();
         mockEventsServer.start();
     }
@@ -43,7 +38,7 @@ public class DiagnosticEventProcessorTest {
         NetworkTestController.enableNetwork();
         mockEventsServer.close();
     }
-
+  
     @Test
     public void defaultDiagnosticRequest() throws InterruptedException {
         // Setup in background to prevent initial diagnostic event
@@ -53,7 +48,7 @@ public class DiagnosticEventProcessorTest {
                 .setMobileKey("test-mobile-key")
                 .setEventsUri(Uri.parse(mockEventsServer.url("").toString()))
                 .build();
-        DiagnosticStore diagnosticStore = new DiagnosticStore(activityTestRule.getActivity().getApplication(), "test-mobile-key");
+        DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, okHttpClient);
 
         DiagnosticEvent testEvent = new DiagnosticEvent("test-kind", System.currentTimeMillis(), diagnosticStore.getDiagnosticId());
@@ -80,7 +75,7 @@ public class DiagnosticEventProcessorTest {
                 .setWrapperName("ReactNative")
                 .setWrapperVersion("1.0.0")
                 .build();
-        DiagnosticStore diagnosticStore = new DiagnosticStore(activityTestRule.getActivity().getApplication(), "test-mobile-key");
+        DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, okHttpClient);
 
         DiagnosticEvent testEvent = new DiagnosticEvent("test-kind", System.currentTimeMillis(), diagnosticStore.getDiagnosticId());
@@ -108,7 +103,7 @@ public class DiagnosticEventProcessorTest {
                 .setEventsUri(Uri.parse(mockEventsServer.url("").toString()))
                 .setAdditionalHeaders(additionalHeaders)
                 .build();
-        DiagnosticStore diagnosticStore = new DiagnosticStore(activityTestRule.getActivity().getApplication(), "test-mobile-key");
+        DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, okHttpClient);
 
         DiagnosticEvent testEvent = new DiagnosticEvent("test-kind", System.currentTimeMillis(), diagnosticStore.getDiagnosticId());

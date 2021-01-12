@@ -1,8 +1,8 @@
 package com.launchdarkly.android;
 
 import android.content.Context;
-import android.support.annotation.NonNull;
-import android.support.annotation.VisibleForTesting;
+import androidx.annotation.NonNull;
+import androidx.annotation.VisibleForTesting;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -154,7 +154,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
 
                 Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName)
                         .url(url)
-                        .post(RequestBody.create(JSON, content))
+                        .post(RequestBody.create(content, JSON))
                         .addHeader("Content-Type", "application/json")
                         .addHeader("X-LaunchDarkly-Event-Schema", "3")
                         .addHeader("X-LaunchDarkly-Payload-ID", eventPayloadId);

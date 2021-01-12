@@ -13,6 +13,7 @@ import org.junit.Test;
 import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.Objects;
 
 import static org.easymock.EasyMock.and;
 import static org.easymock.EasyMock.anyObject;
@@ -239,12 +240,9 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         expect(mockCreate.createFlagStore(anyString())).andReturn(mockStore);
         mockStore.registerOnStoreUpdatedListener(capture(managerListener));
         mockFlagListener.onFeatureFlagChange("flag");
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                waitLatch.countDown();
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            waitLatch.countDown();
+            return null;
         });
 
         replayAll();
@@ -270,12 +268,9 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         expect(mockCreate.createFlagStore(anyString())).andReturn(mockStore);
         mockStore.registerOnStoreUpdatedListener(capture(managerListener));
         mockFlagListener.onFeatureFlagChange("flag");
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                waitLatch.countDown();
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            waitLatch.countDown();
+            return null;
         });
 
         replayAll();
@@ -396,7 +391,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         }
 
         private boolean equalTo(Object actual) {
-            return LDUtil.objectsEqual(expected.getValue(), actual);
+            return Objects.equals(expected.getValue(), actual);
         }
 
         public void appendTo(StringBuffer buffer) {

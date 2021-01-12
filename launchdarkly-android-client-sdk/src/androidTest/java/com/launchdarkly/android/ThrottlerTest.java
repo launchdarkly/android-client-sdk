@@ -1,6 +1,6 @@
 package com.launchdarkly.android;
 
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.junit.Before;
 import org.junit.Ignore;
@@ -23,12 +23,7 @@ public class ThrottlerTest {
     @Before
     public void setUp() {
         hasRun.set(false);
-        throttler = new Throttler(new Runnable() {
-            @Override
-            public void run() {
-                hasRun.set(true);
-            }
-        }, 1_000, MAX_RETRY_TIME_MS);
+        throttler = new Throttler(() -> hasRun.set(true), 1_000, MAX_RETRY_TIME_MS);
     }
 
     @Test

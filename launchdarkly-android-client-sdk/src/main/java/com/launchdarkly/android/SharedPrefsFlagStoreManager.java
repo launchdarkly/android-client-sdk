@@ -5,7 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 import android.util.Pair;
 
 import java.util.ArrayList;
@@ -168,11 +168,8 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
             }
         } else {
             // Call ourselves on the main thread
-            new Handler(Looper.getMainLooper()).post(new Runnable() {
-                @Override
-                public void run() {
-                    dispatchStoreUpdateCallback(flagKey, flagStoreUpdateType);
-                }
+            new Handler(Looper.getMainLooper()).post(() -> {
+                dispatchStoreUpdateCallback(flagKey, flagStoreUpdateType);
             });
         }
     }

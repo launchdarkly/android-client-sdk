@@ -4,10 +4,9 @@ import android.app.Application;
 import android.content.Context;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.os.AsyncTask;
 import android.os.Build;
-import android.support.annotation.NonNull;
-import android.support.annotation.VisibleForTesting;
+import androidx.annotation.NonNull;
+import androidx.annotation.VisibleForTesting;
 
 import com.google.gson.JsonElement;
 import com.launchdarkly.android.value.LDValue;
@@ -28,6 +27,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
@@ -56,6 +57,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private ConnectivityReceiver connectivityReceiver;
     private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
             Collections.synchronizedList(new ArrayList<WeakReference<LDStatusListener>>());
+    private final ExecutorService executor = Executors.newFixedThreadPool(1);
 
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
@@ -458,8 +460,14 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void closeInternal() {
-        connectivityManager.shutdown();
-        eventProcessor.close();
+        if (connectivityManager != null) {
+            connectivityManager.shutdown();
+        }
+        
+        if (eventProcessor != null) {
+            eventProcessor.close();
+        }
+
         if (diagnosticEventProcessor != null) {
             diagnosticEventProcessor.close();
         }
@@ -608,12 +616,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 if (mListener == null) {
                     iter.remove();
                 } else {
-                    AsyncTask.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            mListener.onConnectionModeChanged(connectionInformation);
-                        }
-                    });
+                    executor.submit(() -> mListener.onConnectionModeChanged(connectionInformation));
                 }
             }
         }
@@ -627,12 +630,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 if (mListener == null) {
                     iter.remove();
                 } else {
-                    AsyncTask.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            mListener.onInternalFailure(ldFailure);
-                        }
-                    });
+                    executor.submit(() -> mListener.onInternalFailure(ldFailure));
                 }
             }
         }

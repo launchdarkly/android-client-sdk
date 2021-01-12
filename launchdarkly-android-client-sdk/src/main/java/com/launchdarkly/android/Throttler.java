@@ -2,7 +2,7 @@ package com.launchdarkly.android;
 
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,19 +34,11 @@ class Throttler {
         handlerThread.start();
         handler = new Handler(handlerThread.getLooper());
 
-        taskRunnable = new Runnable() {
-            @Override
-            public void run() {
-                queuedRun.set(false);
-                runnable.run();
-            }
+        taskRunnable = () -> {
+            queuedRun.set(false);
+            runnable.run();
         };
-        resetRunnable = new Runnable() {
-            @Override
-            public void run() {
-                attempts.set(0);
-            }
-        };
+        resetRunnable = () -> attempts.set(0);
     }
 
     void attemptRun() {

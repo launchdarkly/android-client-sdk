@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
 import java.util.Arrays;
-
+import java.util.Objects;
 /**
  * An object returned by the "variation detail" methods such as {@link LDClientInterface#boolVariationDetail(String, boolean)},
  * combining the result of a flag evaluation with an explanation of how it was calculated.
@@ -68,9 +68,9 @@ public class EvaluationDetail<T> {
         if (other instanceof EvaluationDetail) {
             @SuppressWarnings("unchecked")
             EvaluationDetail<T> o = (EvaluationDetail<T>) other;
-            return LDUtil.objectsEqual(reason, o.reason) &&
-                    LDUtil.objectsEqual(variationIndex, o.variationIndex) &&
-                    LDUtil.objectsEqual(value, o.value);
+            return Objects.equals(reason, o.reason) &&
+                    Objects.equals(variationIndex, o.variationIndex) &&
+                    Objects.equals(value, o.value);
         }
         return false;
     }

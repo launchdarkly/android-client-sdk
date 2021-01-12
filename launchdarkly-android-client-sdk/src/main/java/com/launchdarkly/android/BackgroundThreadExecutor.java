@@ -1,6 +1,7 @@
 package com.launchdarkly.android;
 
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
+import android.os.Process;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -16,7 +17,7 @@ class BackgroundThreadExecutor {
     private final ThreadFactory threadFactory;
 
     BackgroundThreadExecutor() {
-        this.threadFactory = new PriorityThreadFactory(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        this.threadFactory = new PriorityThreadFactory(Process.THREAD_PRIORITY_BACKGROUND);
     }
 
     @SuppressWarnings("SameParameterValue")
@@ -35,17 +36,14 @@ class BackgroundThreadExecutor {
 
         @Override
         public Thread newThread(@NonNull final Runnable runnable) {
-            Runnable wrapperRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        android.os.Process.setThreadPriority(threadPriority);
-                    } catch (Throwable ignored) {
-                    }
-                    runnable.run();
+            return new Thread(() -> {
+                try {
+                    Process.setThreadPriority(threadPriority);
+                } catch (Throwable ignored) {
+                    // ignore
                 }
-            };
-            return new Thread(wrapperRunnable);
+                runnable.run();
+            });
         }
 
     }

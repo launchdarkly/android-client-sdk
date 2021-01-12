@@ -30,12 +30,15 @@ public class ForegroundTestController {
     }
 
     public static synchronized void moveToBackground() {
-        WaitChangeListener waitChangeListener = new WaitChangeListener();
-        instance.addListener(waitChangeListener);
-        foregroundApplication.moveToBackground();
-        waitChangeListener.block();
-        instance.removeListener(waitChangeListener);
+        if (instance.isForeground()) {
+            WaitChangeListener waitChangeListener = new WaitChangeListener();
+            instance.addListener(waitChangeListener);
+            foregroundApplication.moveToBackground();
+            waitChangeListener.block();
+            instance.removeListener(waitChangeListener);
+        }
     }
+
 
     private static class WaitChangeListener implements Foreground.Listener {
 

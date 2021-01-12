@@ -2,7 +2,7 @@ package com.launchdarkly.android;
 
 import android.content.Context;
 import android.os.Build;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -25,6 +25,7 @@ import okhttp3.ResponseBody;
 import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.GSON;
+import static com.launchdarkly.android.LDConfig.JSON;
 import static com.launchdarkly.android.LDUtil.isClientConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFetcher {
@@ -101,8 +102,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                         Timber.d("Cache response: %s", response.cacheResponse());
                         Timber.d("Network response: %s", response.networkResponse());
 
-                        JsonParser parser = new JsonParser();
-                        JsonObject jsonObject = parser.parse(body).getAsJsonObject();
+                        JsonObject jsonObject = JsonParser.parseString(body).getAsJsonObject();
                         callback.onSuccess(jsonObject);
                     } catch (Exception e) {
                         Timber.e(e, "Exception when handling response for url: %s with body: %s", request.url(), body);
@@ -135,7 +135,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         }
         Timber.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
-        RequestBody reportBody = RequestBody.create(MediaType.parse("application/json;charset=UTF-8"), userJson);
+        RequestBody reportBody = RequestBody.create(userJson, JSON);
         Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName)
                 .method("REPORT", reportBody) // custom REPORT verb
                 .url(reportUri);

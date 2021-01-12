@@ -1,7 +1,7 @@
 package com.launchdarkly.android;
 
-import android.support.test.rule.ActivityTestRule;
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -20,11 +20,6 @@ import static junit.framework.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class SharedPrefsSummaryEventStoreTest {
-
-    @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
     @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
@@ -41,7 +36,7 @@ public class SharedPrefsSummaryEventStoreTest {
 
         ldUser = new LDUser.Builder("userKey").build();
 
-        ldClient = LDClient.init(activityTestRule.getActivity().getApplication(), ldConfig, ldUser, 1);
+        ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldUser, 1);
         summaryEventStore = ldClient.getSummaryEventStore();
     }
 

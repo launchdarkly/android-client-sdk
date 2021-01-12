@@ -1,8 +1,8 @@
 package com.launchdarkly.android;
 
 import android.app.Application;
-import android.support.test.rule.ActivityTestRule;
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.android.test.TestActivity;
 
@@ -23,15 +23,11 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
     private Application testApplication;
 
     @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
-    @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Before
     public void setUp() {
-        this.testApplication = activityTestRule.getActivity().getApplication();
+        this.testApplication = ApplicationProvider.getApplicationContext();
     }
 
     public FlagStore createFlagStore(String identifier) {

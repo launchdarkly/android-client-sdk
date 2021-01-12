@@ -2,7 +2,7 @@ package com.launchdarkly.android;
 
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.JsonAdapter;
-
+import java.util.Objects;
 /**
  * Describes the reason that a flag evaluation produced a particular value. This is returned by
  * methods such as {@link LDClientInterface#boolVariationDetail(String, boolean)}.
@@ -229,7 +229,7 @@ public abstract class EvaluationReason {
         public boolean equals(Object other) {
             if (other instanceof RuleMatch) {
                 RuleMatch o = (RuleMatch) other;
-                return ruleIndex == o.ruleIndex && LDUtil.objectsEqual(ruleId, o.ruleId);
+                return ruleIndex == o.ruleIndex && Objects.equals(ruleId, o.ruleId);
             }
             return false;
         }

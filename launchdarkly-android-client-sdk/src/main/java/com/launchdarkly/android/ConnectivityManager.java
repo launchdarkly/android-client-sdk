@@ -3,7 +3,7 @@ package com.launchdarkly.android;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import java.util.Calendar;
 import java.util.TimeZone;
@@ -56,12 +56,9 @@ class ConnectivityManager {
         backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
         foregroundMode = ldConfig.isStream() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
 
-        throttler = new Throttler(new Runnable() {
-            @Override
-            public void run() {
-                synchronized (ConnectivityManager.this) {
-                    attemptTransition(isForeground() ? foregroundMode : backgroundMode);
-                }
+        throttler = new Throttler(() -> {
+            synchronized (ConnectivityManager.this) {
+                attemptTransition(isForeground() ? foregroundMode : backgroundMode);
             }
         }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
 

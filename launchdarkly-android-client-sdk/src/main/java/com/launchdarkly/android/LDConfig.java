@@ -451,7 +451,7 @@ public class LDConfig {
          * If the capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
          * means that events are less likely to be discarded, at the cost of consuming more memory.
          * <p>
-         * The default value is {@value LDConfig#DEFAULT_EVENTS_CAPACITY}.
+         * The default value is {@link #DEFAULT_EVENTS_CAPACITY}.
          *
          * @param eventsCapacity the capacity of the event buffer
          * @return the builder
@@ -465,7 +465,7 @@ public class LDConfig {
         /**
          * Sets the maximum amount of time to wait in between sending analytics events to LaunchDarkly.
          * <p>
-         * The default value is {@value LDConfig#DEFAULT_FLUSH_INTERVAL_MILLIS}.
+         * The default value is {@link #DEFAULT_FLUSH_INTERVAL_MILLIS}.
          *
          * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
          * @return the builder
@@ -480,7 +480,7 @@ public class LDConfig {
         /**
          * Sets the timeout when connecting to LaunchDarkly.
          * <p>
-         * The default value is {@value LDConfig#DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
+         * The default value is {@link #DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
          *
          * @param connectionTimeoutMillis the connection timeout, in milliseconds
          * @return the builder

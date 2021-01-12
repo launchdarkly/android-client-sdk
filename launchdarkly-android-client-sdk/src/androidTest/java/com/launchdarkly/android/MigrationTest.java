@@ -3,8 +3,7 @@ package com.launchdarkly.android;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.support.test.rule.ActivityTestRule;
-
+import androidx.test.core.app.ApplicationProvider;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Before;
@@ -26,19 +25,15 @@ public class MigrationTest {
     private static final String FAKE_MOB_KEY = "mob-fakemob6-key9-fake-mob0-keyfakemob22";
 
     @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
-    @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     private Application getApplication() {
-        return activityTestRule.getActivity().getApplication();
+        return ApplicationProvider.getApplicationContext();
     }
 
     @Before
     public void setUp() {
-        File directory = new File(activityTestRule.getActivity().getApplication().getFilesDir().getParent() + "/shared_prefs/");
+        File directory = new File(getApplication().getFilesDir().getParent() + "/shared_prefs/");
         File[] files = directory.listFiles();
         if (files == null) {
             return;

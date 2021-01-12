@@ -4,8 +4,8 @@ import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -14,7 +14,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-
+import java.util.Objects;
 import timber.log.Timber;
 
 /**
@@ -48,7 +48,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
                         continue;
                     }
                     // Both are unknown and same value
-                    if (isUnknown && LDUtil.objectsEqual(value, asJsonObject.get("value"))) {
+                    if (isUnknown && Objects.equals(value, asJsonObject.get("value"))) {
                         variationExists = true;
                         int currentCount = asJsonObject.get("count").getAsInt();
                         asJsonObject.add("count", new JsonPrimitive(++currentCount));
@@ -162,7 +162,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
             if (storedFlag == null) {
                 return null;
             }
-            JsonElement element = new JsonParser().parse(storedFlag);
+            JsonElement element = JsonParser.parseString(storedFlag);
             if (element instanceof JsonObject) {
                 return element.getAsJsonObject();
             }

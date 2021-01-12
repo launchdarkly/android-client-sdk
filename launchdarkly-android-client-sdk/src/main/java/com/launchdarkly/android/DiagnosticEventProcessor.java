@@ -1,6 +1,6 @@
 package com.launchdarkly.android;
 
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -76,16 +76,19 @@ class DiagnosticEventProcessor {
         long safeDelay = Math.min(Math.max(initialDelay, 0), config.getDiagnosticRecordingIntervalMillis());
 
         executorService = Executors.newSingleThreadScheduledExecutor(diagnosticThreadFactory);
-        executorService.scheduleAtFixedRate(new Runnable() {
-            @Override
-            public void run() {
-                sendDiagnosticEventSync(diagnosticStore.getCurrentStatsAndReset());
-            }
-        }, safeDelay, config.getDiagnosticRecordingIntervalMillis(), TimeUnit.MILLISECONDS);
+        executorService.scheduleAtFixedRate(
+            () -> sendDiagnosticEventSync(diagnosticStore.getCurrentStatsAndReset()), 
+            safeDelay, 
+            config.getDiagnosticRecordingIntervalMillis(), 
+            TimeUnit.MILLISECONDS
+        );
     }
 
     private void stopScheduler() {
-        executorService.shutdown();
+        if (executorService != null) {
+            executorService.shutdown();
+            executorService = null;
+        }
     }
 
     void close() {
@@ -93,12 +96,7 @@ class DiagnosticEventProcessor {
     }
 
     private void sendDiagnosticEventAsync(final DiagnosticEvent diagnosticEvent) {
-        executorService.submit(new Runnable() {
-            @Override
-            public void run() {
-                sendDiagnosticEventSync(diagnosticEvent);
-            }
-        });
+        executorService.submit(() -> sendDiagnosticEventSync(diagnosticEvent));
     }
 
     void sendDiagnosticEventSync(DiagnosticEvent diagnosticEvent) {
@@ -106,7 +104,7 @@ class DiagnosticEventProcessor {
         Request.Builder requestBuilder = config.getRequestBuilderFor(environment)
                 .url(config.getEventsUri().buildUpon().appendEncodedPath("mobile/events/diagnostic").build().toString())
                 .addHeader("Content-Type", "application/json")
-                .post(RequestBody.create(JSON, content));
+                .post(RequestBody.create(content, JSON));
 
         Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
         Timber.d("Posting diagnostic event to %s with body %s", request.url(), content);

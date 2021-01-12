@@ -149,19 +149,16 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
         }
 
         if (wasBackground) {
-            handler.post(new Runnable() {
-                             @Override
-                             public void run() {
-                                 Timber.d("went foreground");
-                                 for (Listener l : listeners) {
-                                     try {
-                                         l.onBecameForeground();
-                                     } catch (Exception exc) {
-                                         Timber.e(exc, "Listener threw exception!");
-                                     }
-                                 }
-                             }
-                         });
+            handler.post(() -> {
+                Timber.d("went foreground");
+                for (Listener l : listeners) {
+                    try {
+                        l.onBecameForeground();
+                    } catch (Exception exc) {
+                        Timber.e(exc, "Listener threw exception!");
+                    }
+                }
+            });
         } else {
             Timber.d("still foreground");
         }
@@ -176,22 +173,19 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
             check = null;
         }
 
-        handler.postDelayed(check = new Runnable() {
-            @Override
-            public void run() {
-                if (foreground && paused) {
-                    foreground = false;
-                    Timber.d("went background");
-                    for (Listener l : listeners) {
-                        try {
-                            l.onBecameBackground();
-                        } catch (Exception exc) {
-                            Timber.e(exc, "Listener threw exception!");
-                        }
+        handler.postDelayed(check = () -> {
+            if (foreground && paused) {
+                foreground = false;
+                Timber.d("went background");
+                for (Listener l : listeners) {
+                    try {
+                        l.onBecameBackground();
+                    } catch (Exception exc) {
+                        Timber.e(exc, "Listener threw exception!");
                     }
-                } else {
-                    Timber.d("still background");
                 }
+            } else {
+                Timber.d("still background");
             }
         }, CHECK_DELAY);
     }

@@ -2,8 +2,8 @@ package com.launchdarkly.android;
 
 import android.app.Application;
 import android.net.Uri;
-import android.support.test.rule.ActivityTestRule;
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -42,10 +42,6 @@ public class LDClientTest {
 
     private static final String mobileKey = "test-mobile-key";
 
-    @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
-
     private Application application;
     private LDClient ldClient;
     private Future<LDClient> ldClientFuture;
@@ -54,7 +50,7 @@ public class LDClientTest {
 
     @Before
     public void setUp() {
-        application = activityTestRule.getActivity().getApplication();
+        application = ApplicationProvider.getApplicationContext();
         ldConfig = new LDConfig.Builder()
                 .setOffline(true)
                 .build();
@@ -161,27 +157,23 @@ public class LDClientTest {
 
     @Test
     public void testInitBackgroundThread() throws ExecutionException, InterruptedException {
-        Future<?> backgroundComplete =
-                new BackgroundThreadExecutor().newFixedThreadPool(1).submit(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    ldClient = LDClient.init(application, ldConfig, ldUser).get();
-                } catch (Exception e) {
-                    fail();
-                }
-                assertTrue(ldClient.isInitialized());
-                assertTrue(ldClient.isOffline());
-
-                assertTrue(ldClient.boolVariation("boolFlag", true));
-                assertEquals(1.0, ldClient.doubleVariation("doubleFlag", 1.0));
-                assertEquals(1, ldClient.intVariation("intFlag", 1));
-                assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
-
-                JsonObject expectedJson = new JsonObject();
-                expectedJson.addProperty("field", "value");
-                assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+        Future<?> backgroundComplete = new BackgroundThreadExecutor().newFixedThreadPool(1).submit(() -> {
+            try {
+                ldClient = LDClient.init(application, ldConfig, ldUser).get();
+            } catch (Exception e) {
+                fail();
             }
+            assertTrue(ldClient.isInitialized());
+            assertTrue(ldClient.isOffline());
+
+            assertTrue(ldClient.boolVariation("boolFlag", true));
+            assertEquals(1.0, ldClient.doubleVariation("doubleFlag", 1.0));
+            assertEquals(1, ldClient.intVariation("intFlag", 1));
+            assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
+
+            JsonObject expectedJson = new JsonObject();
+            expectedJson.addProperty("field", "value");
+            assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
         });
         backgroundComplete.get();
     }

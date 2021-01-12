@@ -3,8 +3,8 @@ package com.launchdarkly.example;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.support.annotation.Nullable;
-import android.support.v7.app.AppCompatActivity;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -43,12 +43,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateStatusString(final ConnectionInformation connectionInformation) {
         if (Looper.myLooper() != MainActivity.this.getMainLooper()) {
-            (new Handler(MainActivity.this.getMainLooper())).post(new Runnable() {
-                @Override
-                public void run() {
-                    updateStatusString(connectionInformation);
-                }
-            });
+            (new Handler(MainActivity.this.getMainLooper())).post(() -> updateStatusString(connectionInformation));
         } else {
             TextView connection = MainActivity.this.findViewById(R.id.connection_status);
             Long lastSuccess = connectionInformation.getLastSuccessfulConnection();
@@ -106,11 +101,8 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onInternalFailure(final LDFailure ldFailure) {
-                new Handler(MainActivity.this.getMainLooper()).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        Toast.makeText(MainActivity.this, ldFailure.toString(), Toast.LENGTH_SHORT).show();
-                    }
+                new Handler(MainActivity.this.getMainLooper()).post(() -> {
+                    Toast.makeText(MainActivity.this, ldFailure.toString(), Toast.LENGTH_SHORT).show();
                 });
                 updateStatusString(ldClient.getConnectionInformation());
             }
@@ -119,15 +111,12 @@ public class MainActivity extends AppCompatActivity {
         allFlagsListener = new LDAllFlagsListener() {
             @Override
             public void onChange(final List<String> flagKey) {
-                new Handler(MainActivity.this.getMainLooper()).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        StringBuilder flags = new StringBuilder("Updated flags: ");
-                        for (String flag : flagKey) {
-                            flags.append(flag).append(" ");
-                        }
-                        Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
+                new Handler(MainActivity.this.getMainLooper()).post(() -> {
+                    StringBuilder flags = new StringBuilder("Updated flags: ");
+                    for (String flag : flagKey) {
+                        flags.append(flag).append(" ");
                     }
+                    Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
                 });
                 updateStatusString(ldClient.getConnectionInformation());
             }
@@ -140,12 +129,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 Timber.i("flush onClick");
-                MainActivity.this.doSafeClientAction(new LDClientFunction() {
-                    @Override
-                    public void call() {
-                        ldClient.flush();
-                    }
-                });
+                MainActivity.this.doSafeClientAction(() -> ldClient.flush());
             }
         });
     }
@@ -178,12 +162,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 Timber.i("track onClick");
-                MainActivity.this.doSafeClientAction(new LDClientFunction() {
-                    @Override
-                    public void call() {
-                        ldClient.track("Android event name");
-                    }
-                });
+                MainActivity.this.doSafeClientAction(() -> ldClient.track("Android event name"));
             }
         });
     }
@@ -196,12 +175,7 @@ public class MainActivity extends AppCompatActivity {
                 Timber.i("identify onClick");
                 String userKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText)).getText().toString();
                 final LDUser updatedUser = new LDUser.Builder(userKey).build();
-                MainActivity.this.doSafeClientAction(new LDClientFunction() {
-                    @Override
-                    public void call() {
-                        ldClient.identify(updatedUser);
-                    }
-                });
+                MainActivity.this.doSafeClientAction(() -> ldClient.identify(updatedUser));
             }
         });
     }
@@ -211,21 +185,7 @@ public class MainActivity extends AppCompatActivity {
         offlineSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
-                if (isChecked) {
-                    MainActivity.this.doSafeClientAction(new LDClientFunction() {
-                        @Override
-                        public void call() {
-                            ldClient.setOffline();
-                        }
-                    });
-                } else {
-                    MainActivity.this.doSafeClientAction(new LDClientFunction() {
-                        @Override
-                        public void call() {
-                            ldClient.setOnline();
-                        }
-                    });
-                }
+                MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline());
             }
         });
     }
@@ -249,35 +209,22 @@ public class MainActivity extends AppCompatActivity {
                 String logResult;
                 switch (type) {
                     case "String":
-                        result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
-                            @Override
-                            public String get() {
-                                return ldClient.stringVariation(flagKey, "default");
-                            }
-                        });
+                        result = MainActivity.this.doSafeClientGet(() -> ldClient.stringVariation(flagKey, "default"));
                         logResult = result == null ? "no result" : result;
                         Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
-                        MainActivity.this.doSafeClientAction(new LDClientFunction() {
-                            @Override
-                            public void call() {
-                                ldClient.registerFeatureFlagListener(flagKey, new FeatureFlagChangeListener() {
-                                    @Override
-                                    public void onFeatureFlagChange(String flagKey1) {
-                                        ((TextView) MainActivity.this.findViewById(R.id.result_textView))
-                                                .setText(ldClient.stringVariation(flagKey1, "default"));
-                                    }
-                                });
-                            }
+                        MainActivity.this.doSafeClientAction(() -> {
+                            ldClient.registerFeatureFlagListener(flagKey, new FeatureFlagChangeListener() {
+                                @Override
+                                public void onFeatureFlagChange(String flagKey1) {
+                                    ((TextView) MainActivity.this.findViewById(R.id.result_textView))
+                                            .setText(ldClient.stringVariation(flagKey1, "default"));
+                                }
+                            });
                         });
                         break;
                     case "Boolean":
-                        result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
-                            @Override
-                            public String get() {
-                                return String.valueOf(ldClient.boolVariation(flagKey, false));
-                            }
-                        });
+                        result = MainActivity.this.doSafeClientGet(() ->String.valueOf(ldClient.boolVariation(flagKey, false)));
                         logResult = result == null ? "no result" : result;
                         Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
@@ -294,23 +241,13 @@ public class MainActivity extends AppCompatActivity {
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Float":
-                        result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
-                            @Override
-                            public String get() {
-                                return String.valueOf(ldClient.doubleVariation(flagKey, 0.0));
-                            }
-                        });
+                        result = MainActivity.this.doSafeClientGet(() ->String.valueOf(ldClient.doubleVariation(flagKey, 0.0)));
                         logResult = result == null ? "no result" : result;
                         Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                         break;
                     case "Json":
-                        result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
-                            @Override
-                            public String get() {
-                                return ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString();
-                            }
-                        });
+                        result = MainActivity.this.doSafeClientGet(() -> ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString());
                         logResult = result == null ? "no result" : result;
                         Timber.i(logResult);
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
