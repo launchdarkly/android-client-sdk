@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.14.1] - 2021-01-14
+### Fixed
+- Before this release, the SDK could cause an uncaught exception on certain Android implementations, when scheduling a future poll request under certain situations. This fix extends a previous fix implemented in the [2.9.1 release](https://github.com/launchdarkly/android-client-sdk/releases/tag/2.9.1) of the SDK, which catches `SecurityException`s thrown by the alarm manager when registering an alarm for the next poll. This `SecurityException` was introduced by Samsung on their Lollipop and later Android implementions, and is thrown when the application has at least 500 existing alarms when registering a new alarm. After recent reports of the alarm manager throwing an `IllegalStateException` rather than a `SecurityException` under the same conditions but different Android implementations, this release broadens the exception handling when scheduling a poll request to safeguard against other exception types.
+
 ## [2.14.0] - 2020-12-17
 ### Added
 - Added `LDConfig.Builder.setPollUri` configuration setter that is equivalent to the now deprecated `setBaseUri`.
