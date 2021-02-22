@@ -5,6 +5,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDValue;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -16,10 +18,10 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertNull;
-import static junit.framework.Assert.assertTrue;
-import static junit.framework.Assert.fail;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 
@@ -41,8 +43,8 @@ public class MultiEnvironmentLDClientTest {
         secondaryKeys.put("test1", "test1");
 
         ldConfig = new LDConfig.Builder()
-                .setOffline(true)
-                .setSecondaryMobileKeys(secondaryKeys)
+                .offline(true)
+                .secondaryMobileKeys(secondaryKeys)
                 .build();
 
         ldUser = new LDUser.Builder("userKey").build();
@@ -56,13 +58,12 @@ public class MultiEnvironmentLDClientTest {
         assertTrue(ldClient.isOffline());
 
         assertTrue(ldClient.boolVariation("boolFlag", true));
-        assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5));
+        assertEquals(1.5, ldClient.doubleVariation("floatFlag", 1.5), 0.0);
         assertEquals(1, ldClient.intVariation("intFlag", 1));
         assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
 
-        JsonObject expectedJson = new JsonObject();
-        expectedJson.addProperty("field", "value");
-        assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+        LDValue expectedJson = LDValue.of("value");
+        assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
     }
 
     @Test
@@ -71,7 +72,7 @@ public class MultiEnvironmentLDClientTest {
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
-        assertNull(ldClient.jsonVariation("jsonFlag", null));
+        assertNull(ldClient.jsonValueVariation("jsonFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
     }
 

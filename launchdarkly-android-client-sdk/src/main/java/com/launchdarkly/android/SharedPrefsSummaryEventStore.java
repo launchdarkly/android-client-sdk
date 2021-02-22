@@ -4,8 +4,9 @@ import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.NonNull;
+import com.launchdarkly.sdk.LDValue;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -28,8 +29,48 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);
     }
 
+    public static JsonElement toJson(LDValue val) {
+        switch (val.getType()) {
+        case BOOLEAN:
+            return new JsonPrimitive(val.booleanValue());
+        case NULL:
+            return JsonNull.INSTANCE;
+        case NUMBER:
+            if (val.isInt()) {
+                return new JsonPrimitive(val.longValue());
+            } else {
+                return new JsonPrimitive(val.doubleValue());
+            }
+        case STRING:
+            return new JsonPrimitive(val.stringValue());
+        case ARRAY:
+            JsonArray arr = new JsonArray();
+            for (LDValue each : val.values()) {
+                arr.add(toJson(each));
+            }
+            return arr;
+        case OBJECT:
+            JsonObject obj = new JsonObject();
+            for (String key : val.keys()) {
+                obj.add(key, toJson(val.get(key)));
+            }
+            return obj;
+        default:
+            Timber.w("invalid type found when converting LDValue `%s` to json", val.toString());
+            throw new IllegalStateException("unknown value type, should not be possible");
+        }
+    }
+
     @Override
-    public synchronized void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer nullableVariation) {
+    public synchronized void addOrUpdateEvent(String flagResponseKey, LDValue inValue, LDValue inDefaultVal, int version, @Nullable Integer nullableVariation) {
+        /* the code in this function was inherited
+           from android 2.x and relies heavily on JsonElements
+           rewriting it would probably introduce bugs so 
+           we convert the inputs back to json.
+        */
+        JsonElement value = toJson(inValue);
+        JsonElement defaultVal = toJson(inDefaultVal);
+
         JsonElement variation = nullableVariation == null ? JsonNull.INSTANCE : new JsonPrimitive(nullableVariation);
         JsonObject object = getValueAsJsonObject(flagResponseKey);
         if (object == null) {

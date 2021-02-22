@@ -2,11 +2,11 @@ package com.launchdarkly.android;
 
 import androidx.annotation.Nullable;
 
-import com.google.gson.JsonElement;
+import com.launchdarkly.sdk.LDValue;
 
 interface SummaryEventStore {
     void clear();
-    void addOrUpdateEvent(String flagResponseKey, JsonElement value, JsonElement defaultVal, int version, @Nullable Integer variation);
+    void addOrUpdateEvent(String flagResponseKey, LDValue value, LDValue defaultVal, int version, @Nullable Integer variation);
     SummaryEvent getSummaryEvent();
     SummaryEvent getSummaryEventAndClear();
 }

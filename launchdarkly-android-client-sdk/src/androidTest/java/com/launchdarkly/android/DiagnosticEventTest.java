@@ -6,8 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
-import junit.framework.Assert;
-
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -54,23 +53,23 @@ public class DiagnosticEventTest {
         secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .allAttributesPrivate()
-                .setDisableBackgroundUpdating(true)
-                .setBackgroundPollingIntervalMillis(900_000)
-                .setConnectionTimeoutMillis(5_000)
-                .setPollUri(Uri.parse("https://1.1.1.1"))
-                .setEventsUri(Uri.parse("https://1.1.1.1"))
-                .setStreamUri(Uri.parse("https://1.1.1.1"))
-                .setDiagnosticRecordingIntervalMillis(1_800_000)
-                .setEvaluationReasons(true)
-                .setEventsCapacity(1000)
-                .setEventsFlushIntervalMillis(60_000)
-                .setInlineUsersInEvents(true)
-                .setSecondaryMobileKeys(secondaryKeys)
-                .setPollingIntervalMillis(600_000)
-                .setStream(false)
-                .setUseReport(true)
-                .setMaxCachedUsers(-1)
-                .setAutoAliasingOptOut(true)
+                .disableBackgroundUpdating(true)
+                .backgroundPollingIntervalMillis(900_000)
+                .connectionTimeoutMillis(5_000)
+                .pollUri(Uri.parse("https://1.1.1.1"))
+                .eventsUri(Uri.parse("https://1.1.1.1"))
+                .streamUri(Uri.parse("https://1.1.1.1"))
+                .diagnosticRecordingIntervalMillis(1_800_000)
+                .evaluationReasons(true)
+                .eventsCapacity(1000)
+                .eventsFlushIntervalMillis(60_000)
+                .inlineUsersInEvents(true)
+                .secondaryMobileKeys(secondaryKeys)
+                .pollingIntervalMillis(600_000)
+                .stream(false)
+                .useReport(true)
+                .maxCachedUsers(-1)
+                .autoAliasingOptOut(true)
                 .build();
 
         DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);

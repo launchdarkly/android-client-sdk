@@ -2,9 +2,10 @@ package com.launchdarkly.android;
 
 import android.util.Pair;
 
-import com.launchdarkly.android.value.ArrayBuilder;
-import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.ObjectBuilder;
+import com.launchdarkly.sdk.ArrayBuilder;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.EvaluationReason;
 
 import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;

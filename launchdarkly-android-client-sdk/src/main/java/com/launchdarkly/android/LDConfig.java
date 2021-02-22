@@ -1,6 +1,9 @@
 package com.launchdarkly.android;
 
 import android.net.Uri;
+import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.UserAttribute;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -66,7 +69,7 @@ public class LDConfig {
     private final boolean diagnosticOptOut;
 
     private final boolean allAttributesPrivate;
-    private final Set<String> privateAttributeNames;
+    private final Set<UserAttribute> privateAttributes;
 
     private final Gson filteredEventGson;
 
@@ -95,7 +98,7 @@ public class LDConfig {
              boolean disableBackgroundUpdating,
              boolean useReport,
              boolean allAttributesPrivate,
-             Set<String> privateAttributeNames,
+             Set<UserAttribute> privateAttributes,
              boolean inlineUsersInEvents,
              boolean evaluationReasons,
              boolean diagnosticOptOut,
@@ -120,7 +123,7 @@ public class LDConfig {
         this.disableBackgroundUpdating = disableBackgroundUpdating;
         this.useReport = useReport;
         this.allAttributesPrivate = allAttributesPrivate;
-        this.privateAttributeNames = privateAttributeNames;
+        this.privateAttributes = privateAttributes;
         this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
@@ -138,8 +141,8 @@ public class LDConfig {
         this.autoAliasingOptOut = autoAliasingOptOut;
 
         this.filteredEventGson = new GsonBuilder()
-                .registerTypeAdapter(LDUser.class, new LDUser.LDUserPrivateAttributesTypeAdapter(this))
-                .excludeFieldsWithoutExposeAnnotation().create();
+                .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
+                .create();
 
     }
 
@@ -244,8 +247,8 @@ public class LDConfig {
         return allAttributesPrivate;
     }
 
-    public Set<String> getPrivateAttributeNames() {
-        return Collections.unmodifiableSet(privateAttributeNames);
+    public Set<UserAttribute> getPrivateAttributes() {
+        return Collections.unmodifiableSet(privateAttributes);
     }
 
     public Gson getFilteredEventGson() {
@@ -293,8 +296,8 @@ public class LDConfig {
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
      * <pre>
      * LDConfig config = new LDConfig.Builder()
-     *          .setMobileKey("mobile-key")
-     *          .setEvaluationReasons(true)
+     *          .mobileKey("mobile-key")
+     *          .evaluationReasons(true)
      *          .build();
      * </pre>
      */
@@ -321,7 +324,7 @@ public class LDConfig {
         private boolean diagnosticOptOut = false;
 
         private boolean allAttributesPrivate = false;
-        private Set<String> privateAttributeNames = new HashSet<>();
+        private Set<UserAttribute> privateAttributes = new HashSet<>();
 
         private boolean inlineUsersInEvents = false;
         private boolean evaluationReasons = false;
@@ -334,7 +337,7 @@ public class LDConfig {
         /**
          * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
          * If this is set, all user attribute values will be private, not just the attributes
-         * specified in {@link #setPrivateAttributeNames(Set)}.
+         * specified in {@link #privateAttributes(UserAttribute...)}.
          *
          * @return the builder
          */
@@ -350,11 +353,11 @@ public class LDConfig {
          * This can also be specified on a per-user basis with {@link LDUser.Builder} methods like
          * {@link LDUser.Builder#privateName(String)}.
          *
-         * @param privateAttributeNames a set of names that will be removed from user data sent to LaunchDarkly
+         * @param privateAttributes a set of names that will be removed from user data sent to LaunchDarkly
          * @return the builder
          */
-        public Builder setPrivateAttributeNames(Set<String> privateAttributeNames) {
-            this.privateAttributeNames = Collections.unmodifiableSet(privateAttributeNames);
+        public Builder privateAttributes(UserAttribute... privateAttributes) {
+            this.privateAttributes = Set.of(privateAttributes);
             return this;
         }
 
@@ -364,7 +367,7 @@ public class LDConfig {
          * @param mobileKey Get this from the LaunchDarkly web app under Team Settings.
          * @return the builder
          */
-        public LDConfig.Builder setMobileKey(String mobileKey) {
+        public LDConfig.Builder mobileKey(String mobileKey) {
             if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
                 throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
             }
@@ -379,7 +382,7 @@ public class LDConfig {
          * @param secondaryMobileKeys A map of identifying names to unique mobile keys to access secondary environments
          * @return the builder
          */
-        public LDConfig.Builder setSecondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
+        public LDConfig.Builder secondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
             if (secondaryMobileKeys == null) {
                 this.secondaryMobileKeys = null;
                 return this;
@@ -408,7 +411,7 @@ public class LDConfig {
          * @param useReport true if HTTP requests should use the REPORT verb
          * @return the builder
          */
-        public LDConfig.Builder setUseReport(boolean useReport) {
+        public LDConfig.Builder useReport(boolean useReport) {
             this.useReport = useReport;
             return this;
         }
@@ -419,7 +422,7 @@ public class LDConfig {
          * @param pollUri the URI of the main LaunchDarkly service
          * @return the builder
          */
-        public LDConfig.Builder setPollUri(Uri pollUri) {
+        public LDConfig.Builder pollUri(Uri pollUri) {
             this.pollUri = pollUri;
             return this;
         }
@@ -430,7 +433,7 @@ public class LDConfig {
          * @param eventsUri the URI of the LaunchDarkly analytics event service
          * @return the builder
          */
-        public LDConfig.Builder setEventsUri(Uri eventsUri) {
+        public LDConfig.Builder eventsUri(Uri eventsUri) {
             this.eventsUri = eventsUri;
             return this;
         }
@@ -441,7 +444,7 @@ public class LDConfig {
          * @param streamUri the URI of the LaunchDarkly streaming service
          * @return the builder
          */
-        public LDConfig.Builder setStreamUri(Uri streamUri) {
+        public LDConfig.Builder streamUri(Uri streamUri) {
             this.streamUri = streamUri;
             return this;
         }
@@ -455,9 +458,9 @@ public class LDConfig {
          *
          * @param eventsCapacity the capacity of the event buffer
          * @return the builder
-         * @see #setEventsFlushIntervalMillis(int)
+         * @see #eventsFlushIntervalMillis(int)
          */
-        public LDConfig.Builder setEventsCapacity(int eventsCapacity) {
+        public LDConfig.Builder eventsCapacity(int eventsCapacity) {
             this.eventsCapacity = eventsCapacity;
             return this;
         }
@@ -469,9 +472,9 @@ public class LDConfig {
          *
          * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
          * @return the builder
-         * @see #setEventsCapacity(int)
+         * @see #eventsCapacity(int)
          */
-        public LDConfig.Builder setEventsFlushIntervalMillis(int eventsFlushIntervalMillis) {
+        public LDConfig.Builder eventsFlushIntervalMillis(int eventsFlushIntervalMillis) {
             this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
             return this;
         }
@@ -485,7 +488,7 @@ public class LDConfig {
          * @param connectionTimeoutMillis the connection timeout, in milliseconds
          * @return the builder
          */
-        public LDConfig.Builder setConnectionTimeoutMillis(int connectionTimeoutMillis) {
+        public LDConfig.Builder connectionTimeoutMillis(int connectionTimeoutMillis) {
             this.connectionTimeoutMillis = connectionTimeoutMillis;
             return this;
         }
@@ -498,15 +501,15 @@ public class LDConfig {
          * @param enabled true if streaming should be enabled
          * @return the builder
          */
-        public LDConfig.Builder setStream(boolean enabled) {
+        public LDConfig.Builder stream(boolean enabled) {
             this.stream = enabled;
             return this;
         }
 
         /**
          * Sets the interval in between feature flag updates, when streaming mode is disabled.
-         * This is ignored unless {@link #setStream(boolean)} is set to {@code true}. When set, it
-         * will also change the default value for {@link #setEventsFlushIntervalMillis(int)} to the
+         * This is ignored unless {@link #stream(boolean)} is set to {@code true}. When set, it
+         * will also change the default value for {@link #eventsFlushIntervalMillis(int)} to the
          * same value.
          * <p>
          * The default value is {@link LDConfig#DEFAULT_POLLING_INTERVAL_MILLIS}.
@@ -514,7 +517,7 @@ public class LDConfig {
          * @param pollingIntervalMillis the feature flag polling interval, in milliseconds
          * @return the builder
          */
-        public LDConfig.Builder setPollingIntervalMillis(int pollingIntervalMillis) {
+        public LDConfig.Builder pollingIntervalMillis(int pollingIntervalMillis) {
             this.pollingIntervalMillis = pollingIntervalMillis;
             return this;
         }
@@ -528,7 +531,7 @@ public class LDConfig {
          *                                        in milliseconds
          * @return the builder
          */
-        public LDConfig.Builder setBackgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
+        public LDConfig.Builder backgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
             this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
             return this;
         }
@@ -541,7 +544,7 @@ public class LDConfig {
          * @param disableBackgroundUpdating true if the client should skip updating flags when in the background
          * @return the builder
          */
-        public LDConfig.Builder setDisableBackgroundUpdating(boolean disableBackgroundUpdating) {
+        public LDConfig.Builder disableBackgroundUpdating(boolean disableBackgroundUpdating) {
             this.disableBackgroundUpdating = disableBackgroundUpdating;
             return this;
         }
@@ -557,7 +560,7 @@ public class LDConfig {
          * @param offline true if the client should run in offline mode
          * @return the builder
          */
-        public LDConfig.Builder setOffline(boolean offline) {
+        public LDConfig.Builder offline(boolean offline) {
             this.offline = offline;
             return this;
         }
@@ -572,7 +575,7 @@ public class LDConfig {
          * @param inlineUsersInEvents true if all user properties should be included in events
          * @return the builder
          */
-        public LDConfig.Builder setInlineUsersInEvents(boolean inlineUsersInEvents) {
+        public LDConfig.Builder inlineUsersInEvents(boolean inlineUsersInEvents) {
             this.inlineUsersInEvents = inlineUsersInEvents;
             return this;
         }
@@ -588,7 +591,7 @@ public class LDConfig {
          * @param evaluationReasons  true if detail/reason information should be made available
          * @return the builder
          */
-        public LDConfig.Builder setEvaluationReasons(boolean evaluationReasons) {
+        public LDConfig.Builder evaluationReasons(boolean evaluationReasons) {
             this.evaluationReasons = evaluationReasons;
             return this;
         }
@@ -605,7 +608,7 @@ public class LDConfig {
          * @param diagnosticOptOut true if you want to opt out of sending any diagnostics data.
          * @return the builder
          */
-        public LDConfig.Builder setDiagnosticOptOut(boolean diagnosticOptOut) {
+        public LDConfig.Builder diagnosticOptOut(boolean diagnosticOptOut) {
             this.diagnosticOptOut = diagnosticOptOut;
             return this;
         }
@@ -614,12 +617,12 @@ public class LDConfig {
          * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
          * milliseconds) and the minimum value is 300,000 (5 minutes).
          *
-         * @see #setDiagnosticOptOut(boolean) for more information on the diagnostics data being sent.
+         * @see #diagnosticOptOut(boolean) for more information on the diagnostics data being sent.
          *
          * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
          * @return the builder
          */
-        public LDConfig.Builder setDiagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
+        public LDConfig.Builder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
             this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
             return this;
         }
@@ -632,21 +635,21 @@ public class LDConfig {
          * @param wrapperName An identifying name for the wrapper library
          * @return the builder
          */
-        public LDConfig.Builder setWrapperName(String wrapperName) {
+        public LDConfig.Builder wrapperName(String wrapperName) {
             this.wrapperName = wrapperName;
             return this;
         }
 
         /**
          * For use by wrapper libraries to report the version of the library in use. If the wrapper
-         * name has not been set with {@link #setWrapperName(String)} this field will be ignored.
+         * name has not been set with {@link #wrapperName(String)} this field will be ignored.
          * Otherwise the version string will be included in the User-Agent headers along with the
          * wrapperName during requests to the LaunchDarkly servers.
          *
          * @param wrapperVersion Version string for the wrapper library
          * @return the builder
          */
-        public LDConfig.Builder setWrapperVersion(String wrapperVersion) {
+        public LDConfig.Builder wrapperVersion(String wrapperVersion) {
             this.wrapperVersion = wrapperVersion;
             return this;
         }
@@ -662,7 +665,7 @@ public class LDConfig {
          *                       allowing an unlimited number of cached users.
          * @return the builder
          */
-        public LDConfig.Builder setMaxCachedUsers(int maxCachedUsers) {
+        public LDConfig.Builder maxCachedUsers(int maxCachedUsers) {
             this.maxCachedUsers = maxCachedUsers;
             return this;
         }
@@ -674,7 +677,7 @@ public class LDConfig {
          * @param additionalHeaders A map of header keys to header values
          * @return the builder
          */
-        public LDConfig.Builder setAdditionalHeaders(Map<String, String> additionalHeaders) {
+        public LDConfig.Builder additionalHeaders(Map<String, String> additionalHeaders) {
             this.additionalHeaders = additionalHeaders;
             return this;
         }
@@ -686,7 +689,7 @@ public class LDConfig {
          * @param autoAliasingOptOut Whether the automatic aliasing feature should be disabled
          * @return the builder
          */
-        public LDConfig.Builder setAutoAliasingOptOut(boolean autoAliasingOptOut) {
+        public LDConfig.Builder autoAliasingOptOut(boolean autoAliasingOptOut) {
             this.autoAliasingOptOut = autoAliasingOptOut;
             return this;
         }
@@ -753,7 +756,7 @@ public class LDConfig {
                     disableBackgroundUpdating,
                     useReport,
                     allAttributesPrivate,
-                    privateAttributeNames,
+                    privateAttributes,
                     inlineUsersInEvents,
                     evaluationReasons,
                     diagnosticOptOut,

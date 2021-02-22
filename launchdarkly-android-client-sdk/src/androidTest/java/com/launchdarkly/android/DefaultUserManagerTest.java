@@ -1,15 +1,16 @@
 package com.launchdarkly.android;
 
 import androidx.test.rule.ActivityTestRule;
-import androidx.test.runner.AndroidJUnit4;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
+import androidx.test.core.app.ApplicationProvider;
+import com.launchdarkly.sdk.LDUser;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockRule;
 import org.easymock.EasyMockSupport;
-import org.easymock.IAnswer;
 import org.easymock.Mock;
 import org.junit.Before;
 import org.junit.Rule;
@@ -21,11 +22,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertFalse;
-import static junit.framework.Assert.assertNotNull;
-import static junit.framework.Assert.assertNull;
-import static junit.framework.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.easymock.EasyMock.capture;
 import static org.easymock.EasyMock.eq;
 import static org.easymock.EasyMock.expectLastCall;
@@ -33,10 +34,6 @@ import static org.easymock.EasyMock.reset;
 
 @RunWith(AndroidJUnit4.class)
 public class DefaultUserManagerTest extends EasyMockSupport {
-
-    @Rule
-    public final ActivityTestRule<TestActivity> activityTestRule =
-            new ActivityTestRule<>(TestActivity.class, false, true);
 
     @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
@@ -52,7 +49,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     @Before
     public void before() {
-        userManager = new DefaultUserManager(activityTestRule.getActivity().getApplication(), fetcher, "test", "test", 3);
+        userManager = new DefaultUserManager(ApplicationProvider.getApplicationContext(), fetcher, "test", "test", 3);
     }
 
     @Test
@@ -156,11 +153,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     @Test
     public void testRegisterUnregisterListener() {
-        FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
-            @Override
-            public void onFeatureFlagChange(String flagKey) {
-            }
-        };
+        FeatureFlagChangeListener listener = key -> {};
 
         userManager.registerListener("key", listener);
         Collection<FeatureFlagChangeListener> listeners = userManager.getListenersByKey("key");
@@ -175,11 +168,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     @Test
     public void testUnregisterListenerWithDuplicates() {
-        FeatureFlagChangeListener listener = new FeatureFlagChangeListener() {
-            @Override
-            public void onFeatureFlagChange(String flagKey) {
-            }
-        };
+        FeatureFlagChangeListener listener = key -> {};
 
         userManager.registerListener("key", listener);
         userManager.registerListener("key", listener);
@@ -322,11 +311,11 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.reset();
         assertEquals(false, flagStore.getFlag("boolFlag1").getValue().booleanValue());
 
-        assertEquals(3.0f, flagStore.getFlag("floatFlag1").getValue().floatValue());
+        assertEquals(3.0f, flagStore.getFlag("floatFlag1").getValue().floatValue(), 0F);
 
         userManager.patchCurrentUserFlags("{\"key\":\"floatFlag2\",\"version\":16,\"value\":8.0}", awaitableCallback);
         awaitableCallback.await();
-        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().floatValue());
+        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().floatValue(), 0F);
     }
 
     @Test
@@ -537,7 +526,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         // Should no exist as was deleted by PUT.
         assertNull(flagStore.getFlag("floatFlag1"));
 
-        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().floatValue());
+        assertEquals(8.0f, flagStore.getFlag("floatFlag2").getValue().floatValue(), 0F);
     }
 
     @Test
@@ -588,12 +577,9 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         LDUser user = new LDUser.Builder(userKey).build();
         final Capture<LDUtil.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
         fetcher.fetch(eq(user), capture(callbackCapture));
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                callbackCapture.getValue().onSuccess(flags);
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onSuccess(flags);
+            return null;
         });
 
         replayAll();
@@ -609,12 +595,9 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         LDUser user = new LDUser.Builder(userKey).build();
         final Capture<LDUtil.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
         fetcher.fetch(eq(user), capture(callbackCapture));
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                callbackCapture.getValue().onSuccess(flags);
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onSuccess(flags);
+            return null;
         });
 
         replayAll();
@@ -632,12 +615,9 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         final LaunchDarklyException expectedException = new LaunchDarklyException("Could not fetch feature flags");
         final Capture<LDUtil.ResultCallback<JsonObject>> callbackCapture = Capture.newInstance();
         fetcher.fetch(eq(user), capture(callbackCapture));
-        expectLastCall().andAnswer(new IAnswer<Void>() {
-            @Override
-            public Void answer() {
-                callbackCapture.getValue().onError(expectedException);
-                return null;
-            }
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onError(expectedException);
+            return null;
         });
 
         replayAll();

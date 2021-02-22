@@ -1,6 +1,7 @@
 package com.launchdarkly.example;
 
 import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.annotation.Nullable;
@@ -15,7 +16,6 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.google.gson.JsonNull;
 import com.launchdarkly.android.LDAllFlagsListener;
 import com.launchdarkly.android.ConnectionInformation;
 import com.launchdarkly.android.FeatureFlagChangeListener;
@@ -23,7 +23,7 @@ import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDFailure;
 import com.launchdarkly.android.LDStatusListener;
-import com.launchdarkly.android.LDUser;
+import com.launchdarkly.sdk.LDUser;
 
 import java.util.Date;
 import java.util.List;
@@ -32,6 +32,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 import timber.log.Timber;
 
@@ -43,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateStatusString(final ConnectionInformation connectionInformation) {
         if (Looper.myLooper() != MainActivity.this.getMainLooper()) {
-            (new Handler(MainActivity.this.getMainLooper())).post(() -> updateStatusString(connectionInformation));
+            new Handler(MainActivity.this.getMainLooper()).post(() -> updateStatusString(connectionInformation));
         } else {
             TextView connection = MainActivity.this.findViewById(R.id.connection_status);
             Long lastSuccess = connectionInformation.getLastSuccessfulConnection();
@@ -61,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -73,8 +74,8 @@ public class MainActivity extends AppCompatActivity {
         setupListeners();
 
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("MOBILE_KEY")
-                .setUseReport(false) // change to `true` if the request is to be REPORT'ed instead of GET'ed
+                .mobileKey("MOBILE_KEY")
+                .useReport(false) // change to `true` if the request is to be REPORT'ed instead of GET'ed
                 .build();
 
         LDUser user = new LDUser.Builder("user key")
@@ -108,38 +109,28 @@ public class MainActivity extends AppCompatActivity {
             }
         };
 
-        allFlagsListener = new LDAllFlagsListener() {
-            @Override
-            public void onChange(final List<String> flagKey) {
-                new Handler(MainActivity.this.getMainLooper()).post(() -> {
-                    StringBuilder flags = new StringBuilder("Updated flags: ");
-                    for (String flag : flagKey) {
-                        flags.append(flag).append(" ");
-                    }
-                    Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
-                });
-                updateStatusString(ldClient.getConnectionInformation());
-            }
+        allFlagsListener = flagKey -> {
+            new Handler(MainActivity.this.getMainLooper()).post(() -> {
+                StringBuilder flags = new StringBuilder("Updated flags: ");
+                for (String flag : flagKey) {
+                    flags.append(flag).append(" ");
+                }
+                Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
+            });
+            updateStatusString(ldClient.getConnectionInformation());
         };
     }
 
     private void setupFlushButton() {
         Button flushButton = findViewById(R.id.flush_button);
-        flushButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Timber.i("flush onClick");
-                MainActivity.this.doSafeClientAction(() -> ldClient.flush());
-            }
+        flushButton.setOnClickListener(v -> {
+            Timber.i("flush onClick");
+            MainActivity.this.doSafeClientAction(() -> ldClient.flush());
         });
     }
 
     private interface LDClientFunction {
         void call();
-    }
-
-    private interface LDClientGetFunction<V> {
-        V get();
     }
 
     private void doSafeClientAction(LDClientFunction function) {
@@ -149,45 +140,33 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Nullable
-    private <V> V doSafeClientGet(LDClientGetFunction<V> function) {
-        if (ldClient != null) {
-            return function.get();
-        }
-        return null;
+    private <V> V doSafeClientGet(Supplier<V> function) {
+        return ldClient != null ? function.get() : null;
     }
 
     private void setupTrackButton() {
         Button trackButton = findViewById(R.id.track_button);
-        trackButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Timber.i("track onClick");
-                MainActivity.this.doSafeClientAction(() -> ldClient.track("Android event name"));
-            }
+        trackButton.setOnClickListener(v -> {
+            Timber.i("track onClick");
+            MainActivity.this.doSafeClientAction(() -> ldClient.track("Android event name"));
         });
     }
 
     private void setupIdentifyButton() {
         Button identify = findViewById(R.id.identify_button);
-        identify.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Timber.i("identify onClick");
-                String userKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText)).getText().toString();
-                final LDUser updatedUser = new LDUser.Builder(userKey).build();
-                MainActivity.this.doSafeClientAction(() -> ldClient.identify(updatedUser));
-            }
+        identify.setOnClickListener(v -> {
+            Timber.i("identify onClick");
+            String userKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText)).getText().toString();
+            final LDUser updatedUser = new LDUser.Builder(userKey).build();
+            MainActivity.this.doSafeClientAction(() -> ldClient.identify(updatedUser));
         });
     }
 
     private void setupOfflineSwitch() {
         Switch offlineSwitch = findViewById(R.id.offlineSwitch);
-        offlineSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
-                MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline());
-            }
-        });
+        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) -> 
+            MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline())
+        );
     }
 
     private void setupEval() {
@@ -198,62 +177,46 @@ public class MainActivity extends AppCompatActivity {
         spinner.setAdapter(adapter);
 
         Button evalButton = findViewById(R.id.eval_button);
-        evalButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Timber.i("eval onClick");
-                final String flagKey = ((EditText) MainActivity.this.findViewById(R.id.feature_flag_key)).getText().toString();
+        evalButton.setOnClickListener(v -> {
+            Timber.i("eval onClick");
+            final String flagKey = ((EditText) MainActivity.this.findViewById(R.id.feature_flag_key)).getText().toString();
 
-                String type = spinner.getSelectedItem().toString();
-                final String result;
-                String logResult;
-                switch (type) {
-                    case "String":
-                        result = MainActivity.this.doSafeClientGet(() -> ldClient.stringVariation(flagKey, "default"));
-                        logResult = result == null ? "no result" : result;
-                        Timber.i(logResult);
-                        ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
-                        MainActivity.this.doSafeClientAction(() -> {
-                            ldClient.registerFeatureFlagListener(flagKey, new FeatureFlagChangeListener() {
-                                @Override
-                                public void onFeatureFlagChange(String flagKey1) {
-                                    ((TextView) MainActivity.this.findViewById(R.id.result_textView))
-                                            .setText(ldClient.stringVariation(flagKey1, "default"));
-                                }
-                            });
-                        });
-                        break;
-                    case "Boolean":
-                        result = MainActivity.this.doSafeClientGet(() ->String.valueOf(ldClient.boolVariation(flagKey, false)));
-                        logResult = result == null ? "no result" : result;
-                        Timber.i(logResult);
-                        ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
-                        break;
-                    case "Integer":
-                        result = MainActivity.this.doSafeClientGet(new LDClientGetFunction<String>() {
-                            @Override
-                            public String get() {
-                                return String.valueOf(ldClient.intVariation(flagKey, 0));
-                            }
-                        });
-                        logResult = result == null ? "no result" : result;
-                        Timber.i(logResult);
-                        ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
-                        break;
-                    case "Float":
-                        result = MainActivity.this.doSafeClientGet(() ->String.valueOf(ldClient.doubleVariation(flagKey, 0.0)));
-                        logResult = result == null ? "no result" : result;
-                        Timber.i(logResult);
-                        ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
-                        break;
-                    case "Json":
-                        result = MainActivity.this.doSafeClientGet(() -> ldClient.jsonVariation(flagKey, JsonNull.INSTANCE).toString());
-                        logResult = result == null ? "no result" : result;
-                        Timber.i(logResult);
-                        ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
-                        break;
-                }
+            String type = spinner.getSelectedItem().toString();
+            final String result;
+            String logResult;
+            switch (type) {
+            case "String":
+                result = MainActivity.this.doSafeClientGet(() -> ldClient.stringVariation(flagKey, "default"));
+                logResult = result == null ? "no result" : result;
+                Timber.i(logResult);
+                ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
+                MainActivity.this.doSafeClientAction(() -> {
+                    ldClient.registerFeatureFlagListener(flagKey, flagKey1 -> {
+                        ((TextView) MainActivity.this.findViewById(R.id.result_textView))
+                                .setText(ldClient.stringVariation(flagKey1, "default"));
+                    });
+                });
+                return;
+            case "Boolean":
+                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.boolVariation(flagKey, false)));
+                break;
+            case "Integer":
+                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.intVariation(flagKey, 0)));
+                break;
+            case "Float":
+                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.doubleVariation(flagKey, 0.0)));
+                break;
+            case "Value":
+                result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.jsonValueVariation(flagKey, null)));
+                break;
+            default:
+                result = null;
+                break;
             }
+
+            logResult = result == null ? "no result" : result;
+            Timber.i(logResult);
+            ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
         });
     }
 

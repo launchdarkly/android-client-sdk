@@ -31,8 +31,8 @@ public class DiagnosticSdkTest {
     @Test
     public void getsWrapperValuesFromConfig() {
         LDConfig config = new LDConfig.Builder()
-                .setWrapperName("Scala")
-                .setWrapperVersion("0.1.0")
+                .wrapperName("Scala")
+                .wrapperVersion("0.1.0")
                 .build();
         DiagnosticSdk diagnosticSdk = new DiagnosticSdk(config);
         assertEquals("android-client-sdk", diagnosticSdk.name);
@@ -54,8 +54,8 @@ public class DiagnosticSdkTest {
     @Test
     public void gsonSerializationWithWrapper() {
         LDConfig config = new LDConfig.Builder()
-                .setWrapperName("Scala")
-                .setWrapperVersion("0.1.0")
+                .wrapperName("Scala")
+                .wrapperVersion("0.1.0")
                 .build();
         DiagnosticSdk diagnosticSdk = new DiagnosticSdk(config);
         Gson gson = GsonCache.getGson();

@@ -5,6 +5,7 @@ import java.util.List;
 /**
  * Callback interface used for listening to changes to the flag store.
  */
+@FunctionalInterface
 public interface LDAllFlagsListener {
 
     /**

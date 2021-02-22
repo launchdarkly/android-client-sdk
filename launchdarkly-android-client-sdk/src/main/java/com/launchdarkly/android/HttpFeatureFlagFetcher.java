@@ -1,4 +1,5 @@
 package com.launchdarkly.android;
+import com.launchdarkly.sdk.LDUser;
 
 import android.content.Context;
 import android.os.Build;
@@ -9,7 +10,6 @@ import com.google.gson.JsonParser;
 
 import java.io.File;
 import java.io.IOException;
-import java.security.GeneralSecurityException;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cache;
@@ -54,13 +54,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                 .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .retryOnConnectionFailure(true);
 
-        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
-            try {
-                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
-            } catch (GeneralSecurityException ignored) {
-                // TLS is not available, so don't set up the socket factory, swallow the exception
-            }
-        }
+        LDUtil.setupSocketFactory(builder);
 
         client = builder.build();
     }
@@ -118,7 +112,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getDefaultRequest(LDUser user) {
-        String uri = config.getPollUri() + "/msdk/evalx/users/" + user.getAsUrlSafeBase64();
+        String uri = config.getPollUri() + "/msdk/evalx/users/" + DefaultUserManager.base64Url(user);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }

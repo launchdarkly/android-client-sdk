@@ -5,6 +5,7 @@ package com.launchdarkly.android;
  *
  * @see LDClientInterface#registerFeatureFlagListener(String, FeatureFlagChangeListener)
  */
+@FunctionalInterface
 public interface FeatureFlagChangeListener {
     /**
      * The SDK calls this method when a feature flag value has changed for the current user.

@@ -1,6 +1,14 @@
 package com.launchdarkly.android;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.LDUser;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -15,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotNull;
 
 @RunWith(AndroidJUnit4.class)
 public class LDConfigTest {
@@ -56,7 +65,7 @@ public class LDConfigTest {
     @Test
     public void testBuilderStreamDisabled() {
         LDConfig config = new LDConfig.Builder()
-                .setStream(false)
+                .stream(false)
                 .build();
 
         assertFalse(config.isStream());
@@ -69,9 +78,9 @@ public class LDConfigTest {
     @Test
     public void testBuilderStreamDisabledCustomIntervals() {
         LDConfig config = new LDConfig.Builder()
-                .setStream(false)
-                .setPollingIntervalMillis(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1)
-                .setBackgroundPollingIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS + 2)
+                .stream(false)
+                .pollingIntervalMillis(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1)
+                .backgroundPollingIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS + 2)
                 .build();
 
         assertFalse(config.isStream());
@@ -84,8 +93,8 @@ public class LDConfigTest {
     @Test
     public void testBuilderStreamDisabledBackgroundUpdatingDisabled() {
         LDConfig config = new LDConfig.Builder()
-                .setStream(false)
-                .setDisableBackgroundUpdating(true)
+                .stream(false)
+                .disableBackgroundUpdating(true)
                 .build();
 
         assertFalse(config.isStream());
@@ -98,8 +107,8 @@ public class LDConfigTest {
     @Test
     public void testBuilderStreamDisabledPollingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
-                .setStream(false)
-                .setPollingIntervalMillis(LDConfig.MIN_POLLING_INTERVAL_MILLIS - 1)
+                .stream(false)
+                .pollingIntervalMillis(LDConfig.MIN_POLLING_INTERVAL_MILLIS - 1)
                 .build();
 
         assertFalse(config.isStream());
@@ -113,8 +122,8 @@ public class LDConfigTest {
     @Test
     public void testBuilderStreamDisabledBackgroundPollingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
-                .setStream(false)
-                .setBackgroundPollingIntervalMillis(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS - 1)
+                .stream(false)
+                .backgroundPollingIntervalMillis(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS - 1)
                 .build();
 
         assertFalse(config.isStream());
@@ -128,7 +137,7 @@ public class LDConfigTest {
     @Test
     public void testBuilderDiagnosticRecordingInterval() {
         LDConfig config = new LDConfig.Builder()
-                .setDiagnosticRecordingIntervalMillis(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1)
+                .diagnosticRecordingIntervalMillis(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1)
                 .build();
 
         assertFalse(config.getDiagnosticOptOut());
@@ -138,7 +147,7 @@ public class LDConfigTest {
     @Test
     public void testBuilderDiagnosticRecordingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
-                .setDiagnosticRecordingIntervalMillis(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS - 1)
+                .diagnosticRecordingIntervalMillis(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS - 1)
                 .build();
 
         assertFalse(config.getDiagnosticOptOut());
@@ -156,7 +165,7 @@ public class LDConfigTest {
     @Test
     public void testBuilderUseReportSetToGet() {
         LDConfig config = new LDConfig.Builder()
-                .setUseReport(false)
+                .useReport(false)
                 .build();
 
         assertFalse(config.isUseReport());
@@ -165,7 +174,7 @@ public class LDConfigTest {
     @Test
     public void testBuilderUseReportSetToReport() {
         LDConfig config = new LDConfig.Builder()
-                .setUseReport(true)
+                .useReport(true)
                 .build();
 
         assertTrue(config.isUseReport());
@@ -190,53 +199,48 @@ public class LDConfigTest {
         LDConfig config = new LDConfig.Builder()
                 .build();
 
-        assertEquals(config.getPrivateAttributeNames().size(), 0);
+        assertEquals(config.getPrivateAttributes().size(), 0);
 
         config = new LDConfig.Builder()
-                .setPrivateAttributeNames(new HashSet<String>() {
-                    {
-                        add("email");
-                        add("name");
-                    }
-                })
+                .privateAttributes(UserAttribute.forName("email"), UserAttribute.forName("name"))
                 .build();
 
-        assertEquals(config.getPrivateAttributeNames().size(), 2);
+        assertEquals(config.getPrivateAttributes().size(), 2);
     }
 
     @Test
     public void testBuilderEvaluationReasons() {
-        LDConfig config = new LDConfig.Builder().setEvaluationReasons(true).build();
+        LDConfig config = new LDConfig.Builder().evaluationReasons(true).build();
 
         assertTrue(config.isEvaluationReasons());
     }
 
     @Test
     public void testBuilderDiagnosticOptOut() {
-        LDConfig config = new LDConfig.Builder().setDiagnosticOptOut(true).build();
+        LDConfig config = new LDConfig.Builder().diagnosticOptOut(true).build();
 
         assertTrue(config.getDiagnosticOptOut());
     }
 
     @Test
     public void testBuilderWrapperName() {
-        LDConfig config = new LDConfig.Builder().setWrapperName("Scala").build();
+        LDConfig config = new LDConfig.Builder().wrapperName("Scala").build();
         assertEquals("Scala", config.getWrapperName());
     }
 
     @Test
     public void testBuilderWrapperVersion() {
-        LDConfig config = new LDConfig.Builder().setWrapperVersion("0.1.0").build();
+        LDConfig config = new LDConfig.Builder().wrapperVersion("0.1.0").build();
         assertEquals("0.1.0", config.getWrapperVersion());
     }
 
     @Test
     public void testBuilderMaxCachedUsers() {
-        LDConfig config = new LDConfig.Builder().setMaxCachedUsers(0).build();
+        LDConfig config = new LDConfig.Builder().maxCachedUsers(0).build();
         assertEquals(0, config.getMaxCachedUsers());
-        config = new LDConfig.Builder().setMaxCachedUsers(10).build();
+        config = new LDConfig.Builder().maxCachedUsers(10).build();
         assertEquals(10, config.getMaxCachedUsers());
-        config = new LDConfig.Builder().setMaxCachedUsers(-1).build();
+        config = new LDConfig.Builder().maxCachedUsers(-1).build();
         assertEquals(-1, config.getMaxCachedUsers());
     }
 
@@ -245,7 +249,7 @@ public class LDConfigTest {
         HashMap<String, String> additionalHeaders = new HashMap<>();
         additionalHeaders.put("Proxy-Authorization", "token");
         additionalHeaders.put("Authorization", "foo");
-        LDConfig config = new LDConfig.Builder().setAdditionalHeaders(additionalHeaders).build();
+        LDConfig config = new LDConfig.Builder().additionalHeaders(additionalHeaders).build();
         assertEquals(2, config.getAdditionalHeaders().size());
         assertEquals("token", config.getAdditionalHeaders().get("Proxy-Authorization"));
         assertEquals("foo", config.getAdditionalHeaders().get("Authorization"));
@@ -267,7 +271,7 @@ public class LDConfigTest {
         HashMap<String, String> additionalHeaders = new HashMap<>();
         additionalHeaders.put("Proxy-Authorization", "token");
         additionalHeaders.put("Authorization", "foo");
-        LDConfig config = new LDConfig.Builder().setAdditionalHeaders(additionalHeaders).build();
+        LDConfig config = new LDConfig.Builder().additionalHeaders(additionalHeaders).build();
         Request.Builder requestBuilder = new Request.Builder()
                 .url("http://example.com")
                 .header("Authorization", "test-key");
@@ -279,7 +283,24 @@ public class LDConfigTest {
 
     @Test
     public void buildWithAutoAliasingOptOut() {
-        LDConfig config = new LDConfig.Builder().setAutoAliasingOptOut(true).build();
+        LDConfig config = new LDConfig.Builder().autoAliasingOptOut(true).build();
         assertTrue(config.isAutoAliasingOptOut());
+    }
+
+    @Test
+    public void keyShouldNeverBeRemoved() {
+        // even with all attributes being private the key should always be retained
+        LDConfig config = new LDConfig.Builder()
+            .allAttributesPrivate()
+            .build();
+
+        LDUser user = new LDUser.Builder("myUserKey").email("weShouldNotFindThis@test.com").build();
+
+        JsonElement elem = config.getFilteredEventGson().toJsonTree(user).getAsJsonObject();
+
+        assertNotNull(elem);
+
+        assertTrue(elem.toString().contains("myUserKey"));
+        assertFalse(elem.toString().contains("weShouldNotFindThis@test.com"));
     }
 }

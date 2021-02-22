@@ -8,13 +8,12 @@ import android.os.Build;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
-import com.google.gson.JsonElement;
-import com.launchdarkly.android.value.LDValue;
+import com.google.gson.*;
+import com.launchdarkly.sdk.*;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -246,39 +245,28 @@ public class LDClient implements LDClientInterface, Closeable {
                 .retryOnConnectionFailure(true)
                 .addInterceptor(new SSLHandshakeInterceptor());
 
-        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
-            try {
-                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
-            } catch (GeneralSecurityException ignored) {
-                // TLS is not available, so don't set up the socket factory, swallow the exception
-            }
-        }
+        LDUtil.setupSocketFactory(builder);
 
         return builder.build();
     }
 
-    @SuppressWarnings("deprecation")
     @Override
-    public void track(String eventName, JsonElement data, Double metricValue) {
-        trackMetric(eventName, LDValue.fromJsonElement(data), metricValue);
+    public void track(String eventName, LDValue data, Double metricValue) {
+        trackMetric(eventName, data, metricValue);
     }
-
+    
     @Override
-    public void track(String eventName, JsonElement data) {
+    public void track(String eventName, LDValue data) {
         track(eventName, data, null);
-    }
-
-    public void trackMetric(String eventName, LDValue data, Double metricValue) {
-        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue, config.inlineUsersInEvents()));
-    }
-
-    public void trackData(String eventName, LDValue data) {
-        trackMetric(eventName, data, null);
     }
 
     @Override
     public void track(String eventName) {
-        trackData(eventName, null);
+        track(eventName, null, null);
+    }
+
+    public void trackMetric(String eventName, LDValue data, Double metricValue) {
+        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue, config.inlineUsersInEvents()));
     }
 
     @Override
@@ -334,118 +322,112 @@ public class LDClient implements LDClientInterface, Closeable {
         Map<String, Object> result = new HashMap<>();
         for (Flag flag : userManager.getCurrentUserFlagStore().getAllFlags()) {
             LDValue value = flag.getValue();
-            if (value.isNull()) {
+            switch (value.getType()) {
+            case BOOLEAN:
+                result.put(flag.getKey(), value.booleanValue());
+                break;
+            case NUMBER:
+                result.put(flag.getKey(), value.floatValue());
+                break;
+            case STRING:
+                result.put(flag.getKey(), value.stringValue());
+                break;
+            case NULL:
                 // TODO(gwhelanld): Include null flag values in results in 3.0.0
                 continue;
-            } else if (value.isBoolean()) {
-                result.put(flag.getKey(), value.booleanValue());
-            } else if (value.isNumber()) {
-                result.put(flag.getKey(), value.floatValue());
-            } else if (value.isString()) {
-                result.put(flag.getKey(), value.stringValue());
-            } else {
-                // Returning JSON flag as String for backwards compatibility. In the next major
-                // release (3.0.0) this method will return a Map containing LDValue for JSON
-                // flags
+            default:
                 result.put(flag.getKey(), value.toJsonString());
+                break;
             }
         }
         return result;
     }
 
     @Override
-    public boolean boolVariation(String flagKey, boolean fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, false).getValue();
+    public boolean boolVariation(@NonNull String key, boolean fallback) {
+        return variationDetailInternal(key, fallback, LDValue.Convert.Boolean, LDValueType.BOOLEAN, false).getValue();
+    }
+
+    @Override 
+    public EvaluationDetail<Boolean> boolVariationDetail(@NonNull String key, boolean fallback) {
+        return variationDetailInternal(key, fallback, LDValue.Convert.Boolean, LDValueType.BOOLEAN, true);
     }
 
     @Override
-    public EvaluationDetail<Boolean> boolVariationDetail(String flagKey, boolean fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.BOOLEAN, true);
+    public int intVariation(@NonNull String key, int fallback) {
+        return variationDetailInternal(key, fallback, LDValue.Convert.Integer, LDValueType.NUMBER, false).getValue();
     }
 
     @Override
-    public int intVariation(String flagKey, int fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.INT, false).getValue();
-    }
-
-    @Override
-    public EvaluationDetail<Integer> intVariationDetail(String flagKey, int fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.INT, true);
+    public EvaluationDetail<Integer> intVariationDetail(@NonNull String key, int fallback) {
+        return variationDetailInternal(key, fallback, LDValue.Convert.Integer, LDValueType.NUMBER, true);
     }
 
     @Override
     public double doubleVariation(String flagKey, double fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.DOUBLE, false).getValue();
+        return variationDetailInternal(flagKey, fallback, LDValue.Convert.Double, LDValueType.NUMBER, false).getValue();
     }
 
     @Override
     public EvaluationDetail<Double> doubleVariationDetail(String flagKey, double fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.DOUBLE, true);
+        return variationDetailInternal(flagKey, fallback, LDValue.Convert.Double, LDValueType.NUMBER, true);
     }
 
     @Override
-    public String stringVariation(String flagKey, String fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, false).getValue();
+    public String stringVariation(@NonNull String key, String fallback) {
+        return variationDetailInternal(key, fallback, LDValue.Convert.String, LDValueType.STRING, false).getValue();
     }
 
     @Override
-    public EvaluationDetail<String> stringVariationDetail(String flagKey, String fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.STRING, true);
+    public EvaluationDetail<String> stringVariationDetail(@NonNull String key, String fallback) {
+        return variationDetailInternal(key, fallback, LDValue.Convert.String, LDValueType.STRING, true);
+    }
+
+    private static LDValue.Converter<LDValue> value = new LDValue.Converter<LDValue>() {
+        public LDValue fromType(LDValue value) { return value; }
+        public LDValue toType(LDValue value) { return value; }
+    };
+
+    @Override
+    public LDValue jsonValueVariation(@NonNull String key, LDValue fallback) {
+        return variationDetailInternal(key, fallback, value, LDValueType.OBJECT, false).getValue();
     }
 
     @Override
-    public JsonElement jsonVariation(String flagKey, JsonElement fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, false).getValue();
+    public EvaluationDetail<LDValue> jsonValueVariationDetail(@NonNull String key, LDValue fallback) {
+        return variationDetailInternal(key, fallback, value, LDValueType.OBJECT, true);
     }
 
-    @Override
-    public EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.JSON, true);
-    }
 
-    public LDValue jsonValueVariation(String flagKey, LDValue fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.LDVALUE, false).getValue();
-    }
-
-    public EvaluationDetail<LDValue> jsonValueVariationDetail(String flagKey, LDValue fallback) {
-        return variationDetailInternal(flagKey, fallback, ValueTypes.LDVALUE, true);
-    }
-
-    private <T> EvaluationDetail<T> variationDetailInternal(String flagKey, T fallback, ValueTypes.Converter<T> typeConverter, boolean includeReasonInEvent) {
-        if (flagKey == null) {
-            Timber.e("Attempted to get flag with a null value for key. Returning fallback: %s", fallback);
-            return EvaluationDetail.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND, fallback);  // no event is sent in this case
-        }
-
-        Flag flag = userManager.getCurrentUserFlagStore().getFlag(flagKey);
-        LDValue fallbackValue = fallback == null ? null : typeConverter.embedValue(fallback);
-        LDValue flagValue = fallbackValue;
+    private <T> EvaluationDetail<T> variationDetailInternal(@NonNull String key, T fallback, LDValue.Converter<T> converter, LDValueType type, boolean needsReason) {
+        Flag flag = userManager.getCurrentUserFlagStore().getFlag(key);
         EvaluationDetail<T> result;
+        LDValue value = converter.fromType(fallback);
 
         if (flag == null) {
-            Timber.e("Attempted to get non-existent flag for key: %s Returning fallback: %s", flagKey, fallback);
-            result = EvaluationDetail.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND, fallback);
+            Timber.e("Attempted to get non-existent flag for key: %s Returning fallback: %s", key, fallback);
+            result = EvaluationDetail.fromValue(fallback, 0, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
-            flagValue = flag.getValue();
-            if (flagValue.isNull()) {
-                Timber.e("Attempted to get flag without value for key: %s Returning fallback: %s", flagKey, fallback);
-                result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), fallback);
-                flagValue = fallbackValue;
+            value = flag.getValue();
+            if (value.isNull()) {
+                Timber.e("Attempted to get flag without value for key: %s Returning fallback: %s", key, fallback);
+                value = converter.fromType(fallback);
+                int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
+                result = EvaluationDetail.fromValue(fallback, variation, EvaluationReason.off());
             } else {
-                T value = typeConverter.extractValue(flagValue);
-                if (value == null) {
-                    Timber.e("Attempted to get flag with wrong type for key: %s Returning fallback: %s", flagKey, fallback);
-                    result = EvaluationDetail.error(EvaluationReason.ErrorKind.WRONG_TYPE, fallback);
-                    flagValue = fallbackValue;
+                if (value.getType() != type) {
+                    Timber.e("Attempted to get flag with wrong type for key: %s Returning fallback: %s", key, fallback);
+                    value = converter.fromType(fallback);
+                    result = EvaluationDetail.fromValue(fallback, flag.getVariation(), EvaluationReason.error(EvaluationReason.ErrorKind.MALFORMED_FLAG));
                 } else {
-                    result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), value);
+                    result = EvaluationDetail.fromValue(converter.toType(value), flag.getVariation(), flag.getReason());
                 }
             }
-            sendFlagRequestEvent(flagKey, flag, flagValue, fallbackValue, flag.isTrackReason() | includeReasonInEvent ? result.getReason() : null);
+            sendFlagRequestEvent(key, flag, value, converter.fromType(fallback), flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
 
-        updateSummaryEvents(flagKey, flag, flagValue, fallbackValue);
-        Timber.d("returning variation: %s flagKey: %s user key: %s", result, flagKey, userManager.getCurrentUser().getKey());
+        Timber.d("returning variation: %s flagKey: %s user key: %s", result, key, userManager.getCurrentUser().getKey());
+        updateSummaryEvents(key, flag, value, converter.fromType(fallback));
         return result;
     }
 
@@ -460,21 +442,19 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void closeInternal() {
-        if (connectivityManager != null) {
-            connectivityManager.shutdown();
-        }
-        
-        if (eventProcessor != null) {
-            eventProcessor.close();
-        }
+        connectivityManager.shutdown();
+        eventProcessor.close();
 
         if (diagnosticEventProcessor != null) {
             diagnosticEventProcessor.close();
         }
-        if (connectivityReceiver != null && application != null) {
-            application.unregisterReceiver(connectivityReceiver);
-            connectivityReceiver = null;
+        
+        if (connectivityReceiver == null) {
+            throw new NullPointerException("LDClient.close already closed");
         }
+        
+        application.unregisterReceiver(connectivityReceiver);
+        connectivityReceiver = null;
     }
 
     private static void closeInstances() {
@@ -689,11 +669,11 @@ public class LDClient implements LDClientInterface, Closeable {
     @SuppressWarnings("deprecation")
     private void updateSummaryEvents(String flagKey, Flag flag, LDValue result, LDValue fallback) {
         if (flag == null) {
-            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result).asJsonElement(), LDValue.normalize(fallback).asJsonElement(), -1, null);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result), LDValue.normalize(fallback), -1, null);
         } else {
             int version = flag.getVersionForEvents();
             Integer variation = flag.getVariation();
-            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result).asJsonElement(), LDValue.normalize(fallback).asJsonElement(), version, variation);
+            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result), LDValue.normalize(fallback), version, variation);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.launchdarkly.android;
 
 import android.os.Looper;
+import androidx.annotation.NonNull;
 import android.util.Pair;
 
 import org.easymock.Capture;

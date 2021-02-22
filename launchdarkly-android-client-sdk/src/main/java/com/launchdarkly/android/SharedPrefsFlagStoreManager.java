@@ -168,9 +168,7 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
             }
         } else {
             // Call ourselves on the main thread
-            new Handler(Looper.getMainLooper()).post(() -> {
-                dispatchStoreUpdateCallback(flagKey, flagStoreUpdateType);
-            });
+            new Handler(Looper.getMainLooper()).post(() -> dispatchStoreUpdateCallback(flagKey, flagStoreUpdateType));
         }
     }
 

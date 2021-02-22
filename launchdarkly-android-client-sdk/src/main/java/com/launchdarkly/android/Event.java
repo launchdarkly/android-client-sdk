@@ -1,4 +1,6 @@
 package com.launchdarkly.android;
+import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDUser;
 
 import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
@@ -7,7 +9,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
-import com.launchdarkly.android.value.LDValue;
+import com.launchdarkly.sdk.LDValue;
 
 class Event {
     @Expose String kind;
@@ -17,7 +19,7 @@ class Event {
     }
 
     static String userContextKind(LDUser user) {
-        if (user.getAnonymous() != null && user.getAnonymous()) {
+        if (user.isAnonymous()) {
             return "anonymousUser";
         }
         return "user";

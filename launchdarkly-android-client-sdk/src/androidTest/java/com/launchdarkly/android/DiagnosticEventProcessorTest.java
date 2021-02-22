@@ -45,8 +45,8 @@ public class DiagnosticEventProcessorTest {
         ForegroundTestController.setup(false);
         OkHttpClient okHttpClient = new OkHttpClient.Builder().build();
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-key")
-                .setEventsUri(Uri.parse(mockEventsServer.url("").toString()))
+                .mobileKey("test-mobile-key")
+                .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, okHttpClient);
@@ -70,10 +70,10 @@ public class DiagnosticEventProcessorTest {
         ForegroundTestController.setup(false);
         OkHttpClient okHttpClient = new OkHttpClient.Builder().build();
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-key")
-                .setEventsUri(Uri.parse(mockEventsServer.url("").toString()))
-                .setWrapperName("ReactNative")
-                .setWrapperVersion("1.0.0")
+                .mobileKey("test-mobile-key")
+                .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
+                .wrapperName("ReactNative")
+                .wrapperVersion("1.0.0")
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, okHttpClient);
@@ -99,9 +99,9 @@ public class DiagnosticEventProcessorTest {
         additionalHeaders.put("Proxy-Authorization", "token");
         additionalHeaders.put("Authorization", "foo");
         LDConfig ldConfig = new LDConfig.Builder()
-                .setMobileKey("test-mobile-key")
-                .setEventsUri(Uri.parse(mockEventsServer.url("").toString()))
-                .setAdditionalHeaders(additionalHeaders)
+                .mobileKey("test-mobile-key")
+                .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
+                .additionalHeaders(additionalHeaders)
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, okHttpClient);

@@ -1,7 +1,9 @@
 package com.launchdarkly.android;
 
-
 import android.app.Application;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.EvaluationDetail;
 
 import com.google.gson.JsonElement;
 
@@ -26,7 +28,7 @@ public interface LDClientInterface extends Closeable {
 
     /**
      * Checks whether the client has been put into offline mode. This is true only if {@link #setOffline()}
-     * was called, or if the configuration had {@link LDConfig.Builder#setOffline(boolean)} set to true,
+     * was called, or if the configuration had {@link LDConfig.Builder#offline(boolean)} set to true,
      * not if the client is simply offline due to a loss of network connectivity.
      *
      * @return true if the client is in offline mode
@@ -58,21 +60,21 @@ public interface LDClientInterface extends Closeable {
      * Tracks that a user performed an event.
      *
      * @param eventName   the name of the event
-     * @param data        a JSON object containing additional data associated with the event
+     * @param data        an object containing additional data associated with the event
      * @param metricValue A numeric value used by the LaunchDarkly experimentation feature in
      *                    numeric custom metrics. Can be omitted if this event is used by only
      *                    non-numeric metrics. This field will also be returned as part of the
      *                    custom event for Data Export.
      */
-    void track(String eventName, JsonElement data, Double metricValue);
+    void track(String eventName, LDValue data, Double metricValue);
 
     /**
      * Tracks that a user performed an event.
      *
      * @param eventName the name of the event
-     * @param data      a JSON object containing additional data associated with the event
+     * @param data      an object containing additional data associated with the event
      */
-    void track(String eventName, JsonElement data);
+    void track(String eventName, LDValue data);
 
     /**
      * Tracks that a user performed an event.
@@ -120,7 +122,7 @@ public interface LDClientInterface extends Closeable {
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
      * Note that this will only work if you have set {@code evaluationReasons} to true with
-     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
+     * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -149,7 +151,7 @@ public interface LDClientInterface extends Closeable {
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
      * Note that this will only work if you have set {@code evaluationReasons} to true with
-     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
+     * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -178,7 +180,7 @@ public interface LDClientInterface extends Closeable {
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
      * Note that this will only work if you have set {@code evaluationReasons} to true with
-     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
+     * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -205,7 +207,7 @@ public interface LDClientInterface extends Closeable {
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
      * Note that this will only work if you have set {@code evaluationReasons} to true with
-     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
+     * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
@@ -215,6 +217,16 @@ public interface LDClientInterface extends Closeable {
      * @since 2.7.0
      */
     EvaluationDetail<String> stringVariationDetail(String flagKey, String fallback);
+
+    /**
+     * Registers a {@link FeatureFlagChangeListener} to be called when the <code>flagKey</code> changes
+     * from its current value. If the feature flag is deleted, the <code>listener</code> will be unregistered.
+     *
+     * @param flagKey  the flag key to attach the listener to
+     * @param listener the listener to attach to the flag key
+     * @see #unregisterFeatureFlagListener(String, FeatureFlagChangeListener)
+     */
+    void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
@@ -227,32 +239,21 @@ public interface LDClientInterface extends Closeable {
      * @param fallback fallback value in case of errors evaluating the flag
      * @return value of the flag or fallback
      */
-    JsonElement jsonVariation(String flagKey, JsonElement fallback);
+    LDValue jsonValueVariation(String flagKey, LDValue fallback);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
      *
      * Note that this will only work if you have set {@code evaluationReasons} to true with
-     * {@link LDConfig.Builder#setEvaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
+     * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #jsonVariation(String, JsonElement)})
+     * @param fallback fallback value in case of errors evaluating the flag (see {@link #jsonValueVariation(String, LDValue)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
-     * @since 2.7.0
      */
-    EvaluationDetail<JsonElement> jsonVariationDetail(String flagKey, JsonElement fallback);
-
-    /**
-     * Registers a {@link FeatureFlagChangeListener} to be called when the <code>flagKey</code> changes
-     * from its current value. If the feature flag is deleted, the <code>listener</code> will be unregistered.
-     *
-     * @param flagKey  the flag key to attach the listener to
-     * @param listener the listener to attach to the flag key
-     * @see #unregisterFeatureFlagListener(String, FeatureFlagChangeListener)
-     */
-    void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
+    EvaluationDetail<LDValue> jsonValueVariationDetail(String flagKey, LDValue fallback);
 
     /**
      * Unregisters a {@link FeatureFlagChangeListener} for the <code>flagKey</code>.
@@ -299,7 +300,7 @@ public interface LDClientInterface extends Closeable {
     void unregisterAllFlagsListener(LDAllFlagsListener allFlagsListener);
 
         /**
-         * Checks whether {@link LDConfig.Builder#setDisableBackgroundUpdating(boolean)} was set to
+         * Checks whether {@link LDConfig.Builder#disableBackgroundUpdating(boolean)} was set to
          * {@code true} in the configuration.
          *
          * @return true if background polling is disabled

@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 import android.util.Base64;
+import com.launchdarkly.sdk.LDUser;
 
 import com.google.gson.JsonObject;
 
@@ -58,6 +59,20 @@ class DefaultUserManager implements UserManager {
         return summaryEventStore;
     }
 
+    private static String toJson(final LDUser user) {
+        return LDConfig.GSON.toJson(user);
+    }
+
+    public static String base64Url(final LDUser user) {
+        return Base64.encodeToString(toJson(user).getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
+    }
+
+    static final UserHasher HASHER = new UserHasher();
+
+    public static String sharedPrefs(final LDUser user) {
+        return HASHER.hash(toJson(user));
+    }
+
     /**
      * Sets the current user. If there are more than MAX_USERS stored in shared preferences,
      * the oldest one is deleted.
@@ -65,10 +80,10 @@ class DefaultUserManager implements UserManager {
      * @param user The user to switch to.
      */
     void setCurrentUser(final LDUser user) {
-        String userBase64 = user.getAsUrlSafeBase64();
+        String userBase64 = base64Url(user);
         Timber.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
-        flagStoreManager.switchToUser(user.getSharedPrefsKey());
+        flagStoreManager.switchToUser(DefaultUserManager.sharedPrefs(user));
     }
 
     public void updateCurrentUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
@@ -83,8 +98,8 @@ class DefaultUserManager implements UserManager {
                     public void onError(Throwable e) {
                         if (LDUtil.isClientConnected(application, environmentName)) {
                             Timber.e(e, "Error when attempting to set user: [%s] [%s]",
-                                    currentUser.getAsUrlSafeBase64(),
-                                    userBase64ToJson(currentUser.getAsUrlSafeBase64()));
+                                    base64Url(currentUser),
+                                    userBase64ToJson(base64Url(currentUser)));
                         }
                         onCompleteListener.onError(e);
                     }

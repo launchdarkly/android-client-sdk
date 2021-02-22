@@ -7,6 +7,7 @@ import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
+import com.launchdarkly.sdk.LDUser;
 
 import java.net.URI;
 import java.util.Map;
@@ -164,7 +165,7 @@ class StreamUpdateProcessor {
         String str = config.getStreamUri().toString() + "/meval";
 
         if (!config.isUseReport() && user != null) {
-            str += "/" + user.getAsUrlSafeBase64();
+            str += "/" + DefaultUserManager.base64Url(user);
         }
 
         if (config.isEvaluationReasons()) {

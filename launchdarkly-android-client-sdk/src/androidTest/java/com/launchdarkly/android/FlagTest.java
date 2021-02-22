@@ -3,9 +3,11 @@ package com.launchdarkly.android;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.android.value.ArrayBuilder;
-import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.ObjectBuilder;
+import com.google.gson.JsonElement;
+import com.launchdarkly.sdk.ArrayBuilder;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.EvaluationReason;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -79,8 +81,10 @@ public class FlagTest {
         for (LDValue value : testValues) {
             final Flag r = new FlagBuilder("flag").value(value).build();
             final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
+            final JsonElement val = gson.toJsonTree(value);
+
             //noinspection deprecation
-            assertEquals(value.asJsonElement(), json.get("value"));
+            assertEquals(val, json.get("value"));
         }
     }
 

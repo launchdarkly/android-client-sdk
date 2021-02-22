@@ -1,4 +1,5 @@
 package com.launchdarkly.android;
+import com.launchdarkly.sdk.LDUser;
 
 interface UserManager {
     LDUser getCurrentUser();

@@ -6,6 +6,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.launchdarkly.android.test.TestActivity;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDValue;
 
 import junit.framework.Assert;
 
@@ -31,7 +33,7 @@ public class SharedPrefsSummaryEventStoreTest {
     @Before
     public void setUp() {
         ldConfig = new LDConfig.Builder()
-                .setOffline(true)
+                .offline(true)
                 .build();
 
         ldUser = new LDUser.Builder("userKey").build();
@@ -46,6 +48,7 @@ public class SharedPrefsSummaryEventStoreTest {
         assertTrue(ldClient.isOffline());
 
         ldClient.boolVariation("boolFlag", true);
+        ldClient.jsonValueVariation("jsonFlag", LDValue.ofNull());
 
         SummaryEvent summaryEvent = summaryEventStore.getSummaryEvent();
         assertNotNull(summaryEvent.startDate);
@@ -83,7 +86,7 @@ public class SharedPrefsSummaryEventStoreTest {
         assertTrue(ldClient.isOffline());
 
         ldClient.boolVariation("boolFlag", true);
-        ldClient.jsonVariation("jsonFlag", new JsonObject());
+        ldClient.jsonValueVariation("jsonFlag", LDValue.ofNull());
         ldClient.doubleVariation("doubleFlag", 0.2);
         ldClient.intVariation("intFlag", 6);
         ldClient.stringVariation("stringFlag", "string");
@@ -97,7 +100,7 @@ public class SharedPrefsSummaryEventStoreTest {
         Assert.assertTrue(features.keySet().contains("stringFlag"));
 
         Assert.assertEquals(true, features.get("boolFlag").getAsJsonObject().get("default").getAsBoolean());
-        Assert.assertEquals(new JsonObject(), features.get("jsonFlag").getAsJsonObject().get("default").getAsJsonObject());
+        Assert.assertTrue(features.get("jsonFlag").getAsJsonObject().get("default").isJsonNull());
         Assert.assertEquals(0.2, features.get("doubleFlag").getAsJsonObject().get("default").getAsDouble());
         Assert.assertEquals(6, features.get("intFlag").getAsJsonObject().get("default").getAsInt());
         Assert.assertEquals("string", features.get("stringFlag").getAsJsonObject().get("default").getAsString());

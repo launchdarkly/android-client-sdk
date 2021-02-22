@@ -4,6 +4,7 @@ import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
 import androidx.test.core.app.ApplicationProvider;
+import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Before;
@@ -55,7 +56,7 @@ public class MigrationTest {
 
     @Test
     public void setsCurrentVersionInMigrationsPrefs() {
-        LDConfig ldConfig = new LDConfig.Builder().setMobileKey("fake_mob_key").build();
+        LDConfig ldConfig = new LDConfig.Builder().mobileKey("fake_mob_key").build();
         // perform migration from fresh env
         Migration.migrateWhenNeeded(getApplication(), ldConfig);
         assertTrue(getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "migrations", Context.MODE_PRIVATE).contains("v2.7.0"));
@@ -70,7 +71,7 @@ public class MigrationTest {
                 .commit();
         //noinspection UnusedAssignment
         existing = null;
-        LDConfig ldConfig = new LDConfig.Builder().setMobileKey("fake_mob_key").build();
+        LDConfig ldConfig = new LDConfig.Builder().mobileKey("fake_mob_key").build();
         // perform migration from fresh env
         Migration.migrateWhenNeeded(getApplication(), ldConfig);
         setUp();
@@ -87,7 +88,7 @@ public class MigrationTest {
 
     @Test
     public void migrationNoMobileKeysFresh() {
-        LDConfig ldConfig = new LDConfig.Builder().setMobileKey("fake_mob_key").build();
+        LDConfig ldConfig = new LDConfig.Builder().mobileKey("fake_mob_key").build();
         Migration.migrateWhenNeeded(getApplication(), ldConfig);
     }
 
@@ -102,12 +103,12 @@ public class MigrationTest {
         LDUser user1 = new LDUser.Builder("user1").build();
         LDUser user2 = new LDUser.Builder("user2").build();
         // Create shared prefs files
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + user1.getSharedPrefsKey(), Context.MODE_PRIVATE).edit().commit();
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + user2.getSharedPrefsKey(), Context.MODE_PRIVATE).edit().commit();
-        LDConfig ldConfig = new LDConfig.Builder().setMobileKey(FAKE_MOB_KEY).build();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + DefaultUserManager.sharedPrefs(user1), Context.MODE_PRIVATE).edit().commit();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + DefaultUserManager.sharedPrefs(user2), Context.MODE_PRIVATE).edit().commit();
+        LDConfig ldConfig = new LDConfig.Builder().mobileKey(FAKE_MOB_KEY).build();
         ArrayList<String> userKeys = getUserKeysPre_2_6(getApplication(), ldConfig);
-        assertTrue(userKeys.contains(user1.getSharedPrefsKey()));
-        assertTrue(userKeys.contains(user2.getSharedPrefsKey()));
+        assertTrue(userKeys.contains(DefaultUserManager.sharedPrefs(user1)));
+        assertTrue(userKeys.contains(DefaultUserManager.sharedPrefs(user2)));
         assertEquals(2, userKeys.size());
     }
 
@@ -116,12 +117,12 @@ public class MigrationTest {
         LDUser user1 = new LDUser.Builder("user1").build();
         LDUser user2 = new LDUser.Builder("user2").build();
         // Create shared prefs files
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + user1.getSharedPrefsKey() + "-user", Context.MODE_PRIVATE).edit().commit();
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + user2.getSharedPrefsKey() + "-user", Context.MODE_PRIVATE).edit().commit();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + DefaultUserManager.sharedPrefs(user1) + "-user", Context.MODE_PRIVATE).edit().commit();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + DefaultUserManager.sharedPrefs(user2) + "-user", Context.MODE_PRIVATE).edit().commit();
         Map<String, Set<String>> userKeys = getUserKeys_2_6(getApplication());
         assertTrue(userKeys.containsKey(FAKE_MOB_KEY));
-        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(user1.getSharedPrefsKey()));
-        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(user2.getSharedPrefsKey()));
+        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(DefaultUserManager.sharedPrefs(user1)));
+        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(DefaultUserManager.sharedPrefs(user2)));
         assertEquals(2, userKeys.get(FAKE_MOB_KEY).size());
         assertEquals(1, userKeys.keySet().size());
     }

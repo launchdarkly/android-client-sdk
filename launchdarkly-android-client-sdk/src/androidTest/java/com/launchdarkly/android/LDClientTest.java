@@ -8,8 +8,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.launchdarkly.android.test.TestActivity;
-import com.launchdarkly.android.value.LDValue;
-import com.launchdarkly.android.value.ObjectBuilder;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDUser;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -28,12 +30,12 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertFalse;
-import static junit.framework.Assert.assertNotNull;
-import static junit.framework.Assert.assertNull;
-import static junit.framework.Assert.assertTrue;
-import static junit.framework.Assert.fail;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 
@@ -41,7 +43,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 public class LDClientTest {
 
     private static final String mobileKey = "test-mobile-key";
-
     private Application application;
     private LDClient ldClient;
     private Future<LDClient> ldClientFuture;
@@ -52,7 +53,7 @@ public class LDClientTest {
     public void setUp() {
         application = ApplicationProvider.getApplicationContext();
         ldConfig = new LDConfig.Builder()
-                .setOffline(true)
+                .offline(true)
                 .build();
 
         ldUser = new LDUser.Builder("userKey").build();
@@ -66,13 +67,12 @@ public class LDClientTest {
         assertTrue(ldClient.isOffline());
 
         assertTrue(ldClient.boolVariation("boolFlag", true));
-        assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5));
+        assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5), 0.0);
         assertEquals(1, ldClient.intVariation("intFlag", 1));
         assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
 
-        JsonObject expectedJson = new JsonObject();
-        expectedJson.addProperty("field", "value");
-        assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+        LDValue expectedJson = LDValue.of("value");
+        assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
     }
 
     @Test
@@ -81,7 +81,7 @@ public class LDClientTest {
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
-        assertNull(ldClient.jsonVariation("jsonFlag", null));
+        assertNull(ldClient.jsonValueVariation("jsonFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
     }
 
@@ -148,7 +148,8 @@ public class LDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
-    @Test
+    // the second ldClient.close() should throw a npe
+    @Test(expected = NullPointerException.class)
     public void testDoubleClose() throws IOException {
         ldClient = LDClient.init(application, ldConfig, ldUser, 1);
         ldClient.close();
@@ -167,13 +168,12 @@ public class LDClientTest {
             assertTrue(ldClient.isOffline());
 
             assertTrue(ldClient.boolVariation("boolFlag", true));
-            assertEquals(1.0, ldClient.doubleVariation("doubleFlag", 1.0));
+            assertEquals(1.0, ldClient.doubleVariation("floatFlag", 1.0), 0.0);
             assertEquals(1, ldClient.intVariation("intFlag", 1));
             assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
 
-            JsonObject expectedJson = new JsonObject();
-            expectedJson.addProperty("field", "value");
-            assertEquals(expectedJson, ldClient.jsonVariation("jsonFlag", expectedJson));
+            LDValue expectedJson = LDValue.of("value");
+            assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
         });
         backgroundComplete.get();
     }
@@ -215,7 +215,7 @@ public class LDClientTest {
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             // Don't wait as we are not set offline
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                JsonPrimitive testData = new JsonPrimitive("abc");
+                LDValue testData = LDValue.of("abc");
 
                 client.track("test-event", testData);
                 client.blockingFlush();
@@ -226,7 +226,6 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(testData, event.data.asJsonElement());
                 assertNull(event.metricValue);
             }
         }
@@ -243,7 +242,7 @@ public class LDClientTest {
             // Don't wait as we are not set offline
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 LDValue testData = LDValue.of("abc");
-                client.trackData("test-event", testData);
+                client.track("test-event", testData);
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -291,7 +290,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.trackData("test-event", null);
+                client.track("test-event", null);
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -315,7 +314,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.trackData("test-event", LDValue.ofNull());
+                client.track("test-event", LDValue.ofNull());
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -436,8 +435,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                JsonObject testData = new JsonObject();
-                testData.add("data", new JsonPrimitive(10));
+                LDValue testData = LDValue.of(10);
 
                 client.track("test-event", testData, -10.0);
                 client.blockingFlush();
@@ -448,8 +446,7 @@ public class LDClientTest {
                 CustomEvent event = (CustomEvent) events[1];
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
-                assertEquals(testData, event.data.asJsonElement());
-                assertEquals(-10.0, event.metricValue);
+                assertEquals(-10.0, event.metricValue, 0F);
             }
         }
     }
@@ -477,7 +474,7 @@ public class LDClientTest {
                 assertEquals("userKey", event.userKey);
                 assertEquals("test-event", event.key);
                 assertEquals(testVal, event.data);
-                assertEquals(-10.0, event.metricValue);
+                assertEquals(-10.0, event.metricValue, 0F);
             }
         }
     }
@@ -492,7 +489,7 @@ public class LDClientTest {
             // Enqueue a successful empty response
             mockEventsServer.enqueue(new MockResponse());
 
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).setAutoAliasingOptOut(true).build();
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).autoAliasingOptOut(true).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.identify(identifyUser);
                 client.alias(aliasUser, identifyUser);
@@ -612,7 +609,7 @@ public class LDClientTest {
             // Setup flag store with test flag
             TestUtil.markMigrationComplete(application);
             EvaluationReason testReason = EvaluationReason.off();
-            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application).createFlagStore(mobileKey + ldUser.getSharedPrefsKey());
+            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application).createFlagStore(mobileKey + DefaultUserManager.sharedPrefs(ldUser));
             flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").trackEvents(true).trackReason(true).reason(testReason).build());
 
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
@@ -645,7 +642,7 @@ public class LDClientTest {
             HashMap<String, String> additionalHeaders = new HashMap<>();
             additionalHeaders.put("Proxy-Authorization", "token");
             additionalHeaders.put("Authorization", "foo");
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).setAdditionalHeaders(additionalHeaders).build();
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).additionalHeaders(additionalHeaders).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.blockingFlush();
             }
@@ -673,8 +670,8 @@ public class LDClientTest {
     private LDConfig.Builder baseConfigBuilder(MockWebServer server) {
         HttpUrl baseUrl = server.url("/");
         return new LDConfig.Builder()
-                .setMobileKey(mobileKey)
-                .setDiagnosticOptOut(true)
-                .setEventsUri(Uri.parse(baseUrl.toString()));
+                .mobileKey(mobileKey)
+                .diagnosticOptOut(true)
+                .eventsUri(Uri.parse(baseUrl.toString()));
     }
 }

@@ -5,8 +5,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.util.concurrent.Callable;
-
 import static org.junit.Assert.assertEquals;
 
 @RunWith(AndroidJUnit4.class)
@@ -33,6 +31,7 @@ public class DebounceTest {
             actual[0] = 1;
             return null;
         });
+        
         Thread.sleep(3000);
 
         assertEquals(expected, actual[0]);

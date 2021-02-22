@@ -8,3 +8,7 @@ build
 *.iml
 .idea
 .idea/*
+.classpath
+.project
+.settings/
+.vscode/

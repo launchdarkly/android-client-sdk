@@ -19,11 +19,11 @@ import android.os.Build;
 
 import com.launchdarkly.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.android.test.TestActivity;
+import com.launchdarkly.sdk.LDUser;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockRule;
 import org.easymock.EasyMockSupport;
-import org.easymock.IAnswer;
 import org.easymock.Mock;
 import org.easymock.MockType;
 import org.junit.After;
@@ -36,6 +36,8 @@ import org.junit.runner.RunWith;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import okhttp3.mockwebserver.MockWebServer;
 
@@ -127,11 +129,11 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         Application app = ApplicationProvider.getApplicationContext();
 
         LDConfig config = new LDConfig.Builder()
-                .setMobileKey("test-mobile-key")
-                .setOffline(setOffline)
-                .setStream(streaming)
-                .setDisableBackgroundUpdating(backgroundDisabled)
-                .setStreamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
+                .mobileKey("test-mobile-key")
+                .offline(setOffline)
+                .stream(streaming)
+                .disableBackgroundUpdating(backgroundDisabled)
+                .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
         connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default", null);
