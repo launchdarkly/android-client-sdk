@@ -94,7 +94,6 @@ public class SharedPrefsSummaryEventStoreTest {
         JsonObject features = summaryEventStore.getSummaryEvent().features;
 
         Assert.assertTrue(features.keySet().contains("boolFlag"));
-        Assert.assertTrue(features.keySet().contains("jsonFlag"));
         Assert.assertTrue(features.keySet().contains("doubleFlag"));
         Assert.assertTrue(features.keySet().contains("intFlag"));
         Assert.assertTrue(features.keySet().contains("stringFlag"));

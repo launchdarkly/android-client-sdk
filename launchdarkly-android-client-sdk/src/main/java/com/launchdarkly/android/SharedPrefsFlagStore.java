@@ -16,8 +16,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-import timber.log.Timber;
-
 class SharedPrefsFlagStore implements FlagStore {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
@@ -40,7 +38,7 @@ class SharedPrefsFlagStore implements FlagStore {
         sharedPreferences = null;
 
         File file = new File(application.getFilesDir().getParent() + "/shared_prefs/" + prefsKey + ".xml");
-        Timber.i("Deleting SharedPrefs file:%s", file.getAbsolutePath());
+        LDConfig.LOG.i("Deleting SharedPrefs file:%s", file.getAbsolutePath());
 
         //noinspection ResultOfMethodCallIgnored
         file.delete();

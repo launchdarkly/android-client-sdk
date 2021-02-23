@@ -165,6 +165,14 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         final FlagStore fillerStore = strictMock(FlagStore.class);
         final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, maxCachedUsers);
         final Capture<String> oldestIdentifier = newCapture();
+        final int[] oldestCountBox = {0};
+        final FlagStoreFactory delegate = identifier -> {
+            if (identifier.equals(oldestIdentifier.getValue())) {
+                oldestCountBox[0]++;
+                return oldestStore;
+            }
+            return fillerStore;
+        };
 
         checkOrder(fillerStore, false);
         fillerStore.registerOnStoreUpdatedListener(anyObject(StoreUpdatedListener.class));

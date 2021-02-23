@@ -7,8 +7,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import timber.log.Timber;
-
 class LDSuccessFuture<T> implements Future<T> {
     private final T result;
 
@@ -92,7 +90,7 @@ class LDAwaitFuture<T> implements Future<T> {
                 notifier.notifyAll();
             }
         } else {
-            Timber.w("LDAwaitFuture set twice");
+            LDConfig.LOG.w("LDAwaitFuture set twice");
         }
     }
 
@@ -104,7 +102,7 @@ class LDAwaitFuture<T> implements Future<T> {
                 notifier.notifyAll();
             }
         } else {
-            Timber.w("LDAwaitFuture set twice");
+            LDConfig.LOG.w("LDAwaitFuture set twice");
         }
     }
 

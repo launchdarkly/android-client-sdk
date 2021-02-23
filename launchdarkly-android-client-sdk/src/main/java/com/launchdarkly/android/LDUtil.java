@@ -26,14 +26,10 @@ import java.util.Arrays;
 import java.util.stream.StreamSupport;
 import java.util.stream.Stream;
 
-import java.util.function.Function;
-import java.util.function.BiConsumer;
 import java.security.GeneralSecurityException;
 import okhttp3.OkHttpClient;
 
 import java.io.IOException;
-
-import timber.log.Timber;
 
 class LDUtil {
 
@@ -82,7 +78,7 @@ class LDUtil {
         try {
             return deviceConnected && !LDClient.getForMobileKey(environmentName).isOffline();
         } catch (LaunchDarklyException e) {
-            Timber.e(e, "Exception caught when getting LDClient");
+            LDConfig.LOG.e(e, "Exception caught when getting LDClient");
             return false;
         }
     }

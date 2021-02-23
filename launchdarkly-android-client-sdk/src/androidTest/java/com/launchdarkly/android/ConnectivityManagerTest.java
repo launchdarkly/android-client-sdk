@@ -50,6 +50,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+/**
+ * TODO: all these tests crash the emulator
+ */
 @RunWith(AndroidJUnit4.class)
 public class ConnectivityManagerTest extends EasyMockSupport {
     

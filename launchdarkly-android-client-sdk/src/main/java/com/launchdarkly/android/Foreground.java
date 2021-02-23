@@ -11,8 +11,6 @@ import android.os.HandlerThread;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import timber.log.Timber;
-
 import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
 import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE;
 
@@ -150,17 +148,17 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
 
         if (wasBackground) {
             handler.post(() -> {
-                Timber.d("went foreground");
+                LDConfig.LOG.d("went foreground");
                 for (Listener l : listeners) {
                     try {
                         l.onBecameForeground();
                     } catch (Exception exc) {
-                        Timber.e(exc, "Listener threw exception!");
+                        LDConfig.LOG.e(exc, "Listener threw exception!");
                     }
                 }
             });
         } else {
-            Timber.d("still foreground");
+            LDConfig.LOG.d("still foreground");
         }
     }
 
@@ -176,16 +174,16 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
         handler.postDelayed(check = () -> {
             if (foreground && paused) {
                 foreground = false;
-                Timber.d("went background");
+                LDConfig.LOG.d("went background");
                 for (Listener l : listeners) {
                     try {
                         l.onBecameBackground();
                     } catch (Exception exc) {
-                        Timber.e(exc, "Listener threw exception!");
+                        LDConfig.LOG.e(exc, "Listener threw exception!");
                     }
                 }
             } else {
-                Timber.d("still background");
+                LDConfig.LOG.d("still background");
             }
         }, CHECK_DELAY);
     }

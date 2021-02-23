@@ -25,7 +25,6 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
 import static com.launchdarkly.android.LDUtil.isClientConnected;
@@ -140,13 +139,13 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
             String eventPayloadId = UUID.randomUUID().toString();
             String url = config.getEventsUri().buildUpon().appendPath("mobile").build().toString();
 
-            Timber.d("Posting %s event(s) to %s", events.size(), url);
+            LDConfig.LOG.d("Posting %s event(s) to %s", events.size(), url);
 
-            Timber.d("Events body: %s", content);
+            LDConfig.LOG.d("Events body: %s", content);
 
             for (int attempt = 0; attempt < 2; attempt++) {
                 if (attempt > 0) {
-                    Timber.w("Will retry posting events after 1 second");
+                    LDConfig.LOG.w("Will retry posting events after 1 second");
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException e) {}
@@ -164,11 +163,11 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                 Response response = null;
                 try {
                     response = client.newCall(request).execute();
-                    Timber.d("Events Response: %s", response.code());
-                    Timber.d("Events Response Date: %s", response.header("Date"));
+                    LDConfig.LOG.d("Events Response: %s", response.code());
+                    LDConfig.LOG.d("Events Response Date: %s", response.header("Date"));
 
                     if (!response.isSuccessful()) {
-                        Timber.w("Unexpected response status when posting events: %d", response.code());
+                        LDConfig.LOG.w("Unexpected response status when posting events: %d", response.code());
                         if (isHttpErrorRecoverable(response.code())) {
                             continue;
                         }
@@ -177,7 +176,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     tryUpdateDate(response);
                     break;
                 } catch (IOException e) {
-                    Timber.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+                    LDConfig.LOG.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
                 } finally {
                     if (response != null) response.close();
                 }
@@ -192,7 +191,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     Date date = sdf.parse(dateString);
                     currentTimeMs = date.getTime();
                 } catch (ParseException pe) {
-                    Timber.e(pe, "Failed to parse date header");
+                    LDConfig.LOG.e(pe, "Failed to parse date header");
                 }
             }
         }

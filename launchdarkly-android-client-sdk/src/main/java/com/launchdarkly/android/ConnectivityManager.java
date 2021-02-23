@@ -8,8 +8,6 @@ import androidx.annotation.NonNull;
 import java.util.Calendar;
 import java.util.TimeZone;
 
-import timber.log.Timber;
-
 import static com.launchdarkly.android.ConnectionInformation.ConnectionMode;
 import static com.launchdarkly.android.LDUtil.isInternetConnected;
 
@@ -110,7 +108,7 @@ class ConnectivityManager {
                         LDClient ldClient = LDClient.getForMobileKey(environmentName);
                         ldClient.updateListenersOnFailure(connectionInformation.getLastFailure());
                     } catch (LaunchDarklyException ex) {
-                        Timber.e(e, "Error getting LDClient for ConnectivityManager");
+                        LDConfig.LOG.e(e, "Error getting LDClient for ConnectivityManager");
                     }
                     callInitCallback();
                 }
@@ -357,13 +355,13 @@ class ConnectivityManager {
         try {
             saveConnectionInformation();
         } catch (Exception ex) {
-            Timber.w(ex, "Error saving connection information");
+            LDConfig.LOG.w(ex, "Error saving connection information");
         }
         try {
             LDClient ldClient = LDClient.getForMobileKey(environmentName);
             ldClient.updateListenersConnectionModeChanged(connectionInformation);
         } catch (LaunchDarklyException e) {
-            Timber.e(e, "Error getting LDClient for ConnectivityManager");
+            LDConfig.LOG.e(e, "Error getting LDClient for ConnectivityManager");
         }
     }
 

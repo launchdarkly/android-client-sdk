@@ -7,8 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
 
-import timber.log.Timber;
-
 /**
  * Used internally by the SDK.
  */
@@ -26,13 +24,13 @@ public class PollingUpdater extends BroadcastReceiver {
     }
 
     synchronized static void startBackgroundPolling(Context context) {
-        Timber.d("Starting background polling");
+        LDConfig.LOG.d("Starting background polling");
         startPolling(context, backgroundPollingIntervalMillis, backgroundPollingIntervalMillis);
     }
 
     synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {
         stop(context);
-        Timber.d("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis);
+        LDConfig.LOG.d("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis);
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
@@ -43,12 +41,12 @@ public class PollingUpdater extends BroadcastReceiver {
                     intervalMillis,
                     pendingIntent);
         } catch (SecurityException ex) {
-            Timber.w(ex, "SecurityException when setting background polling alarm");
+            LDConfig.LOG.w(ex, "SecurityException when setting background polling alarm");
         }
     }
 
     synchronized static void stop(Context context) {
-        Timber.d("Stopping pollingUpdater");
+        LDConfig.LOG.d("Stopping pollingUpdater");
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 

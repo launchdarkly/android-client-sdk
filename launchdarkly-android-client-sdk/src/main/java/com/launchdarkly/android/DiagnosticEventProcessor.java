@@ -14,7 +14,6 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.JSON;
 
@@ -107,15 +106,15 @@ class DiagnosticEventProcessor {
                 .post(RequestBody.create(content, JSON));
 
         Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
-        Timber.d("Posting diagnostic event to %s with body %s", request.url(), content);
+        LDConfig.LOG.d("Posting diagnostic event to %s with body %s", request.url(), content);
 
         Response response = null;
         try {
             response = client.newCall(request).execute();
-            Timber.d("Diagnostic Event Response: %s", response.code());
-            Timber.d("Diagnostic Event Response Date: %s", response.header("Date"));
+            LDConfig.LOG.d("Diagnostic Event Response: %s", response.code());
+            LDConfig.LOG.d("Diagnostic Event Response Date: %s", response.header("Date"));
         } catch (IOException e) {
-            Timber.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+            LDConfig.LOG.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
         } finally {
             if (response != null) response.close();
         }

@@ -30,7 +30,6 @@ import okhttp3.CipherSuite;
 import okhttp3.Handshake;
 import okhttp3.Response;
 import okhttp3.TlsVersion;
-import timber.log.Timber;
 
 class TLSUtils {
 
@@ -50,13 +49,13 @@ class TLSUtils {
         try {
             SSLContext.getInstance("TLSv1.2");
         } catch (NoSuchAlgorithmException e) {
-            Timber.w("No TLSv1.2 implementation available, attempting patch.");
+            LDConfig.LOG.w("No TLSv1.2 implementation available, attempting patch.");
             try {
                 ProviderInstaller.installIfNeeded(application.getApplicationContext());
             } catch (GooglePlayServicesRepairableException e1) {
-                Timber.w("Patch failed, Google Play Services too old.");
+                LDConfig.LOG.w("Patch failed, Google Play Services too old.");
             } catch (GooglePlayServicesNotAvailableException e1) {
-                Timber.w("Patch failed, no Google Play Services available.");
+                LDConfig.LOG.w("Patch failed, no Google Play Services available.");
             }
         }
     }
@@ -80,7 +79,7 @@ class SSLHandshakeInterceptor implements okhttp3.Interceptor {
             if (handshake != null) {
                 final CipherSuite cipherSuite = handshake.cipherSuite();
                 final TlsVersion tlsVersion = handshake.tlsVersion();
-                Timber.v("TLS: %s, CipherSuite: %s", tlsVersion, cipherSuite);
+                LDConfig.LOG.v("TLS: %s, CipherSuite: %s", tlsVersion, cipherSuite);
             }
         }
     }

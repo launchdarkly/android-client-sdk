@@ -22,7 +22,6 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-import timber.log.Timber;
 
 import static com.launchdarkly.android.LDConfig.GSON;
 import static com.launchdarkly.android.LDConfig.JSON;
@@ -47,7 +46,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         this.context = context;
 
         File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
-        Timber.d("Using cache at: %s", cacheDir.getAbsolutePath());
+        LDConfig.LOG.d("Using cache at: %s", cacheDir.getAbsolutePath());
 
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
@@ -67,12 +66,12 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                     ? getReportRequest(user)
                     : getDefaultRequest(user);
 
-            Timber.d(request.toString());
+            LDConfig.LOG.d(request.toString());
             Call call = client.newCall(request);
             call.enqueue(new Callback() {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                    Timber.e(e, "Exception when fetching flags.");
+                    LDConfig.LOG.e(e, "Exception when fetching flags.");
                     callback.onError(new LDFailure("Exception while fetching flags", e, LDFailure.FailureType.NETWORK_FAILURE));
                 }
 
@@ -86,20 +85,20 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                         }
                         if (!response.isSuccessful()) {
                             if (response.code() == 400) {
-                                Timber.e("Received 400 response when fetching flag values. Please check recommended ProGuard settings");
+                                LDConfig.LOG.e("Received 400 response when fetching flag values. Please check recommended ProGuard settings");
                             }
                             callback.onError(new LDInvalidResponseCodeFailure("Unexpected response when retrieving Feature Flags: " + response + " using url: "
                                     + request.url() + " with body: " + body, response.code(), true));
                         }
-                        Timber.d(body);
-                        Timber.d("Cache hit count: %s Cache network Count: %s", client.cache().hitCount(), client.cache().networkCount());
-                        Timber.d("Cache response: %s", response.cacheResponse());
-                        Timber.d("Network response: %s", response.networkResponse());
+                        LDConfig.LOG.d(body);
+                        LDConfig.LOG.d("Cache hit count: %s Cache network Count: %s", client.cache().hitCount(), client.cache().networkCount());
+                        LDConfig.LOG.d("Cache response: %s", response.cacheResponse());
+                        LDConfig.LOG.d("Network response: %s", response.networkResponse());
 
                         JsonObject jsonObject = JsonParser.parseString(body).getAsJsonObject();
                         callback.onSuccess(jsonObject);
                     } catch (Exception e) {
-                        Timber.e(e, "Exception when handling response for url: %s with body: %s", request.url(), body);
+                        LDConfig.LOG.e(e, "Exception when handling response for url: %s with body: %s", request.url(), body);
                         callback.onError(new LDFailure("Exception while handling flag fetch response", e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     } finally {
                         if (response != null) {
@@ -116,7 +115,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }
-        Timber.d("Attempting to fetch Feature flags using uri: %s", uri);
+        LDConfig.LOG.d("Attempting to fetch Feature flags using uri: %s", uri);
         Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName) // default GET verb
                 .url(uri);
         return config.buildRequestWithAdditionalHeaders(requestBuilder);
@@ -127,7 +126,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }
-        Timber.d("Attempting to report user using uri: %s", reportUri);
+        LDConfig.LOG.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(userJson, JSON);
         Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName)

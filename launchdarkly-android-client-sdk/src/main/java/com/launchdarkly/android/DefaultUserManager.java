@@ -13,8 +13,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
-import timber.log.Timber;
-
 /**
  * Persists and retrieves feature flag values for different {@link LDUser}s.
  * Also enables realtime updates via registering a {@link FeatureFlagChangeListener}
@@ -81,7 +79,7 @@ class DefaultUserManager implements UserManager {
      */
     void setCurrentUser(final LDUser user) {
         String userBase64 = base64Url(user);
-        Timber.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
+        LDConfig.LOG.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
         flagStoreManager.switchToUser(DefaultUserManager.sharedPrefs(user));
     }
@@ -97,7 +95,7 @@ class DefaultUserManager implements UserManager {
                     @Override
                     public void onError(Throwable e) {
                         if (LDUtil.isClientConnected(application, environmentName)) {
-                            Timber.e(e, "Error when attempting to set user: [%s] [%s]",
+                            LDConfig.LOG.e(e, "Error when attempting to set user: [%s] [%s]",
                                     base64Url(currentUser),
                                     userBase64ToJson(base64Url(currentUser)));
                         }
@@ -132,14 +130,14 @@ class DefaultUserManager implements UserManager {
      */
     @SuppressWarnings("JavaDoc")
     private void saveFlagSettings(JsonObject flagsJson, LDUtil.ResultCallback<Void> onCompleteListener) {
-        Timber.d("saveFlagSettings for user key: %s", currentUser.getKey());
+        LDConfig.LOG.d("saveFlagSettings for user key: %s", currentUser.getKey());
 
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
             flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
             onCompleteListener.onSuccess(null);
         } catch (Exception e) {
-            Timber.d("Invalid JsonObject for flagSettings: %s", flagsJson);
+            LDConfig.LOG.d("Invalid JsonObject for flagSettings: %s", flagsJson);
             onCompleteListener.onError(new LDFailure("Invalid Json received from flags endpoint", e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
     }
@@ -156,13 +154,13 @@ class DefaultUserManager implements UserManager {
                     flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
                     onCompleteListener.onSuccess(null);
                 } else {
-                    Timber.d("Invalid DELETE payload: %s", json);
+                    LDConfig.LOG.d("Invalid DELETE payload: %s", json);
                     onCompleteListener.onError(new LDFailure("Invalid DELETE payload",
                             LDFailure.FailureType.INVALID_RESPONSE_BODY));
                 }
             });
         } catch (Exception ex) {
-            Timber.d(ex, "Invalid DELETE payload: %s", json);
+            LDConfig.LOG.d(ex, "Invalid DELETE payload: %s", json);
             onCompleteListener.onError(new LDFailure("Invalid DELETE payload", ex,
                     LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
@@ -172,12 +170,12 @@ class DefaultUserManager implements UserManager {
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
             executor.submit(() -> {
-                Timber.d("PUT for user key: %s", currentUser.getKey());
+                LDConfig.LOG.d("PUT for user key: %s", currentUser.getKey());
                 flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
                 onCompleteListener.onSuccess(null);
             });
         } catch (Exception ex) {
-            Timber.d(ex, "Invalid PUT payload: %s", json);
+            LDConfig.LOG.d(ex, "Invalid PUT payload: %s", json);
             onCompleteListener.onError(new LDFailure("Invalid PUT payload", ex,
                     LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
@@ -191,13 +189,13 @@ class DefaultUserManager implements UserManager {
                     flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
                     onCompleteListener.onSuccess(null);
                 } else {
-                    Timber.d("Invalid PATCH payload: %s", json);
+                    LDConfig.LOG.d("Invalid PATCH payload: %s", json);
                     onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
                             LDFailure.FailureType.INVALID_RESPONSE_BODY));
                 }
             });
         } catch (Exception ex) {
-            Timber.d(ex, "Invalid PATCH payload: %s", json);
+            LDConfig.LOG.d(ex, "Invalid PATCH payload: %s", json);
             onCompleteListener.onError(new LDFailure("Invalid PATCH payload", ex,
                     LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }

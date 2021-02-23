@@ -21,8 +21,6 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import timber.log.Timber;
-
 class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListener {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
@@ -74,7 +72,7 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
             // Remove oldest users until we are at MAX_USERS.
             for (int i = 0; i < usersToRemove; i++) {
                 String removed = oldestFirstUsers.next();
-                Timber.d("Exceeded max # of users: [%s] Removing user: [%s]", maxCachedUsers, removed);
+                LDConfig.LOG.d("Exceeded max # of users: [%s] Removing user: [%s]", maxCachedUsers, removed);
                 // Load FlagStore for oldest user and delete it.
                 flagStoreFactory.createFlagStore(storeIdentifierForUser(removed)).delete();
                 // Remove entry from usersSharedPrefs.
@@ -100,9 +98,9 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         Set<FeatureFlagChangeListener> oldSet = listeners.putIfAbsent(key, newSet);
         if (oldSet != null) {
             oldSet.add(listener);
-            Timber.d("Added listener. Total count: [%s]", oldSet.size());
+            LDConfig.LOG.d("Added listener. Total count: [%s]", oldSet.size());
         } else {
-            Timber.d("Added listener. Total count: 1");
+            LDConfig.LOG.d("Added listener. Total count: 1");
         }
     }
 
@@ -112,7 +110,7 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         if (keySet != null) {
             boolean removed = keySet.remove(listener);
             if (removed) {
-                Timber.d("Removing listener for key: [%s]", key);
+                LDConfig.LOG.d("Removing listener for key: [%s]", key);
             }
         }
     }
@@ -136,9 +134,9 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         for (String k : all.keySet()) {
             try {
                 sortedMap.put((Long) all.get(k), k);
-                Timber.d("Found user: %s", userAndTimeStampToHumanReadableString(k, (Long) all.get(k)));
+                LDConfig.LOG.d("Found user: %s", userAndTimeStampToHumanReadableString(k, (Long) all.get(k)));
             } catch (ClassCastException cce) {
-                Timber.e(cce, "Unexpected type! This is not good");
+                LDConfig.LOG.e(cce, "Unexpected type! This is not good");
             }
         }
         return sortedMap.values();

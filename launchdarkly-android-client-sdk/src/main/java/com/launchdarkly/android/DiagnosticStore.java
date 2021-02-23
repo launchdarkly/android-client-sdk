@@ -12,8 +12,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
-import timber.log.Timber;
-
 class DiagnosticStore {
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     private static final String INSTANCE_KEY = "diagnosticInstance";
@@ -83,7 +81,7 @@ class DiagnosticStore {
             DiagnosticEvent.StreamInit[] streamInitsArr = GsonCache.getGson().fromJson(streamInitsString, DiagnosticEvent.StreamInit[].class);
             streamInits = Arrays.asList(streamInitsArr);
         } catch (Exception ex) {
-            Timber.w(ex, "Invalid stream inits array in diagnostic data store");
+            LDConfig.LOG.w(ex, "Invalid stream inits array in diagnostic data store");
             streamInits = null;
         }
         return streamInits;

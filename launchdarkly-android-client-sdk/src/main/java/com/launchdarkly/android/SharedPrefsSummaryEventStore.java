@@ -16,7 +16,6 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import java.util.Objects;
-import timber.log.Timber;
 
 /**
  * Used internally by the SDK.
@@ -56,7 +55,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
             }
             return obj;
         default:
-            Timber.w("invalid type found when converting LDValue `%s` to json", val.toString());
+            LDConfig.LOG.w("invalid type found when converting LDValue `%s` to json", val.toString());
             throw new IllegalStateException("unknown value type, should not be possible");
         }
     }
@@ -125,7 +124,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
             .putString(flagResponseKey, object.toString())
             .apply();
 
-        Timber.d("Updated summary for flagKey %s to %s", flagResponseKey, flagSummary);
+        LDConfig.LOG.d("Updated summary for flagKey %s to %s", flagResponseKey, flagSummary);
     }
 
     @Override
@@ -162,7 +161,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         }
 
         SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
-        Timber.d("Sending Summary Event: %s", summaryEvent.toString());
+        LDConfig.LOG.d("Sending Summary Event: %s", summaryEvent.toString());
         return summaryEvent;
     }
 
