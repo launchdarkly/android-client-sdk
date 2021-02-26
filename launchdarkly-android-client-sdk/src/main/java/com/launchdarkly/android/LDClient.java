@@ -256,21 +256,21 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public void track(String eventName, LDValue data, Double metricValue) {
-        trackMetric(eventName, data, metricValue);
+    public void trackMetric(String eventName, LDValue data, double metricValue) {
+        trackInternal(eventName, data, metricValue);
     }
     
     @Override
-    public void track(String eventName, LDValue data) {
-        track(eventName, data, null);
+    public void trackData(String eventName, LDValue data) {
+        trackInternal(eventName, data, null);
     }
 
     @Override
     public void track(String eventName) {
-        track(eventName, null, null);
+        trackInternal(eventName, null, null);
     }
 
-    public void trackMetric(String eventName, LDValue data, Double metricValue) {
+    private void trackInternal(String eventName, LDValue data, Double metricValue) {
         sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue, config.inlineUsersInEvents()));
     }
 

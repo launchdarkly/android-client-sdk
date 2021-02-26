@@ -216,7 +216,7 @@ public class LDClientTest {
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 LDValue testData = LDValue.of("abc");
 
-                client.track("test-event", testData);
+                client.trackData("test-event", testData);
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -241,7 +241,7 @@ public class LDClientTest {
             // Don't wait as we are not set offline
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 LDValue testData = LDValue.of("abc");
-                client.track("test-event", testData);
+                client.trackData("test-event", testData);
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -265,7 +265,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.track("test-event", null);
+                client.track("test-event");
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -289,7 +289,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.track("test-event", null);
+                client.track("test-event");
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -313,7 +313,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.track("test-event", LDValue.ofNull());
+                client.trackData("test-event", LDValue.ofNull());
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -337,7 +337,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.track("test-event", null, 5.5);
+                client.trackMetric("test-event", null, 5.5);
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -409,7 +409,7 @@ public class LDClientTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.track("test-event", null, null);
+                client.track("test-event");
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
@@ -436,7 +436,7 @@ public class LDClientTest {
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 LDValue testData = LDValue.of(10);
 
-                client.track("test-event", testData, -10.0);
+                client.trackMetric("test-event", testData, -10.0);
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);

@@ -57,24 +57,24 @@ public interface LDClientInterface extends Closeable {
     void setOnline();
 
     /**
-     * Tracks that a user performed an event.
+     * Tracks that a user performed an event, and provides an additional numeric value for custom metrics.
      *
      * @param eventName   the name of the event
-     * @param data        an object containing additional data associated with the event
+     * @param data        an {@link LDValue} containing additional data associated with the event; if not applicable,
+     *                    you may pass either {@code null} or {@link LDValue#ofNull()}
      * @param metricValue A numeric value used by the LaunchDarkly experimentation feature in
-     *                    numeric custom metrics. Can be omitted if this event is used by only
-     *                    non-numeric metrics. This field will also be returned as part of the
+     *                    numeric custom metrics. This field will also be returned as part of the
      *                    custom event for Data Export.
      */
-    void track(String eventName, LDValue data, Double metricValue);
+    void trackMetric(String eventName, LDValue data, double metricValue);
 
     /**
-     * Tracks that a user performed an event.
+     * Tracks that a user performed an event, and provides additional custom data.
      *
      * @param eventName the name of the event
-     * @param data      an object containing additional data associated with the event
+     * @param data      an {@link LDValue} containing additional data associated with the event
      */
-    void track(String eventName, LDValue data);
+    void trackData(String eventName, LDValue data);
 
     /**
      * Tracks that a user performed an event.
