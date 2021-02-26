@@ -454,12 +454,10 @@ public class LDClient implements LDClientInterface, Closeable {
             diagnosticEventProcessor.close();
         }
         
-        if (connectivityReceiver == null) {
-            throw new NullPointerException("LDClient.close already closed");
+        if (connectivityReceiver != null) {
+            application.unregisterReceiver(connectivityReceiver);
+            connectivityReceiver = null;
         }
-        
-        application.unregisterReceiver(connectivityReceiver);
-        connectivityReceiver = null;
     }
 
     private static void closeInstances() {

@@ -149,7 +149,6 @@ public class LDClientTest {
     }
 
     // the second ldClient.close() should throw a npe
-    @Test(expected = NullPointerException.class)
     public void testDoubleClose() throws IOException {
         ldClient = LDClient.init(application, ldConfig, ldUser, 1);
         ldClient.close();
