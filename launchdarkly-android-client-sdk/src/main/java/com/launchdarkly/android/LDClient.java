@@ -144,6 +144,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
         PollingUpdater.setBackgroundPollingIntervalMillis(config.getBackgroundPollingIntervalMillis());
 
+        user = verifyUser(user);
+
         for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
             final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
             instance.userManager.setCurrentUser(user);
@@ -155,6 +157,17 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         return resultFuture;
+    }
+
+    private static LDUser verifyUser(LDUser user) {
+        String key = user.getKey();
+
+        if (key == null || key.equals("")) {
+            LDConfig.LOG.w("User was created with null/empty key. Using device-unique anonymous user key: %s", LDClient.getInstanceId());
+            return new LDUser.Builder(user).key(LDClient.getInstanceId()).build();
+        } else {
+            return user;
+        }
     }
 
     /**
@@ -282,7 +295,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             LDConfig.LOG.w("identify called with null user or null user key!");
         }
-        return LDClient.identifyInstances(user);
+        return LDClient.identifyInstances(verifyUser(user));
     }
 
     private synchronized void identifyInternal(@NonNull LDUser user,
