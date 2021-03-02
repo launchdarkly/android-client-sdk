@@ -8,6 +8,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import android.util.Pair;
 
+import com.google.gson.Gson;
+
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -15,6 +17,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.util.HashSet;
+import java.util.Objects;
 
 class SharedPrefsFlagStore implements FlagStore {
 
@@ -115,21 +120,43 @@ class SharedPrefsFlagStore implements FlagStore {
     }
 
     @Override
-    public void clearAndApplyFlagUpdates(List<? extends FlagUpdate> flagUpdates) {
-        Set<String> clearedKeys = sharedPreferences.getAll().keySet();
+    public void clearAndApplyFlagUpdates(List<? extends FlagUpdate> newFlags) {
+        Gson gson = GsonCache.getGson();
+        Map<String, Flag> cachedFlags = LDUtil.sharedPrefsGetAllGson(sharedPreferences, Flag.class);
+        // here we explicitly copy the keySet()
+        // this is because modifying a keySet() also modifies the underlying map
+        // and we modify this further up to track changes
+        Set<String> clearedKeys = new HashSet<>(cachedFlags.keySet());
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.clear();
         ArrayList<Pair<String, FlagStoreUpdateType>> updates = new ArrayList<>();
-        for (FlagUpdate flagUpdate : flagUpdates) {
+        for (FlagUpdate flagUpdate : newFlags) {
             String flagKey = flagUpdate.flagToUpdate();
             if (flagKey == null) {
                 continue;
             }
             Flag newFlag = flagUpdate.updateFlag(null);
             if (newFlag != null) {
-                String flagData = GsonCache.getGson().toJson(newFlag);
+                String flagData = gson.toJson(newFlag);
                 editor.putString(flagKey, flagData);
+
+                // track that this key has not been deleted
                 clearedKeys.remove(flagKey);
+
+                Flag cachedFlag = cachedFlags.get(flagKey);
+
+                if (cachedFlag != null) {
+                    Integer cv = cachedFlag.getVersion();
+                    Integer nv = newFlag.getVersion();
+
+                    if (!Objects.equals(cv, nv)) {
+                        // only track updates if the versions of the flag has changed
+                        updates.add(new Pair<>(flagKey, FlagStoreUpdateType.FLAG_UPDATED));
+                    }
+                    continue;
+                }
+
+                // Flag not present in cached flags so mark it as newly created
                 updates.add(new Pair<>(flagKey, FlagStoreUpdateType.FLAG_CREATED));
             }
         }

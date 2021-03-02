@@ -16,12 +16,12 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.launchdarkly.android.LDAllFlagsListener;
 import com.launchdarkly.android.ConnectionInformation;
 import com.launchdarkly.android.FeatureFlagChangeListener;
 import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDFailure;
+import com.launchdarkly.android.LDAllFlagsListener;
 import com.launchdarkly.android.LDStatusListener;
 import com.launchdarkly.sdk.LDUser;
 

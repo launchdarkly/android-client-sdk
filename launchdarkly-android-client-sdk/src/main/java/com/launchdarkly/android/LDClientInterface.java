@@ -288,7 +288,7 @@ public interface LDClientInterface extends Closeable {
      * Registers a {@link LDAllFlagsListener} to be called when a flag update is processed by the
      * SDK.
      *
-     * @param allFlagsListener the listener to be called on a flag update
+     * @param allFlagsListener the listener to be called with a list of flag keys on a flag update
      */
     void registerAllFlagsListener(LDAllFlagsListener allFlagsListener);
 

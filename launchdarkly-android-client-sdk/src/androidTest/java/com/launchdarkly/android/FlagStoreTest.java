@@ -16,6 +16,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.reportMatcher;
@@ -337,5 +339,43 @@ public abstract class FlagStoreTest extends EasyMockSupport {
             assertNotNull(retrieved);
             assertExpectedFlag(flag, retrieved);
         }
+    }
+
+    @Test
+    public void testClearAndApplyOnNoFlagUpdates() {
+        AtomicBoolean changed = new AtomicBoolean(false);
+        List<Flag> testFlags = makeTestFlags();
+
+        FlagStore flagStore = createFlagStore("abc");
+        flagStore.clearAndApplyFlagUpdates(testFlags);
+
+        flagStore.registerOnStoreUpdatedListener(updates -> {
+            assertEquals(updates.toString(), 0, updates.size());
+            changed.set(true);
+        });
+
+        flagStore.clearAndApplyFlagUpdates(testFlags);
+
+        assertTrue(changed.get());
+    }
+
+    @Test
+    public void testClearAndApplyOnChangeFlagUpdates() {
+        AtomicBoolean changed = new AtomicBoolean(false);
+        ArrayList<Flag> testFlags = new ArrayList<>(makeTestFlags());
+
+        FlagStore flagStore = createFlagStore("abc");
+        flagStore.clearAndApplyFlagUpdates(testFlags);
+
+        flagStore.registerOnStoreUpdatedListener(updates -> {
+            assertEquals(updates.toString(), 1, updates.size());
+            changed.set(true);
+        });
+
+        testFlags.add(new FlagBuilder("yes").flagVersion(20).build());
+
+        flagStore.clearAndApplyFlagUpdates(testFlags);
+
+        assertTrue(changed.get());
     }
 }

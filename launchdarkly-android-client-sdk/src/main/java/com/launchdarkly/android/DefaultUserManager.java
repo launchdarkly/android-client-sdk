@@ -84,24 +84,27 @@ class DefaultUserManager implements UserManager {
         flagStoreManager.switchToUser(DefaultUserManager.sharedPrefs(user));
     }
 
+    /**
+     * fetch flags for the current user then update the current flags with the new flags
+     */
     public void updateCurrentUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
         fetcher.fetch(currentUser,
-                new LDUtil.ResultCallback<JsonObject>() {
-                    @Override
-                    public void onSuccess(JsonObject result) {
-                        saveFlagSettings(result, onCompleteListener);
-                    }
+            new LDUtil.ResultCallback<JsonObject>() {
+                @Override
+                public void onSuccess(JsonObject result) {
+                    saveFlagSettings(result, onCompleteListener);
+                }
 
-                    @Override
-                    public void onError(Throwable e) {
-                        if (LDUtil.isClientConnected(application, environmentName)) {
-                            LDConfig.LOG.e(e, "Error when attempting to set user: [%s] [%s]",
-                                    base64Url(currentUser),
-                                    userBase64ToJson(base64Url(currentUser)));
-                        }
-                        onCompleteListener.onError(e);
+                @Override
+                public void onError(Throwable e) {
+                    if (LDUtil.isClientConnected(application, environmentName)) {
+                        LDConfig.LOG.e(e, "Error when attempting to set user: [%s] [%s]",
+                                base64Url(currentUser),
+                                userBase64ToJson(base64Url(currentUser)));
                     }
-                });
+                    onCompleteListener.onError(e);
+                }
+            });
     }
 
     void registerListener(final String key, final FeatureFlagChangeListener listener) {
