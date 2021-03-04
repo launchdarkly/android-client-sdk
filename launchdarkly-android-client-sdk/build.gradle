@@ -145,7 +145,6 @@ task javadoc(type: Javadoc) {
     classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
 }
 
-
 afterEvaluate {
 // https://stackoverflow.com/questions/34571371/android-studio-javadoc-cannot-find-symbol/34572606#34572606
     javadoc.classpath += files(android.libraryVariants.collect { variant ->
@@ -214,8 +213,6 @@ publishing {
                     developerConnection = 'scm:git:ssh:git@github.com:launchdarkly/android-client-sdk.git'
                     url = 'https://github.com/launchdarkly/android-client-sdk'
                 }
-
-                
             }
         }
     }

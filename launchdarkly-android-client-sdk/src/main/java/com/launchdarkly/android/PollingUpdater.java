@@ -40,8 +40,8 @@ public class PollingUpdater extends BroadcastReceiver {
                     SystemClock.elapsedRealtime() + initialDelayMillis,
                     intervalMillis,
                     pendingIntent);
-        } catch (SecurityException ex) {
-            LDConfig.LOG.w(ex, "SecurityException when setting background polling alarm");
+        } catch (Exception ex) {
+            LDConfig.LOG.w(ex, "Exception occurred when creating [background] polling alarm, likely due to the host application having too many existing alarms.");
         }
     }
 

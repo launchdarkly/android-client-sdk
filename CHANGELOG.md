@@ -3,6 +3,24 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.14.1] - 2021-01-14
+### Fixed
+- Before this release, the SDK could cause an uncaught exception on certain Android implementations, when scheduling a future poll request under certain situations. This fix extends a previous fix implemented in the [2.9.1 release](https://github.com/launchdarkly/android-client-sdk/releases/tag/2.9.1) of the SDK, which catches `SecurityException`s thrown by the alarm manager when registering an alarm for the next poll. This `SecurityException` was introduced by Samsung on their Lollipop and later Android implementions, and is thrown when the application has at least 500 existing alarms when registering a new alarm. After recent reports of the alarm manager throwing an `IllegalStateException` rather than a `SecurityException` under the same conditions but different Android implementations, this release broadens the exception handling when scheduling a poll request to safeguard against other exception types.
+
+## [2.14.0] - 2020-12-17
+### Added
+- Added `LDConfig.Builder.setPollUri` configuration setter that is equivalent to the now deprecated `setBaseUri`.
+- Added `LDConfig.getPollUri` configuration getter that is equivalent to the now deprecated `getPollUri`.
+- Added `LDClient.doubleVariation` for getting floating point flag values as a `double`. This is preferred over the now deprecated `floatVariation`.
+### Fixed
+- Improved event summarization logic to avoid potential runtime exceptions. Thanks to @yzheng988 for reporting ([#105](https://github.com/launchdarkly/android-client-sdk/issues/105)).
+- Internal throttling logic would sometimes delay new poll or stream connections even when there were no recent connections. This caused switching active user contexts using `identify` to sometimes delay retrieving the most recent flags, and therefore delay the completion of the returned `Future`.
+### Changed
+- The maximum delay the internal throttling logic could delay a flag request has been reduced to 60 seconds.
+### Deprecated
+- Deprecated `LDConfig.Builder.setBaseUri` and `LDConfig.getBaseUri`, please use `setPollUri` and `getPollUri` instead.
+- Deprecated `LDClient.floatVariation`, please use `doubleVariation` for evaluating flags with floating point values.
+
 ## [2.13.0] - 2020-08-07
 ### Added
 - Allow specifying additional headers to be included on HTTP requests to LaunchDarkly services using `LDConfig.Builder.setAdditionalHeaders`. This feature is to enable certain proxy configurations, and is not needed for normal use.
