@@ -26,6 +26,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -336,29 +337,10 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public Map<String, ?> allFlags() {
-        Map<String, Object> result = new HashMap<>();
-        for (Flag flag : userManager.getCurrentUserFlagStore().getAllFlags()) {
-            LDValue value = flag.getValue();
-            switch (value.getType()) {
-            case BOOLEAN:
-                result.put(flag.getKey(), value.booleanValue());
-                break;
-            case NUMBER:
-                result.put(flag.getKey(), value.floatValue());
-                break;
-            case STRING:
-                result.put(flag.getKey(), value.stringValue());
-                break;
-            case NULL:
-                // TODO(gwhelanld): Include null flag values in results in 3.0.0
-                continue;
-            default:
-                result.put(flag.getKey(), value.toJsonString());
-                break;
-            }
-        }
-        return result;
+    public Map<String, LDValue> allFlags() {
+        return userManager.getCurrentUserFlagStore()
+            .getAllFlags().stream()
+            .collect(Collectors.toMap(Flag::getKey, Flag::getValue));
     }
 
     @Override

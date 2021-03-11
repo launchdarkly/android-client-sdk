@@ -102,7 +102,7 @@ public interface LDClientInterface extends Closeable {
      *
      * @return a map of all feature flags
      */
-    Map<String, ?> allFlags();
+    Map<String, LDValue> allFlags();
 
     /**
      * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
