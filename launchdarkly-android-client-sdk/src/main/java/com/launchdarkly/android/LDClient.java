@@ -424,7 +424,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (flag == null) {
             LDConfig.LOG.e("Attempted to get non-existent flag for key: %s Returning fallback: %s", key, fallback);
-            result = EvaluationDetail.fromValue(fallback, 0, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
+            result = EvaluationDetail.fromValue(fallback, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
             if (value.isNull()) {
