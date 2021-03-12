@@ -72,8 +72,8 @@ public class MultiEnvironmentLDClientTest {
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
-        assertNull(ldClient.jsonValueVariation("jsonFlag", null));
         assertNull(ldClient.stringVariation("stringFlag", null));
+        assertEquals(ldClient.jsonValueVariation("jsonFlag", null), LDValue.ofNull());
     }
 
     @Test

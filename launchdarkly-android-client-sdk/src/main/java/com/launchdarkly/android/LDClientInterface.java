@@ -237,7 +237,7 @@ public interface LDClientInterface extends Closeable {
      *
      * @param flagKey key for the flag to evaluate
      * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
+     * @return value of the flag or fallback. Result will never be null, but may be LDValue#ofNull()
      */
     LDValue jsonValueVariation(String flagKey, LDValue fallback);
 

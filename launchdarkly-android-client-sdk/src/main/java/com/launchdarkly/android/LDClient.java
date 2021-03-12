@@ -5,11 +5,15 @@ import android.content.Context;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
-import com.google.gson.*;
-import com.launchdarkly.sdk.*;
+import com.launchdarkly.sdk.EvaluationDetail;
+import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.LDValueType;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -22,13 +26,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
@@ -56,7 +60,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final DiagnosticStore diagnosticStore;
     private ConnectivityReceiver connectivityReceiver;
     private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
-            Collections.synchronizedList(new ArrayList<WeakReference<LDStatusListener>>());
+            Collections.synchronizedList(new ArrayList<>());
     private final ExecutorService executor = Executors.newFixedThreadPool(1);
 
     /**
@@ -345,89 +349,85 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean boolVariation(@NonNull String key, boolean fallback) {
-        return variationDetailInternal(key, fallback, LDValue.Convert.Boolean, LDValueType.BOOLEAN, false).getValue();
+        return variationDetailInternal(key, LDValue.of(fallback), true, false).getValue().booleanValue();
     }
 
-    @Override 
+    @Override
     public EvaluationDetail<Boolean> boolVariationDetail(@NonNull String key, boolean fallback) {
-        return variationDetailInternal(key, fallback, LDValue.Convert.Boolean, LDValueType.BOOLEAN, true);
+        return convertDetailType(variationDetailInternal(key, LDValue.of(fallback), true, true), LDValue.Convert.Boolean);
     }
 
     @Override
     public int intVariation(@NonNull String key, int fallback) {
-        return variationDetailInternal(key, fallback, LDValue.Convert.Integer, LDValueType.NUMBER, false).getValue();
+        return variationDetailInternal(key, LDValue.of(fallback), true, false).getValue().intValue();
     }
 
     @Override
     public EvaluationDetail<Integer> intVariationDetail(@NonNull String key, int fallback) {
-        return variationDetailInternal(key, fallback, LDValue.Convert.Integer, LDValueType.NUMBER, true);
+        return convertDetailType(variationDetailInternal(key, LDValue.of(fallback), true, true), LDValue.Convert.Integer);
     }
 
     @Override
     public double doubleVariation(String flagKey, double fallback) {
-        return variationDetailInternal(flagKey, fallback, LDValue.Convert.Double, LDValueType.NUMBER, false).getValue();
+        return variationDetailInternal(flagKey, LDValue.of(fallback), true, false).getValue().doubleValue();
     }
 
     @Override
     public EvaluationDetail<Double> doubleVariationDetail(String flagKey, double fallback) {
-        return variationDetailInternal(flagKey, fallback, LDValue.Convert.Double, LDValueType.NUMBER, true);
+        return convertDetailType(variationDetailInternal(flagKey, LDValue.of(fallback), true, true), LDValue.Convert.Double);
     }
 
     @Override
     public String stringVariation(@NonNull String key, String fallback) {
-        return variationDetailInternal(key, fallback, LDValue.Convert.String, LDValueType.STRING, false).getValue();
+        return variationDetailInternal(key, LDValue.of(fallback), true, false).getValue().stringValue();
     }
 
     @Override
     public EvaluationDetail<String> stringVariationDetail(@NonNull String key, String fallback) {
-        return variationDetailInternal(key, fallback, LDValue.Convert.String, LDValueType.STRING, true);
+        return convertDetailType(variationDetailInternal(key, LDValue.of(fallback), true, true), LDValue.Convert.String);
     }
-
-    private static LDValue.Converter<LDValue> value = new LDValue.Converter<LDValue>() {
-        public LDValue fromType(LDValue value) { return value; }
-        public LDValue toType(LDValue value) { return value; }
-    };
 
     @Override
     public LDValue jsonValueVariation(@NonNull String key, LDValue fallback) {
-        return variationDetailInternal(key, fallback, value, LDValueType.OBJECT, false).getValue();
+        return variationDetailInternal(key, LDValue.normalize(fallback), false, false).getValue();
     }
 
     @Override
     public EvaluationDetail<LDValue> jsonValueVariationDetail(@NonNull String key, LDValue fallback) {
-        return variationDetailInternal(key, fallback, value, LDValueType.OBJECT, true);
+        return variationDetailInternal(key, LDValue.normalize(fallback), false, true);
     }
 
+    private <T> EvaluationDetail<T> convertDetailType(EvaluationDetail<LDValue> detail, LDValue.Converter<T> converter) {
+        return EvaluationDetail.fromValue(converter.toType(detail.getValue()), detail.getVariationIndex(), detail.getReason());
+    }
 
-    private <T> EvaluationDetail<T> variationDetailInternal(@NonNull String key, T fallback, LDValue.Converter<T> converter, LDValueType type, boolean needsReason) {
+    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue fallback, boolean checkType, boolean needsReason) {
         Flag flag = userManager.getCurrentUserFlagStore().getFlag(key);
-        EvaluationDetail<T> result;
-        LDValue value = converter.fromType(fallback);
+        EvaluationDetail<LDValue> result;
+        LDValue value = fallback;
 
         if (flag == null) {
-            LDConfig.LOG.e("Attempted to get non-existent flag for key: %s Returning fallback: %s", key, fallback);
+            LDConfig.LOG.i("Unknown feature flag \"%s\"; returning fallback value", key);
             result = EvaluationDetail.fromValue(fallback, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
             if (value.isNull()) {
-                LDConfig.LOG.e("Attempted to get flag without value for key: %s Returning fallback: %s", key, fallback);
-                value = converter.fromType(fallback);
+                LDConfig.LOG.w("Feature flag \"%s\" retrieved with no value; returning fallback value", key);
+                value = fallback;
                 int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
-                result = EvaluationDetail.fromValue(fallback, variation, EvaluationReason.off());
+                result = EvaluationDetail.fromValue(fallback, variation, flag.getReason());
+            } else if (checkType && !fallback.isNull() && value.getType() != fallback.getType()) {
+                LDConfig.LOG.w("Feature flag \"%s\" with type %s retrieved as %s; returning fallback value", key, value.getType(), fallback.getType());
+                value = fallback;
+                result = EvaluationDetail.fromValue(fallback, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE));
             } else {
-                if (value.getType() != type) {
-                    LDConfig.LOG.e("Attempted to get flag with wrong type for key: %s Returning fallback: %s", key, fallback);
-                    value = converter.fromType(fallback);
-                    result = EvaluationDetail.fromValue(fallback, flag.getVariation(), EvaluationReason.error(EvaluationReason.ErrorKind.MALFORMED_FLAG));
-                } else {
-                    result = EvaluationDetail.fromValue(converter.toType(value), flag.getVariation(), flag.getReason());
-                }
+                result = EvaluationDetail.fromValue(value, flag.getVariation(), flag.getReason());
             }
-            sendFlagRequestEvent(key, flag, value, converter.fromType(fallback), flag.isTrackReason() | needsReason ? result.getReason() : null);
+            sendFlagRequestEvent(key, flag, value, fallback, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
 
         LDConfig.LOG.d("returning variation: %s flagKey: %s user key: %s", result, key, userManager.getCurrentUser().getKey());
-        updateSummaryEvents(key, flag, value, converter.fromType(fallback));
+        updateSummaryEvents(key, flag, value, fallback);
         return result;
     }
 
@@ -664,7 +664,6 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param result   The value that was returned in the evaluation of the flagKey
      * @param fallback The fallback value used in the evaluation of the flagKey
      */
-    @SuppressWarnings("deprecation")
     private void updateSummaryEvents(String flagKey, Flag flag, LDValue result, LDValue fallback) {
         if (flag == null) {
             userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result), LDValue.normalize(fallback), -1, null);
