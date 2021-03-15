@@ -98,11 +98,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         if (instances != null) {
-            // TODO: remove when done debugging
-            for (StackTraceElement elem : Thread.currentThread().getStackTrace()) {
-                LDConfig.LOG.w(elem.getFileName() + " " + elem.getMethodName() + ":" + elem.getLineNumber());
-            }
-
             LDConfig.LOG.w("LDClient.init() was called more than once! returning primary instance.");
             return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
         }
@@ -247,7 +242,7 @@ public class LDClient implements LDClientInterface, Closeable {
             this.diagnosticEventProcessor = null;
         } else {
             this.diagnosticStore = new DiagnosticStore(application, sdkKey);
-            this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, sharedEventClient);
+            this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, application, sharedEventClient);
         }
         this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedUsers());
 
@@ -498,6 +493,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private synchronized void setOfflineInternal() {
         connectivityManager.setOffline();
+        setDiagnosticsOnline(false);
     }
 
     private synchronized static void setInstancesOffline() {
@@ -513,6 +509,17 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void setOnlineStatusInternal() {
         connectivityManager.setOnline();
+        setDiagnosticsOnline(true);
+    }
+
+    private void setDiagnosticsOnline(boolean isOnline) {
+        if (diagnosticEventProcessor != null) {
+            if (isOnline) {
+                diagnosticEventProcessor.startScheduler();
+            } else {
+                diagnosticEventProcessor.stopScheduler();
+            }
+        }
     }
 
     private static void setOnlineStatusInstances() {
@@ -624,6 +631,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void onNetworkConnectivityChange(boolean connectedToInternet) {
+        setDiagnosticsOnline(connectedToInternet);
         connectivityManager.onNetworkConnectivityChange(connectedToInternet);
     }
 

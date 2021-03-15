@@ -63,8 +63,8 @@ public class LDClientTest {
     public void testOfflineClientReturnsFallbacks() {
         ldClient = LDClient.init(application, ldConfig, ldUser, 1);
 
-        assertTrue(ldClient.isInitialized());
-        assertTrue(ldClient.isOffline());
+        assertTrue("client was not initialized", ldClient.isInitialized());
+        assertTrue("client was offline", ldClient.isOffline());
 
         assertTrue(ldClient.boolVariation("boolFlag", true));
         assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5), 0.0);

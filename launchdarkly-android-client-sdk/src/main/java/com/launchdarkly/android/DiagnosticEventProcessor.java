@@ -1,6 +1,7 @@
 package com.launchdarkly.android;
 
 import androidx.annotation.NonNull;
+import android.content.Context;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -23,14 +24,16 @@ class DiagnosticEventProcessor {
     private final String environment;
     private final DiagnosticStore diagnosticStore;
     private final ThreadFactory diagnosticThreadFactory;
+    private final Context context;
     private ScheduledExecutorService executorService;
 
-    DiagnosticEventProcessor(LDConfig config, String environment, final DiagnosticStore diagnosticStore,
+    DiagnosticEventProcessor(LDConfig config, String environment, final DiagnosticStore diagnosticStore, Context context,
                              OkHttpClient sharedClient) {
         this.config = config;
         this.environment = environment;
         this.diagnosticStore = diagnosticStore;
         this.client = sharedClient;
+        this.context = context;
 
         diagnosticThreadFactory = new ThreadFactory() {
             final AtomicLong count = new AtomicLong(0);
@@ -70,20 +73,29 @@ class DiagnosticEventProcessor {
         });
     }
 
-    private void startScheduler() {
+    private void enqueueEvent() {
+        if (!LDUtil.isInternetConnected(context)) {
+            // if we're not connected to the internet then dont try and send an event
+            return;
+        }
+
+        sendDiagnosticEventSync(diagnosticStore.getCurrentStatsAndReset());
+    }
+
+    void startScheduler() {
         long initialDelay = config.getDiagnosticRecordingIntervalMillis() - (System.currentTimeMillis() - diagnosticStore.getDataSince());
         long safeDelay = Math.min(Math.max(initialDelay, 0), config.getDiagnosticRecordingIntervalMillis());
 
         executorService = Executors.newSingleThreadScheduledExecutor(diagnosticThreadFactory);
         executorService.scheduleAtFixedRate(
-            () -> sendDiagnosticEventSync(diagnosticStore.getCurrentStatsAndReset()), 
+            this::enqueueEvent,
             safeDelay, 
             config.getDiagnosticRecordingIntervalMillis(), 
             TimeUnit.MILLISECONDS
         );
     }
 
-    private void stopScheduler() {
+    void stopScheduler() {
         if (executorService != null) {
             executorService.shutdown();
             executorService = null;
@@ -114,7 +126,7 @@ class DiagnosticEventProcessor {
             LDConfig.LOG.d("Diagnostic Event Response: %s", response.code());
             LDConfig.LOG.d("Diagnostic Event Response Date: %s", response.header("Date"));
         } catch (IOException e) {
-            LDConfig.LOG.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+            LDConfig.LOG.w(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
         } finally {
             if (response != null) response.close();
         }

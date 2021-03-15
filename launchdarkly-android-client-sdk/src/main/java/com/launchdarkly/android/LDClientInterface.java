@@ -299,12 +299,12 @@ public interface LDClientInterface extends Closeable {
      */
     void unregisterAllFlagsListener(LDAllFlagsListener allFlagsListener);
 
-        /**
-         * Checks whether {@link LDConfig.Builder#disableBackgroundUpdating(boolean)} was set to
-         * {@code true} in the configuration.
-         *
-         * @return true if background polling is disabled
-         */
+    /**
+     * Checks whether {@link LDConfig.Builder#disableBackgroundUpdating(boolean)} was set to
+     * {@code true} in the configuration.
+     *
+     * @return true if background polling is disabled
+     */
     boolean isDisableBackgroundPolling();
 
     /**
