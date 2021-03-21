@@ -1,60 +1,44 @@
-version: 2
+version: 2.1
+orbs:
+  android: circleci/android@1.0
 jobs:
   build:
-    working_directory: ~/launchdarkly/android-client-sdk-private
-    macos:
-      xcode: "10.3.0"
-    shell: /bin/bash --login -eo pipefail
-    environment:
-      TERM: dumb
-      QEMU_AUDIO_DRV: none
-      _JAVA_OPTIONS: "-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -Xms2048m -Xmx4096m"
-      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-      JVM_OPTS: -Xmx3200m
-      ANDROID_HOME: "/usr/local/share/android-sdk"
-      ANDROID_SDK_HOME: "/usr/local/share/android-sdk"
-      ANDROID_SDK_ROOT: "/usr/local/share/android-sdk"
+    executor:
+      name: android/android-machine
+      resource-class: large
 
     steps:
       - checkout
-      - run:
-          name: Setup env
-          command: |
-            echo 'export PATH="$PATH:/usr/local/share/android-sdk/tools/bin"' >> $BASH_ENV
-            echo 'export PATH="$PATH:/usr/local/share/android-sdk/platform-tools"' >> $BASH_ENV
-      - run:
-          name: Install Android sdk
-          command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew tap homebrew/cask
-            HOMEBREW_NO_AUTO_UPDATE=1 brew cask install android-sdk
-      - run: sudo mkdir -p /usr/local/android-sdk-linux/licenses
-      - run:
-          name: Install emulator dependencies
-          command: yes | sdkmanager "platform-tools" "platforms;android-25" "extras;intel;Hardware_Accelerated_Execution_Manager" "build-tools;26.0.2" "system-images;android-25;default;x86" "emulator" | grep -v = || true
-      - run: |
-          set +o pipefail
-          yes | sdkmanager --licenses
-      - run:
-          name: Download Dependencies
-          command: ./gradlew androidDependencies
 
-      - run: unset ANDROID_NDK_HOME
+      # Create and start emulator
+      - android/create-avd:
+          avd-name: ci-android-avd
+          system-image: system-images;android-25;default;x86
+          install: true
 
-      - run: echo no | avdmanager create avd -n ci-android-avd -f -k "system-images;android-25;default;x86"
-      - run:
-          command: $ANDROID_HOME/emulator/emulator -avd ci-android-avd -netdelay none -netspeed full -no-audio -no-window -no-snapshot -no-boot-anim
-          background: true
-          timeout: 1200
-          no_output_timeout: 2h
+      - android/start-emulator:
+          avd-name: ci-android-avd
+          wait-for-emulator: false
+
+      # Perform tasks we can do while waiting for emulator to start
+
+      # Restore caches
+      - android/restore-gradle-cache
+      - android/restore-build-cache
 
       - run:
-          name: Compile
-          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebug --console=plain -PdisablePreDex
+          name: Build connected tests
+          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugAndroidTest
 
-      - run:
-          name: Wait for emulator to boot
-          command: .circleci/scripts/circle-android wait-for-boot
+      # Save caches
+      - android/save-build-cache
+      - android/save-gradle-cache
 
+      # Now wait for emulator to fully start
+      - android/wait-for-emulator
+
+      # Additional validation that emulator is fully started and will accept adb
+      # commands
       - run:
           name: Validate retrieving emulator SDK version
           command: |
@@ -62,6 +46,8 @@ jobs:
               sleep 1
             done
 
+      # Necessary for test mocking to disable network access through WiFi
+      # configuration, allowing testing of behavior when device is offline
       - run:
           name: Disable mobile data for network tests
           command: adb shell svc data disable
@@ -74,15 +60,10 @@ jobs:
             adb shell getprop | tee -a ~/artifacts/props.txt
             adb logcat | tee -a ~/artifacts/logcat.txt
 
-      - run:
-          name: Run tests
-          command: ./gradlew :launchdarkly-android-client-sdk:connectedAndroidTest --console=plain -PdisablePreDex
-          no_output_timeout: 2h
+      - android/run-tests:
+          max-tries: 1
 
-      - run:
-          name: Stop emulator
-          command: adb emu kill || true
-          when: always
+      - android/kill-emulators
 
       - run:
           name: Validate package creation
