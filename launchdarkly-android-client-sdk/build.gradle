@@ -71,10 +71,9 @@ dependencies {
     implementation "com.launchdarkly:okhttp-eventsource:$eventsourceVersion"
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
     implementation "com.jakewharton.timber:timber:4.7.1"
-    // Explicitly old version of Google Play Services to allow compatibility without update for
-    // older phones
+    
     //noinspection GradleDependency
-    implementation 'com.google.android.gms:play-services-base:6.5.87'
+    compileOnly 'com.google.android.gms:play-services-base:6.5.87'
 
     androidTestUtil "com.android.support.test:orchestrator:$testRunnerVersion"
     androidTestImplementation "com.android.support:appcompat-v7:$supportVersion"
