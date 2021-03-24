@@ -71,7 +71,9 @@ dependencies {
     implementation "com.launchdarkly:okhttp-eventsource:$eventsourceVersion"
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
     implementation "com.jakewharton.timber:timber:4.7.1"
-    
+
+    // Explicitly old version of Google Play Services to allow compatibility without update for
+    // older phones. Consumer projects will need to add this dependency
     //noinspection GradleDependency
     compileOnly 'com.google.android.gms:play-services-base:6.5.87'
 
