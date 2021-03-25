@@ -1,12 +1,11 @@
 package com.launchdarkly.android;
 
-import com.google.gson.annotations.Expose;
+import com.google.gson.annotations.JsonAdapter;
 
+@JsonAdapter(LDFailureSerialization.class)
 public class LDInvalidResponseCodeFailure extends LDFailure {
-    @Expose
-    private int responseCode;
-    @Expose
-    private boolean retryable;
+    private final int responseCode;
+    private final boolean retryable;
 
     public LDInvalidResponseCodeFailure(String message, int responseCode, boolean retryable) {
         super(message, FailureType.UNEXPECTED_RESPONSE_CODE);

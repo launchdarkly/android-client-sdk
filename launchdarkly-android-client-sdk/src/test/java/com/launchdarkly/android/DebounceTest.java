@@ -1,13 +1,9 @@
 package com.launchdarkly.android;
 
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
 import static org.junit.Assert.assertEquals;
 
-@RunWith(AndroidJUnit4.class)
 public class DebounceTest {
 
     @Test
@@ -32,7 +28,7 @@ public class DebounceTest {
             return null;
         });
         
-        Thread.sleep(3000);
+        Thread.sleep(1000);
 
         assertEquals(expected, actual[0]);
     }
@@ -47,12 +43,12 @@ public class DebounceTest {
             actual[0] = 1;
             return null;
         });
-        Thread.sleep(3000);
+        Thread.sleep(1000);
         test.call(() -> {
             actual[0] = 2;
             return null;
         });
-        Thread.sleep(3000);
+        Thread.sleep(1000);
 
         assertEquals(expected, actual[0]);
     }

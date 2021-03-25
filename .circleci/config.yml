@@ -27,12 +27,21 @@ jobs:
       - android/restore-build-cache
 
       - run:
+          name: Build local tests
+          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugUnitTest
+
+      - run:
           name: Build connected tests
           command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugAndroidTest
 
       # Save caches
       - android/save-build-cache
       - android/save-gradle-cache
+
+      # Run unit tests that do not require the emulator
+      - run:
+          name: Run local tests
+          command: ./gradlew :launchdarkly-android-client-sdk:testDebugUnitTest
 
       # Now wait for emulator to fully start
       - android/wait-for-emulator
@@ -76,16 +85,18 @@ jobs:
       - run:
           name: Save test results
           command: |
-                mkdir -p ~/test-results
-                cp -r ./launchdarkly-android-client-sdk/build/outputs/androidTest-results/* ~/test-results/
+            mkdir -p ~/test-results
+            cp -r ./launchdarkly-android-client-sdk/build/test-results/testDebugUnitTest ~/test-results/
+            cp -r ./launchdarkly-android-client-sdk/build/outputs/androidTest-results/*  ~/test-results/
           when: always
 
       - run:
           name: Save artifacts
           command: |
-            mv ./launchdarkly-android-client-sdk/build/reports ~/artifacts
-            mv ./launchdarkly-android-client-sdk/build/outputs ~/artifacts
-            mv ./launchdarkly-android-client-sdk/build/docs    ~/artifacts
+            mv ./launchdarkly-android-client-sdk/build/test-results ~/artifacts
+            mv ./launchdarkly-android-client-sdk/build/reports      ~/artifacts
+            mv ./launchdarkly-android-client-sdk/build/outputs      ~/artifacts
+            mv ./launchdarkly-android-client-sdk/build/docs         ~/artifacts
           when: always
 
       - store_test_results:

@@ -7,8 +7,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
-import com.launchdarkly.android.LDFailure;
-import com.launchdarkly.android.LDInvalidResponseCodeFailure;
 
 import java.lang.reflect.Type;
 
@@ -32,18 +30,14 @@ class LDFailureSerialization implements JsonSerializer<LDFailure>, JsonDeseriali
         if (src == null) {
             return null;
         }
-        try {
-            JsonObject jsonObject = new JsonObject();
-            jsonObject.add("failureType", context.serialize(src.getFailureType()));
-            jsonObject.addProperty("message", src.getMessage());
-            if (src instanceof LDInvalidResponseCodeFailure) {
-                LDInvalidResponseCodeFailure fail = (LDInvalidResponseCodeFailure) src;
-                jsonObject.addProperty("responseCode", fail.getResponseCode());
-                jsonObject.addProperty("retryable", fail.isRetryable());
-            }
-            return jsonObject;
-        } catch (Exception unused) {
-            return null;
+        JsonObject jsonObject = new JsonObject();
+        jsonObject.add("failureType", context.serialize(src.getFailureType()));
+        jsonObject.addProperty("message", src.getMessage());
+        if (src instanceof LDInvalidResponseCodeFailure) {
+            LDInvalidResponseCodeFailure fail = (LDInvalidResponseCodeFailure) src;
+            jsonObject.addProperty("responseCode", fail.getResponseCode());
+            jsonObject.addProperty("retryable", fail.isRetryable());
         }
+        return jsonObject;
     }
 }

@@ -7,16 +7,16 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.UserAttribute;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.util.HashSet;
+import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -28,7 +28,7 @@ import static org.junit.Assert.assertTrue;
 public class EventTest {
 
     @Test
-    public void testPrivateAttributesAreConcatenated() throws Exception {
+    public void testPrivateAttributesAreConcatenated() {
 
         LDUser.Builder builder = new LDUser.Builder("1")
                 .privateAvatar("privateAvatar")
@@ -55,11 +55,14 @@ public class EventTest {
         // we should get the 3 private attributes from the user and the 2 from the config
         assertEquals(5, privateAttrs.getAsJsonArray().size());
 
-        assertTrue(privateAttrs.toString().contains(UserAttribute.AVATAR.getName()));
-        assertTrue(privateAttrs.toString().contains("privateValue1"));
-        assertTrue(privateAttrs.toString().contains(UserAttribute.EMAIL.getName()));
-        assertTrue(privateAttrs.toString().contains("Value2"));
-        assertFalse(privateAttrs.toString().contains(UserAttribute.LAST_NAME.getName()));
+        for (String attrName: Arrays.asList(
+                UserAttribute.AVATAR.getName(),
+                UserAttribute.EMAIL.getName(),
+                UserAttribute.FIRST_NAME.getName(),
+                "privateValue1",
+                "Value2")) {
+            assertTrue(privateAttrs.contains(new JsonPrimitive(attrName)));
+        }
     }
 
     @Test
@@ -70,16 +73,17 @@ public class EventTest {
                 .email("email@server.net");
 
         LDUser user = builder.build();
+        LDConfig config = new LDConfig.Builder().build();
 
-        LDConfig config = new LDConfig.Builder()
-                .build();
+        Event event = new GenericEvent("kind1", "key1", user);
 
-        final Event event = new GenericEvent("kind1", "key1", user);
+        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
-
-        assertTrue(jsonElement.toString().contains("email@server.net"));
-        assertFalse(jsonElement.toString().contains("privateAvatar"));
+        assertEquals(1, privateAttrs.size());
+        assertEquals("avatar", privateAttrs.get(0).getAsString());
+        assertEquals("email@server.net", userJson.getAsJsonPrimitive("email").getAsString());
+        assertNull(userJson.getAsJsonPrimitive("avatar"));
     }
 
     @Test
@@ -95,17 +99,14 @@ public class EventTest {
                 .privateAttributes(UserAttribute.AVATAR)
                 .build();
 
-        final Event event = new GenericEvent("kind1", "key1", user);
+        Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
-        JsonArray privateAttrs = jsonElement.getAsJsonObject().get("user").getAsJsonObject().getAsJsonArray("privateAttrs");
+        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
-        assertNotNull(privateAttrs);
-        assertNotNull(jsonElement);
-
-        assertEquals("avatarValue", user.getAvatar());
-        assertTrue(privateAttrs.toString().contains(UserAttribute.AVATAR.getName()));
-        assertFalse(jsonElement.toString().contains("avatarValue"));
+        assertEquals(1, privateAttrs.size());
+        assertEquals("avatar", privateAttrs.get(0).getAsString());
+        assertNull(userJson.getAsJsonPrimitive("avatar"));
     }
 
     @Test
@@ -119,7 +120,7 @@ public class EventTest {
         LDConfig config = new LDConfig.Builder()
                 .build();
 
-        final Event event = new GenericEvent("kind1", "key1", user);
+        Event event = new GenericEvent("kind1", "key1", user);
 
         Gson gson = new Gson();
 
@@ -150,7 +151,7 @@ public class EventTest {
                 .allAttributesPrivate()
                 .build();
 
-        final Event event = new GenericEvent("kind1", "key1", user);
+        Event event = new GenericEvent("kind1", "key1", user);
 
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().getAsJsonObject("user").getAsJsonArray("privateAttrs");
@@ -176,19 +177,15 @@ public class EventTest {
                 .allAttributesPrivate()
                 .build();
 
-        final Event event = new GenericEvent("kind1", "key1", user);
+        Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
-        JsonArray privateAttrs = jsonElement.getAsJsonObject().getAsJsonObject("user").getAsJsonArray("privateAttrs");
+        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
-        assertTrue(config.allAttributesPrivate());
-        assertNotNull(user);
-        assertNotNull(jsonElement);
-        assertNotNull(privateAttrs);
-        assertEquals(1, privateAttrs.getAsJsonArray().size());
-
-        assertTrue(jsonElement.toString().contains("key"));
-        assertTrue(jsonElement.toString().contains("anonymous"));
+        assertEquals(1, privateAttrs.size());
+        assertEquals("email", privateAttrs.get(0).getAsString());
+        assertEquals("1", userJson.getAsJsonPrimitive("key").getAsString());
+        assertTrue(userJson.getAsJsonPrimitive("anonymous").getAsBoolean());
     }
 
     @Test
@@ -355,7 +352,6 @@ public class EventTest {
         assertEquals(event.creationDate, eventObject.getAsJsonPrimitive("creationDate").getAsLong(), 0);
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testCustomEventWithDataAndMetricSerialization() {
         LDValue objVal = new ObjectBuilder()

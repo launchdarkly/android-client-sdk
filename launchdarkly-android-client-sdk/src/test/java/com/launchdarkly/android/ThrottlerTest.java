@@ -1,29 +1,24 @@
 package com.launchdarkly.android;
 
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
-@RunWith(AndroidJUnit4.class)
 public class ThrottlerTest {
 
     private Throttler throttler;
     private final AtomicBoolean hasRun = new AtomicBoolean(false);
-    private final long MAX_RETRY_TIME_MS = 30_000;
+    private final long MAX_RETRY_TIME_MS = 5_000;
 
     @Before
     public void setUp() {
         hasRun.set(false);
-        throttler = new Throttler(() -> hasRun.set(true), 1_000, MAX_RETRY_TIME_MS);
+        throttler = new Throttler(() -> hasRun.set(true), 100, MAX_RETRY_TIME_MS);
     }
 
     @Test
@@ -46,7 +41,7 @@ public class ThrottlerTest {
     public void delaysResetThrottle() throws InterruptedException {
         throttler.attemptRun();
         throttler.attemptRun();
-        Thread.sleep(1_500);
+        Thread.sleep(150);
 
         // Delay should allow third run to be instant
         hasRun.set(false);
@@ -59,12 +54,31 @@ public class ThrottlerTest {
         assertFalse(hasRun.get());
     }
 
-    @Ignore("Useful for inspecting jitter values empirically")
-    public void inspectJitter() {
-        for (int i = 0; i < 100; i++) {
-            long jitterVal = throttler.calculateJitterVal(i);
-            System.out.println("With jitter, retry " + i + ": " + throttler.backoffWithJitter(jitterVal));
-        }
+    @Test
+    public void canCancelledThrottledRun() throws InterruptedException {
+        throttler.attemptRun();
+        throttler.attemptRun();
+
+        hasRun.set(false);
+        throttler.attemptRun();
+        throttler.cancel();
+
+        Thread.sleep(250);
+        assertFalse(hasRun.get());
+    }
+
+    @Test
+    public void canScheduleRunAfterCancelled() throws InterruptedException {
+        throttler.attemptRun();
+        throttler.attemptRun();
+
+        hasRun.set(false);
+        throttler.attemptRun();
+        throttler.cancel();
+        throttler.attemptRun();
+
+        Thread.sleep(1000);
+        assertTrue(hasRun.get());
     }
 
     @Test

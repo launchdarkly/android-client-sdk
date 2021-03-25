@@ -1,16 +1,15 @@
 package com.launchdarkly.android;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.google.gson.JsonElement;
 import com.launchdarkly.sdk.ArrayBuilder;
+import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
-import com.launchdarkly.sdk.EvaluationReason;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -28,9 +27,6 @@ public class FlagTest {
     private static final Gson gson = GsonCache.getGson();
 
     private Map<EvaluationReason, String> TEST_REASONS;
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Before
     public void setUp() {
@@ -83,7 +79,6 @@ public class FlagTest {
             final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
             final JsonElement val = gson.toJsonTree(value);
 
-            //noinspection deprecation
             assertEquals(val, json.get("value"));
         }
     }

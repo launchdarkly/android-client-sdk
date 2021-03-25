@@ -2,7 +2,6 @@ package com.launchdarkly.android;
 
 import androidx.annotation.NonNull;
 
-import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.JsonAdapter;
 
 @JsonAdapter(LDFailureSerialization.class)
@@ -19,21 +18,20 @@ public class LDFailure extends LaunchDarklyException {
         UNKNOWN_ERROR
     }
 
-    @Expose
-    private FailureType failureType;
+    @NonNull
+    private final FailureType failureType;
 
-    public LDFailure(String message,
-              @NonNull FailureType failureType) {
+    public LDFailure(String message, @NonNull FailureType failureType) {
         super(message);
         this.failureType = failureType;
     }
 
-    public LDFailure(String message, Throwable cause,
-              @NonNull FailureType failureType) {
+    public LDFailure(String message, Throwable cause, @NonNull FailureType failureType) {
         super(message, cause);
         this.failureType = failureType;
     }
 
+    @NonNull
     public FailureType getFailureType() {
         return failureType;
     }

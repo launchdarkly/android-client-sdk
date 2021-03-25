@@ -1,24 +1,16 @@
 package com.launchdarkly.android;
 
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
 import java.util.UUID;
 
 import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertNotNull;
 
-@RunWith(AndroidJUnit4.class)
 public class DiagnosticIdTest {
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void hasUUID() {

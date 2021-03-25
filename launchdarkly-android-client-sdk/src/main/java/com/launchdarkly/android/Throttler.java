@@ -1,11 +1,12 @@
 package com.launchdarkly.android;
 
-import android.os.Handler;
-import android.os.HandlerThread;
 import androidx.annotation.NonNull;
 
 import java.util.Random;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -16,32 +17,26 @@ class Throttler {
 
     @NonNull
     private final Runnable taskRunnable;
-    private final long maxRetryTimeMs;
     private final long retryTimeMs;
+    private final long maxRetryTimeMs;
 
     private final Random jitter = new Random();
     private final AtomicInteger attempts = new AtomicInteger(-1);
-    private final AtomicBoolean queuedRun = new AtomicBoolean(false);
-    private final HandlerThread handlerThread;
-    private final Handler handler;
-    private final Runnable resetRunnable;
+    private final ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+
+    private ScheduledFuture<?> taskFuture;
 
     Throttler(@NonNull final Runnable runnable, long retryTimeMs, long maxRetryTimeMs) {
+        this.taskRunnable = runnable;
         this.retryTimeMs = retryTimeMs;
         this.maxRetryTimeMs = maxRetryTimeMs;
-
-        handlerThread = new HandlerThread("LDThrottler");
-        handlerThread.start();
-        handler = new Handler(handlerThread.getLooper());
-
-        taskRunnable = () -> {
-            queuedRun.set(false);
-            runnable.run();
-        };
-        resetRunnable = () -> attempts.decrementAndGet();
     }
 
-    void attemptRun() {
+    private synchronized void run() {
+        taskRunnable.run();
+    }
+
+    synchronized void attemptRun() {
         int attempt = attempts.getAndIncrement();
 
         // Grace first run instant for client initialization
@@ -53,19 +48,21 @@ class Throttler {
         // First invocation is instant, as is the first invocation after throttling has ended
         if (attempt == 0) {
             taskRunnable.run();
-            handler.postDelayed(resetRunnable, retryTimeMs);
+            executorService.schedule(attempts::decrementAndGet, retryTimeMs, TimeUnit.MILLISECONDS);
             return;
         }
 
         long jitterVal = calculateJitterVal(attempt);
-        handler.postDelayed(resetRunnable, jitterVal);
-        if (!queuedRun.getAndSet(true)) {
-            handler.postDelayed(taskRunnable, backoffWithJitter(jitterVal));
+        executorService.schedule(attempts::decrementAndGet, jitterVal, TimeUnit.MILLISECONDS);
+        if (taskFuture == null || taskFuture.isDone()) {
+            taskFuture = executorService.schedule(this::run, backoffWithJitter(jitterVal), TimeUnit.MILLISECONDS);
         }
     }
 
-    void cancel() {
-        handler.removeCallbacks(taskRunnable);
+    synchronized void cancel() {
+        if (taskFuture != null) {
+            taskFuture.cancel(false);
+        }
     }
 
     long calculateJitterVal(int reconnectAttempts) {

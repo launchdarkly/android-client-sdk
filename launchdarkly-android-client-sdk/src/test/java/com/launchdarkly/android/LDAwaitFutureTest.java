@@ -1,24 +1,17 @@
 package com.launchdarkly.android;
 
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.fail;
 
-@RunWith(AndroidJUnit4.class)
 public class LDAwaitFutureTest {
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void defaultCancelledValueIsFalse() {
@@ -82,14 +75,7 @@ public class LDAwaitFutureTest {
     @Test(timeout = 500L)
     public void futureWakesWaiterOnSuccess() throws Exception {
         final LDAwaitFuture<Void> future = new LDAwaitFuture<>();
-        new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                Thread.sleep(250);
-                future.set(null);
-                return null;
-            }
-        }.call();
+        Executors.newSingleThreadScheduledExecutor().schedule(() -> future.set(null), 250, TimeUnit.MILLISECONDS);
         future.get();
     }
 
@@ -97,16 +83,10 @@ public class LDAwaitFutureTest {
     public void futureWakesWaiterOnFailure() throws Exception {
         final Throwable t = new Throwable();
         final LDAwaitFuture<Void> future = new LDAwaitFuture<>();
-        new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                Thread.sleep(250);
-                future.setException(t);
-                return null;
-            }
-        }.call();
+        Executors.newSingleThreadScheduledExecutor().schedule(() -> future.setException(t), 250, TimeUnit.MILLISECONDS);
         try {
             future.get();
+            fail("Expected ExecutionException");
         } catch (ExecutionException ex) {
             assertSame(t, ex.getCause());
         }
@@ -118,5 +98,14 @@ public class LDAwaitFutureTest {
         LDAwaitFuture<Object> future = new LDAwaitFuture<>();
         future.set(testObject);
         assertSame(testObject, future.get());
+    }
+
+    @Test(timeout = 500L)
+    public void cancellingFutureDoesNothing() throws Exception {
+        final LDAwaitFuture<Void> future = new LDAwaitFuture<>();
+        Executors.newSingleThreadScheduledExecutor().schedule(() -> future.set(null), 250, TimeUnit.MILLISECONDS);
+        assertFalse(future.cancel(false));
+        assertFalse(future.cancel(true));
+        future.get();
     }
 }
