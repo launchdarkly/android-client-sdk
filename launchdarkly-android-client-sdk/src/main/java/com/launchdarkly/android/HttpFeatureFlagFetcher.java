@@ -116,9 +116,9 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
             uri += "?withReasons=true";
         }
         LDConfig.LOG.d("Attempting to fetch Feature flags using uri: %s", uri);
-        Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName) // default GET verb
-                .url(uri);
-        return config.buildRequestWithAdditionalHeaders(requestBuilder);
+        return new Request.Builder().url(uri)
+                .headers(config.headersForEnvironment(environmentName, null))
+                .build();
     }
 
     private Request getReportRequest(LDUser user) {
@@ -129,9 +129,10 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         LDConfig.LOG.d("Attempting to report user using uri: %s", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(userJson, JSON);
-        Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName)
-                .method("REPORT", reportBody) // custom REPORT verb
-                .url(reportUri);
-        return config.buildRequestWithAdditionalHeaders(requestBuilder);
+
+        return new Request.Builder().url(reportUri)
+                .headers(config.headersForEnvironment(environmentName, null))
+                .method("REPORT", reportBody)
+                .build();
     }
 }

@@ -95,13 +95,13 @@ public class DiagnosticEventProcessorTest {
         ForegroundTestController.setup(false);
         OkHttpClient okHttpClient = new OkHttpClient.Builder().build();
 
-        HashMap<String, String> additionalHeaders = new HashMap<>();
-        additionalHeaders.put("Proxy-Authorization", "token");
-        additionalHeaders.put("Authorization", "foo");
         LDConfig ldConfig = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
                 .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
-                .additionalHeaders(additionalHeaders)
+                .headerTransform(headers -> { 
+                    headers.put("Proxy-Authorization", "token"); 
+                    headers.put("Authorization", "foo"); 
+                })
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, ApplicationProvider.getApplicationContext(), okHttpClient);

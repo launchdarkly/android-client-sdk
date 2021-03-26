@@ -1,22 +1,22 @@
 package com.launchdarkly.android;
 
 import android.net.Uri;
-import com.launchdarkly.sdk.EvaluationReason;
-import com.launchdarkly.sdk.LDUser;
-import com.launchdarkly.sdk.UserAttribute;
+
+import androidx.annotation.NonNull;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.UserAttribute;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
+import okhttp3.Headers;
 import okhttp3.MediaType;
-import okhttp3.Request;
 import timber.log.Timber;
 import timber.log.Timber.Tree;
 
@@ -83,7 +83,7 @@ public class LDConfig {
     private final String wrapperName;
     private final String wrapperVersion;
 
-    private final Map<String, String> additionalHeaders;
+    private final LDHeaderUpdater headerTransform;
 
     private final boolean autoAliasingOptOut;
 
@@ -109,7 +109,7 @@ public class LDConfig {
              String wrapperName,
              String wrapperVersion,
              int maxCachedUsers,
-             Map<String, String> additionalHeaders,
+             LDHeaderUpdater headerTransform,
              boolean autoAliasingOptOut) {
 
         this.mobileKeys = mobileKeys;
@@ -134,13 +134,7 @@ public class LDConfig {
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
         this.maxCachedUsers = maxCachedUsers;
-
-        if (additionalHeaders != null) {
-            this.additionalHeaders = Collections.unmodifiableMap(new LinkedHashMap<>(additionalHeaders));
-        } else {
-            this.additionalHeaders = null;
-        }
-
+        this.headerTransform = headerTransform;
         this.autoAliasingOptOut = autoAliasingOptOut;
 
         this.filteredEventGson = new GsonBuilder()
@@ -149,40 +143,33 @@ public class LDConfig {
 
     }
 
-    Request.Builder getRequestBuilderFor(String environment) {
-        if (environment == null)
-            throw new IllegalArgumentException("null is not a valid environment");
+    Headers headersForEnvironment(@NonNull String environmentName,
+                                  Map<String, String> additionalHeaders) {
+        String sdkKey = mobileKeys.get(environmentName);
 
-        String key = mobileKeys.get(environment);
-        if (key == null)
-            throw new IllegalArgumentException("No environment by that name.");
-
-        return getRequestBuilderForKey(key);
-    }
-
-    Request.Builder getRequestBuilderForKey(String sdkKey) {
-        Request.Builder requestBuilder = new Request.Builder()
-                .addHeader("Authorization", LDConfig.AUTH_SCHEME + sdkKey)
-                .addHeader("User-Agent", USER_AGENT_HEADER_VALUE);
+        HashMap<String, String> baseHeaders = new HashMap<>();
+        baseHeaders.put("User-Agent", USER_AGENT_HEADER_VALUE);
+        if (sdkKey != null) {
+            baseHeaders.put("Authorization", LDConfig.AUTH_SCHEME + sdkKey);
+        }
 
         if (getWrapperName() != null) {
             String wrapperVersion = "";
             if (getWrapperVersion() != null) {
                 wrapperVersion = "/" + getWrapperVersion();
             }
-            requestBuilder.addHeader("X-LaunchDarkly-Wrapper", wrapperName + wrapperVersion);
+            baseHeaders.put("X-LaunchDarkly-Wrapper", wrapperName + wrapperVersion);
         }
 
-        return requestBuilder;
-    }
-
-    Request buildRequestWithAdditionalHeaders(Request.Builder requestBuilder) {
-        if (getAdditionalHeaders() != null) {
-            for (Map.Entry<String, String> entry: getAdditionalHeaders().entrySet()) {
-                requestBuilder.header(entry.getKey(), entry.getValue());
-            }
+        if (additionalHeaders != null) {
+            baseHeaders.putAll(additionalHeaders);
         }
-        return requestBuilder.build();
+
+        if (headerTransform != null) {
+            headerTransform.updateHeaders(baseHeaders);
+        }
+
+        return Headers.of(baseHeaders);
     }
 
     public String getMobileKey() {
@@ -286,8 +273,8 @@ public class LDConfig {
         return maxCachedUsers;
     }
 
-    Map<String, String> getAdditionalHeaders() {
-        return additionalHeaders;
+    public LDHeaderUpdater getHeaderTransform() {
+        return headerTransform;
     }
 
     boolean isAutoAliasingOptOut() {
@@ -334,7 +321,7 @@ public class LDConfig {
 
         private String wrapperName;
         private String wrapperVersion;
-        private Map<String, String> additionalHeaders;
+        private LDHeaderUpdater headerTransform;
         private boolean autoAliasingOptOut = false;
 
         /**
@@ -674,18 +661,6 @@ public class LDConfig {
         }
 
         /**
-         * Additional headers that should be added to all HTTP requests from SDK components to
-         * LaunchDarkly services
-         *
-         * @param additionalHeaders A map of header keys to header values
-         * @return the builder
-         */
-        public LDConfig.Builder additionalHeaders(Map<String, String> additionalHeaders) {
-            this.additionalHeaders = additionalHeaders;
-            return this;
-        }
-
-        /**
          * Enable this opt-out to disable sending an automatic alias event when {@link LDClient#identify(LDUser)} is
          * called with a non-anonymous user when the current user is anonymous.
          *
@@ -697,6 +672,17 @@ public class LDConfig {
             return this;
         }
 
+        /**
+         * Provides a callback for dynamically modifying headers used on requests to the LaunchDarkly service.
+         *
+         * @param headerTransform the transformation to apply to requests
+         * @return the builder
+         */
+        public LDConfig.Builder headerTransform(LDHeaderUpdater headerTransform) {
+            this.headerTransform = headerTransform;
+            return this;
+        }
+        
         /**
          * Returns the configured {@link LDConfig} object.
          * @return the configuration
@@ -767,7 +753,7 @@ public class LDConfig {
                     wrapperName,
                     wrapperVersion,
                     maxCachedUsers,
-                    additionalHeaders,
+                    headerTransform,
                     autoAliasingOptOut);
         }
     }

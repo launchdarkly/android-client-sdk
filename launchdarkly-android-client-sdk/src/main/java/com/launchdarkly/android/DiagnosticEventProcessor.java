@@ -1,9 +1,11 @@
 package com.launchdarkly.android;
 
-import androidx.annotation.NonNull;
 import android.content.Context;
 
+import androidx.annotation.NonNull;
+
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -19,6 +21,10 @@ import okhttp3.Response;
 import static com.launchdarkly.android.LDConfig.JSON;
 
 class DiagnosticEventProcessor {
+    private static final HashMap<String, String> baseDiagnosticHeaders = new HashMap<String, String>() {{
+        put("Content-Type", "application/json");
+    }};
+
     private final OkHttpClient client;
     private final LDConfig config;
     private final String environment;
@@ -112,23 +118,19 @@ class DiagnosticEventProcessor {
 
     void sendDiagnosticEventSync(DiagnosticEvent diagnosticEvent) {
         String content = GsonCache.getGson().toJson(diagnosticEvent);
-        Request.Builder requestBuilder = config.getRequestBuilderFor(environment)
-                .url(config.getEventsUri().buildUpon().appendEncodedPath("mobile/events/diagnostic").build().toString())
-                .addHeader("Content-Type", "application/json")
-                .post(RequestBody.create(content, JSON));
 
-        Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
+        Request request = new Request.Builder()
+                .url(config.getEventsUri().buildUpon().appendEncodedPath("mobile/events/diagnostic").build().toString())
+                .headers(config.headersForEnvironment(environment, baseDiagnosticHeaders))
+                .post(RequestBody.create(content, JSON)).build();
+
         LDConfig.LOG.d("Posting diagnostic event to %s with body %s", request.url(), content);
 
-        Response response = null;
-        try {
-            response = client.newCall(request).execute();
+        try (Response response = client.newCall(request).execute()) {
             LDConfig.LOG.d("Diagnostic Event Response: %s", response.code());
             LDConfig.LOG.d("Diagnostic Event Response Date: %s", response.header("Date"));
         } catch (IOException e) {
             LDConfig.LOG.w(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
-        } finally {
-            if (response != null) response.close();
         }
     }
 }

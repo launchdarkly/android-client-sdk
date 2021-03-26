@@ -10,19 +10,17 @@ import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.sdk.LDUser;
 
 import java.net.URI;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 
-import okhttp3.Headers;
-import okhttp3.MediaType;
 import okhttp3.RequestBody;
 
 import static com.launchdarkly.android.LDConfig.GSON;
 import static com.launchdarkly.android.LDConfig.JSON;
 
 class StreamUpdateProcessor {
-
     private static final String METHOD_REPORT = "REPORT";
 
     private static final String PING = "ping";
@@ -57,27 +55,6 @@ class StreamUpdateProcessor {
     synchronized void start() {
         if (!running && !connection401Error) {
             LDConfig.LOG.d("Starting.");
-
-            Headers.Builder headersBuilder = new Headers.Builder()
-                    .add("Authorization", LDConfig.AUTH_SCHEME + config.getMobileKeys().get(environmentName))
-                    .add("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE)
-                    .add("Accept", "text/event-stream");
-
-            if (config.getAdditionalHeaders() != null) {
-                for (Map.Entry<String, String> entry: config.getAdditionalHeaders().entrySet()) {
-                    headersBuilder.set(entry.getKey(), entry.getValue());
-                }
-            }
-
-            if (config.getWrapperName() != null) {
-                String wrapperVersion = "";
-                if (config.getWrapperVersion() != null) {
-                    wrapperVersion = "/" + config.getWrapperVersion();
-                }
-                headersBuilder.add("X-LaunchDarkly-Wrapper", config.getWrapperName() + wrapperVersion);
-            }
-
-            Headers headers = headersBuilder.build();
 
             EventHandler handler = new EventHandler() {
                 @Override
@@ -136,8 +113,21 @@ class StreamUpdateProcessor {
                 }
             };
 
-            EventSource.Builder builder = new EventSource.Builder(handler, getUri(userManager.getCurrentUser()))
-                    .headers(headers);
+            EventSource.Builder builder = new EventSource.Builder(handler, getUri(userManager.getCurrentUser()));
+
+            builder.requestTransformer(input -> {
+                Map<String, List<String>> esHeaders = input.headers().toMultimap();
+                HashMap<String, String> collapsed = new HashMap<>();
+                for (Map.Entry<String, List<String>> entry: esHeaders.entrySet()) {
+                    for (String headerVal: entry.getValue()) {
+                        collapsed.put(entry.getKey(), headerVal);
+                        // We never provide multiple values for a header so we collapse to just
+                        // the first entry in the multimap.
+                        break;
+                    }
+                }
+                return input.newBuilder().headers(config.headersForEnvironment(environmentName, collapsed)).build();
+            });
 
             if (config.isUseReport()) {
                 builder.method(METHOD_REPORT);

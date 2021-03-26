@@ -13,6 +13,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.HashMap;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -31,6 +32,11 @@ import static com.launchdarkly.android.LDUtil.isClientConnected;
 import static com.launchdarkly.android.LDUtil.isHttpErrorRecoverable;
 
 class DefaultEventProcessor implements EventProcessor, Closeable {
+    private static final HashMap<String, String> baseEventHeaders = new HashMap<String, String>() {{
+        put("Content-Type", "application/json");
+        put("X-LaunchDarkly-Event-Schema", "3");
+    }};
+
     private final BlockingQueue<Event> queue;
     private final Consumer consumer;
     private final OkHttpClient client;
@@ -138,9 +144,11 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
             String content = config.getFilteredEventGson().toJson(events);
             String eventPayloadId = UUID.randomUUID().toString();
             String url = config.getEventsUri().buildUpon().appendPath("mobile").build().toString();
+            HashMap<String, String> baseHeadersForRequest = new HashMap<>();
+            baseHeadersForRequest.put("X-LaunchDarkly-Payload-ID", eventPayloadId);
+            baseHeadersForRequest.putAll(baseEventHeaders);
 
             LDConfig.LOG.d("Posting %s event(s) to %s", events.size(), url);
-
             LDConfig.LOG.d("Events body: %s", content);
 
             for (int attempt = 0; attempt < 2; attempt++) {
@@ -151,14 +159,10 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     } catch (InterruptedException e) {}
                 }
 
-                Request.Builder requestBuilder = config.getRequestBuilderFor(environmentName)
-                        .url(url)
+                Request request = new Request.Builder().url(url)
+                        .headers(config.headersForEnvironment(environmentName, baseHeadersForRequest))
                         .post(RequestBody.create(content, JSON))
-                        .addHeader("Content-Type", "application/json")
-                        .addHeader("X-LaunchDarkly-Event-Schema", "3")
-                        .addHeader("X-LaunchDarkly-Payload-ID", eventPayloadId);
-
-                Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
+                        .build();
 
                 Response response = null;
                 try {

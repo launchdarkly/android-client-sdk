@@ -1,29 +1,27 @@
 package com.launchdarkly.android;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
-import com.launchdarkly.sdk.UserAttribute;
-import com.launchdarkly.sdk.LDUser;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.UserAttribute;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 
-import okhttp3.Request;
+import okhttp3.Headers;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
 public class LDConfigTest {
@@ -57,7 +55,6 @@ public class LDConfigTest {
 
         assertNull(config.getWrapperName());
         assertNull(config.getWrapperVersion());
-        assertNull(config.getAdditionalHeaders());
         assertFalse(config.isAutoAliasingOptOut());
     }
 
@@ -244,41 +241,72 @@ public class LDConfigTest {
         assertEquals(-1, config.getMaxCachedUsers());
     }
 
-    @Test
-    public void canSetAdditionalHeaders() {
-        HashMap<String, String> additionalHeaders = new HashMap<>();
-        additionalHeaders.put("Proxy-Authorization", "token");
-        additionalHeaders.put("Authorization", "foo");
-        LDConfig config = new LDConfig.Builder().additionalHeaders(additionalHeaders).build();
-        assertEquals(2, config.getAdditionalHeaders().size());
-        assertEquals("token", config.getAdditionalHeaders().get("Proxy-Authorization"));
-        assertEquals("foo", config.getAdditionalHeaders().get("Authorization"));
+    Map<String, String> headersToMap(Headers headers) {
+        Map<String, List<String>> multimap = headers.toMultimap();
+        HashMap<String, String> collapsed = new HashMap<>();
+        for (Map.Entry<String, List<String>> entry: multimap.entrySet()) {
+            if (entry.getValue().size() != 1) {
+                fail("Expected 1-to-1 mapping of headers");
+            }
+            collapsed.put(entry.getKey(), entry.getValue().get(0));
+        }
+        return collapsed;
     }
 
     @Test
-    public void buildRequestWithAdditionalHeadersNull() {
-        LDConfig config = new LDConfig.Builder().build();
-        Request.Builder requestBuilder = new Request.Builder()
-                .url("http://example.com")
-                .header("Authorization", "test-key");
-        Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
-        assertEquals(1, request.headers().size());
-        assertEquals("test-key", request.header("Authorization"));
+    public void headersForEnvironment() {
+        LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
+        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        assertEquals(2, headers.size());
+        assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
+        assertEquals("api_key test-key", headers.get("authorization"));
+        // Additional headers extend/replace defaults
+        HashMap<String, String> additional = new HashMap<>();
+        additional.put("Authorization", "other-key");
+        additional.put("Proxy-Authorization", "token");
+        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
+        assertEquals(3, headers.size());
+        assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
+        assertEquals("other-key", headers.get("authorization"));
+        assertEquals("token", headers.get("proxy-authorization"));
+        // Also should not modify the given additional headers
+        assertEquals(2, additional.size());
+        assertEquals("other-key", additional.get("Authorization"));
+        assertEquals("token", additional.get("Proxy-Authorization"));
     }
 
     @Test
-    public void buildRequestWithAdditionalHeaders() {
-        HashMap<String, String> additionalHeaders = new HashMap<>();
-        additionalHeaders.put("Proxy-Authorization", "token");
-        additionalHeaders.put("Authorization", "foo");
-        LDConfig config = new LDConfig.Builder().additionalHeaders(additionalHeaders).build();
-        Request.Builder requestBuilder = new Request.Builder()
-                .url("http://example.com")
-                .header("Authorization", "test-key");
-        Request request = config.buildRequestWithAdditionalHeaders(requestBuilder);
-        assertEquals(2, request.headers().size());
-        assertEquals("token", request.header("Proxy-Authorization"));
-        assertEquals("foo", request.header("Authorization"));
+    public void headersForEnvironmentWithTransform() {
+        HashMap<String, String> expected = new HashMap<>();
+        LDConfig config = new LDConfig.Builder().mobileKey("test-key")
+                .headerTransform(headers -> {
+                    assertEquals(expected, headers);
+                    headers.remove("User-Agent");
+                    headers.put("Authorization", headers.get("Authorization") + ", more");
+                    headers.put("New", "value");
+                })
+                .build();
+
+        expected.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
+        expected.put("Authorization", "api_key test-key");
+        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        assertEquals(2, headers.size());
+        assertEquals("api_key test-key, more", headers.get("authorization"));
+        assertEquals("value", headers.get("new"));
+        // Additional headers extend/replace defaults
+        HashMap<String, String> additional = new HashMap<>();
+        additional.put("Authorization", "other-key");
+        additional.put("Proxy-Authorization", "token");
+        expected.putAll(additional);
+        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
+        assertEquals(3, headers.size());
+        assertEquals("other-key, more", headers.get("authorization"));
+        assertEquals("token", headers.get("proxy-authorization"));
+        assertEquals("value", headers.get("new"));
+        // Also should not modify the given additional headers
+        assertEquals(2, additional.size());
+        assertEquals("other-key", additional.get("Authorization"));
+        assertEquals("token", additional.get("Proxy-Authorization"));
     }
 
     @Test

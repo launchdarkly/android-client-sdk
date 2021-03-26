@@ -638,10 +638,10 @@ public class LDClientTest {
             // Enqueue a successful empty response
             mockEventsServer.enqueue(new MockResponse());
 
-            HashMap<String, String> additionalHeaders = new HashMap<>();
-            additionalHeaders.put("Proxy-Authorization", "token");
-            additionalHeaders.put("Authorization", "foo");
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).additionalHeaders(additionalHeaders).build();
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).headerTransform(headers -> {
+                headers.put("Proxy-Authorization", "token");
+                headers.put("Authorization", "foo");
+            }).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.blockingFlush();
             }
