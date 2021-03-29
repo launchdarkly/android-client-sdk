@@ -299,10 +299,10 @@ public class FlagTest {
         final Flag withFlagVersion = new FlagBuilder("flag").flagVersion(5).build();
         final Flag withBothVersions = new FlagBuilder("flag").version(10).flagVersion(5).build();
 
-        assertEquals(-1, noVersions.getVersionForEvents());
-        assertEquals(10, withVersion.getVersionForEvents());
-        assertEquals(5, withFlagVersion.getVersionForEvents());
-        assertEquals(5, withBothVersions.getVersionForEvents());
+        assertNull(noVersions.getVersionForEvents());
+        assertEquals(10, (int) withVersion.getVersionForEvents());
+        assertEquals(5, (int) withFlagVersion.getVersionForEvents());
+        assertEquals(5, (int) withBothVersions.getVersionForEvents());
     }
 
     @Test

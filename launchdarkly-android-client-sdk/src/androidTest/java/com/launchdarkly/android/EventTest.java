@@ -196,9 +196,9 @@ public class EventTest {
         LDValue val2 = LDValue.buildArray().add(5.4).add("abc").build();
         FeatureRequestEvent fe1, fe2, de1, de2;
 
-        fe1 = new FeatureRequestEvent("key1", user, val1, LDValue.ofNull(), -1, 5, null, false, false);
+        fe1 = new FeatureRequestEvent("key1", user, val1, LDValue.ofNull(), null, 5, null, false, false);
         fe2 = new FeatureRequestEvent("key2", anonUser, LDValue.ofNull(), val2, 3, null, null, true, false);
-        de1 = new FeatureRequestEvent("key3", user, val1, LDValue.ofNull(), -1, 3, null, false, true);
+        de1 = new FeatureRequestEvent("key3", user, val1, LDValue.ofNull(), null, 3, null, false, true);
         de2 = new FeatureRequestEvent("key4", anonUser, val2, val1, 4, null, null, true, true);
 
         assertEquals(fe1.kind, "feature");
@@ -378,7 +378,7 @@ public class EventTest {
         EvaluationReason reason = EvaluationReason.fallthrough();
 
         FeatureRequestEvent hasVersionEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, null, null, true, false);
-        FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), -1, 20, null, true, false);
+        FeatureRequestEvent hasVariationEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), null, 20, null, true, false);
         FeatureRequestEvent hasReasonEvent = new FeatureRequestEvent("key1", user, LDValue.ofNull(), LDValue.ofNull(), 5, 20, reason, true, false);
 
         assertEquals(5, hasVersionEvent.version, 0.0f);

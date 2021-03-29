@@ -3,22 +3,24 @@ package com.launchdarkly.android;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.launchdarkly.android.test.TestActivity;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.LDValueType;
 
-import junit.framework.Assert;
-
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import static junit.framework.Assert.assertNotNull;
-import static junit.framework.Assert.assertNull;
-import static junit.framework.Assert.assertTrue;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 
 @RunWith(AndroidJUnit4.class)
 public class SharedPrefsSummaryEventStoreTest {
@@ -60,24 +62,18 @@ public class SharedPrefsSummaryEventStoreTest {
         assertTrue(ldClient.isOffline());
 
         ldClient.boolVariation("boolFlag", true);
-        JsonObject features = summaryEventStore.getSummaryEvent().features;
-        JsonArray counters = features.get("boolFlag").getAsJsonObject().get("counters").getAsJsonArray();
+        Map<String, SummaryEventStore.FlagCounters> features = summaryEventStore.getSummaryEvent().features;
+        List<SummaryEventStore.FlagCounter> counters = features.get("boolFlag").counters;
 
-        Assert.assertEquals(counters.size(), 1);
-
-        JsonObject counter = counters.get(0).getAsJsonObject();
-
-        Assert.assertEquals(counter.get("count").getAsInt(), 1);
+        assertEquals(1, counters.size());
+        assertEquals(1, counters.get(0).count);
 
         ldClient.boolVariation("boolFlag", true);
         features = summaryEventStore.getSummaryEvent().features;
-        counters = features.get("boolFlag").getAsJsonObject().get("counters").getAsJsonArray();
+        counters =  features.get("boolFlag").counters;
 
-        Assert.assertEquals(counters.size(), 1);
-
-        counter = counters.get(0).getAsJsonObject();
-
-        Assert.assertEquals(counter.get("count").getAsInt(), 2);
+        assertEquals(1, counters.size());
+        assertEquals(2, counters.get(0).count);
     }
 
     @Test
@@ -86,23 +82,27 @@ public class SharedPrefsSummaryEventStoreTest {
         assertTrue(ldClient.isOffline());
 
         ldClient.boolVariation("boolFlag", true);
-        ldClient.jsonValueVariation("jsonFlag", LDValue.ofNull());
-        ldClient.doubleVariation("doubleFlag", 0.2);
         ldClient.intVariation("intFlag", 6);
+        ldClient.doubleVariation("doubleFlag", 0.2);
         ldClient.stringVariation("stringFlag", "string");
+        ldClient.jsonValueVariation("jsonFlag", LDValue.ofNull());
 
-        JsonObject features = summaryEventStore.getSummaryEvent().features;
+        Map<String, SummaryEventStore.FlagCounters> features = summaryEventStore.getSummaryEvent().features;
+        assertEquals(5, features.size());
 
-        Assert.assertTrue(features.keySet().contains("boolFlag"));
-        Assert.assertTrue(features.keySet().contains("doubleFlag"));
-        Assert.assertTrue(features.keySet().contains("intFlag"));
-        Assert.assertTrue(features.keySet().contains("stringFlag"));
+        assertEquals(LDValueType.BOOLEAN, features.get("boolFlag").defaultValue.getType());
+        assertTrue(features.get("boolFlag").defaultValue.booleanValue());
 
-        Assert.assertEquals(true, features.get("boolFlag").getAsJsonObject().get("default").getAsBoolean());
-        Assert.assertTrue(features.get("jsonFlag").getAsJsonObject().get("default").isJsonNull());
-        Assert.assertEquals(0.2, features.get("doubleFlag").getAsJsonObject().get("default").getAsDouble());
-        Assert.assertEquals(6, features.get("intFlag").getAsJsonObject().get("default").getAsInt());
-        Assert.assertEquals("string", features.get("stringFlag").getAsJsonObject().get("default").getAsString());
+        assertEquals(LDValueType.NUMBER, features.get("intFlag").defaultValue.getType());
+        assertEquals(6, features.get("intFlag").defaultValue.intValue());
+
+        assertEquals(LDValueType.NUMBER, features.get("doubleFlag").defaultValue.getType());
+        assertEquals(0.2, features.get("doubleFlag").defaultValue.doubleValue(), 0.0);
+
+        assertEquals(LDValueType.STRING, features.get("stringFlag").defaultValue.getType());
+        assertEquals("string", features.get("stringFlag").defaultValue.stringValue());
+
+        assertNull(features.get("jsonFlag").defaultValue);
     }
 
     @Test
@@ -113,10 +113,10 @@ public class SharedPrefsSummaryEventStoreTest {
         ldClient.boolVariation("boolFlag", true);
         ldClient.stringVariation("stringFlag", "string");
 
-        JsonObject features = summaryEventStore.getSummaryEvent().features;
+        Map<String, SummaryEventStore.FlagCounters> features = summaryEventStore.getSummaryEvent().features;
 
-        Assert.assertTrue(features.keySet().contains("boolFlag"));
-        Assert.assertTrue(features.keySet().contains("stringFlag"));
+        Assert.assertTrue(features.containsKey("boolFlag"));
+        Assert.assertTrue(features.containsKey("stringFlag"));
 
         summaryEventStore.clear();
 

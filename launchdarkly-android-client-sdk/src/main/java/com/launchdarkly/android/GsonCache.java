@@ -12,7 +12,6 @@ class GsonCache {
     }
 
     private static Gson createGson() {
-        GsonBuilder gsonBuilder = new GsonBuilder();
-        return gsonBuilder.create();
+        return new GsonBuilder().create();
     }
 }

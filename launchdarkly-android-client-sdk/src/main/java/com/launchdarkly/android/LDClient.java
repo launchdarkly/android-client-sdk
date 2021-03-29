@@ -636,7 +636,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue fallback, EvaluationReason reason) {
-        int version = flag.getVersionForEvents();
+        Integer version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
         if (flag.getTrackEvents()) {
             sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version,
@@ -673,13 +673,11 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param fallback The fallback value used in the evaluation of the flagKey
      */
     private void updateSummaryEvents(String flagKey, Flag flag, LDValue result, LDValue fallback) {
-        if (flag == null) {
-            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result), LDValue.normalize(fallback), -1, null);
-        } else {
-            int version = flag.getVersionForEvents();
-            Integer variation = flag.getVariation();
-            userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, LDValue.normalize(result), LDValue.normalize(fallback), version, variation);
-        }
+        result = LDValue.normalize(result);
+        fallback = LDValue.normalize(fallback);
+        Integer version = flag == null ? null : flag.getVersionForEvents();
+        Integer variation = flag == null ? null : flag.getVariation();
+        userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, version, variation);
     }
 
     static synchronized void triggerPollInstances() {

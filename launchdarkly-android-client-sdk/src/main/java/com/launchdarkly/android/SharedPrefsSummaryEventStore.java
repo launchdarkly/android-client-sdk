@@ -1,26 +1,19 @@
 package com.launchdarkly.android;
 
-import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
-import androidx.annotation.Nullable;
-import androidx.annotation.NonNull;
+
 import com.launchdarkly.sdk.LDValue;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
-import java.util.Objects;
+import java.util.HashMap;
 
 /**
  * Used internally by the SDK.
  */
 class SharedPrefsSummaryEventStore implements SummaryEventStore {
+
+    private static final String START_DATE_KEY = "$startDate$";
 
     private final SharedPreferences sharedPreferences;
 
@@ -28,190 +21,75 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);
     }
 
-    public static JsonElement toJson(LDValue val) {
-        switch (val.getType()) {
-        case BOOLEAN:
-            return new JsonPrimitive(val.booleanValue());
-        case NULL:
-            return JsonNull.INSTANCE;
-        case NUMBER:
-            if (val.isInt()) {
-                return new JsonPrimitive(val.longValue());
-            } else {
-                return new JsonPrimitive(val.doubleValue());
-            }
-        case STRING:
-            return new JsonPrimitive(val.stringValue());
-        case ARRAY:
-            JsonArray arr = new JsonArray();
-            for (LDValue each : val.values()) {
-                arr.add(toJson(each));
-            }
-            return arr;
-        case OBJECT:
-            JsonObject obj = new JsonObject();
-            for (String key : val.keys()) {
-                obj.add(key, toJson(val.get(key)));
-            }
-            return obj;
-        default:
-            LDConfig.LOG.w("invalid type found when converting LDValue `%s` to json", val.toString());
-            throw new IllegalStateException("unknown value type, should not be possible");
-        }
-    }
-
     @Override
-    public synchronized void addOrUpdateEvent(String flagResponseKey, LDValue inValue, LDValue inDefaultVal, int version, @Nullable Integer nullableVariation) {
-        /* the code in this function was inherited
-           from android 2.x and relies heavily on JsonElements
-           rewriting it would probably introduce bugs so 
-           we convert the inputs back to json.
-        */
-        JsonElement value = toJson(inValue);
-        JsonElement defaultVal = toJson(inDefaultVal);
+    public synchronized void addOrUpdateEvent(String flagResponseKey, LDValue value, LDValue defaultVal, Integer version, Integer variation) {
+        FlagCounters storedCounters = getFlagCounters(flagResponseKey);
 
-        JsonElement variation = nullableVariation == null ? JsonNull.INSTANCE : new JsonPrimitive(nullableVariation);
-        JsonObject object = getValueAsJsonObject(flagResponseKey);
-        if (object == null) {
-            object = createNewEvent(value, defaultVal, version, variation);
-        } else {
-            JsonArray countersArray = object.get("counters").getAsJsonArray();
+        if (storedCounters == null) {
+            storedCounters = new FlagCounters(defaultVal);
+        }
 
-            boolean isUnknown = version == -1;
-            boolean variationExists = false;
-            for (JsonElement element : countersArray) {
-                if (element instanceof JsonObject) {
-                    JsonObject asJsonObject = element.getAsJsonObject();
-                    boolean unknownElement = asJsonObject.get("unknown") != null && !asJsonObject.get("unknown").equals(JsonNull.INSTANCE) && asJsonObject.get("unknown").getAsBoolean();
-
-                    if (unknownElement != isUnknown) {
-                        continue;
-                    }
-                    // Both are unknown and same value
-                    if (isUnknown && Objects.equals(value, asJsonObject.get("value"))) {
-                        variationExists = true;
-                        int currentCount = asJsonObject.get("count").getAsInt();
-                        asJsonObject.add("count", new JsonPrimitive(++currentCount));
-                        break;
-                    }
-                    JsonElement variationElement = asJsonObject.get("variation");
-                    JsonElement versionElement = asJsonObject.get("version");
-
-                    // We can compare variation rather than value.
-                    boolean isSameVersion = versionElement != null && asJsonObject.get("version").getAsInt() == version;
-                    boolean isSameVariation = variationElement != null && variationElement.equals(variation);
-                    if (isSameVersion && isSameVariation) {
-                        variationExists = true;
-                        int currentCount = asJsonObject.get("count").getAsInt();
-                        asJsonObject.add("count", new JsonPrimitive(++currentCount));
-                        break;
-                    }
-                }
-            }
-
-            if (!variationExists) {
-                addNewCountersElement(countersArray, value, version, variation);
+        boolean existingCounter = false;
+        for (FlagCounter counter: storedCounters.counters) {
+            if (counter.matches(version, variation)) {
+                counter.count++;
+                existingCounter = true;
+                break;
             }
         }
 
-        if (sharedPreferences.getAll().isEmpty()) {
-            object.add("startDate", new JsonPrimitive(System.currentTimeMillis()));
+        if (!existingCounter) {
+            storedCounters.counters.add(new FlagCounter(value, version, variation));
         }
 
-        String flagSummary = object.toString();
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putString(flagResponseKey, GsonCache.getGson().toJson(storedCounters));
+        if (!sharedPreferences.contains(START_DATE_KEY)) {
+            editor.putLong(START_DATE_KEY, System.currentTimeMillis()).apply();
+        }
+        editor.apply();
 
-        sharedPreferences.edit()
-            .putString(flagResponseKey, object.toString())
-            .apply();
-
-        LDConfig.LOG.d("Updated summary for flagKey %s to %s", flagResponseKey, flagSummary);
+        LDConfig.LOG.d("Updated summary for flagKey %s to %s", flagResponseKey, GsonCache.getGson().toJson(storedCounters));
     }
 
     @Override
     public synchronized SummaryEvent getSummaryEvent() {
-        return getSummaryEventNoSync();
-    }
-
-    private static Long removeStartDateFromFeatureSummary(@NonNull JsonObject featureSummary) {
-        JsonElement startDate = featureSummary.remove("startDate");
-        if (startDate != null && startDate.isJsonPrimitive()) {
-            try {
-                return startDate.getAsJsonPrimitive().getAsLong();
-            } catch (NumberFormatException ignored) {}
-        }
-        return null;
-    }
-
-    private SummaryEvent getSummaryEventNoSync() {
-        Long startDate = null;
-        JsonObject features = new JsonObject();
-        for (String key : sharedPreferences.getAll().keySet()) {
-            JsonObject featureSummary = getValueAsJsonObject(key);
-            if (featureSummary != null) {
-                Long featureStartDate = removeStartDateFromFeatureSummary(featureSummary);
-                if (featureStartDate != null) {
-                    startDate = featureStartDate;
-                }
-                features.add(key, featureSummary);
+        long startDate = sharedPreferences.getLong(START_DATE_KEY, -1);
+        HashMap<String, FlagCounters> features = new HashMap<>();
+        for (String key: sharedPreferences.getAll().keySet()) {
+            if (START_DATE_KEY.equals(key)) {
+                continue;
             }
+            features.put(key, getFlagCounters(key));
         }
 
-        if (startDate == null) {
+        if (startDate == -1 || features.size() == 0) {
             return null;
         }
 
-        SummaryEvent summaryEvent = new SummaryEvent(startDate, System.currentTimeMillis(), features);
-        LDConfig.LOG.d("Sending Summary Event: %s", summaryEvent.toString());
-        return summaryEvent;
+        return new SummaryEvent(startDate, System.currentTimeMillis(), features);
+    }
+
+    synchronized FlagCounters getFlagCounters(String flagKey) {
+        try {
+            String storedJson = sharedPreferences.getString(flagKey, null);
+            if (storedJson == null) {
+                return null;
+            }
+            return GsonCache.getGson().fromJson(storedJson, FlagCounters.class);
+        } catch (Exception ignored) {
+            // Fallthrough to clear
+        }
+        // An old version of shared preferences is stored, so clear it.
+        clear();
+        return null;
     }
 
     @Override
     public synchronized SummaryEvent getSummaryEventAndClear() {
-        SummaryEvent summaryEvent = getSummaryEventNoSync();
+        SummaryEvent summaryEvent = getSummaryEvent();
         clear();
         return summaryEvent;
-    }
-
-    private JsonObject createNewEvent(JsonElement value, JsonElement defaultVal, int version, JsonElement variation) {
-        JsonObject object = new JsonObject();
-        object.add("default", defaultVal);
-        JsonArray countersArray = new JsonArray();
-        addNewCountersElement(countersArray, value, version, variation);
-        object.add("counters", countersArray);
-        return object;
-    }
-
-    private void addNewCountersElement(JsonArray countersArray, @Nullable JsonElement value, int version, JsonElement variation) {
-        JsonObject newCounter = new JsonObject();
-        newCounter.add("value", value);
-        if (version == -1) {
-            newCounter.add("unknown", new JsonPrimitive(true));
-        } else {
-            newCounter.add("version", new JsonPrimitive(version));
-            newCounter.add("variation", variation);
-        }
-        newCounter.add("count", new JsonPrimitive(1));
-        countersArray.add(newCounter);
-    }
-
-    @SuppressLint("ApplySharedPref")
-    @Nullable
-    private JsonObject getValueAsJsonObject(String flagResponseKey) {
-        try {
-            String storedFlag = sharedPreferences.getString(flagResponseKey, null);
-            if (storedFlag == null) {
-                return null;
-            }
-            JsonElement element = JsonParser.parseString(storedFlag);
-            if (element instanceof JsonObject) {
-                return element.getAsJsonObject();
-            }
-        } catch (ClassCastException | JsonParseException ignored) {
-            // Fallthrough to clear
-        }
-        // An old version of shared preferences is stored, so clear it.
-        sharedPreferences.edit().clear().commit();
-        return null;
     }
 
     public synchronized void clear() {

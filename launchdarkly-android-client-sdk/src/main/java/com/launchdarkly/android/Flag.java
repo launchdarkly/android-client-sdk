@@ -71,9 +71,9 @@ class Flag implements FlagUpdate {
         return version == null;
     }
 
-    int getVersionForEvents() {
+    Integer getVersionForEvents() {
         if (flagVersion == null) {
-            return version == null ? -1 : version;
+            return version;
         }
         return flagVersion;
     }

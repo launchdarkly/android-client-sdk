@@ -1,15 +1,14 @@
 package com.launchdarkly.android;
-import com.launchdarkly.sdk.EvaluationReason;
-import com.launchdarkly.sdk.LDUser;
 
-import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
+import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
+
+import java.util.Map;
 
 class Event {
     @Expose String kind;
@@ -93,7 +92,7 @@ class FeatureRequestEvent extends GenericEvent {
                         LDUser user,
                         LDValue value,
                         LDValue defaultVal,
-                        @IntRange(from=(0), to=(Integer.MAX_VALUE)) int version,
+                        @Nullable Integer version,
                         @Nullable Integer variation,
                         @Nullable EvaluationReason reason,
                         boolean inlineUser,
@@ -110,9 +109,7 @@ class FeatureRequestEvent extends GenericEvent {
         this.value = value;
         this.defaultVal = defaultVal;
         this.reason = reason;
-        if (version != -1) {
-            this.version = version;
-        }
+        this.version = version;
         if (variation != null) {
             this.variation = variation;
         }
@@ -122,28 +119,12 @@ class FeatureRequestEvent extends GenericEvent {
 class SummaryEvent extends Event {
     @Expose Long startDate;
     @Expose Long endDate;
-    @Expose JsonObject features;
+    @Expose Map<String, SummaryEventStore.FlagCounters> features;
 
-    SummaryEvent(Long startDate, Long endDate, JsonObject features) {
+    SummaryEvent(Long startDate, Long endDate, Map<String, SummaryEventStore.FlagCounters> features) {
         super("summary");
         this.startDate = startDate;
         this.endDate = endDate;
         this.features = features;
-    }
-
-    @Override
-    public String toString() {
-        JsonObject jsonObject = new JsonObject();
-        if (startDate != null) {
-            jsonObject.add("startDate", new JsonPrimitive(startDate));
-        }
-        if (endDate != null) {
-            jsonObject.add("endDate", new JsonPrimitive(endDate));
-        }
-        if (kind != null) {
-            jsonObject.add("kind", new JsonPrimitive(kind));
-        }
-        jsonObject.add("features", features);
-        return jsonObject.toString();
     }
 }

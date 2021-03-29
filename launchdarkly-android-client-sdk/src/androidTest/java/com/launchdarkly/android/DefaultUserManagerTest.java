@@ -354,7 +354,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertEquals(558, (int) flag1.getVersion());
         assertEquals(3, (int) flag1.getFlagVersion());
-        assertEquals(3, flag1.getVersionForEvents());
+        assertEquals(3, (int) flag1.getVersionForEvents());
 
         //// case 2: value exists in shared preferences without version.
         userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}", null);
@@ -365,7 +365,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertEquals(558, (int) flag1.getVersion());
         assertEquals(3, (int) flag1.getFlagVersion());
-        assertEquals(3, flag1.getVersionForEvents());
+        assertEquals(3, (int) flag1.getVersionForEvents());
 
         // version exists in shared preferences but does not exist in patch.
         // ---------------------------
@@ -377,7 +377,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertNull(flag1.getVersion());
         assertNull(flag1.getFlagVersion());
-        assertEquals(-1, flag1.getVersionForEvents());
+        assertNull(flag1.getVersionForEvents());
 
         // version exists in shared preferences and patch.
         // ---------------------------
@@ -388,7 +388,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertEquals(559, (int) flag1.getVersion());
         assertEquals(3, (int) flag1.getFlagVersion());
-        assertEquals(3, flag1.getVersionForEvents());
+        assertEquals(3, (int) flag1.getVersionForEvents());
     }
 
     @Test
@@ -415,7 +415,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         Flag stringFlag1 = flagStore.getFlag("stringFlag1");
         assertEquals("string1", stringFlag1.getValue().stringValue());
         assertNull(stringFlag1.getFlagVersion());
-        assertEquals(125, stringFlag1.getVersionForEvents());
+        assertEquals(125, (int) stringFlag1.getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":126,\"value\":\"string2\"}", awaitableCallback);
         awaitableCallback.await();
@@ -424,7 +424,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         assertEquals("string2", stringFlag1.getValue().stringValue());
         assertEquals(126, (int) stringFlag1.getVersion());
         assertNull(stringFlag1.getFlagVersion());
-        assertEquals(126, stringFlag1.getVersionForEvents());
+        assertEquals(126, (int) stringFlag1.getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag1\",\"version\":127,\"flagVersion\":3,\"value\":\"string3\"}", awaitableCallback);
         awaitableCallback.await();
@@ -433,7 +433,7 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         assertEquals("string3", stringFlag1.getValue().stringValue());
         assertEquals(127, (int) stringFlag1.getVersion());
         assertEquals(3, (int) stringFlag1.getFlagVersion());
-        assertEquals(3, stringFlag1.getVersionForEvents());
+        assertEquals(3, (int) stringFlag1.getVersionForEvents());
 
         userManager.patchCurrentUserFlags("{\"key\":\"stringFlag20\",\"version\":1,\"value\":\"stringValue\"}", awaitableCallback);
         awaitableCallback.await();

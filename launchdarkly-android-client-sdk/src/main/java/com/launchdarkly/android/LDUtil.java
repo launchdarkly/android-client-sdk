@@ -119,6 +119,10 @@ class LDUtil {
         }
     }
 
+    static boolean objectsEqual(Object lhs, Object rhs) {
+        return (lhs == rhs) || (lhs != null && lhs.equals(rhs));
+    }
+
     interface ResultCallback<T> {
         void onSuccess(T result);
         void onError(Throwable e);
