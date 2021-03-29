@@ -8,6 +8,7 @@ import com.launchdarkly.sdk.LDValue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 interface SummaryEventStore {
     void clear();
@@ -41,8 +42,8 @@ interface SummaryEventStore {
                 return version == null;
             }
 
-            return LDUtil.objectsEqual(this.version, version) &&
-                    LDUtil.objectsEqual(this.variation, variation);
+            return Objects.equals(this.version, version) &&
+                    Objects.equals(this.variation, variation);
         }
     }
 

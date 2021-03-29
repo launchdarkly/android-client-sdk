@@ -184,6 +184,6 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
 
     public Collection<FeatureFlagChangeListener> getListenersByKey(String key) {
         Set<FeatureFlagChangeListener> res = listeners.get(key);
-        return res == null ? new HashSet<FeatureFlagChangeListener>() : res;
+        return res == null ? new HashSet<>() : res;
     }
 }

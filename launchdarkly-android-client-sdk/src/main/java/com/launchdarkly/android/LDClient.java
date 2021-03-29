@@ -13,12 +13,12 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.LDValueType;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -32,13 +32,10 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import timber.log.Timber;
-
-import static com.launchdarkly.android.TLSUtils.patchTLSIfNeeded;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
@@ -105,7 +102,6 @@ public class LDClient implements LDClientInterface, Closeable {
             Timber.plant(new Timber.DebugTree());
         }
 
-        patchTLSIfNeeded(application);
         Foreground.init(application);
 
         instances = new HashMap<>();
@@ -337,9 +333,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public Map<String, LDValue> allFlags() {
-        return userManager.getCurrentUserFlagStore()
-            .getAllFlags().stream()
-            .collect(Collectors.toMap(Flag::getKey, Flag::getValue));
+        Collection<Flag> allFlags = userManager.getCurrentUserFlagStore().getAllFlags();
+        HashMap<String, LDValue> flagValues = new HashMap<>();
+        for (Flag flag: allFlags) {
+            flagValues.put(flag.getKey(), flag.getValue());
+        }
+        return flagValues;
     }
 
     @Override

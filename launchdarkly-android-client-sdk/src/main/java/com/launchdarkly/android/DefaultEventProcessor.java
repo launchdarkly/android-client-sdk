@@ -164,9 +164,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                         .post(RequestBody.create(content, JSON))
                         .build();
 
-                Response response = null;
-                try {
-                    response = client.newCall(request).execute();
+                try (Response response = client.newCall(request).execute()) {
                     LDConfig.LOG.d("Events Response: %s", response.code());
                     LDConfig.LOG.d("Events Response Date: %s", response.header("Date"));
 
@@ -181,8 +179,6 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     break;
                 } catch (IOException e) {
                     LDConfig.LOG.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
-                } finally {
-                    if (response != null) response.close();
                 }
             }
         }

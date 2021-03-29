@@ -10,7 +10,7 @@
 
 ## Supported Android versions
 
-This version of the LaunchDarkly SDK has been tested with Android SDK versions 16 and up (4.1 Jelly Bean).
+This version of the LaunchDarkly SDK has been tested with Android SDK versions 21 and up (5.0 Lollipop).
 
 ## Getting started
 

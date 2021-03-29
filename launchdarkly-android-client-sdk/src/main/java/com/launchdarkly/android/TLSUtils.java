@@ -1,11 +1,6 @@
 package com.launchdarkly.android;
 
-import android.app.Application;
 import androidx.annotation.NonNull;
-
-import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
-import com.google.android.gms.common.GooglePlayServicesRepairableException;
-import com.google.android.gms.security.ProviderInstaller;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -43,21 +38,6 @@ class TLSUtils {
                     + Arrays.toString(trustManagers));
         }
         return (X509TrustManager) trustManagers[0];
-    }
-
-    static void patchTLSIfNeeded(Application application) {
-        try {
-            SSLContext.getInstance("TLSv1.2");
-        } catch (NoSuchAlgorithmException e) {
-            LDConfig.LOG.w("No TLSv1.2 implementation available, attempting patch.");
-            try {
-                ProviderInstaller.installIfNeeded(application.getApplicationContext());
-            } catch (GooglePlayServicesRepairableException e1) {
-                LDConfig.LOG.w("Patch failed, Google Play Services too old.");
-            } catch (GooglePlayServicesNotAvailableException e1) {
-                LDConfig.LOG.w("Patch failed, no Google Play Services available.");
-            }
-        }
     }
 }
 

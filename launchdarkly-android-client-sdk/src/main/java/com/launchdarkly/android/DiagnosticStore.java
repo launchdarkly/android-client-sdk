@@ -149,7 +149,7 @@ class DiagnosticStore {
             String streamInitsString = diagSharedPrefs.getString(STREAM_INITS_KEY, "[]");
             DiagnosticEvent.StreamInit[] streamInitsArr = gson.fromJson(streamInitsString, DiagnosticEvent.StreamInit[].class);
             streamInits.addAll(Arrays.asList(streamInitsArr));
-        } catch (Exception unused) { }
+        } catch (Exception ignored) { }
         streamInits.add(streamInit);
         diagSharedPrefs.edit()
                 .putString(STREAM_INITS_KEY, gson.toJson(streamInits))
