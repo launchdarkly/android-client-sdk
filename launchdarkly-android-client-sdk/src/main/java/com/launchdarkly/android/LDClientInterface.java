@@ -1,11 +1,10 @@
 package com.launchdarkly.android;
 
 import android.app.Application;
+
+import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.EvaluationDetail;
-
-import com.google.gson.JsonElement;
 
 import java.io.Closeable;
 import java.util.Map;

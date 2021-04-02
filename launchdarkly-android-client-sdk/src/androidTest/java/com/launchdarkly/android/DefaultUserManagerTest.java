@@ -1,11 +1,9 @@
 package com.launchdarkly.android;
 
-import androidx.test.rule.ActivityTestRule;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
-import com.launchdarkly.android.test.TestActivity;
-import androidx.test.core.app.ApplicationProvider;
 import com.launchdarkly.sdk.LDUser;
 
 import org.easymock.Capture;
@@ -22,15 +20,15 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
+import static org.easymock.EasyMock.capture;
+import static org.easymock.EasyMock.eq;
+import static org.easymock.EasyMock.expectLastCall;
+import static org.easymock.EasyMock.reset;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.easymock.EasyMock.capture;
-import static org.easymock.EasyMock.eq;
-import static org.easymock.EasyMock.expectLastCall;
-import static org.easymock.EasyMock.reset;
 
 @RunWith(AndroidJUnit4.class)
 public class DefaultUserManagerTest extends EasyMockSupport {

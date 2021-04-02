@@ -2,9 +2,8 @@ package com.launchdarkly.android;
 
 import androidx.annotation.NonNull;
 
-import com.launchdarkly.sdk.LDValue;
-
 import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDValue;
 
 public class FlagBuilder {
 

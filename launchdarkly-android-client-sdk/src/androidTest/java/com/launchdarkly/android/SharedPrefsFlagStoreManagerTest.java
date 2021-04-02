@@ -1,9 +1,9 @@
 package com.launchdarkly.android;
 
 import android.app.Application;
-import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.junit.Before;
 import org.junit.Rule;

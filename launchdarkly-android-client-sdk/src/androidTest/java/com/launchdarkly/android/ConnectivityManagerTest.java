@@ -1,21 +1,19 @@
 package com.launchdarkly.android;
 
-import android.content.Context;
-
-import android.app.Activity;
 import android.app.Application;
-import android.net.Uri;
-import android.net.NetworkCapabilities;
+import android.content.Context;
 import android.net.Network;
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-
-import androidx.test.core.app.ApplicationProvider;
-import androidx.test.ext.junit.rules.ActivityScenarioRule;
-import androidx.test.core.app.ActivityScenario;
+import android.net.NetworkCapabilities;
+import android.net.Uri;
+import android.os.Build;
 import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
 import android.os.StrictMode.VmPolicy;
-import android.os.Build;
+
+import androidx.test.core.app.ActivityScenario;
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.rules.ActivityScenarioRule;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.android.test.TestActivity;
@@ -36,8 +34,6 @@ import org.junit.runner.RunWith;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 import okhttp3.mockwebserver.MockWebServer;
 

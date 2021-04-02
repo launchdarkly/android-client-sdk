@@ -1,32 +1,28 @@
 package com.launchdarkly.example;
 
 import android.os.Bundle;
-import android.os.PersistableBundle;
 import android.os.Handler;
 import android.os.Looper;
-import androidx.annotation.Nullable;
-import androidx.appcompat.app.AppCompatActivity;
-import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+
 import com.launchdarkly.android.ConnectionInformation;
-import com.launchdarkly.android.FeatureFlagChangeListener;
+import com.launchdarkly.android.LDAllFlagsListener;
 import com.launchdarkly.android.LDClient;
 import com.launchdarkly.android.LDConfig;
 import com.launchdarkly.android.LDFailure;
-import com.launchdarkly.android.LDAllFlagsListener;
 import com.launchdarkly.android.LDStatusListener;
 import com.launchdarkly.sdk.LDUser;
 
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;

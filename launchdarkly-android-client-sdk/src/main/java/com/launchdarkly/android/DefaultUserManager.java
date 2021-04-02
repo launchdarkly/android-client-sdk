@@ -2,12 +2,13 @@ package com.launchdarkly.android;
 
 import android.app.Application;
 import android.content.SharedPreferences;
+import android.util.Base64;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
-import android.util.Base64;
-import com.launchdarkly.sdk.LDUser;
 
 import com.google.gson.JsonObject;
+import com.launchdarkly.sdk.LDUser;
 
 import java.util.Collection;
 import java.util.List;

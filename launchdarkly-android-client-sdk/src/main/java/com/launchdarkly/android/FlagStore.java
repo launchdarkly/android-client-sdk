@@ -1,8 +1,9 @@
 package com.launchdarkly.android;
 
+import android.util.Pair;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import android.util.Pair;
 
 import java.util.Collection;
 import java.util.List;

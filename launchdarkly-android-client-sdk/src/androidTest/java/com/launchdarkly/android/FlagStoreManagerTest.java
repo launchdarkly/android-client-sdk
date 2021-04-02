@@ -1,20 +1,18 @@
 package com.launchdarkly.android;
 
 import android.os.Looper;
-import androidx.annotation.NonNull;
 import android.util.Pair;
 
 import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.easymock.EasyMockSupport;
-import org.easymock.IAnswer;
 import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
 import java.util.Collections;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.Objects;
 
 import static org.easymock.EasyMock.and;
 import static org.easymock.EasyMock.anyObject;

@@ -1,6 +1,7 @@
 package com.launchdarkly.android;
 
 import android.net.Uri;
+
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonArray;

@@ -3,20 +3,20 @@ package com.launchdarkly.android;
 import android.util.Pair;
 
 import com.launchdarkly.sdk.ArrayBuilder;
+import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
-import com.launchdarkly.sdk.EvaluationReason;
 
 import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.easymock.EasyMock.expect;

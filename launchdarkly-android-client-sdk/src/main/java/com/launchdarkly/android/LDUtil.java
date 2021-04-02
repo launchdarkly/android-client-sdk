@@ -1,36 +1,30 @@
 package com.launchdarkly.android;
 
-import com.launchdarkly.sdk.LDUser;
-import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.UserAttribute;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
+import android.os.Build;
+
+import androidx.annotation.NonNull;
 
 import com.google.gson.TypeAdapter;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-
-import android.os.Build;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.net.ConnectivityManager;
-import android.net.NetworkCapabilities;
-import android.net.Network;
-import android.net.NetworkInfo;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.Arrays;
-import java.util.stream.StreamSupport;
-import java.util.stream.Stream;
-
-import java.security.GeneralSecurityException;
-import okhttp3.OkHttpClient;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.UserAttribute;
 
 import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import okhttp3.OkHttpClient;
 
 class LDUtil {
 

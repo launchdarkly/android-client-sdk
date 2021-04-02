@@ -2,8 +2,8 @@ package com.launchdarkly.android;
 
 import androidx.annotation.NonNull;
 
-import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDValue;
 
 class Flag implements FlagUpdate {
 

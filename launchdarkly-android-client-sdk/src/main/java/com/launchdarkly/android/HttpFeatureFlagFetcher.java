@@ -1,12 +1,12 @@
 package com.launchdarkly.android;
-import com.launchdarkly.sdk.LDUser;
 
 import android.content.Context;
-import android.os.Build;
+
 import androidx.annotation.NonNull;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.launchdarkly.sdk.LDUser;
 
 import java.io.File;
 import java.io.IOException;
@@ -16,7 +16,6 @@ import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.ConnectionPool;
-import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;

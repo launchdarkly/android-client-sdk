@@ -3,9 +3,10 @@ package com.launchdarkly.android;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+
 import androidx.test.core.app.ApplicationProvider;
+
 import com.launchdarkly.sdk.LDUser;
-import com.launchdarkly.android.test.TestActivity;
 
 import org.junit.Before;
 import org.junit.Rule;
