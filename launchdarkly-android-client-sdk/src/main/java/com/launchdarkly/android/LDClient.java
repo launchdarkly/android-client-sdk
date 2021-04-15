@@ -160,7 +160,10 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (key == null || key.equals("")) {
             LDConfig.LOG.w("User was created with null/empty key. Using device-unique anonymous user key: %s", LDClient.getInstanceId());
-            return new LDUser.Builder(user).key(LDClient.getInstanceId()).build();
+            return new LDUser.Builder(user)
+                    .key(LDClient.getInstanceId())
+                    .anonymous(true)
+                    .build();
         } else {
             return user;
         }
