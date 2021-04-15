@@ -342,86 +342,86 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
-    public boolean boolVariation(@NonNull String key, boolean fallback) {
-        return variationDetailInternal(key, LDValue.of(fallback), true, false).getValue().booleanValue();
+    public boolean boolVariation(@NonNull String key, boolean defaultValue) {
+        return variationDetailInternal(key, LDValue.of(defaultValue), true, false).getValue().booleanValue();
     }
 
     @Override
-    public EvaluationDetail<Boolean> boolVariationDetail(@NonNull String key, boolean fallback) {
-        return convertDetailType(variationDetailInternal(key, LDValue.of(fallback), true, true), LDValue.Convert.Boolean);
+    public EvaluationDetail<Boolean> boolVariationDetail(@NonNull String key, boolean defaultValue) {
+        return convertDetailType(variationDetailInternal(key, LDValue.of(defaultValue), true, true), LDValue.Convert.Boolean);
     }
 
     @Override
-    public int intVariation(@NonNull String key, int fallback) {
-        return variationDetailInternal(key, LDValue.of(fallback), true, false).getValue().intValue();
+    public int intVariation(@NonNull String key, int defaultValue) {
+        return variationDetailInternal(key, LDValue.of(defaultValue), true, false).getValue().intValue();
     }
 
     @Override
-    public EvaluationDetail<Integer> intVariationDetail(@NonNull String key, int fallback) {
-        return convertDetailType(variationDetailInternal(key, LDValue.of(fallback), true, true), LDValue.Convert.Integer);
+    public EvaluationDetail<Integer> intVariationDetail(@NonNull String key, int defaultValue) {
+        return convertDetailType(variationDetailInternal(key, LDValue.of(defaultValue), true, true), LDValue.Convert.Integer);
     }
 
     @Override
-    public double doubleVariation(String flagKey, double fallback) {
-        return variationDetailInternal(flagKey, LDValue.of(fallback), true, false).getValue().doubleValue();
+    public double doubleVariation(String flagKey, double defaultValue) {
+        return variationDetailInternal(flagKey, LDValue.of(defaultValue), true, false).getValue().doubleValue();
     }
 
     @Override
-    public EvaluationDetail<Double> doubleVariationDetail(String flagKey, double fallback) {
-        return convertDetailType(variationDetailInternal(flagKey, LDValue.of(fallback), true, true), LDValue.Convert.Double);
+    public EvaluationDetail<Double> doubleVariationDetail(String flagKey, double defaultValue) {
+        return convertDetailType(variationDetailInternal(flagKey, LDValue.of(defaultValue), true, true), LDValue.Convert.Double);
     }
 
     @Override
-    public String stringVariation(@NonNull String key, String fallback) {
-        return variationDetailInternal(key, LDValue.of(fallback), true, false).getValue().stringValue();
+    public String stringVariation(@NonNull String key, String defaultValue) {
+        return variationDetailInternal(key, LDValue.of(defaultValue), true, false).getValue().stringValue();
     }
 
     @Override
-    public EvaluationDetail<String> stringVariationDetail(@NonNull String key, String fallback) {
-        return convertDetailType(variationDetailInternal(key, LDValue.of(fallback), true, true), LDValue.Convert.String);
+    public EvaluationDetail<String> stringVariationDetail(@NonNull String key, String defaultValue) {
+        return convertDetailType(variationDetailInternal(key, LDValue.of(defaultValue), true, true), LDValue.Convert.String);
     }
 
     @Override
-    public LDValue jsonValueVariation(@NonNull String key, LDValue fallback) {
-        return variationDetailInternal(key, LDValue.normalize(fallback), false, false).getValue();
+    public LDValue jsonValueVariation(@NonNull String key, LDValue defaultValue) {
+        return variationDetailInternal(key, LDValue.normalize(defaultValue), false, false).getValue();
     }
 
     @Override
-    public EvaluationDetail<LDValue> jsonValueVariationDetail(@NonNull String key, LDValue fallback) {
-        return variationDetailInternal(key, LDValue.normalize(fallback), false, true);
+    public EvaluationDetail<LDValue> jsonValueVariationDetail(@NonNull String key, LDValue defaultValue) {
+        return variationDetailInternal(key, LDValue.normalize(defaultValue), false, true);
     }
 
     private <T> EvaluationDetail<T> convertDetailType(EvaluationDetail<LDValue> detail, LDValue.Converter<T> converter) {
         return EvaluationDetail.fromValue(converter.toType(detail.getValue()), detail.getVariationIndex(), detail.getReason());
     }
 
-    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue fallback, boolean checkType, boolean needsReason) {
+    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
         Flag flag = userManager.getCurrentUserFlagStore().getFlag(key);
         EvaluationDetail<LDValue> result;
-        LDValue value = fallback;
+        LDValue value = defaultValue;
 
         if (flag == null) {
-            LDConfig.LOG.i("Unknown feature flag \"%s\"; returning fallback value", key);
-            result = EvaluationDetail.fromValue(fallback, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
+            LDConfig.LOG.i("Unknown feature flag \"%s\"; returning default value", key);
+            result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
             if (value.isNull()) {
-                LDConfig.LOG.w("Feature flag \"%s\" retrieved with no value; returning fallback value", key);
-                value = fallback;
+                LDConfig.LOG.w("Feature flag \"%s\" retrieved with no value; returning default value", key);
+                value = defaultValue;
                 int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
-                result = EvaluationDetail.fromValue(fallback, variation, flag.getReason());
-            } else if (checkType && !fallback.isNull() && value.getType() != fallback.getType()) {
-                LDConfig.LOG.w("Feature flag \"%s\" with type %s retrieved as %s; returning fallback value", key, value.getType(), fallback.getType());
-                value = fallback;
-                result = EvaluationDetail.fromValue(fallback, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE));
+                result = EvaluationDetail.fromValue(defaultValue, variation, flag.getReason());
+            } else if (checkType && !defaultValue.isNull() && value.getType() != defaultValue.getType()) {
+                LDConfig.LOG.w("Feature flag \"%s\" with type %s retrieved as %s; returning default value", key, value.getType(), defaultValue.getType());
+                value = defaultValue;
+                result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE));
             } else {
                 result = EvaluationDetail.fromValue(value, flag.getVariation(), flag.getReason());
             }
-            sendFlagRequestEvent(key, flag, value, fallback, flag.isTrackReason() | needsReason ? result.getReason() : null);
+            sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
 
         LDConfig.LOG.d("returning variation: %s flagKey: %s user key: %s", result, key, userManager.getCurrentUser().getKey());
-        updateSummaryEvents(key, flag, value, fallback);
+        updateSummaryEvents(key, flag, value, defaultValue);
         return result;
     }
 
@@ -634,18 +634,18 @@ public class LDClient implements LDClientInterface, Closeable {
         connectivityManager.onNetworkConnectivityChange(connectedToInternet);
     }
 
-    private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue fallback, EvaluationReason reason) {
+    private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue defaultValue, EvaluationReason reason) {
         Integer version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
         if (flag.getTrackEvents()) {
-            sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version,
+            sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
                     variation, reason, config.inlineUsersInEvents(), false));
         } else {
             Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {
                 long serverTimeMs = eventProcessor.getCurrentTimeMs();
                 if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, fallback, version,
+                    sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
                             variation, reason, false, true));
                 }
             }
@@ -666,17 +666,17 @@ public class LDClient implements LDClientInterface, Closeable {
      * Updates the internal representation of a summary event, either adding a new field or updating the existing count.
      * Nothing is sent to the server.
      *
-     * @param flagKey  The flagKey that will be updated
-     * @param flag     The stored flag used in the evaluation of the flagKey
-     * @param result   The value that was returned in the evaluation of the flagKey
-     * @param fallback The fallback value used in the evaluation of the flagKey
+     * @param flagKey      The flagKey that will be updated
+     * @param flag         The stored flag used in the evaluation of the flagKey
+     * @param result       The value that was returned in the evaluation of the flagKey
+     * @param defaultValue The default value used in the evaluation of the flagKey
      */
-    private void updateSummaryEvents(String flagKey, Flag flag, LDValue result, LDValue fallback) {
+    private void updateSummaryEvents(String flagKey, Flag flag, LDValue result, LDValue defaultValue) {
         result = LDValue.normalize(result);
-        fallback = LDValue.normalize(fallback);
+        defaultValue = LDValue.normalize(defaultValue);
         Integer version = flag == null ? null : flag.getVersionForEvents();
         Integer variation = flag == null ? null : flag.getVariation();
-        userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, fallback, version, variation);
+        userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, defaultValue, version, variation);
     }
 
     static synchronized void triggerPollInstances() {

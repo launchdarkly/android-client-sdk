@@ -56,7 +56,7 @@ public class LDClientTest {
     }
 
     @Test
-    public void testOfflineClientReturnsFallbacks() {
+    public void testOfflineClientReturnsDefaults() {
         ldClient = LDClient.init(application, ldConfig, ldUser, 1);
 
         assertTrue("client was not initialized", ldClient.isInitialized());
@@ -65,14 +65,14 @@ public class LDClientTest {
         assertTrue(ldClient.boolVariation("boolFlag", true));
         assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5), 0.0);
         assertEquals(1, ldClient.intVariation("intFlag", 1));
-        assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
+        assertEquals("default", ldClient.stringVariation("stringFlag", "default"));
 
         LDValue expectedJson = LDValue.of("value");
         assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
     }
 
     @Test
-    public void givenFallbacksAreNullAndTestOfflineClientReturnsFallbacks() {
+    public void givenDefaultsAreNullAndTestOfflineClientReturnsDefaults() {
         ldClient = LDClient.init(application, ldConfig, ldUser, 1);
 
         assertTrue(ldClient.isInitialized());
@@ -165,7 +165,7 @@ public class LDClientTest {
             assertTrue(ldClient.boolVariation("boolFlag", true));
             assertEquals(1.0, ldClient.doubleVariation("floatFlag", 1.0), 0.0);
             assertEquals(1, ldClient.intVariation("intFlag", 1));
-            assertEquals("fallback", ldClient.stringVariation("stringFlag", "fallback"));
+            assertEquals("default", ldClient.stringVariation("stringFlag", "default"));
 
             LDValue expectedJson = LDValue.of("value");
             assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));

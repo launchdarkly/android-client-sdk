@@ -104,7 +104,7 @@ public interface LDClientInterface extends Closeable {
     Map<String, LDValue> allFlags();
 
     /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
+     * Returns the flag value for the current user. Returns <code>defaultValue</code> when one of the following occurs:
      * <ol>
      * <li>Flag is missing</li>
      * <li>The flag is not of a boolean type</li>
@@ -112,10 +112,10 @@ public interface LDClientInterface extends Closeable {
      * </ol>
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
+     * @param defaultValue default value in case of errors evaluating the flag
+     * @return value of the flag or the default value
      */
-    boolean boolVariation(String flagKey, boolean fallback);
+    boolean boolVariation(String flagKey, boolean defaultValue);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -125,15 +125,15 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #boolVariation(String, boolean)})
+     * @param defaultValue default value in case of errors evaluating the flag (see {@link #boolVariation(String, boolean)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      * @since 2.7.0
      */
-    EvaluationDetail<Boolean> boolVariationDetail(String flagKey, boolean fallback);
+    EvaluationDetail<Boolean> boolVariationDetail(String flagKey, boolean defaultValue);
 
     /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
+     * Returns the flag value for the current user. Returns <code>defaultValue</code> when one of the following occurs:
      * <ol>
      * <li>Flag is missing</li>
      * <li>The flag is not of a numeric type</li>
@@ -141,10 +141,10 @@ public interface LDClientInterface extends Closeable {
      * </ol>
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
+     * @param defaultValue default value in case of errors evaluating the flag
+     * @return value of the flag or the default value
      */
-    int intVariation(String flagKey, int fallback);
+    int intVariation(String flagKey, int defaultValue);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -154,15 +154,15 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #intVariation(String, int)})
+     * @param defaultValue default value in case of errors evaluating the flag (see {@link #intVariation(String, int)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      * @since 2.7.0
      */
-    EvaluationDetail<Integer> intVariationDetail(String flagKey, int fallback);
+    EvaluationDetail<Integer> intVariationDetail(String flagKey, int defaultValue);
 
     /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
+     * Returns the flag value for the current user. Returns <code>defaultValue</code> when one of the following occurs:
      * <ol>
      * <li>Flag is missing</li>
      * <li>The flag is not of a numeric type</li>
@@ -170,10 +170,10 @@ public interface LDClientInterface extends Closeable {
      * </ol>
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
+     * @param defaultValue default value in case of errors evaluating the flag
+     * @return value of the flag or the default value
      */
-    double doubleVariation(String flagKey, double fallback);
+    double doubleVariation(String flagKey, double defaultValue);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -183,13 +183,13 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #doubleVariation(String, double)})
+     * @param defaultValue default value in case of errors evaluating the flag (see {@link #doubleVariation(String, double)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      */
-    EvaluationDetail<Double> doubleVariationDetail(String flagKey, double fallback);
+    EvaluationDetail<Double> doubleVariationDetail(String flagKey, double defaultValue);
 
     /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
+     * Returns the flag value for the current user. Returns <code>default</code> when one of the following occurs:
      * <ol>
      * <li>Flag is missing</li>
      * <li>The flag is not of a string type</li>
@@ -197,10 +197,10 @@ public interface LDClientInterface extends Closeable {
      * </ol>
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback
+     * @param defaultValue default value in case of errors evaluating the flag
+     * @return value of the flag or the default value
      */
-    String stringVariation(String flagKey, String fallback);
+    String stringVariation(String flagKey, String defaultValue);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -210,12 +210,12 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #stringVariation(String, String)})
+     * @param defaultValue default value in case of errors evaluating the flag (see {@link #stringVariation(String, String)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      * @since 2.7.0
      */
-    EvaluationDetail<String> stringVariationDetail(String flagKey, String fallback);
+    EvaluationDetail<String> stringVariationDetail(String flagKey, String defaultValue);
 
     /**
      * Registers a {@link FeatureFlagChangeListener} to be called when the <code>flagKey</code> changes
@@ -228,17 +228,17 @@ public interface LDClientInterface extends Closeable {
     void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 
     /**
-     * Returns the flag value for the current user. Returns <code>fallback</code> when one of the following occurs:
+     * Returns the flag value for the current user. Returns <code>defualtValue</code> when one of the following occurs:
      * <ol>
      * <li>Flag is missing</li>
      * <li>Any other error</li>
      * </ol>
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag
-     * @return value of the flag or fallback. Result will never be null, but may be LDValue#ofNull()
+     * @param defaultValue default value in case of errors evaluating the flag
+     * @return value of the flag or the default value. Result will never be null, but may be LDValue#ofNull()
      */
-    LDValue jsonValueVariation(String flagKey, LDValue fallback);
+    LDValue jsonValueVariation(String flagKey, LDValue defaultValue);
 
     /**
      * Returns the flag value for the current user, along with information about how it was calculated.
@@ -248,11 +248,11 @@ public interface LDClientInterface extends Closeable {
      * will be null.
      *
      * @param flagKey key for the flag to evaluate
-     * @param fallback fallback value in case of errors evaluating the flag (see {@link #jsonValueVariation(String, LDValue)})
+     * @param defaultValue default value in case of errors evaluating the flag (see {@link #jsonValueVariation(String, LDValue)})
      * @return an {@link EvaluationDetail} object containing the value and other information.
      *
      */
-    EvaluationDetail<LDValue> jsonValueVariationDetail(String flagKey, LDValue fallback);
+    EvaluationDetail<LDValue> jsonValueVariationDetail(String flagKey, LDValue defaultValue);
 
     /**
      * Unregisters a {@link FeatureFlagChangeListener} for the <code>flagKey</code>.
