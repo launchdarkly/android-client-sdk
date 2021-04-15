@@ -28,7 +28,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Supplier;
 
 import timber.log.Timber;
 
@@ -125,18 +124,22 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private interface LDClientFunction {
+    private interface LDClientAction {
         void call();
     }
 
-    private void doSafeClientAction(LDClientFunction function) {
+    private void doSafeClientAction(LDClientAction function) {
         if (ldClient != null) {
             function.call();
         }
     }
 
+    private interface LDClientGet<V> {
+        V get();
+    }
+
     @Nullable
-    private <V> V doSafeClientGet(Supplier<V> function) {
+    private <V> V doSafeClientGet(LDClientGet<V> function) {
         return ldClient != null ? function.get() : null;
     }
 

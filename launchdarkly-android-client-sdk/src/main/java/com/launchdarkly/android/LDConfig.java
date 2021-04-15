@@ -9,6 +9,7 @@ import com.google.gson.GsonBuilder;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -347,7 +348,7 @@ public class LDConfig {
          * @return the builder
          */
         public Builder privateAttributes(UserAttribute... privateAttributes) {
-            this.privateAttributes = Set.of(privateAttributes);
+            this.privateAttributes = new HashSet<>(Arrays.asList(privateAttributes));
             return this;
         }
 
