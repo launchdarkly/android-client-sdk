@@ -47,14 +47,11 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
         LDConfig.LOG.d("Using cache at: %s", cacheDir.getAbsolutePath());
 
-        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+        client = new OkHttpClient.Builder()
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
                 .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
-                .retryOnConnectionFailure(true);
-
-        LDUtil.setupSocketFactory(builder);
-
-        client = builder.build();
+                .retryOnConnectionFailure(true)
+                .build();
     }
 
     @Override

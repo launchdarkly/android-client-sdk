@@ -94,16 +94,6 @@ class LDUtil {
         return deserialized;
     }
 
-    static void setupSocketFactory(OkHttpClient.Builder builder) {
-        if (Build.VERSION.SDK_INT < 22) {
-            try {
-                builder.sslSocketFactory(new ModernTLSSocketFactory(), TLSUtils.defaultTrustManager());
-            } catch (GeneralSecurityException ignored) {
-                // TLS is not available, so don't set up the socket factory, swallow the exception
-            }
-        }
-    }
-
     static <T> T sharedPrefsGetGson(SharedPreferences sharedPreferences, Class<T> typeOf, String key) {
         String data = sharedPreferences.getString(key, null);
         if (data == null) return null;
@@ -112,10 +102,6 @@ class LDUtil {
         } catch (Exception ignored) {
             return null;
         }
-    }
-
-    static boolean objectsEqual(Object lhs, Object rhs) {
-        return (lhs == rhs) || (lhs != null && lhs.equals(rhs));
     }
 
     interface ResultCallback<T> {

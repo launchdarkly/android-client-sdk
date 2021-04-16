@@ -256,15 +256,11 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private OkHttpClient makeSharedEventClient() {
-        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+        return new OkHttpClient.Builder()
                 .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
-                .addInterceptor(new SSLHandshakeInterceptor());
-
-        LDUtil.setupSocketFactory(builder);
-
-        return builder.build();
+                .build();
     }
 
     @Override
