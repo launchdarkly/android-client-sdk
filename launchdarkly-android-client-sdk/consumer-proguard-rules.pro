@@ -8,7 +8,7 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
--keep class com.launchdarkly.android.** { *; }
+-keep class com.launchdarkly.sdk.android.** { *; }
 -keep class org.apache.http.** { *; }
 -keep public class com.google.android.gms.* { public * ; }
 -dontwarn com.google.android.gms.**

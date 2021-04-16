@@ -14,12 +14,12 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.launchdarkly.android.ConnectionInformation;
-import com.launchdarkly.android.LDAllFlagsListener;
-import com.launchdarkly.android.LDClient;
-import com.launchdarkly.android.LDConfig;
-import com.launchdarkly.android.LDFailure;
-import com.launchdarkly.android.LDStatusListener;
+import com.launchdarkly.sdk.android.ConnectionInformation;
+import com.launchdarkly.sdk.android.LDAllFlagsListener;
+import com.launchdarkly.sdk.android.LDClient;
+import com.launchdarkly.sdk.android.LDConfig;
+import com.launchdarkly.sdk.android.LDFailure;
+import com.launchdarkly.sdk.android.LDStatusListener;
 import com.launchdarkly.sdk.LDUser;
 
 import java.util.Date;
