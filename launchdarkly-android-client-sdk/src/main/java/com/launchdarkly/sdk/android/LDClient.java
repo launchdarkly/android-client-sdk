@@ -13,6 +13,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.UserAttribute;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -140,7 +141,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         PollingUpdater.setBackgroundPollingIntervalMillis(config.getBackgroundPollingIntervalMillis());
 
-        user = verifyUser(user);
+        user = customizeUser(user);
 
         for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
             final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
@@ -155,18 +156,25 @@ public class LDClient implements LDClientInterface, Closeable {
         return resultFuture;
     }
 
-    private static LDUser verifyUser(LDUser user) {
-        String key = user.getKey();
+    @VisibleForTesting
+    static LDUser customizeUser(LDUser user) {
+        LDUser.Builder builder = new LDUser.Builder(user);
 
-        if (key == null || key.equals("")) {
-            LDConfig.LOG.w("User was created with null/empty key. Using device-unique anonymous user key: %s", LDClient.getInstanceId());
-            return new LDUser.Builder(user)
-                    .key(LDClient.getInstanceId())
-                    .anonymous(true)
-                    .build();
-        } else {
-            return user;
+        if (user.getAttribute(UserAttribute.forName("os")).isNull()) {
+            builder.custom("os", Build.VERSION.SDK_INT);
         }
+        if (user.getAttribute(UserAttribute.forName("device")).isNull()) {
+            builder.custom("device", Build.MODEL + " " + Build.PRODUCT);
+        }
+
+        String key = user.getKey();
+        if (key == null || key.equals("")) {
+            LDConfig.LOG.i("User was created with null/empty key. Using device-unique anonymous user key: %s", LDClient.getInstanceId());
+            builder.key(LDClient.getInstanceId());
+            builder.anonymous(true);
+        }
+
+        return builder.build();
     }
 
     /**
@@ -290,7 +298,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             LDConfig.LOG.w("identify called with null user or null user key!");
         }
-        return LDClient.identifyInstances(verifyUser(user));
+        return LDClient.identifyInstances(customizeUser(user));
     }
 
     private synchronized void identifyInternal(@NonNull LDUser user,
@@ -584,7 +592,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param previousUser The second user
      */
     public void alias(LDUser user, LDUser previousUser) {
-        sendEvent(new AliasEvent(user, previousUser));
+        sendEvent(new AliasEvent(customizeUser(user), customizeUser(previousUser)));
     }
 
     private void triggerPoll() {

@@ -132,35 +132,10 @@ class LDUtil {
             config = cfg;
         }
 
-        private static final UserAttribute DEVICE = UserAttribute.forName("device");
-        private static final UserAttribute OS = UserAttribute.forName("os");
-
-        private boolean isPrivate(LDUser user, UserAttribute key) {
-            if (config.allAttributesPrivate()) {
-                return true;
-            }
-
-            // "device" and "os" are always private
-            if (key.equals(DEVICE) || key.equals(OS)) {
-                return true;
-            }
-
-            // the config can also a list of private attributes
-            for (UserAttribute it : config.getPrivateAttributes()) {
-                if (it.equals(key)) {
-                    return true;
-                }
-            }
-
-            // the user has a list of private attributes as well
-            for (UserAttribute it : user.getPrivateAttributes()) {
-                if (it.equals(key)) {
-                    return true;
-                }
-            }
-
-            // if those checks failed then this attribute isnt private
-            return false;
+        private boolean isPrivate(LDUser user, UserAttribute attribute) {
+            return config.allAttributesPrivate() ||
+                    config.getPrivateAttributes().contains(attribute) ||
+                    user.isAttributePrivate(attribute);
         }
 
         private void safeWrite(

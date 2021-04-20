@@ -30,6 +30,7 @@ import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -52,7 +53,7 @@ public class LDClientTest {
                 .offline(true)
                 .build();
 
-        ldUser = new LDUser.Builder("userKey").build();
+        ldUser = LDClient.customizeUser(new LDUser.Builder("userKey").build());
     }
 
     @Test
@@ -199,7 +200,6 @@ public class LDClientTest {
         }
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testTrackData() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
@@ -420,7 +420,6 @@ public class LDClientTest {
         }
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testTrackDataAndMetric() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
@@ -569,7 +568,7 @@ public class LDClientTest {
 
             String firstPayloadId = mockEventsServer.takeRequest().getHeader("X-LaunchDarkly-Payload-ID");
             String secondPayloadId = mockEventsServer.takeRequest().getHeader("X-LaunchDarkly-Payload-ID");
-            assertFalse(firstPayloadId.equals(secondPayloadId));
+            assertNotEquals(firstPayloadId, secondPayloadId);
         }
     }
 
