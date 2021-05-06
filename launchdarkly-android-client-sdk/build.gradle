@@ -1,140 +1,99 @@
-apply plugin: 'com.android.library'
-apply plugin: 'signing'
-apply plugin: 'com.getkeepsafe.dexcount'
-
-allprojects {
-    group = 'com.launchdarkly'
-    // Specified in gradle.properties
-    version = version
-    sourceCompatibility = 1.8
-    targetCompatibility = 1.8
+plugins {
+    id("com.android.library")
+    id("signing")
+    id("maven-publish")
+    id("org.ajoberstar.git-publish") version "3.0.0"
+    id("com.getkeepsafe.dexcount")
 }
 
-gradle.projectsEvaluated {
-    tasks.withType(JavaCompile) {
-        // enable deprecation checks
-        options.compilerArgs << "-Xlint:deprecation"
-    }
-}
+group = "com.launchdarkly"
+// Specified in gradle.properties
+version = version
 
 android {
-    compileSdkVersion 30
-    buildToolsVersion '30.0.3'
+    compileSdkVersion(30)
+    buildToolsVersion = "30.0.3"
 
     defaultConfig {
-        minSdkVersion 21
-        targetSdkVersion 30
-        versionCode 1
-        versionName version
+        minSdkVersion(21)
+        targetSdkVersion(30)
         // at some point between android gradle 3.1.0 and 4.x.x the versionName field in this dsl
         // stopped generating the BuildConfig::VERSION_NAME field in the end java
         // classpath. put this here to bring back that field
-        buildConfigField "String", "VERSION_NAME", "\"$version\""
-        consumerProguardFiles 'consumer-proguard-rules.pro'
+        buildConfigField("String", "VERSION_NAME", "\"$version\"")
+        consumerProguardFiles("consumer-proguard-rules.pro")
 
         // The following argument makes the Android Test Orchestrator run its
         // "pm clear" command after each test invocation. This command ensures
         // that the app's state is completely cleared between tests.
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        testInstrumentationRunnerArguments clearPackageData: 'true'
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
     }
 
     testOptions {
-        execution 'ANDROIDX_TEST_ORCHESTRATOR'
-    }
-
-    lintOptions {
-        abortOnError false
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
     }
 
     packagingOptions {
-        exclude 'META-INF/**'
+        exclude("META-INF/**")
     }
 
-    useLibrary 'android.test.runner'
-    useLibrary 'android.test.base'
-    useLibrary 'android.test.mock'
-}
-
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
+    useLibrary("android.test.runner")
+    useLibrary("android.test.base")
+    useLibrary("android.test.mock")
 }
 
 configurations {
     commonClasses {
-        transitive false
+        transitive = false
     }
     commonDoc {
-        transitive false
+        transitive = false
     }
 }
 
 ext {}
 ext.versions = [
-    "eventsourceVersion": "1.11.2",
-    "gsonVersion": "2.8.6",
+    "androidAnnotation": "1.2.0",
+    "androidAppcompat": "1.2.0",
+    "androidJunit": "1.1.2",
+    "androidTest": "1.3.0",
+    "easymock": "4.3",
+    "eventsource": "1.11.2",
+    "gson": "2.8.6",
     "jackson": "2.10.0",
+    "junit": "4.13",
     "launchdarklyJavaSdkCommon": "1.1.1",
-    "okhttpVersion": "4.9.0",
-    "testRunnerVersion": "1.0.2",
-    "testVersion": "1.3.0",
+    "okhttp": "4.9.1",
+    "timber": "4.7.1",
 ]
 
 dependencies {
-    api "com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}"
+    api("com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}")
 
-    commonDoc "com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}:sources"
+    commonDoc("com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}:sources")
     // These are included only for Javadoc generation.
-    commonClasses "com.fasterxml.jackson.core:jackson-core:${versions.jackson}"
-    commonClasses "com.fasterxml.jackson.core:jackson-databind:${versions.jackson}"
+    commonClasses("com.fasterxml.jackson.core:jackson-core:${versions.jackson}")
+    commonClasses("com.fasterxml.jackson.core:jackson-databind:${versions.jackson}")
 
-    implementation "com.google.code.gson:gson:${versions.gsonVersion}"
-    implementation "androidx.annotation:annotation:1.2.0"
-    implementation "androidx.appcompat:appcompat:1.2.0"
-    implementation "com.launchdarkly:okhttp-eventsource:${versions.eventsourceVersion}"
-    implementation "com.squareup.okhttp3:okhttp:${versions.okhttpVersion}"
-    implementation "com.jakewharton.timber:timber:4.7.1"
-    implementation "com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}"
+    implementation("com.google.code.gson:gson:${versions.gson}")
+    implementation("androidx.annotation:annotation:${versions.androidAnnotation}")
+    implementation("androidx.appcompat:appcompat:${versions.androidAppcompat}")
+    implementation("com.launchdarkly:okhttp-eventsource:${versions.eventsource}")
+    implementation("com.squareup.okhttp3:okhttp:${versions.okhttp}")
+    implementation("com.jakewharton.timber:timber:${versions.timber}")
 
-    testImplementation 'junit:junit:4.13'
+    testImplementation("junit:junit:${versions.junit}")
 
-    androidTestImplementation 'junit:junit:4.13'
-    androidTestImplementation "androidx.test:core:${versions.testVersion}"
-    androidTestImplementation "androidx.test:runner:${versions.testVersion}"
-    androidTestImplementation "androidx.test:rules:${versions.testVersion}"
-    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
-    androidTestImplementation 'org.hamcrest:hamcrest-library:1.3'
-    androidTestImplementation 'org.easymock:easymock:4.3'
-    androidTestImplementation 'com.squareup.okhttp3:mockwebserver:4.9.0'
+    androidTestImplementation("junit:junit:${versions.junit}")
+    androidTestImplementation("androidx.test:core:${versions.androidTest}")
+    androidTestImplementation("androidx.test:runner:${versions.androidTest}")
+    androidTestImplementation("androidx.test:rules:${versions.androidTest}")
+    androidTestImplementation("androidx.test.ext:junit:${versions.androidJunit}")
+    androidTestImplementation("org.easymock:easymock:${versions.easymock}")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
 
-    androidTestUtil "androidx.test:orchestrator:${versions.testVersion}"
-}
-
-repositories {
-    mavenLocal()
-    // Before LaunchDarkly release artifacts get synced to Maven Central they are here along with snapshots:
-    maven { url "https://oss.sonatype.org/content/groups/public/" }
-    mavenCentral()
-    google()
-}
-
-buildscript {
-    repositories {
-        mavenCentral()
-        mavenLocal()
-        google()
-        jcenter()
-    }
-    dependencies {
-        classpath 'com.github.jengelman.gradle.plugins:shadow:4.0.3'
-    }
+    androidTestUtil("androidx.test:orchestrator:${versions.androidTest}")
 }
 
 task javadoc(type: Javadoc) {
@@ -143,7 +102,7 @@ task javadoc(type: Javadoc) {
     // Include common library sources
     source configurations.commonDoc.collect { zipTree(it) }
 
-    include '**/*.java'
+    include("**/*.java")
 
     // Include classpaths for dependencies
     afterEvaluate {
@@ -159,12 +118,12 @@ task javadoc(type: Javadoc) {
 }
 
 task sourcesJar(type: Jar) {
+    classifier = "sources"
     from android.sourceSets.main.java.srcDirs
-    classifier = 'sources'
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {
-    classifier = 'javadoc'
+    classifier = "javadoc"
     from javadoc.destinationDir
 }
 
@@ -177,7 +136,7 @@ if (JavaVersion.current().isJava8Compatible()) {
         // gradle. See https://github.com/gradle/gradle/issues/2354
         // See JDK-8200363 (https://bugs.openjdk.java.net/browse/JDK-8200363)
         // for information about the -Xwerror option.
-        options.addStringOption('Xwerror', '-quiet')
+        options.addStringOption("Xwerror", "-quiet")
     }
 }
 
@@ -186,58 +145,60 @@ artifacts {
 }
 
 gitPublish {
-    repoUri = 'https://github.com/launchdarkly/android-client-sdk.git'
-    branch = 'gh-pages'
+    repoUri = "https://github.com/launchdarkly/android-client-sdk.git"
+    branch = "gh-pages"
     contents {
-        from(javadoc) {
-            into 'api'
-        }
+        from(javadoc)
     }
 }
 
-signing {
-    sign configurations.archives
-}
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
 
-nexusStaging {
-    packageGroup = "com.launchdarkly"
-}
+                artifactId = "launchdarkly-android-client-sdk"
 
-publishing {
-    publications {
-        release(MavenPublication) {
+                artifact(sourcesJar)
+                artifact(javadocJar)
 
-            groupId = 'com.launchdarkly'
-            artifactId = 'launchdarkly-android-client-sdk'
-            // Specified in gradle.properties
-            version = version
+                pom {
+                    name = "LaunchDarkly SDK for Android"
+                    description = "Official LaunchDarkly SDK for Android"
+                    url = "https://github.com/launchdarkly/android-client-sdk"
 
-            pom {
-                name = 'LaunchDarkly SDK for Android'
-                description = 'Official LaunchDarkly SDK for Android'
-                url = 'https://github.com/launchdarkly/android-client-sdk'
-
-                licenses {
-                    license {
-                        name = 'The Apache License, Version 2.0'
-                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    licenses {
+                        license {
+                            name = "The Apache License, Version 2.0"
+                            url = "http://www.apache.org/licenses/LICENSE-2.0.txt"
+                        }
                     }
-                }
 
-                developers {
-                    developer {
-                        id = 'drichelson'
-                        name = 'Dan Richelson'
-                        email = 'dan@launchdarkly.com'
+                    organization {
+                        name = "LaunchDarkly"
+                        url = "https://launchdarkly.com/"
                     }
-                }
 
-                scm {
-                    connection = 'scm:git:git://github.com/launchdarkly/android-client-sdk.git'
-                    developerConnection = 'scm:git:ssh:git@github.com:launchdarkly/android-client-sdk.git'
-                    url = 'https://github.com/launchdarkly/android-client-sdk'
+                    developers {
+                        developer {
+                            id = "sdks"
+                            name = "LaunchDarkly SDK Team"
+                            email = "sdks@launchdarkly.com"
+                        }
+                    }
+
+                    scm {
+                        connection = "scm:git:git://github.com/launchdarkly/android-client-sdk.git"
+                        developerConnection = "scm:git:ssh:git@github.com:launchdarkly/android-client-sdk.git"
+                        url = "https://github.com/launchdarkly/android-client-sdk"
+                    }
                 }
             }
         }
+    }
+
+    signing {
+        sign publishing.publications.release
     }
 }

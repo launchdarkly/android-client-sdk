@@ -26,8 +26,6 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -98,8 +96,8 @@ public class LDClientTest {
             actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
-        assertThat(actualFutureException, instanceOf(ExecutionException.class));
-        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
+        assertEquals(ExecutionException.class, actualFutureException.getClass());
+        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
@@ -119,8 +117,8 @@ public class LDClientTest {
             actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
-        assertThat(actualFutureException, instanceOf(ExecutionException.class));
-        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
+        assertEquals(ExecutionException.class, actualFutureException.getClass());
+        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
@@ -140,8 +138,8 @@ public class LDClientTest {
             actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
-        assertThat(actualFutureException, instanceOf(ExecutionException.class));
-        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
+        assertEquals(ExecutionException.class, actualFutureException.getClass());
+        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 

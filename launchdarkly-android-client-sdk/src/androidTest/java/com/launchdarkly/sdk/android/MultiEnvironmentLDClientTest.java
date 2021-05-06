@@ -16,8 +16,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -79,7 +77,6 @@ public class MultiEnvironmentLDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(null, ldConfig, ldUser);
 
         try {
@@ -91,8 +88,8 @@ public class MultiEnvironmentLDClientTest {
             actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
-        assertThat(actualFutureException, instanceOf(ExecutionException.class));
-        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
+        assertEquals(ExecutionException.class, actualFutureException.getClass());
+        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
@@ -101,7 +98,6 @@ public class MultiEnvironmentLDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), null, ldUser);
 
         try {
@@ -113,8 +109,8 @@ public class MultiEnvironmentLDClientTest {
             actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
-        assertThat(actualFutureException, instanceOf(ExecutionException.class));
-        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
+        assertEquals(ExecutionException.class, actualFutureException.getClass());
+        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
@@ -123,7 +119,6 @@ public class MultiEnvironmentLDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        //noinspection ConstantConditions
         ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, null);
 
         try {
@@ -135,8 +130,8 @@ public class MultiEnvironmentLDClientTest {
             actualProvidedException = (LaunchDarklyException) e.getCause();
         }
 
-        assertThat(actualFutureException, instanceOf(ExecutionException.class));
-        assertThat(actualProvidedException, instanceOf(LaunchDarklyException.class));
+        assertEquals(ExecutionException.class, actualFutureException.getClass());
+        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 }

@@ -11,16 +11,15 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
-import com.launchdarkly.sdk.LDUser;
 
 import java.util.Date;
 import java.util.Locale;
@@ -138,7 +137,6 @@ public class MainActivity extends AppCompatActivity {
         V get();
     }
 
-    @Nullable
     private <V> V doSafeClientGet(LDClientGet<V> function) {
         return ldClient != null ? function.get() : null;
     }
