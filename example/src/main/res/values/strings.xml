@@ -5,6 +5,6 @@
         <item>String</item>
         <item>Integer</item>
         <item>Float</item>
-        <item>Json</item>
+        <item>Value</item>
     </string-array>
 </resources>

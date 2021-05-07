@@ -1,17 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.launchdarkly.android.test">
+    package="com.launchdarkly.sdk.android">
+    
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
-    <application>
+    <application android:usesCleartextTraffic="true">
         <activity
-            android:name=".TestActivity"
+            android:name="com.launchdarkly.sdk.android.TestActivity"
             android:theme="@style/Theme.AppCompat.Light" />
     </application>
 
+    <!-- This suppression is because the Android linter falsely flags the targetPackage as unresolved. -->
+    <!--suppress AndroidDomInspection -->
     <instrumentation
-        android:name="android.support.test.runner.AndroidJUnitRunner"
-        android:targetPackage="com.launchdarkly.android.test" />
-
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+        android:name="androidx.test.runner.AndroidJUnitRunner"
+        android:targetPackage="com.launchdarkly.sdk.android" />
 
 </manifest>
