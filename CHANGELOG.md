@@ -80,7 +80,7 @@ Usages of `Gson` provided types have been removed from the public API, replacing
 - The concrete sub-classes of `EvaluationReason` have been removed in favor of making `EvaluationReason` a concrete class. The accessors on the sub-classes have been moved to the base class. Instead of using `instanceOf` to determine the type, use `getKind()`.
 - `LDCountryCode` has been removed as no SDK APIs use this class.
 - All classes and interfaces in the `com.launchdarkly.sdk.android.flagstore`, `com.launchdarkly.sdk.android.gson`, `com.launchdarkly.sdk.android.response`, and `com.launchdarkly.sdk.android.tls` packages. These classes and interfaces were not intended for external use.
-- `Debounce`, `FeatureFlagFetcher`, `SummaryEventSharedPreferences`, `UserSummaryEventSharedPreferences`, and `Util` in `com.launchdarkly.sdk.android`. These deprecated class and interfaces were not intended for external use.
+- `Debounce`, `FeatureFlagFetcher`, `SummaryEventSharedPreferences`, `UserSummaryEventSharedPreferences`, and `Util` in `com.launchdarkly.sdk.android`. These deprecated classes and interfaces were not intended for external use.
 
 
 ## [2.14.1] - 2021-01-14
