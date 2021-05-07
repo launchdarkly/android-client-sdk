@@ -8,20 +8,46 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
--keep class com.launchdarkly.android.** { *; }
--keep class org.apache.http.** { *; }
--keep public class com.google.android.gms.* { public * ; }
--dontwarn com.google.android.gms.**
--dontwarn okio.**
--dontwarn okhttp3.**
--dontwarn org.apache.http.**
--dontwarn org.slf4j.**
--dontwarn com.google.common.**
--dontwarn java.nio.file.*
--dontwarn javax.annotation.**
--dontwarn sun.misc.Unsafe
--dontwarn java.lang.ClassValue
--dontwarn com.google.j2objc.annotations.Weak
--dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
 
--dontwarn com.google.errorprone.annotations.**
+-keep class com.launchdarkly.sdk.LDValue { <fields>; }
+-keep class * extends com.launchdarkly.sdk.LDValue { <fields>; }
+-keep class com.launchdarkly.sdk.LDUser { <fields>; }
+-keep class com.launchdarkly.sdk.EvaluationReason { <fields>; }
+-keep enum com.launchdarkly.sdk.EvaluationReason$* { *; }
+-keep class com.launchdarkly.sdk.EvaluationDetail { <fields>; }
+
+-keep class com.launchdarkly.sdk.android.Flag { <fields>; }
+-keep class com.launchdarkly.sdk.android.FlagsResponse { <fields>; }
+-keep class com.launchdarkly.sdk.android.DeleteFlagResponse { <fields>; }
+
+-keep class com.launchdarkly.sdk.android.Event { <fields>; }
+-keep class com.launchdarkly.sdk.android.AliasEvent { <fields>; }
+-keep class com.launchdarkly.sdk.android.CustomEvent { <fields>; }
+-keep class com.launchdarkly.sdk.android.FeatureRequestEvent { <fields>; }
+-keep class com.launchdarkly.sdk.android.GenericEvent { <fields>; }
+-keep class com.launchdarkly.sdk.android.IdentifyEvent { <fields>; }
+-keep class com.launchdarkly.sdk.android.SummaryEvent { <fields>; }
+
+-keep class com.launchdarkly.sdk.android.SummaryEventStore$FlagCounter { <fields>; }
+-keep class com.launchdarkly.sdk.android.SummaryEventStore$FlagCounters { <fields>; }
+
+-keep class com.launchdarkly.sdk.android.DiagnosticEvent { <fields>; }
+-keep class com.launchdarkly.sdk.android.DiagnosticEvent$* { <fields>; }
+-keep class com.launchdarkly.sdk.android.DiagnosticId { <fields>; }
+-keep class com.launchdarkly.sdk.android.DiagnosticSdk { <fields>; }
+
+-keep class com.launchdarkly.sdk.android.LDFailure { <fields>; }
+-keep enum com.launchdarkly.sdk.android.LDFailure$FailureType { *; }
+-keep class com.launchdarkly.sdk.android.LDInvalidResponseCodeFailure { <fields>; }
+-keep enum com.launchdarkly.sdk.android.ConnectionInformation$ConnectionMode { *; }
+-keep class com.launchdarkly.sdk.android.ConnectionInformationState { <fields>; }
+
+-keepattributes Signature
+-keepattributes *Annotation*
+
+-keep class * extends com.google.gson.TypeAdapter
+-keep class * implements com.google.gson.TypeAdapterFactory
+-keep class * implements com.google.gson.JsonSerializer
+-keep class * implements com.google.gson.JsonDeserializer
+
+-dontwarn org.conscrypt.ConscryptHostnameVerifier

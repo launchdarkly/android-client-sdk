@@ -1,1 +1,2 @@
-include ':launchdarkly-android-client-sdk', ':example'
+include(":launchdarkly-android-client-sdk")
+include(":example")

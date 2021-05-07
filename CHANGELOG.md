@@ -3,6 +3,86 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.0.0] - 2021-05-07
+This major version has an accompanying [Migration Guide](https://docs.launchdarkly.com/sdk/client-side/android/migration-2-to-3). Please see the guide for more information on updating to this version of the SDK, as the following is just a summary of the changes.
+
+Usages of `Gson` provided types have been removed from the public API, replacing `JsonElement` with `LDValue` provided by the SDK. `LDValue` can represent the same values as a `JsonElement`, but has a diferent API. See the [API documentation](https://launchdarkly.github.io/android-client-sdk/com/launchdarkly/sdk/LDValue.html) for a detailed reference.
+### Added
+- `LDConfig.Builder` customization:
+  * The `autoAliasingOptOut` configuration option that is used to control the new automatic aliasing behavior of the `identify` method; by setting `autoAliasingOptOut` to true, `identify` will not automatically generate alias events.
+  * The `headerTransform` configuration option that supersedes the previous `additionalHeaders` configuration option by allowing fully dynamic updating of headers for requests the SDK makes to the LaunchDarkly service.
+  * The `privateAttributes` configuration option that replaces `setPrivateAttributeNames`, specifying the private attributes as vararg `UserAttribute` arguments rather than a `Set<String>`. This allows easily specifying built-in attributes.
+- `LDUser(String)` constructor that creates a fully default user.
+- New accessors for `LDUser`
+  * `getAttribute(UserAttribute)` for programmatically retrieving attribute values.
+  * `getCustomAttributes()` for retrieving the currently set custom attributes.
+  * `getPrivateAttributes()` for retrieving the attributes set to be private on this user.
+  * `isAttributePrivate(UserAttribute)` for checking if a given attribute is private.
+  * Getters for all built-in attributes, e.g. `getName()`
+- New `LDUser.Builder` methods  overloads for `custom` and `privateCustom`:
+  * `custom(String, boolean)` and `privateCustom(String, boolean)` for setting custom attributes to boolean values.
+  * `custom(String, int)`, `privateCustom(String, int)`, `custom(String, double)`, and `privateCustom(String, double)` for setting custom attributes to numeric values.
+  * `custom(String, LDValue)` and `privateCustom(String, LDValue)` for setting custom attributes to arbitrary data.
+- The `UserAttribute` class, which provides a less error-prone way to refer to user attribute names in configuration. This class can also be used to get arbitrary attribute- `LDClient` functionality:
+  * The `alias` method that is used to associate two user objects for analytics purposes with an alias event.
+  * `jsonValueVariation` and `jsonValueVariationDetail`. These are equivalent to the removed `jsonVariation` and `jsonVariationDetail` other than using `LDValue` instead of `JsonElement`.
+  * `trackData(String, LDValue)` which replaces `track(String, JsonElement)`. Other than changing to use `LDValue` the behavior is the same.
+  * `trackMetric(String, LDValue, double)` which replaces `track(String, JsonElement, Double)`. This also uses `LDValue` rather than `JsonElement`, and requires a metric value. Otherwise use `trackData`.
+- The `LDGson` and `LDJackson` classes, which allow SDK classes like `LDUser` to be easily converted to or from JSON using the popular Gson and Jackson frameworks.
+- `EvaluationDetail.fromValue` and `EvaluationDetail.error` factory methods.
+- `LDHeaderUpdater` interface for the new `headerTransform` configuration option.
+### Fixed
+- Fixed an issue where the SDK could log error level messages when attempting to send diagnostic events without an internet connection. The SDK will no longer attempt to send diagnostic events when an internet connection is known to be unavailable, and will not log an error level message if the connection fails. Thanks to @valeriyo for reporting ([#107](https://github.com/launchdarkly/android-client-sdk/issues/107)).
+- Fixed an issue where `LDUser` instances created before calling `LDClient.init` without specifying a key would have the key `UNKNOWN_ANDROID` rather than a device unique key.
+- Fixed an issue where flags listeners would be informed of changes to unchanged flags whenever the SDK receives an entire flag set (on a new stream connection, a poll request, or any stream updates behind a relay proxy).
+- Fixed an issue where a `NullPointerException` is thrown if `LDClient.close()` is called multiple times.
+- Improved the proguard/R8 configuration to allow more optimization. Thanks to @valeriyo for requesting ([#106](https://github.com/launchdarkly/android-client-sdk/issues/106))
+- Fixed a potential issue where the SDK could cause additional throttling on requests to the backend service when previously throttled requests had been cancelled before completion.
+### Changed (requirements/dependencies/build)
+- Migrated from using the Android Support Libraries to using AndroidX from Jetpack. Using AndroidX requires the `android.useAndroidX` Android Gradle plugin flag to be set to `true` in your application's `gradle.properties` file. If your application previously set the `android.enableJetifier` Android Gradle plugin flag to `true` in it's `gradle.properties` file soley for the LaunchDarkly SDK, this flag can now be removed. Thanks to everyone who requested this enhancement ([#103](https://github.com/launchdarkly/android-client-sdk/issues/103)).
+- The minimum Android API version has been raised from API level 16 (Android 4.1 Jelly Bean) to API level 21 (Android 5.0 Lollipop).
+- The SDK no longer has a dependency on Google Play Services. This dependency was only used on pre-21 Android API levels to improve TLS 1.2 compatibility, as the minimum Android version has been raised to 21, the dependency is no longer necessary.
+- The SDK is now built with modern Gradle (6.7, Android plugin 4.1.3) and uses Java 8.
+### Changed (API)
+- Package names have changed: the main SDK classes are now in `com.launchdarkly.sdk` and `com.launchdarkly.sdk.android`.
+- All `LDConfig.Builder` setters have been renamed to remove the `set` prefix, e.g. `LDConfig.Builder.setMobileKey` has been renamed to `LDConfig.Builder.mobileKey`.
+- `LDClient` API changes:
+  * `boolVariation` and `intVariation` no longer use nullable object types for argument and return values, instead using primitive types, e.g. `Boolean boolVariation(String, Boolean)` became `boolean boolVariation(String, boolean)`.
+  * `boolVariationDetail` and `intVariationDetail` no longer use nullable object types for argument values, instead using primitive types, e.g. `boolVariationDetail(String, Boolean)` became `boolVariationDetail(String, boolean)`.
+  * `floatVariation` and `floatVariationDetail` have been changed to have the same behavior as the removed `doubleVariation` and `doubleVariationDetail`.
+  * `allFlags()` now returns `Map<String, LDValue>` rather than `Map<String, ?>`. Rather than the returned `Map` containing `Boolean`, `Float`, and `String` typed objects, with JSON values represented as strings, the `Map` contains `LDValue` typed objects which return the source type (including complex types such as JSON arrays and objects).
+- `EvaluationDetail.getVariationIndex()` now returns `int` instead of `Integer`. No variation index is now represented as the constant `EvaluationReason.NO_VARIATION`.
+- `EvaluationReason` is now a single concrete class rather than an abstract base class. Usages of the sub-classes can be replaced with the base class. 
+### Changed (behavioral)
+- The default polling domain (configurable with `LDConfig.Builder.pollUri`) has changed from `app.launchdarkly.com` to `clientsdk.launchdarkly.com`.
+- The default `eventsUri` used to send events to the service has changed from `https://mobile.launchdarkly.com/mobile` to `https://mobile.launchdarkly.com`. The SDK will now append the expected endpoint path (`/mobile`) to the configured `Uri`, which is more consistent with other LaunchDarkly SDKs.
+- For compatibility with older SDK behavior, the `LDClient.stringVariation` method could be used to retrieve JSON flags in a serialized representation. This compatibility behavior has been removed, and attempts to request a JSON valued flag using `stringVariation` will behave the same as other mismatched type variation calls.
+- The `LDClient.identify` method will now automatically generate an alias event when switching from an anonymous to a known user. This event associates the two users for analytics purposes as they most likely represent a single person. This behavior can be disabled with the `autoAliasingOptOut` configuration option.
+- All log messages are now tagged `LaunchDarklySdk` for easier filtering. Thanks to @valeriyo for the suggestion ([#113](https://github.com/launchdarkly/android-client-sdk/issues/113)).
+- `LDUser` now overrides `equals`, `hashCode`, and `toString` with appropriate implementations.
+- `LDUser.Builder.country(String)` and `LDUser.Builder.privateCountry(String)` no longer attempt to look up the country from the provided `String` (attempting to match it as an ISO-3166-1 alpha-2, alpha-3 code; or a country name) and set the country to the resultant IOS-3166-1 alpha-2 only if successful. The SDK no longer gives this attribute special behavior, and sets the user's country attribute directly as the provided `String`.
+### Removed
+- `LDConfig.Builder`:
+  * `setBaseUri(Uri)` has been removed. Please use `setPollUri(Uri)` instead.
+  * `setAdditionalHeaders(Map<String,String>)` has been removed. Please use `headerTransform(LDHeaderUpdater)` instead.
+  * `setPrivateAttributeNames(Set<String>)` has been removed. Please use `privateAttributes(UserAttribute...)` instead.
+- `LDUser.Builder`:
+  * `country(LDCountryCode)` and `privateCountry(LDCountryCode)` have been removed. Use `country(String)` or `privateCountry(String)` to set the country value on a user.
+  * `custom(String, Number)` and `privateCustom(String, Number)` have been removed. Use the `(String, int)` or `(String, double)` overloads instead.
+  * `custom(String, Boolean)` and `privateCustom(String, Boolean)` have been removed. Use `custom(String, boolean)` or `privateCustom(String, boolean)` instead.
+  * `custom(String, List<String>)`, `LDUser.customString(String, List<String>)`, `LDUser.privateCustomString(String, List<String>)`. Use `custom(String, LDValue)` and `privateCustom(String, LDValue)` instead.
+  * `customNumber(String, List<Number>)` and `LDUser.privateCustomNumber(String, List<Number>)`. Use `custom(String, LDValue)` and `privateCustom(String, LDValue)` instead.
+- `LDClient`:
+  * `doubleVariation` and `doubleVariationDetail` have been removed. Use `floatVariation` and `floatVariationDetail` instead.
+  * `jsonVariation` and `jsonVariationDetail` have been removed. Use `jsonValueVariation` and `jsonValueVariationDetail` instead.
+  * `track(String, JsonElement)` and `track(String, JsonElement, Double)` overloads have been removed, please use the designated methods `trackData(String, LDValue)` and `trackMetric(String, LDValue, double)` instead.
+- The public constructor for `EvaluationDetail` has been hidden. Use the new factory methods `EvaluationDetail.fromValue` and `EvaluationDetail.error` instead.
+- The concrete sub-classes of `EvaluationReason` have been removed in favor of making `EvaluationReason` a concrete class. The accessors on the sub-classes have been moved to the base class. Instead of using `instanceOf` to determine the type, use `getKind()`.
+- `LDCountryCode` has been removed as no SDK APIs use this class.
+- All classes and interfaces in the `com.launchdarkly.sdk.android.flagstore`, `com.launchdarkly.sdk.android.gson`, `com.launchdarkly.sdk.android.response`, and `com.launchdarkly.sdk.android.tls` packages. These classes and interfaces were not intended for external use.
+- `Debounce`, `FeatureFlagFetcher`, `SummaryEventSharedPreferences`, `UserSummaryEventSharedPreferences`, and `Util` in `com.launchdarkly.sdk.android`. These deprecated classes and interfaces were not intended for external use.
+
+
 ## [2.14.1] - 2021-01-14
 ### Fixed
 - Before this release, the SDK could cause an uncaught exception on certain Android implementations, when scheduling a future poll request under certain situations. This fix extends a previous fix implemented in the [2.9.1 release](https://github.com/launchdarkly/android-client-sdk/releases/tag/2.9.1) of the SDK, which catches `SecurityException`s thrown by the alarm manager when registering an alarm for the next poll. This `SecurityException` was introduced by Samsung on their Lollipop and later Android implementions, and is thrown when the application has at least 500 existing alarms when registering a new alarm. After recent reports of the alarm manager throwing an `IllegalStateException` rather than a `SecurityException` under the same conditions but different Android implementations, this release broadens the exception handling when scheduling a poll request to safeguard against other exception types.

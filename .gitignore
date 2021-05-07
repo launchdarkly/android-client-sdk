@@ -3,8 +3,12 @@
 .DS_Store
 build
 /captures
-
+.project
 
 *.iml
 .idea
 .idea/*
+.classpath
+.project
+.settings/
+.vscode/
