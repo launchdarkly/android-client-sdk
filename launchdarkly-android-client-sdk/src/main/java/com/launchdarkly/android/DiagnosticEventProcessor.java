@@ -85,7 +85,9 @@ class DiagnosticEventProcessor {
     }
 
     private void stopScheduler() {
-        executorService.shutdown();
+        if (executorService != null) {
+            executorService.shutdown();
+        }
     }
 
     void close() {

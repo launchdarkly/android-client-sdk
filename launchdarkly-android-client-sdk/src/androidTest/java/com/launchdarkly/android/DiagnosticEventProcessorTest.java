@@ -122,4 +122,15 @@ public class DiagnosticEventProcessorTest {
         assertEquals("foo", r.getHeader("Authorization"));
         assertEquals(GsonCache.getGson().toJson(testEvent), r.getBody().readUtf8());
     }
+
+    @Test
+    public void closeWithoutStart() {
+        ForegroundTestController.setup(false);
+        OkHttpClient okHttpClient = new OkHttpClient.Builder().build();
+
+        LDConfig ldConfig = new LDConfig.Builder().setMobileKey("test-mobile-key").build();
+        DiagnosticStore diagnosticStore = new DiagnosticStore(activityTestRule.getActivity().getApplication(), "test-mobile-key");
+        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore, okHttpClient);
+        diagnosticEventProcessor.close();
+    }
 }
