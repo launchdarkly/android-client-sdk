@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.14.2] - 2021-06-02
+### Fixed
+- Added check to prevent `NullPointerException` in `DiagnosticEventProcessor.stopScheduler` when `LDClient.close` is called before the application is foregrounded when the SDK was initialized in the background. ([#127](https://github.com/launchdarkly/android-client-sdk/issues/127))
+- Log message warning that JSON flag was requested as a String has been updated to include the key of the flag requested to assist in discovering which flag is being requested with an unexpected type. ([#116](https://github.com/launchdarkly/android-client-sdk/issues/116))
+
 ## [3.0.0] - 2021-05-07
 This major version has an accompanying [Migration Guide](https://docs.launchdarkly.com/sdk/client-side/android/migration-2-to-3). Please see the guide for more information on updating to this version of the SDK, as the following is just a summary of the changes.
 
