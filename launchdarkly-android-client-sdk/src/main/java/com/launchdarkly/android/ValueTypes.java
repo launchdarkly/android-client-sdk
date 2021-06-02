@@ -23,7 +23,7 @@ abstract class ValueTypes {
          * @return the converted value, or null if the JSON value was not of the correct type
          */
         @Nullable
-        T valueFromJson(@NonNull JsonElement jsonValue);
+        T valueFromJson(String key, @NonNull JsonElement jsonValue);
 
         /**
          * Converts a value to JSON. The value is guaranteed to be non-null.
@@ -36,7 +36,7 @@ abstract class ValueTypes {
 
     static final Converter<Boolean> BOOLEAN = new Converter<Boolean>() {
         @Override
-        public Boolean valueFromJson(@NonNull JsonElement jsonValue) {
+        public Boolean valueFromJson(String key, @NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isBoolean()) ? jsonValue.getAsBoolean() : null;
         }
 
@@ -49,7 +49,7 @@ abstract class ValueTypes {
 
     static final Converter<Integer> INT = new Converter<Integer>() {
         @Override
-        public Integer valueFromJson(@NonNull JsonElement jsonValue) {
+        public Integer valueFromJson(String key, @NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsInt() : null;
         }
 
@@ -62,7 +62,7 @@ abstract class ValueTypes {
 
     static final Converter<Float> FLOAT = new Converter<Float>() {
         @Override
-        public Float valueFromJson(@NonNull JsonElement jsonValue) {
+        public Float valueFromJson(String key, @NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsFloat() : null;
         }
 
@@ -75,7 +75,7 @@ abstract class ValueTypes {
 
     static final Converter<Double> DOUBLE = new Converter<Double>() {
         @Override
-        public Double valueFromJson(@NonNull JsonElement jsonValue) {
+        public Double valueFromJson(String key, @NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isNumber()) ? jsonValue.getAsDouble() : null;
         }
 
@@ -88,7 +88,7 @@ abstract class ValueTypes {
 
     static final Converter<String> STRING = new Converter<String>() {
         @Override
-        public String valueFromJson(@NonNull JsonElement jsonValue) {
+        public String valueFromJson(String key, @NonNull JsonElement jsonValue) {
             return (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) ? jsonValue.getAsString() : null;
         }
 
@@ -103,13 +103,14 @@ abstract class ValueTypes {
     // TODO(gwhelanld): remove in 3.0.0
     static final Converter<String> STRINGCOMPAT = new Converter<String>() {
         @Override
-        public String valueFromJson(@NonNull JsonElement jsonValue) {
+        public String valueFromJson(String key, @NonNull JsonElement jsonValue) {
             if (jsonValue.isJsonPrimitive() && jsonValue.getAsJsonPrimitive().isString()) {
                 return jsonValue.getAsString();
             } else if (!jsonValue.isJsonPrimitive() && !jsonValue.isJsonNull()) {
-                Timber.w("JSON flag requested as String. For backwards compatibility " +
+                Timber.w("JSON flag `" + key + "` requested as String. For backwards compatibility " +
                         "returning a serialized representation of flag value. " +
                         "This behavior will be removed in the next major version (3.0.0)");
+
                 return GsonCache.getGson().toJson(jsonValue);
             }
             return null;
@@ -124,7 +125,7 @@ abstract class ValueTypes {
 
     static final Converter<JsonElement> JSON = new Converter<JsonElement>() {
         @Override
-        public JsonElement valueFromJson(@NonNull JsonElement jsonValue) {
+        public JsonElement valueFromJson(String key, @NonNull JsonElement jsonValue) {
             return jsonValue;
         }
 

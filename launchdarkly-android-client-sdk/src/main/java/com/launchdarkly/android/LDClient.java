@@ -424,7 +424,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 result = new EvaluationDetail<>(flag.getReason(), flag.getVariation(), fallback);
                 valueJson = fallbackJson;
             } else {
-                T value = typeConverter.valueFromJson(valueJson);
+                T value = typeConverter.valueFromJson(flagKey, valueJson);
+
                 if (value == null) {
                     Timber.e("Attempted to get flag with wrong type for key: %s Returning fallback: %s", flagKey, fallback);
                     result = EvaluationDetail.error(EvaluationReason.ErrorKind.WRONG_TYPE, fallback);
