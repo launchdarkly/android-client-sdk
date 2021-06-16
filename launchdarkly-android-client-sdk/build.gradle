@@ -61,9 +61,10 @@ ext.versions = [
     "easymock": "4.3",
     "eventsource": "1.11.2",
     "gson": "2.8.6",
-    "jackson": "2.10.0",
+    "jacksonCore": "2.10.5",
+    "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
-    "launchdarklyJavaSdkCommon": "1.1.1",
+    "launchdarklyJavaSdkCommon": "1.1.2",
     "okhttp": "4.9.1",
     "timber": "4.7.1",
 ]
@@ -73,8 +74,8 @@ dependencies {
 
     commonDoc("com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}:sources")
     // These are included only for Javadoc generation.
-    commonClasses("com.fasterxml.jackson.core:jackson-core:${versions.jackson}")
-    commonClasses("com.fasterxml.jackson.core:jackson-databind:${versions.jackson}")
+    commonClasses("com.fasterxml.jackson.core:jackson-core:${versions.jacksonCore}")
+    commonClasses("com.fasterxml.jackson.core:jackson-databind:${versions.jacksonDatabind}")
 
     implementation("com.google.code.gson:gson:${versions.gson}")
     implementation("androidx.annotation:annotation:${versions.androidAnnotation}")
