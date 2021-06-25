@@ -3,6 +3,12 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.0.1] - 2021-06-25
+### Fixed
+- The Android manifest has been updated to explicitly specify the `android:exported` attribute on declared `receiver` elements. This is to meet [new requirements](https://developer.android.com/about/versions/12/behavior-changes-12#exported) in the upcoming Android 12 release.
+- Increased the compile-time dependency on `jackson-databind` to 2.10.5.1, due to [CVE-2020-25649](https://nvd.nist.gov/vuln/detail/CVE-2020-25649).
+- Update the dependency on the shared [launchdarkly/java-sdk-common](https://github.com/launchdarkly/java-sdk-common) to 1.1.2 to prevent Jackson from showing up as a transitive dependency in tools that inspect module metadata.
+
 ## [2.14.2] - 2021-06-02
 ### Fixed
 - Added check to prevent `NullPointerException` in `DiagnosticEventProcessor.stopScheduler` when `LDClient.close` is called before the application is foregrounded when the SDK was initialized in the background. ([#127](https://github.com/launchdarkly/android-client-sdk/issues/127))
