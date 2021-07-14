@@ -31,30 +31,34 @@ class LDUtil {
      * @param context Context for getting the ConnectivityManager
      * @return whether device is connected to the internet
      */
-    @SuppressWarnings("deprecation")
     static boolean isInternetConnected(Context context) {
-        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        // TODO: at the point our min version is >= 23 we can remove the old compat code
-        if (Build.VERSION.SDK_INT >= 23) {
-            Network net = cm.getActiveNetwork();
-            if (net == null)
-                return false;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (Build.VERSION.SDK_INT >= 23) {
+                Network net = cm.getActiveNetwork();
+                if (net == null)
+                    return false;
 
-            NetworkCapabilities nwc = cm.getNetworkCapabilities(net);
+                NetworkCapabilities nwc = cm.getNetworkCapabilities(net);
 
-            // the older solution was cleaner but android went and
-            // deprecated it :^)
-            // hasTransport(NET_CAPABILITY_INTERNET) always returns false on emulators
-            // so we check these instead
-            return nwc != null && (
-                nwc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)
-            );
-        } else {
-            NetworkInfo active = cm.getActiveNetworkInfo();
-            return active != null && active.isConnectedOrConnecting();
+                // the older solution was cleaner but android went and
+                // deprecated it :^)
+                // hasTransport(NET_CAPABILITY_INTERNET) always returns false on emulators
+                // so we check these instead
+                return nwc != null && (
+                        nwc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)
+                );
+            } else {
+                NetworkInfo active = cm.getActiveNetworkInfo();
+                return active != null && active.isConnectedOrConnecting();
+            }
+        } catch (SecurityException ignored) {
+            // See https://issuetracker.google.com/issues/175055271
+            // We should fallback to assuming network is available
+            return true;
         }
     }
 
