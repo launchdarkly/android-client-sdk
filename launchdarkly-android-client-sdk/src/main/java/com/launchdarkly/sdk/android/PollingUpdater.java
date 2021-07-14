@@ -5,7 +5,10 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.SystemClock;
+
+import static android.app.PendingIntent.FLAG_IMMUTABLE;
 
 /**
  * Used internally by the SDK.
@@ -58,7 +61,11 @@ public class PollingUpdater extends BroadcastReceiver {
     }
 
     private static PendingIntent getPendingIntent(Context context) {
-        return PendingIntent.getBroadcast(context, 0, getAlarmIntent(context), 0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return PendingIntent.getBroadcast(context, 0, getAlarmIntent(context), FLAG_IMMUTABLE);
+        } else {
+            return PendingIntent.getBroadcast(context, 0, getAlarmIntent(context), 0);
+        }
     }
 
     private static AlarmManager getAlarmManager(Context context) {
