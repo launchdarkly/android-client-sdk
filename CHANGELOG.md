@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.0.2] - 2021-07-16
+### Fixed
+- Catch `SecurityException` when thrown on call to `getNetworkCapabilities` used to detect current network availability. ([#129](https://github.com/launchdarkly/android-client-sdk/issues/129))
+- Explicitely flag `PendingIntent`s as `FLAG_IMMUTABLE` on Android SDK versions that support doing so. Explicitly specifying mutability is required when targeting Android S+. ([#133](https://github.com/launchdarkly/android-client-sdk/issues/133))
+
 ## [3.0.1] - 2021-06-25
 ### Fixed
 - The Android manifest has been updated to explicitly specify the `android:exported` attribute on declared `receiver` elements. This is to meet [new requirements](https://developer.android.com/about/versions/12/behavior-changes-12#exported) in the upcoming Android 12 release.
