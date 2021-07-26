@@ -68,7 +68,7 @@ Usages of `Gson` provided types have been removed from the public API, replacing
   * `floatVariation` and `floatVariationDetail` have been changed to have the same behavior as the removed `doubleVariation` and `doubleVariationDetail`.
   * `allFlags()` now returns `Map<String, LDValue>` rather than `Map<String, ?>`. Rather than the returned `Map` containing `Boolean`, `Float`, and `String` typed objects, with JSON values represented as strings, the `Map` contains `LDValue` typed objects which return the source type (including complex types such as JSON arrays and objects).
 - `EvaluationDetail.getVariationIndex()` now returns `int` instead of `Integer`. No variation index is now represented as the constant `EvaluationReason.NO_VARIATION`.
-- `EvaluationReason` is now a single concrete class rather than an abstract base class. Usages of the sub-classes can be replaced with the base class. 
+- `EvaluationReason` is now a single concrete class rather than an abstract base class. Usages of the sub-classes can be replaced with the base class.
 ### Changed (behavioral)
 - The default polling domain (configurable with `LDConfig.Builder.pollUri`) has changed from `app.launchdarkly.com` to `clientsdk.launchdarkly.com`.
 - The default `eventsUri` used to send events to the service has changed from `https://mobile.launchdarkly.com/mobile` to `https://mobile.launchdarkly.com`. The SDK will now append the expected endpoint path (`/mobile`) to the configured `Uri`, which is more consistent with other LaunchDarkly SDKs.
@@ -123,7 +123,7 @@ Usages of `Gson` provided types have been removed from the public API, replacing
 
 ## [2.12.0] - 2020-05-29
 ### Added
-- Added a new configuration option, `maxCachedUsers` to LDConfig. This option allows configuration of the limit to how many users have their flag values cached locally in the device's SharedPreferences. 
+- Added a new configuration option, `maxCachedUsers` to LDConfig. This option allows configuration of the limit to how many users have their flag values cached locally in the device's SharedPreferences.
 ### Fixed
 - Fixed a NPE that could occur when calling a variation methods with a flag key that does not exist locally or is of the wrong type. This issue could only occur if a null fallback value was provided.
 - Previously, the SDK manifest required the SET_ALARM permission. This permission was never used, so it has been removed.
@@ -209,7 +209,7 @@ The artifact id will also change. In the 2.8.0 release, it is still `com.launchd
 
 ## [2.7.0] - 2019-04-02
 ### Added
-- The new configuration option `setEvaluationReasons(true)` causes LaunchDarkly to report information about how each feature flag value was determined; you can access this information with the new client methods `boolVariationDetail`, `stringVariationDetail`, etc. The new methods return an object that contains both the flag value and a "reason" object which will tell you, for instance, if the user was individually targeted for the flag or was matched by one of the flag's rules, or if the flag returned the default value due to an error. For more information, see the SDK Reference Guide on [evaluation reasons](https://docs.launchdarkly.com/docs/evaluation-reasons).
+- The new configuration option `setEvaluationReasons(true)` causes LaunchDarkly to report information about how each feature flag value was determined; you can access this information with the new client methods `boolVariationDetail`, `stringVariationDetail`, etc. The new methods return an object that contains both the flag value and a "reason" object which will tell you, for instance, if the user was individually targeted for the flag or was matched by one of the flag's rules, or if the flag returned the default value due to an error. For more information, see the SDK Reference Guide on [evaluation reasons](https://docs.launchdarkly.com/sdk/concepts/evaluation-reasons).
 - The new client method `getVersion()` returns the version string of the SDK.
 ### Fixed
 - Bug causing `boolVariation`, `intVariation`, and `floatVariation` to always return `null` if `fallback` argument was `null`.
@@ -302,7 +302,7 @@ The artifact id will also change. In the 2.8.0 release, it is still `com.launchd
 
 ## [2.2.0] - 2018-01-25
 ## Added
-- Support for specifying [private user attributes](https://docs.launchdarkly.com/docs/private-user-attributes) in order to prevent user attributes from being sent in analytics events back to LaunchDarkly. See the `allAttributesPrivate` and `setPrivateAttributeNames` methods on `LDConfig.Builder` as well as the `privateX` methods on `LDUser.Builder`.
+- Support for specifying [private user attributes](https://docs.launchdarkly.com/home/users/attributes) in order to prevent user attributes from being sent in analytics events back to LaunchDarkly. See the `allAttributesPrivate` and `setPrivateAttributeNames` methods on `LDConfig.Builder` as well as the `privateX` methods on `LDUser.Builder`.
 
 ## [2.1.1] - 2017-11-27
 ### Fixed
@@ -363,7 +363,7 @@ The artifact id will also change. In the 2.8.0 release, it is still `com.launchd
 
 ## [1.0.1] - 2016-11-17
 ### Added
-- Suggested Proguard rules now include keep instructions. This should help with some GSON serialization issues. 
+- Suggested Proguard rules now include keep instructions. This should help with some GSON serialization issues.
 - Log when GSON serialization problem may be occuring.
 
 ### Changed
