@@ -64,7 +64,7 @@ ext.versions = [
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
-    "launchdarklyJavaSdkCommon": "1.1.2",
+    "launchdarklyJavaSdkCommon": "1.2.0",
     "okhttp": "4.9.1",
     "timber": "4.7.1",
 ]

@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.0] - 2021-08-06
+### Added
+- The SDK now supports the ability to control the proportion of traffic allocation to an experiment. This works in conjunction with a new platform feature now available to early access customers.
+
 ## [3.0.2] - 2021-07-16
 ### Fixed
 - Catch `SecurityException` when thrown on call to `getNetworkCapabilities` used to detect current network availability. ([#129](https://github.com/launchdarkly/android-client-sdk/issues/129))
