@@ -50,6 +50,7 @@ class LDUtil {
                                 || nwc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
                                 || nwc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
                                 || nwc.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)
+                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
                 );
             } else {
                 NetworkInfo active = cm.getActiveNetworkInfo();
