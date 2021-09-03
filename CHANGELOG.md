@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.1] - 2021-09-03
+### Fixed
+- Removed the `android:allowBackup` tag from the SDK's `AndroidManifest.xml` file to avoid requiring applications to explicitly replace the tag if given a different value. ([#138](https://github.com/launchdarkly/android-client-sdk/issues/138))
+- Changed the SDK's network detection check to consider network transport over a VPN as a connected state. This fixes an issue where the SDK would prevent network requests on a VPN due to considering the network to be unavailable. (Thanks, [lguipeng](https://github.com/launchdarkly/android-client-sdk/pull/137)!)
+
 ## [3.1.0] - 2021-08-06
 ### Added
 - The SDK now supports the ability to control the proportion of traffic allocation to an experiment. This works in conjunction with a new platform feature now available to early access customers.
