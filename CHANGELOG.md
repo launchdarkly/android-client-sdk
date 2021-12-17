@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.2] - 2021-12-17
+### Fixed
+- Bump version of gson dependency from 2.8.6 to 2.8.9.
+
 ## [3.1.1] - 2021-09-03
 ### Fixed
 - Removed the `android:allowBackup` tag from the SDK's `AndroidManifest.xml` file to avoid requiring applications to explicitly replace the tag if given a different value. ([#138](https://github.com/launchdarkly/android-client-sdk/issues/138))
