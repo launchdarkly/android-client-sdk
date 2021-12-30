@@ -1,13 +1,6 @@
-# Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in ~/Library/Android/sdk/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
+# LaunchDarkly Android SDK proguard rules
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
-
-# Add any project specific keep options here:
+# For more details, see https://developer.android.com/studio/build/shrink-code
 
 -keep class com.launchdarkly.sdk.LDValue { <fields>; }
 -keep class * extends com.launchdarkly.sdk.LDValue { <fields>; }
@@ -42,12 +35,17 @@
 -keep enum com.launchdarkly.sdk.android.ConnectionInformation$ConnectionMode { *; }
 -keep class com.launchdarkly.sdk.android.ConnectionInformationState { <fields>; }
 
--keepattributes Signature
--keepattributes *Annotation*
-
 -keep class * extends com.google.gson.TypeAdapter
 -keep class * implements com.google.gson.TypeAdapterFactory
 -keep class * implements com.google.gson.JsonSerializer
 -keep class * implements com.google.gson.JsonDeserializer
 
 -dontwarn org.conscrypt.ConscryptHostnameVerifier
+
+-keepattributes *Annotation*,Signature,InnerClasses
+
+# Usually, these should be redundant with directives added by AAPT. We include them
+# to be more explicit about what to save in case of build configurations having
+# different default directives included.
+-keep class com.launchdarkly.sdk.android.ConnectivityReceiver { <init>(); }
+-keep class com.launchdarkly.sdk.android.PollingUpdater { <init>(); }
