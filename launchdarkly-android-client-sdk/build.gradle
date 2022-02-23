@@ -2,7 +2,7 @@ plugins {
     id("com.android.library")
     id("signing")
     id("maven-publish")
-    id("org.ajoberstar.git-publish") version "3.0.0"
+    id("org.ajoberstar.git-publish") version "3.0.1"
     id("com.getkeepsafe.dexcount")
 }
 
