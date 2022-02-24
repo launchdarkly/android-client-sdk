@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.3] - 2022-02-24
+### Fixed
+- Add explicit proguard directives for keeping BroadcastReceivers
+- Bump version of git-publish gradle plugin from 3.0.0 to 3.0.1.
+
 ## [3.1.2] - 2021-12-17
 ### Fixed
 - Bump version of gson dependency from 2.8.6 to 2.8.9.
