@@ -55,16 +55,13 @@ configurations {
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
-    "androidJunit": "1.1.2",
-    "androidTest": "1.3.0",
-    "easymock": "4.3",
     "eventsource": "1.11.2",
     "gson": "2.8.9",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
     "launchdarklyJavaSdkCommon": "1.2.0",
-    "okhttp": "4.9.1",
+    "okhttp": "4.9.2",
     "timber": "5.0.1",
 ]
 
@@ -85,14 +82,15 @@ dependencies {
     testImplementation("junit:junit:${versions.junit}")
 
     androidTestImplementation("junit:junit:${versions.junit}")
-    androidTestImplementation("androidx.test:core:${versions.androidTest}")
-    androidTestImplementation("androidx.test:runner:${versions.androidTest}")
-    androidTestImplementation("androidx.test:rules:${versions.androidTest}")
-    androidTestImplementation("androidx.test.ext:junit:${versions.androidJunit}")
-    androidTestImplementation("org.easymock:easymock:${versions.easymock}")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
 
-    androidTestUtil("androidx.test:orchestrator:${versions.androidTest}")
+    androidTestImplementation("androidx.test:core:1.4.0")
+    androidTestImplementation("androidx.test:runner:1.4.0")
+    androidTestImplementation("androidx.test:rules:1.4.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.3")
+    androidTestImplementation("org.easymock:easymock:4.3")
+
+    androidTestUtil("androidx.test:orchestrator:1.4.1")
 }
 
 task javadoc(type: Javadoc) {
