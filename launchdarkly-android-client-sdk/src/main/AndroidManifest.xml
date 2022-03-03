@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <application android:label="@string/app_name">
+    <application>
         <receiver android:name="com.launchdarkly.sdk.android.PollingUpdater" android:exported="false"/>
         <receiver android:name="com.launchdarkly.sdk.android.ConnectivityReceiver" android:enabled="true" android:exported="false">
             <intent-filter>
