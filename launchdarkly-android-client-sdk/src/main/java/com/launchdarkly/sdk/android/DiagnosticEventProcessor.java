@@ -89,16 +89,18 @@ class DiagnosticEventProcessor {
     }
 
     void startScheduler() {
-        long initialDelay = config.getDiagnosticRecordingIntervalMillis() - (System.currentTimeMillis() - diagnosticStore.getDataSince());
-        long safeDelay = Math.min(Math.max(initialDelay, 0), config.getDiagnosticRecordingIntervalMillis());
+        if (executorService == null) {
+            long initialDelay = config.getDiagnosticRecordingIntervalMillis() - (System.currentTimeMillis() - diagnosticStore.getDataSince());
+            long safeDelay = Math.min(Math.max(initialDelay, 0), config.getDiagnosticRecordingIntervalMillis());
 
-        executorService = Executors.newSingleThreadScheduledExecutor(diagnosticThreadFactory);
-        executorService.scheduleAtFixedRate(
-            this::enqueueEvent,
-            safeDelay, 
-            config.getDiagnosticRecordingIntervalMillis(), 
-            TimeUnit.MILLISECONDS
-        );
+            executorService = Executors.newSingleThreadScheduledExecutor(diagnosticThreadFactory);
+            executorService.scheduleAtFixedRate(
+                    this::enqueueEvent,
+                    safeDelay,
+                    config.getDiagnosticRecordingIntervalMillis(),
+                    TimeUnit.MILLISECONDS
+            );
+        }
     }
 
     void stopScheduler() {
