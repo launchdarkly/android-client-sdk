@@ -1,10 +1,9 @@
 package com.launchdarkly.sdk.android;
 
+import android.app.Activity;
 import android.os.Bundle;
 
-import androidx.appcompat.app.AppCompatActivity;
-
-public class TestActivity extends AppCompatActivity {
+public class TestActivity extends Activity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
