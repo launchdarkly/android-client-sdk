@@ -3,6 +3,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.4] - 2022-03-23
+### Fixed
+- Removed Android Appcompat dependency.
+- Bump version of okhttp from 4.9.1 to 4.9.2.
+- Prevent multiple allocations of the DiagnosticEventProcessor.
+- Removed application `android:label` attribute from the SDK's manifest. (Thanks, [Exaper](https://github.com/launchdarkly/android-client-sdk/pull/156)!)
+
 ## [3.1.3] - 2022-02-24
 ### Fixed
 - Add explicit proguard directives for keeping BroadcastReceivers
