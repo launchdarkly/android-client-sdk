@@ -90,7 +90,6 @@ Usages of `Gson` provided types have been removed from the public API, replacing
 - `LDClient` API changes:
   * `boolVariation` and `intVariation` no longer use nullable object types for argument and return values, instead using primitive types, e.g. `Boolean boolVariation(String, Boolean)` became `boolean boolVariation(String, boolean)`.
   * `boolVariationDetail` and `intVariationDetail` no longer use nullable object types for argument values, instead using primitive types, e.g. `boolVariationDetail(String, Boolean)` became `boolVariationDetail(String, boolean)`.
-  * `floatVariation` and `floatVariationDetail` have been changed to have the same behavior as the removed `doubleVariation` and `doubleVariationDetail`.
   * `allFlags()` now returns `Map<String, LDValue>` rather than `Map<String, ?>`. Rather than the returned `Map` containing `Boolean`, `Float`, and `String` typed objects, with JSON values represented as strings, the `Map` contains `LDValue` typed objects which return the source type (including complex types such as JSON arrays and objects).
 - `EvaluationDetail.getVariationIndex()` now returns `int` instead of `Integer`. No variation index is now represented as the constant `EvaluationReason.NO_VARIATION`.
 - `EvaluationReason` is now a single concrete class rather than an abstract base class. Usages of the sub-classes can be replaced with the base class.
@@ -114,7 +113,7 @@ Usages of `Gson` provided types have been removed from the public API, replacing
   * `custom(String, List<String>)`, `LDUser.customString(String, List<String>)`, `LDUser.privateCustomString(String, List<String>)`. Use `custom(String, LDValue)` and `privateCustom(String, LDValue)` instead.
   * `customNumber(String, List<Number>)` and `LDUser.privateCustomNumber(String, List<Number>)`. Use `custom(String, LDValue)` and `privateCustom(String, LDValue)` instead.
 - `LDClient`:
-  * `doubleVariation` and `doubleVariationDetail` have been removed. Use `floatVariation` and `floatVariationDetail` instead.
+  * `floatVariation` and `floatVariationDetail` have been removed. Use `doubleVariation` and `doubleVariationDetail` instead.
   * `jsonVariation` and `jsonVariationDetail` have been removed. Use `jsonValueVariation` and `jsonValueVariationDetail` instead.
   * `track(String, JsonElement)` and `track(String, JsonElement, Double)` overloads have been removed, please use the designated methods `trackData(String, LDValue)` and `trackMetric(String, LDValue, double)` instead.
 - The public constructor for `EvaluationDetail` has been hidden. Use the new factory methods `EvaluationDetail.fromValue` and `EvaluationDetail.error` instead.
