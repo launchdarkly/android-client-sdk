@@ -645,6 +645,31 @@ public class LDClientTest {
         }
     }
 
+    @Test
+    public void testEventBufferFillsUp() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .eventsCapacity(1)
+                    .build();
+
+            // Don't wait as we are not set offline
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.identify(ldUser);
+                LDValue testData = LDValue.of("xyz");
+                client.trackData("test-event", testData);
+                client.blockingFlush();
+
+                // Verify that only the first event was sent and other events were dropped
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                assertTrue(events[0] instanceof IdentifyEvent);
+            }
+        }
+    }
+
     private Event[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws InterruptedException {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());

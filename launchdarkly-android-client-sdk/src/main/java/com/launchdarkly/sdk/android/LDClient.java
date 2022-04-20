@@ -664,7 +664,9 @@ public class LDClient implements LDClientInterface, Closeable {
             boolean processed = eventProcessor.sendEvent(event);
             if (!processed) {
                 LDConfig.LOG.w("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
-                diagnosticStore.incrementDroppedEventCount();
+                if (diagnosticStore != null) {
+                    diagnosticStore.incrementDroppedEventCount();
+                }
             }
         }
     }
