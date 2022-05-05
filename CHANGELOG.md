@@ -3,6 +3,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.5] - 2022-05-05
+
+### Fixed
+- Prevent `NullPointerException` when event buffer is full and `diagnosticOptOut` is true. (Thanks, [mattyway](https://github.com/launchdarkly/android-client-sdk/pull/160)!)
+
 ## [3.1.4] - 2022-03-23
 ### Fixed
 - Removed Android Appcompat dependency.
