@@ -26,6 +26,8 @@ plugins {
 
 // Must be specified in root project for the gradle nexus publish plugin.
 group = "com.launchdarkly"
+// Specified in the root project so Releaser's `publish-dry-run.sh` can see it in `./gradlew properties`
+archivesBaseName = 'launchdarkly-android-client-sdk'
 // Specified in gradle.properties
 version = version
 
