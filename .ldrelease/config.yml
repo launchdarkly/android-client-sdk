@@ -1,0 +1,26 @@
+version: 2
+
+repo:
+  public: android-client-sdk
+  private: android-client-sdk-private
+
+publications:
+  - url: https://oss.sonatype.org/content/groups/public/com/launchdarkly/launchdarkly-android-client-sdk/
+    description: Sonatype
+  - url: https://javadoc.io/doc/com.launchdarkly/launchdarkly-android-client-sdk
+    description: documentation (javadoc.io)
+
+jobs:
+  - docker:
+      image: cimg/android:2022.04
+    template:
+      name: gradle
+
+branches:
+  - name: main
+
+documentation:
+  gitHubPages: true
+
+sdk:
+  displayName: "Android"
