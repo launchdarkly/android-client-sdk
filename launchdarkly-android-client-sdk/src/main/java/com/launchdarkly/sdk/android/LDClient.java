@@ -47,7 +47,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private static final String INSTANCE_ID_KEY = "instanceId";
     // Upon client init will get set to a Unique id per installation used when creating anonymous users
     private static String instanceId = "UNKNOWN_ANDROID";
-    private static Map<String, LDClient> instances = null;
+    static Map<String, LDClient> instances = null;
 
     private final Application application;
     private final LDConfig config;

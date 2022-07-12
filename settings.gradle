@@ -1,2 +1,3 @@
 include(":launchdarkly-android-client-sdk")
 include(":example")
+include(":contract-tests")

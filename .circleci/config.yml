@@ -103,3 +103,62 @@ jobs:
             path: ~/test-results
       - store_artifacts:
             path: ~/artifacts
+
+  contract-tests:
+    executor:
+      name: android/android-machine
+      resource-class: large
+    environment:
+      TEST_HARNESS_PARAMS: -junit /home/circleci/junit/contract-tests-junit.xml
+    steps:
+      - checkout
+
+      # Create and start emulator
+      - android/create-avd:
+          avd-name: ci-android-avd
+          system-image: system-images;android-25;default;x86
+          install: true
+
+      - android/start-emulator:
+          avd-name: ci-android-avd
+          wait-for-emulator: false
+
+      # Perform tasks we can do while waiting for emulator to start
+
+      # Restore caches
+      - android/restore-gradle-cache
+      - android/restore-build-cache:
+          cache-prefix: contract-tests
+
+      - run:
+          name: Build local tests
+          command: make build-contract-tests
+
+      # Save caches
+      - android/save-build-cache:
+          cache-prefix: contract-tests
+      - android/save-gradle-cache
+
+      # Wait for emulator
+      - android/wait-for-emulator
+
+      # Additional validation that emulator is fully started and will accept adb
+      # commands
+      - run:
+          name: Validate retrieving emulator SDK version
+          command: |
+            while ! adb shell getprop ro.build.version.sdk; do
+              sleep 1
+            done
+
+      - run: make start-contract-test-service
+      - run: mkdir ~/junit
+      - run: make run-contract-tests
+      - store_test_results:
+          path: ~/junit
+
+workflows:
+  test:
+    jobs:
+      - build
+      - contract-tests
