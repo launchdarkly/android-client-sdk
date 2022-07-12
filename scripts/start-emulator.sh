@@ -23,7 +23,7 @@ AVD_NAME=${AVD_NAME:-launchdarkly-contract-test-emulator}
 EMULATOR_PID=.emulator-pid
 if [ -z "${AVD_IMAGE}" ]; then
   echo "Using the latest installed Android image"
-  AVD_IMAGE=$(sdkmanager --list_installed | awk '{ print $1 }' | grep system-images | sort -k 2 -t ';' | head -1)
+  AVD_IMAGE=$(sdkmanager --list_installed | awk '{ print $1 }' | grep system-images | sort -r -k 2 -t ';' | head -1)
   if [ -z "${AVD_IMAGE}" ]; then
     echo "No emulator images installed locally that meet criteria; try overriding AVD_IMAGE variable"
     exit 1
