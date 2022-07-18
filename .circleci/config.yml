@@ -99,6 +99,7 @@ jobs:
                 name: Disable mobile data for network tests
                 command: adb shell svc data disable
           test-command: ./gradlew connectedDebugAndroidTest
+          max-tries: 1
           post-run-tests-steps:
             - store_test_results:
                 path: ./launchdarkly-android-client-sdk/build/outputs/androidTest-results/
@@ -131,6 +132,7 @@ jobs:
             - run: mkdir -p ~/junit
             - run: make start-contract-test-service
           test-command: make run-contract-tests
+          max-tries: 1
           post-run-tests-steps:
             - store_test_results:
                 path: ~/junit
