@@ -14,13 +14,13 @@ workflows:
               api-level:
                 # - 21 - TODO: EasyMock makes our tests fail
                 - 25
-                # - 30 - TODO: timeouts
+                # - 29 - TODO: offline tests fail
                 # - 31 - https://github.com/CircleCI-Public/android-orb/issues/52
       - contract-tests:
           matrix:
             parameters:
               api-level:
-                # - 21 - TODO: flaky contract tests
+                - 21
                 - 25
                 - 30
 
