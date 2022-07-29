@@ -32,7 +32,7 @@ class Throttler {
         this.maxRetryTimeMs = maxRetryTimeMs;
     }
 
-    private synchronized void run() {
+    private void run() {
         taskRunnable.run();
     }
 
