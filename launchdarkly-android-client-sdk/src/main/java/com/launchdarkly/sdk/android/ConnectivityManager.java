@@ -26,6 +26,7 @@ class ConnectivityManager {
     private final StreamUpdateProcessor streamUpdateProcessor;
     private final UserManager userManager;
     private final EventProcessor eventProcessor;
+    private final DiagnosticEventProcessor diagnosticEventProcessor;
     private final Throttler throttler;
     private final Foreground.Listener foregroundListener;
     private final String environmentName;
@@ -40,9 +41,11 @@ class ConnectivityManager {
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final UserManager userManager,
                         @NonNull final String environmentName,
+                        final DiagnosticEventProcessor diagnosticEventProcessor,
                         final DiagnosticStore diagnosticStore) {
         this.application = application;
         this.eventProcessor = eventProcessor;
+        this.diagnosticEventProcessor = diagnosticEventProcessor;
         this.userManager = userManager;
         this.environmentName = environmentName;
         pollingInterval = ldConfig.getPollingIntervalMillis();
@@ -274,6 +277,18 @@ class ConnectivityManager {
         }
     }
 
+    private void startDiagnostics() {
+        if (diagnosticEventProcessor != null) {
+            diagnosticEventProcessor.startScheduler();
+        }
+    }
+
+    private void stopDiagnostics() {
+        if (diagnosticEventProcessor != null) {
+            diagnosticEventProcessor.stopScheduler();
+        }
+    }
+
     synchronized boolean startUp(LDUtil.ResultCallback<Void> onCompleteListener) {
         initialized = false;
         if (setOffline) {
@@ -294,6 +309,7 @@ class ConnectivityManager {
 
         initCallback = onCompleteListener;
         eventProcessor.start();
+        startDiagnostics();
         throttler.attemptRun();
         return true;
     }
@@ -306,6 +322,7 @@ class ConnectivityManager {
         stopStreaming();
         stopPolling();
         setOffline = true;
+        stopDiagnostics();
         callInitCallback();
     }
 
@@ -322,6 +339,7 @@ class ConnectivityManager {
             throttler.cancel();
             attemptTransition(ConnectionMode.SET_OFFLINE);
             eventProcessor.stop();
+            stopDiagnostics();
         }
     }
 
@@ -373,9 +391,11 @@ class ConnectivityManager {
         }
         if (connectionInformation.getConnectionMode() == ConnectionMode.OFFLINE && connectedToInternet) {
             eventProcessor.start();
+            startDiagnostics();
             throttler.attemptRun();
         } else if (connectionInformation.getConnectionMode() != ConnectionMode.OFFLINE && !connectedToInternet) {
             eventProcessor.stop();
+            stopDiagnostics();
             throttler.cancel();
             attemptTransition(ConnectionMode.OFFLINE);
         }
