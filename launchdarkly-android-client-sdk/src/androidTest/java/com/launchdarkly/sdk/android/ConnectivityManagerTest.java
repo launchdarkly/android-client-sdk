@@ -131,7 +131,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
-        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default", null);
+        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default", null, null);
     }
 
     private void awaitStartUp() throws ExecutionException {

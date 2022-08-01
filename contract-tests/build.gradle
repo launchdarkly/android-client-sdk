@@ -1,0 +1,35 @@
+plugins {
+    id("com.android.application")
+    // make sure this line comes *after* you apply the Android plugin
+    id("com.getkeepsafe.dexcount")
+}
+
+android {
+    compileSdkVersion(30)
+    buildToolsVersion = "30.0.3"
+
+    defaultConfig {
+        applicationId = "com.launchdarkly.sdktest"
+        minSdkVersion(21)
+        targetSdkVersion(30)
+        versionCode = 1
+        versionName = "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+        }
+    }
+}
+
+dependencies {
+    implementation("com.jakewharton.timber:timber:5.0.1")
+    // https://mvnrepository.com/artifact/org.nanohttpd/nanohttpd
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("com.google.code.gson:gson:2.8.9")
+    implementation(project(":launchdarkly-android-client-sdk"))
+    // Comment the previous line and uncomment this one to depend on the published artifact:
+    //implementation("com.launchdarkly:launchdarkly-android-client-sdk:3.1.5")
+}
