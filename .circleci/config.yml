@@ -15,7 +15,6 @@ workflows:
                 # - 21 - TODO: EasyMock makes our tests fail
                 - 25
                 # - 29 - TODO: offline tests fail
-                # - 31 - https://github.com/CircleCI-Public/android-orb/issues/52
       - contract-tests:
           matrix:
             parameters:
@@ -23,6 +22,19 @@ workflows:
                 - 21
                 - 25
                 - 30
+                - 31
+      # "default" images are faster than "google_apis" images, but are otherwise equivalent for our purposes.
+      # however, there are no "default" images for Android 32+, so as a workaround we have a separate matrix
+      # for Android 32+
+      - contract-tests:
+          matrix:
+            parameters:
+              api-level:
+                - 33
+              system-image-type:
+                - google_apis
+              resource-class:
+                - xlarge
 
 commands:
   check-emulator-available:
@@ -77,17 +89,23 @@ jobs:
     parameters:
       api-level:
         type: integer
+      system-image-type:
+        type: string
+        default: default
+      resource-class:
+        type: string
+        default: large
 
     executor:
       name: android/android-machine
-      tag: 202102-01
-      resource-class: large
+      tag: 2022.07.1
+      resource-class: << parameters.resource-class >>
 
     steps:
       - checkout
       - android/start-emulator-and-run-tests:
           avd-name: ci-android-avd
-          system-image: system-images;android-<< parameters.api-level >>;default;x86_64
+          system-image: system-images;android-<< parameters.api-level >>;<< parameters.system-image-type >>;x86_64
           run-logcat: true
           restore-gradle-cache-prefix: instrumented-v1
           post-emulator-launch-assemble-command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugAndroidTest
@@ -110,11 +128,17 @@ jobs:
     parameters:
       api-level:
         type: integer
+      system-image-type:
+        type: string
+        default: default
+      resource-class:
+        type: string
+        default: large
 
     executor:
       name: android/android-machine
-      tag: 202102-01
-      resource-class: large
+      tag: 2022.07.1
+      resource-class: << parameters.resource-class >>
 
     environment:
       TEST_HARNESS_PARAMS: -junit /home/circleci/junit/contract-tests-junit.xml
@@ -123,7 +147,7 @@ jobs:
       - checkout
       - android/start-emulator-and-run-tests:
           avd-name: ci-android-avd
-          system-image: system-images;android-<< parameters.api-level >>;default;x86_64
+          system-image: system-images;android-<< parameters.api-level >>;<< parameters.system-image-type >>;x86_64
           run-logcat: true
           restore-gradle-cache-prefix: contract-v1
           post-emulator-launch-assemble-command: make build-contract-tests
