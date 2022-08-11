@@ -81,7 +81,7 @@ class DiagnosticStore {
             DiagnosticEvent.StreamInit[] streamInitsArr = GsonCache.getGson().fromJson(streamInitsString, DiagnosticEvent.StreamInit[].class);
             streamInits = Arrays.asList(streamInitsArr);
         } catch (Exception ex) {
-            LDConfig.LOG.w(ex, "Invalid stream inits array in diagnostic data store");
+            LDConfig.log().w(ex, "Invalid stream inits array in diagnostic data store");
             streamInits = null;
         }
         return streamInits;

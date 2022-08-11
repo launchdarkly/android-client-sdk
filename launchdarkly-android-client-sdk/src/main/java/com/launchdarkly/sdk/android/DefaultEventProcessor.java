@@ -149,12 +149,12 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
             baseHeadersForRequest.put("X-LaunchDarkly-Payload-ID", eventPayloadId);
             baseHeadersForRequest.putAll(baseEventHeaders);
 
-            LDConfig.LOG.d("Posting %s event(s) to %s", events.size(), url);
-            LDConfig.LOG.d("Events body: %s", content);
+            LDConfig.log().d("Posting %s event(s) to %s", events.size(), url);
+            LDConfig.log().d("Events body: %s", content);
 
             for (int attempt = 0; attempt < 2; attempt++) {
                 if (attempt > 0) {
-                    LDConfig.LOG.w("Will retry posting events after 1 second");
+                    LDConfig.log().w("Will retry posting events after 1 second");
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException e) {}
@@ -166,11 +166,11 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    LDConfig.LOG.d("Events Response: %s", response.code());
-                    LDConfig.LOG.d("Events Response Date: %s", response.header("Date"));
+                    LDConfig.log().d("Events Response: %s", response.code());
+                    LDConfig.log().d("Events Response Date: %s", response.header("Date"));
 
                     if (!response.isSuccessful()) {
-                        LDConfig.LOG.w("Unexpected response status when posting events: %d", response.code());
+                        LDConfig.log().w("Unexpected response status when posting events: %d", response.code());
                         if (isHttpErrorRecoverable(response.code())) {
                             continue;
                         }
@@ -179,7 +179,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     tryUpdateDate(response);
                     break;
                 } catch (IOException e) {
-                    LDConfig.LOG.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+                    LDConfig.log().e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
                 }
             }
         }
@@ -192,7 +192,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     Date date = sdf.parse(dateString);
                     currentTimeMs = date.getTime();
                 } catch (ParseException pe) {
-                    LDConfig.LOG.e(pe, "Failed to parse date header");
+                    LDConfig.log().e(pe, "Failed to parse date header");
                 }
             }
         }

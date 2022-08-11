@@ -44,7 +44,7 @@ class SharedPrefsFlagStore implements FlagStore {
         sharedPreferences = null;
 
         File file = new File(application.getFilesDir().getParent() + "/shared_prefs/" + prefsKey + ".xml");
-        LDConfig.LOG.i("Deleting SharedPrefs file:%s", file.getAbsolutePath());
+        LDConfig.log().i("Deleting SharedPrefs file:%s", file.getAbsolutePath());
 
         //noinspection ResultOfMethodCallIgnored
         file.delete();

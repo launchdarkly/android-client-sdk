@@ -49,7 +49,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         }
         editor.apply();
 
-        LDConfig.LOG.d("Updated summary for flagKey %s to %s", flagResponseKey, GsonCache.getGson().toJson(storedCounters));
+        LDConfig.log().d("Updated summary for flagKey %s to %s", flagResponseKey, GsonCache.getGson().toJson(storedCounters));
     }
 
     @Override

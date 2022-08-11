@@ -126,13 +126,13 @@ class DiagnosticEventProcessor {
                 .headers(config.headersForEnvironment(environment, baseDiagnosticHeaders))
                 .post(RequestBody.create(content, JSON)).build();
 
-        LDConfig.LOG.d("Posting diagnostic event to %s with body %s", request.url(), content);
+        LDConfig.log().d("Posting diagnostic event to %s with body %s", request.url(), content);
 
         try (Response response = client.newCall(request).execute()) {
-            LDConfig.LOG.d("Diagnostic Event Response: %s", response.code());
-            LDConfig.LOG.d("Diagnostic Event Response Date: %s", response.header("Date"));
+            LDConfig.log().d("Diagnostic Event Response: %s", response.code());
+            LDConfig.log().d("Diagnostic Event Response Date: %s", response.header("Date"));
         } catch (IOException e) {
-            LDConfig.LOG.w(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+            LDConfig.log().w(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
         }
     }
 }

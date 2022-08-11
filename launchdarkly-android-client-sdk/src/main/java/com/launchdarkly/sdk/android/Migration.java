@@ -29,7 +29,7 @@ class Migration {
             try {
                 migrate_2_7_fresh(application, config);
             } catch (Exception ex) {
-                LDConfig.LOG.w(ex, "Exception while performing fresh v2.7.0 store migration");
+                LDConfig.log().w(ex, "Exception while performing fresh v2.7.0 store migration");
             }
         }
 
@@ -37,7 +37,7 @@ class Migration {
             try {
                 migrate_2_7_from_2_6(application);
             } catch (Exception ex) {
-                LDConfig.LOG.w(ex, "Exception while performing v2.6.0 to v2.7.0 store migration");
+                LDConfig.log().w(ex, "Exception while performing v2.6.0 to v2.7.0 store migration");
             }
         }
     }
@@ -62,7 +62,7 @@ class Migration {
     }
 
     private static void migrate_2_7_fresh(Application application, LDConfig config) {
-        LDConfig.LOG.d("Migrating to v2.7.0 shared preferences store");
+        LDConfig.log().d("Migrating to v2.7.0 shared preferences store");
 
         ArrayList<String> userKeys = getUserKeysPre_2_6(application, config);
         SharedPreferences versionSharedPrefs = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "version", Context.MODE_PRIVATE);
@@ -92,7 +92,7 @@ class Migration {
         }
 
         if (allSuccess) {
-            LDConfig.LOG.d("Migration to v2.7.0 shared preferences store successful");
+            LDConfig.log().d("Migration to v2.7.0 shared preferences store successful");
             SharedPreferences migrations = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "migrations", Context.MODE_PRIVATE);
             boolean logged = migrations.edit().putString("v2.7.0", "v2.7.0").commit();
             if (logged) {
@@ -108,7 +108,7 @@ class Migration {
     }
 
     private static void migrate_2_7_from_2_6(Application application) {
-        LDConfig.LOG.d("Migrating to v2.7.0 shared preferences store from v2.6.0");
+        LDConfig.log().d("Migrating to v2.7.0 shared preferences store from v2.6.0");
 
         Map<String, Set<String>> keyUsers = getUserKeys_2_6(application);
 
@@ -133,7 +133,7 @@ class Migration {
         }
 
         if (allSuccess) {
-            LDConfig.LOG.d("Migration to v2.7.0 shared preferences store successful");
+            LDConfig.log().d("Migration to v2.7.0 shared preferences store successful");
             SharedPreferences migrations = application.getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "migrations", Context.MODE_PRIVATE);
             boolean logged = migrations.edit().putString("v2.7.0", "v2.7.0").commit();
             if (logged) {

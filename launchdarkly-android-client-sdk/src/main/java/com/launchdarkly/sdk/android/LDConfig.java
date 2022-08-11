@@ -28,7 +28,6 @@ import timber.log.Timber.Tree;
 public class LDConfig {
 
     static final String TIMBER_TAG = "LaunchDarklySdk";
-    static final Tree LOG = Timber.tag(TIMBER_TAG);
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final String AUTH_SCHEME = "api_key ";
@@ -691,24 +690,24 @@ public class LDConfig {
         public LDConfig build() {
             if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    LDConfig.LOG.w("setPollingIntervalMillis: %s was set below the allowed minimum of: %s. Ignoring and using minimum value.", pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
+                    LDConfig.log().w("setPollingIntervalMillis: %s was set below the allowed minimum of: %s. Ignoring and using minimum value.", pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
                     pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                    LDConfig.LOG.w("BackgroundPollingIntervalMillis: %s was set below the foreground polling interval: %s. Ignoring and using minimum value for background polling.", backgroundPollingIntervalMillis, pollingIntervalMillis);
+                    LDConfig.log().w("BackgroundPollingIntervalMillis: %s was set below the foreground polling interval: %s. Ignoring and using minimum value for background polling.", backgroundPollingIntervalMillis, pollingIntervalMillis);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (eventsFlushIntervalMillis == 0) {
                     eventsFlushIntervalMillis = pollingIntervalMillis;
-                    LDConfig.LOG.d("Streaming is disabled, so we're setting the events flush interval to the polling interval value: %s", pollingIntervalMillis);
+                    LDConfig.log().d("Streaming is disabled, so we're setting the events flush interval to the polling interval value: %s", pollingIntervalMillis);
                 }
             }
 
             if (!disableBackgroundUpdating) {
                 if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
-                    LDConfig.LOG.w("BackgroundPollingIntervalMillis: %s was set below the minimum allowed: %s. Ignoring and using minimum value.", backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
+                    LDConfig.log().w("BackgroundPollingIntervalMillis: %s was set below the minimum allowed: %s. Ignoring and using minimum value.", backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
             }
@@ -718,7 +717,7 @@ public class LDConfig {
             }
 
             if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
-                LDConfig.LOG.w("diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.", diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
+                LDConfig.log().w("diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.", diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
                 diagnosticRecordingIntervalMillis = MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
             }
 
@@ -757,5 +756,9 @@ public class LDConfig {
                     headerTransform,
                     autoAliasingOptOut);
         }
+    }
+
+    public static final Tree log() {
+        return Timber.tag(TIMBER_TAG);
     }
 }

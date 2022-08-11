@@ -27,13 +27,13 @@ public class PollingUpdater extends BroadcastReceiver {
     }
 
     synchronized static void startBackgroundPolling(Context context) {
-        LDConfig.LOG.d("Starting background polling");
+        LDConfig.log().d("Starting background polling");
         startPolling(context, backgroundPollingIntervalMillis, backgroundPollingIntervalMillis);
     }
 
     synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {
         stop(context);
-        LDConfig.LOG.d("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis);
+        LDConfig.log().d("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis);
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
@@ -44,12 +44,12 @@ public class PollingUpdater extends BroadcastReceiver {
                     intervalMillis,
                     pendingIntent);
         } catch (Exception ex) {
-            LDConfig.LOG.w(ex, "Exception occurred when creating [background] polling alarm, likely due to the host application having too many existing alarms.");
+            LDConfig.log().w(ex, "Exception occurred when creating [background] polling alarm, likely due to the host application having too many existing alarms.");
         }
     }
 
     synchronized static void stop(Context context) {
-        LDConfig.LOG.d("Stopping pollingUpdater");
+        LDConfig.log().d("Stopping pollingUpdater");
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 

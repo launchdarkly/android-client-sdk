@@ -90,7 +90,7 @@ class LDAwaitFuture<T> implements Future<T> {
                 notifier.notifyAll();
             }
         } else {
-            LDConfig.LOG.w("LDAwaitFuture set twice");
+            LDConfig.log().w("LDAwaitFuture set twice");
         }
     }
 
@@ -102,7 +102,7 @@ class LDAwaitFuture<T> implements Future<T> {
                 notifier.notifyAll();
             }
         } else {
-            LDConfig.LOG.w("LDAwaitFuture set twice");
+            LDConfig.log().w("LDAwaitFuture set twice");
         }
     }
 
