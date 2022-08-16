@@ -112,7 +112,7 @@ class ConnectivityManager {
                         LDClient ldClient = LDClient.getForMobileKey(environmentName);
                         ldClient.updateListenersOnFailure(connectionInformation.getLastFailure());
                     } catch (LaunchDarklyException ex) {
-                        LDConfig.LOG.e(e, "Error getting LDClient for ConnectivityManager");
+                        LDConfig.log().e(e, "Error getting LDClient for ConnectivityManager");
                     }
                     callInitCallback();
                 }
@@ -374,13 +374,13 @@ class ConnectivityManager {
         try {
             saveConnectionInformation();
         } catch (Exception ex) {
-            LDConfig.LOG.w(ex, "Error saving connection information");
+            LDConfig.log().w(ex, "Error saving connection information");
         }
         try {
             LDClient ldClient = LDClient.getForMobileKey(environmentName);
             ldClient.updateListenersConnectionModeChanged(connectionInformation);
         } catch (LaunchDarklyException e) {
-            LDConfig.LOG.e(e, "Error getting LDClient for ConnectivityManager");
+            LDConfig.log().e(e, "Error getting LDClient for ConnectivityManager");
         }
     }
 

@@ -148,17 +148,17 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
 
         if (wasBackground) {
             handler.post(() -> {
-                LDConfig.LOG.d("went foreground");
+                LDConfig.log().d("went foreground");
                 for (Listener l : listeners) {
                     try {
                         l.onBecameForeground();
                     } catch (Exception exc) {
-                        LDConfig.LOG.e(exc, "Listener threw exception!");
+                        LDConfig.log().e(exc, "Listener threw exception!");
                     }
                 }
             });
         } else {
-            LDConfig.LOG.d("still foreground");
+            LDConfig.log().d("still foreground");
         }
     }
 
@@ -174,16 +174,16 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
         handler.postDelayed(check = () -> {
             if (foreground && paused) {
                 foreground = false;
-                LDConfig.LOG.d("went background");
+                LDConfig.log().d("went background");
                 for (Listener l : listeners) {
                     try {
                         l.onBecameBackground();
                     } catch (Exception exc) {
-                        LDConfig.LOG.e(exc, "Listener threw exception!");
+                        LDConfig.log().e(exc, "Listener threw exception!");
                     }
                 }
             } else {
-                LDConfig.LOG.d("still background");
+                LDConfig.log().d("still background");
             }
         }, CHECK_DELAY);
     }

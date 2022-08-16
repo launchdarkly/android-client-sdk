@@ -75,7 +75,7 @@ class LDUtil {
         try {
             return deviceConnected && !LDClient.getForMobileKey(environmentName).isOffline();
         } catch (LaunchDarklyException e) {
-            LDConfig.LOG.e(e, "Exception caught when getting LDClient");
+            LDConfig.log().e(e, "Exception caught when getting LDClient");
             return false;
         }
     }

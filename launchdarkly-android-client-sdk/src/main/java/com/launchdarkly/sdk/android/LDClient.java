@@ -102,7 +102,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // initialize the client(s) once.
         synchronized (initLock) {
             if (instances != null) {
-                LDConfig.LOG.w("LDClient.init() was called more than once! returning primary instance.");
+                LDConfig.log().w("LDClient.init() was called more than once! returning primary instance.");
                 return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
             }
             if (BuildConfig.DEBUG) {
@@ -116,14 +116,14 @@ public class LDClient implements LDClientInterface, Closeable {
 
             if (!instanceIdSharedPrefs.contains(INSTANCE_ID_KEY)) {
                 String uuid = UUID.randomUUID().toString();
-                LDConfig.LOG.i("Did not find existing instance id. Saving a new one");
+                LDConfig.log().i("Did not find existing instance id. Saving a new one");
                 SharedPreferences.Editor editor = instanceIdSharedPrefs.edit();
                 editor.putString(INSTANCE_ID_KEY, uuid);
                 editor.apply();
             }
 
             instanceId = instanceIdSharedPrefs.getString(INSTANCE_ID_KEY, instanceId);
-            LDConfig.LOG.i("Using instance id: %s", instanceId);
+            LDConfig.log().i("Using instance id: %s", instanceId);
 
             Migration.migrateWhenNeeded(application, config);
 
@@ -183,7 +183,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         String key = user.getKey();
         if (key == null || key.equals("")) {
-            LDConfig.LOG.i("User was created with null/empty key. Using device-unique anonymous user key: %s", LDClient.getInstanceId());
+            LDConfig.log().i("User was created with null/empty key. Using device-unique anonymous user key: %s", LDClient.getInstanceId());
             builder.key(LDClient.getInstanceId());
             builder.anonymous(true);
         }
@@ -204,14 +204,14 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return The primary LDClient instance
      */
     public static LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
-        LDConfig.LOG.i("Initializing Client and waiting up to %s for initialization to complete", startWaitSeconds);
+        LDConfig.log().i("Initializing Client and waiting up to %s for initialization to complete", startWaitSeconds);
         Future<LDClient> initFuture = init(application, config, user);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
-            LDConfig.LOG.e(e, "Exception during Client initialization");
+            LDConfig.log().e(e, "Exception during Client initialization");
         } catch (TimeoutException e) {
-            LDConfig.LOG.w("Client did not successfully initialize within %s seconds. It could be taking longer than expected to start up", startWaitSeconds);
+            LDConfig.log().w("Client did not successfully initialize within %s seconds. It could be taking longer than expected to start up", startWaitSeconds);
         }
         return instances.get(LDConfig.primaryEnvironmentName);
     }
@@ -222,7 +222,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     public static LDClient get() throws LaunchDarklyException {
         if (instances == null) {
-            LDConfig.LOG.e("LDClient.get() was called before init()!");
+            LDConfig.log().e("LDClient.get() was called before init()!");
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }
         return instances.get(LDConfig.primaryEnvironmentName);
@@ -236,7 +236,7 @@ public class LDClient implements LDClientInterface, Closeable {
     @SuppressWarnings("WeakerAccess")
     public static LDClient getForMobileKey(String keyName) throws LaunchDarklyException {
         if (instances == null) {
-            LDConfig.LOG.e("LDClient.getForMobileKey() was called before init()!");
+            LDConfig.log().e("LDClient.getForMobileKey() was called before init()!");
             throw new LaunchDarklyException("LDClient.getForMobileKey() was called before init()!");
         }
         if (!(instances.containsKey(keyName))) {
@@ -252,7 +252,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @VisibleForTesting
     protected LDClient(final Application application, @NonNull final LDConfig config, final String environmentName) {
-        LDConfig.LOG.i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
+        LDConfig.log().i("Creating LaunchDarkly client. Version: %s", BuildConfig.VERSION_NAME);
         this.config = config;
         this.application = application;
         String sdkKey = config.getMobileKeys().get(environmentName);
@@ -310,7 +310,7 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("User cannot be null"));
         }
         if (user.getKey() == null) {
-            LDConfig.LOG.w("identify called with null user or null user key!");
+            LDConfig.log().w("identify called with null user or null user key!");
         }
         return LDClient.identifyInstances(customizeUser(user));
     }
@@ -422,17 +422,17 @@ public class LDClient implements LDClientInterface, Closeable {
         LDValue value = defaultValue;
 
         if (flag == null) {
-            LDConfig.LOG.i("Unknown feature flag \"%s\"; returning default value", key);
+            LDConfig.log().i("Unknown feature flag \"%s\"; returning default value", key);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
             if (value.isNull()) {
-                LDConfig.LOG.w("Feature flag \"%s\" retrieved with no value; returning default value", key);
+                LDConfig.log().w("Feature flag \"%s\" retrieved with no value; returning default value", key);
                 value = defaultValue;
                 int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
                 result = EvaluationDetail.fromValue(defaultValue, variation, flag.getReason());
             } else if (checkType && !defaultValue.isNull() && value.getType() != defaultValue.getType()) {
-                LDConfig.LOG.w("Feature flag \"%s\" with type %s retrieved as %s; returning default value", key, value.getType(), defaultValue.getType());
+                LDConfig.log().w("Feature flag \"%s\" with type %s retrieved as %s; returning default value", key, value.getType(), defaultValue.getType());
                 value = defaultValue;
                 result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE));
             } else {
@@ -441,7 +441,7 @@ public class LDClient implements LDClientInterface, Closeable {
             sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
 
-        LDConfig.LOG.d("returning variation: %s flagKey: %s user key: %s", result, key, userManager.getCurrentUser().getKey());
+        LDConfig.log().d("returning variation: %s flagKey: %s user key: %s", result, key, userManager.getCurrentUser().getKey());
         updateSummaryEvents(key, flag, value, defaultValue);
         return result;
     }
@@ -660,7 +660,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (!connectivityManager.isOffline()) {
             boolean processed = eventProcessor.sendEvent(event);
             if (!processed) {
-                LDConfig.LOG.w("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+                LDConfig.log().w("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
                 if (diagnosticStore != null) {
                     diagnosticStore.incrementDroppedEventCount();
                 }
@@ -687,7 +687,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     static void triggerPollInstances() {
         if (instances == null) {
-            LDConfig.LOG.w("Cannot perform poll when LDClient has not been initialized!");
+            LDConfig.log().w("Cannot perform poll when LDClient has not been initialized!");
             return;
         }
         for (LDClient instance : instances.values()) {
@@ -697,7 +697,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     static void onNetworkConnectivityChangeInstances(boolean network) {
         if (instances == null) {
-            LDConfig.LOG.e("Tried to update LDClients with network connectivity status, but LDClient has not yet been initialized.");
+            LDConfig.log().e("Tried to update LDClients with network connectivity status, but LDClient has not yet been initialized.");
             return;
         }
         for (LDClient instance : instances.values()) {
