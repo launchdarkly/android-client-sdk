@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.7] - 2022-08-17
+### Fixed:
+- All Timber logs now use a consistent tag `LaunchDarklySdk`. (Thanks, [audkar](https://github.com/launchdarkly/android-client-sdk/pull/178)!)
+
 ## [3.1.6] - 2022-08-01
 ### Added:
 - CI builds now include the [SDK test harness](https://github.com/launchdarkly/sdk-test-harness), a standardized contract test suite that validates the SDK's behavior against simulated LaunchDarkly endpoints.
