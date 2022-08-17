@@ -22,9 +22,7 @@ cat >~/.gradle/gradle.properties <<EOF
 signing.keyId = ${android_code_signing_key_id}
 signing.password = ${android_code_signing_password}
 signing.secretKeyRingFile = ${LD_RELEASE_SECRETS_DIR}/android_code_signing_keyring
-ossrhUsername = ${android_sonatype_username}
-ossrhPassword = ${android_sonatype_password}
-nexusUsername = ${android_sonatype_username}
-nexusPassword = ${android_sonatype_password}
+sonatypeUsername = ${android_sonatype_username}
+sonatypePassword = ${android_sonatype_password}
 systemProp.org.gradle.internal.launcher.welcomeMessageEnabled = false
 EOF
