@@ -76,8 +76,6 @@ public class LDConfig {
 
     private final Gson filteredEventGson;
 
-    private final boolean inlineUsersInEvents;
-
     private final boolean evaluationReasons;
 
     private final String wrapperName;
@@ -100,7 +98,6 @@ public class LDConfig {
              boolean useReport,
              boolean allAttributesPrivate,
              Set<UserAttribute> privateAttributes,
-             boolean inlineUsersInEvents,
              boolean evaluationReasons,
              boolean diagnosticOptOut,
              int diagnosticRecordingIntervalMillis,
@@ -124,7 +121,6 @@ public class LDConfig {
         this.useReport = useReport;
         this.allAttributesPrivate = allAttributesPrivate;
         this.privateAttributes = privateAttributes;
-        this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
@@ -241,10 +237,6 @@ public class LDConfig {
         return filteredEventGson;
     }
 
-    public boolean inlineUsersInEvents() {
-        return inlineUsersInEvents;
-    }
-
     public boolean isEvaluationReasons() {
         return evaluationReasons;
     }
@@ -308,7 +300,6 @@ public class LDConfig {
         private boolean allAttributesPrivate = false;
         private Set<UserAttribute> privateAttributes = new HashSet<>();
 
-        private boolean inlineUsersInEvents = false;
         private boolean evaluationReasons = false;
 
         private String wrapperName;
@@ -547,21 +538,6 @@ public class LDConfig {
         }
 
         /**
-         * If enabled, events to the server will be created containing the entire User object.
-         * If disabled, events to the server will be created without the entire User object, including only the user key instead;
-         * the rest of the user properties will still be included in Identify events.
-         * <p>
-         * Defaults to false in order to reduce network bandwidth.
-         *
-         * @param inlineUsersInEvents true if all user properties should be included in events
-         * @return the builder
-         */
-        public LDConfig.Builder inlineUsersInEvents(boolean inlineUsersInEvents) {
-            this.inlineUsersInEvents = inlineUsersInEvents;
-            return this;
-        }
-
-        /**
          * If enabled, LaunchDarkly will provide additional information about how flag values were
          * calculated. The additional information will then be available through the client's
          * "detail" methods ({@link LDClientInterface#boolVariationDetail(String, boolean)}, etc.).
@@ -725,7 +701,6 @@ public class LDConfig {
                     useReport,
                     allAttributesPrivate,
                     privateAttributes,
-                    inlineUsersInEvents,
                     evaluationReasons,
                     diagnosticOptOut,
                     diagnosticRecordingIntervalMillis,

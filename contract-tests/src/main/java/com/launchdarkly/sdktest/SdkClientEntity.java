@@ -208,7 +208,6 @@ public class SdkClientEntity {
 
     if (params.events != null) {
       builder.diagnosticOptOut(!params.events.enableDiagnostics);
-      builder.inlineUsersInEvents(params.events.inlineUsers);
 
       if (params.events.baseUri != null) {
         builder.eventsUri(Uri.parse(params.events.baseUri));

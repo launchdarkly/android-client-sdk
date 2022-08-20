@@ -301,7 +301,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
-        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue, config.inlineUsersInEvents()));
+        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
     }
 
     @Override
@@ -627,7 +627,7 @@ public class LDClient implements LDClientInterface, Closeable {
         Integer variation = flag.getVariation();
         if (flag.getTrackEvents()) {
             sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
-                    variation, reason, config.inlineUsersInEvents(), false));
+                    variation, reason, false, false));
         } else {
             Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {

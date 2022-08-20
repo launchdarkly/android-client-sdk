@@ -38,7 +38,6 @@ public class DiagnosticEventTest {
         expected.addProperty("evaluationReasonsRequested", false);
         expected.addProperty("eventsCapacity", 100);
         expected.addProperty("eventsFlushIntervalMillis",30_000);
-        expected.addProperty("inlineUsersInEvents", false);
         expected.addProperty("mobileKeyCount", 1);
         expected.addProperty("pollingIntervalMillis", 300_000);
         expected.addProperty("streamingDisabled", false);
@@ -63,7 +62,6 @@ public class DiagnosticEventTest {
                 .evaluationReasons(true)
                 .eventsCapacity(1000)
                 .eventsFlushIntervalMillis(60_000)
-                .inlineUsersInEvents(true)
                 .secondaryMobileKeys(secondaryKeys)
                 .pollingIntervalMillis(600_000)
                 .stream(false)
@@ -85,7 +83,6 @@ public class DiagnosticEventTest {
         expected.addProperty("evaluationReasonsRequested", true);
         expected.addProperty("eventsCapacity", 1000);
         expected.addProperty("eventsFlushIntervalMillis",60_000);
-        expected.addProperty("inlineUsersInEvents", true);
         expected.addProperty("mobileKeyCount", 2);
         expected.addProperty("pollingIntervalMillis", 600_000);
         expected.addProperty("streamingDisabled", true);

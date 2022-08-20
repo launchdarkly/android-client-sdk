@@ -50,7 +50,6 @@ public abstract class Representations {
         boolean enableDiagnostics;
         String[] globalPrivateAttributes;
         Long flushIntervalMs;
-        boolean inlineUsers;
     }
 
     public static class SdkConfigTagParams {

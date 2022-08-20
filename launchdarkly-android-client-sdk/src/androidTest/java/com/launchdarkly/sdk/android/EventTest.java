@@ -256,31 +256,25 @@ public class EventTest {
     public void testUserObjectRemovedFromCustomEvent() {
         LDUser user = new LDUser.Builder("key1").email("email@server.net").build();
 
-        CustomEvent e1 = new CustomEvent("c1", user, null, null, false);
-        CustomEvent e2 = new CustomEvent("c2", user, null, null, true);
+        CustomEvent e1 = new CustomEvent("c1", user, null, null);
 
         assertEquals(e1.userKey, "key1");
-        assertNull(e2.userKey);
 
         assertNull(e1.user);
-        assertEquals(e2.user, user);
 
         assertNull(e1.contextKind);
-        assertNull(e2.contextKind);
     }
 
     @Test
     public void contextKindInCustomEvent() {
         LDUser user = new LDUser.Builder("1").anonymous(true).build();
-        CustomEvent e1 = new CustomEvent("key1", user, null, null, false);
-        CustomEvent e2 = new CustomEvent("key2", user, null, null, true);
+        CustomEvent e1 = new CustomEvent("key1", user, null, null);
         assertEquals(e1.contextKind, "anonymousUser");
-        assertEquals(e2.contextKind, "anonymousUser");
     }
 
     @Test
     public void testCustomEventWithoutDataSerialization() {
-        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, null, false);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, null);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -295,7 +289,7 @@ public class EventTest {
 
     @Test
     public void testCustomEventWithNullValueDataSerialization() {
-        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.ofNull(), null, false);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.ofNull(), null);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -310,7 +304,7 @@ public class EventTest {
 
     @Test
     public void testCustomEventWithDataSerialization() {
-        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.of("abc"), null, false);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.of("abc"), null);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -326,7 +320,7 @@ public class EventTest {
 
     @Test
     public void testCustomEventWithMetricSerialization() {
-        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, 5.5, false);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, 5.5);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
@@ -345,7 +339,7 @@ public class EventTest {
         LDValue objVal = new ObjectBuilder()
                 .put("data", LDValue.of(10))
                 .build();
-        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), objVal, -10.0, false);
+        CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), objVal, -10.0);
 
         LDConfig config = new LDConfig.Builder().build();
         JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);

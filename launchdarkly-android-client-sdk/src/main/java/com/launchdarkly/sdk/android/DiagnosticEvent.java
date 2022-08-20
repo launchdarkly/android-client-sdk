@@ -36,7 +36,6 @@ class DiagnosticEvent {
         private final boolean allAttributesPrivate;
         private final long pollingIntervalMillis;
         private final long backgroundPollingIntervalMillis;
-        private final boolean inlineUsersInEvents;
         private final boolean useReport;
         private final boolean backgroundPollingDisabled;
         private final boolean evaluationReasonsRequested;
@@ -55,7 +54,6 @@ class DiagnosticEvent {
             this.allAttributesPrivate = config.allAttributesPrivate();
             this.pollingIntervalMillis = config.getPollingIntervalMillis();
             this.backgroundPollingIntervalMillis = config.getBackgroundPollingIntervalMillis();
-            this.inlineUsersInEvents = config.inlineUsersInEvents();
             this.useReport = config.isUseReport();
             this.backgroundPollingDisabled = config.isDisableBackgroundPolling();
             this.evaluationReasonsRequested = config.isEvaluationReasons();

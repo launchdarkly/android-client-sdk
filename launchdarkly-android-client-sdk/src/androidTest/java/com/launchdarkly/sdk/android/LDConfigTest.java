@@ -49,7 +49,6 @@ public class LDConfigTest {
         assertFalse(config.isDisableBackgroundPolling());
 
         assertNull(config.getMobileKey());
-        assertFalse(config.inlineUsersInEvents());
         assertFalse(config.isEvaluationReasons());
         assertFalse(config.getDiagnosticOptOut());
 

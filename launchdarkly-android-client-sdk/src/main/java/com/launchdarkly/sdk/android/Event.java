@@ -50,11 +50,9 @@ class CustomEvent extends GenericEvent {
     @Expose final Double metricValue;
     @Expose String contextKind;
 
-    CustomEvent(String key, LDUser user, LDValue data, Double metricValue, boolean inlineUser) {
-        super("custom", key, inlineUser ? user : null);
-        if (!inlineUser) {
-            this.userKey = user.getKey();
-        }
+    CustomEvent(String key, LDUser user, LDValue data, Double metricValue) {
+        super("custom", key, null);
+        this.userKey = user.getKey();
         this.data = data;
         this.metricValue = metricValue;
         if (Event.userContextKind(user).equals("anonymousUser")) {
