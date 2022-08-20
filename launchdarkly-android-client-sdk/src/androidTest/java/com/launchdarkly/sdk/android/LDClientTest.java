@@ -472,64 +472,6 @@ public class LDClientTest {
     }
 
     @Test
-    public void testExplicitAlias() throws IOException, InterruptedException {
-        LDUser identifyUser = new LDUser.Builder("ident").anonymous(true).build();
-        LDUser aliasUser = new LDUser.Builder("alias").anonymous(true).build();
-
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).autoAliasingOptOut(true).build();
-            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.identify(identifyUser);
-                client.alias(aliasUser, identifyUser);
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 3);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof IdentifyEvent);
-                assertTrue(events[2] instanceof AliasEvent);
-                IdentifyEvent identifyEvent = (IdentifyEvent) events[1];
-                AliasEvent aliasEvent = (AliasEvent) events[2];
-                assertEquals(identifyEvent.key, "ident");
-                assertEquals(aliasEvent.key, "alias");
-                assertEquals(aliasEvent.contextKind, "anonymousUser");
-                assertEquals(aliasEvent.previousKey, "ident");
-                assertEquals(aliasEvent.previousContextKind, "anonymousUser");
-            }
-        }
-    }
-
-    @Test
-    public void testAutoAlias() throws IOException, InterruptedException {
-        LDUser initialUser = new LDUser.Builder("init").anonymous(true).build();
-
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            // Enqueue a successful empty response
-            mockEventsServer.enqueue(new MockResponse());
-
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-            try (LDClient client = LDClient.init(application, ldConfig, initialUser, 0)) {
-                client.identify(ldUser);
-                client.blockingFlush();
-
-                Event[] events = getEventsFromLastRequest(mockEventsServer, 3);
-                assertTrue(events[0] instanceof IdentifyEvent);
-                assertTrue(events[1] instanceof AliasEvent);
-                assertTrue(events[2] instanceof IdentifyEvent);
-                AliasEvent aliasEvent = (AliasEvent) events[1];
-                assertEquals(aliasEvent.key, "userKey");
-                assertEquals(aliasEvent.contextKind, "user");
-                assertEquals(aliasEvent.previousKey, "init");
-                assertEquals(aliasEvent.previousContextKind, "anonymousUser");
-            }
-        }
-    }
-
-    @Test
     public void eventIncludesPayloadId() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();

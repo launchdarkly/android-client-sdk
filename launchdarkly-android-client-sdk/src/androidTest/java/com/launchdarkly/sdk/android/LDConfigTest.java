@@ -55,7 +55,6 @@ public class LDConfigTest {
 
         assertNull(config.getWrapperName());
         assertNull(config.getWrapperVersion());
-        assertFalse(config.isAutoAliasingOptOut());
     }
 
 
@@ -307,12 +306,6 @@ public class LDConfigTest {
         assertEquals(2, additional.size());
         assertEquals("other-key", additional.get("Authorization"));
         assertEquals("token", additional.get("Proxy-Authorization"));
-    }
-
-    @Test
-    public void buildWithAutoAliasingOptOut() {
-        LDConfig config = new LDConfig.Builder().autoAliasingOptOut(true).build();
-        assertTrue(config.isAutoAliasingOptOut());
     }
 
     @Test

@@ -85,8 +85,6 @@ public class LDConfig {
 
     private final LDHeaderUpdater headerTransform;
 
-    private final boolean autoAliasingOptOut;
-
     LDConfig(Map<String, String> mobileKeys,
              Uri pollUri,
              Uri eventsUri,
@@ -109,8 +107,7 @@ public class LDConfig {
              String wrapperName,
              String wrapperVersion,
              int maxCachedUsers,
-             LDHeaderUpdater headerTransform,
-             boolean autoAliasingOptOut) {
+             LDHeaderUpdater headerTransform) {
 
         this.mobileKeys = mobileKeys;
         this.pollUri = pollUri;
@@ -135,7 +132,6 @@ public class LDConfig {
         this.wrapperVersion = wrapperVersion;
         this.maxCachedUsers = maxCachedUsers;
         this.headerTransform = headerTransform;
-        this.autoAliasingOptOut = autoAliasingOptOut;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
@@ -277,10 +273,6 @@ public class LDConfig {
         return headerTransform;
     }
 
-    boolean isAutoAliasingOptOut() {
-        return autoAliasingOptOut;
-    }
-
     /**
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
@@ -322,7 +314,6 @@ public class LDConfig {
         private String wrapperName;
         private String wrapperVersion;
         private LDHeaderUpdater headerTransform;
-        private boolean autoAliasingOptOut = false;
 
         /**
          * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
@@ -661,18 +652,6 @@ public class LDConfig {
         }
 
         /**
-         * Enable this opt-out to disable sending an automatic alias event when {@link LDClient#identify(LDUser)} is
-         * called with a non-anonymous user when the current user is anonymous.
-         *
-         * @param autoAliasingOptOut Whether the automatic aliasing feature should be disabled
-         * @return the builder
-         */
-        public LDConfig.Builder autoAliasingOptOut(boolean autoAliasingOptOut) {
-            this.autoAliasingOptOut = autoAliasingOptOut;
-            return this;
-        }
-
-        /**
          * Provides a callback for dynamically modifying headers used on requests to the LaunchDarkly service.
          *
          * @param headerTransform the transformation to apply to requests
@@ -753,8 +732,7 @@ public class LDConfig {
                     wrapperName,
                     wrapperVersion,
                     maxCachedUsers,
-                    headerTransform,
-                    autoAliasingOptOut);
+                    headerTransform);
         }
     }
 

@@ -25,23 +25,6 @@ class Event {
     }
 }
 
-class AliasEvent extends Event {
-    @Expose String key;
-    @Expose String contextKind;
-    @Expose String previousKey;
-    @Expose String previousContextKind;
-    @Expose long creationDate;
-
-    AliasEvent(LDUser user, LDUser previousUser) {
-        super("alias");
-        this.key = user.getKey();
-        this.contextKind = Event.userContextKind(user);
-        this.previousKey = previousUser.getKey();
-        this.previousContextKind = Event.userContextKind(previousUser);
-        this.creationDate = System.currentTimeMillis();
-    }
-}
-
 class GenericEvent extends Event {
     @Expose long creationDate;
     @Expose String key;

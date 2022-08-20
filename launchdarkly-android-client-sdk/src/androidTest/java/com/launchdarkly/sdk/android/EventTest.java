@@ -12,12 +12,6 @@ import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.UserAttribute;
-import com.launchdarkly.sdk.android.AliasEvent;
-import com.launchdarkly.sdk.android.CustomEvent;
-import com.launchdarkly.sdk.android.Event;
-import com.launchdarkly.sdk.android.FeatureRequestEvent;
-import com.launchdarkly.sdk.android.GenericEvent;
-import com.launchdarkly.sdk.android.LDConfig;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -256,18 +250,6 @@ public class EventTest {
         assertEquals(fe2.contextKind, "anonymousUser");
         assertNull(de1.contextKind);
         assertNull(de2.contextKind);
-    }
-
-    @Test
-    public void aliasEventConstructor() {
-        LDUser user = new LDUser.Builder("1").email("email@server.net").build();
-        LDUser anonUser = new LDUser.Builder("3").email("email@server.net").anonymous(true).build();
-        AliasEvent ae = new AliasEvent(user, anonUser);
-        assertEquals(ae.kind, "alias");
-        assertEquals(ae.key, "1");
-        assertEquals(ae.contextKind, "user");
-        assertEquals(ae.previousKey, "3");
-        assertEquals(ae.previousContextKind, "anonymousUser");
     }
 
     @Test

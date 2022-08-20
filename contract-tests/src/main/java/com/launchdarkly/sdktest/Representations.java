@@ -60,7 +60,6 @@ public abstract class Representations {
 
     public static class SdkConfigClientSideParams {
         LDUser initialUser;
-        boolean autoAliasingOptOut;
         boolean evaluationReasons;
         boolean useReport;
     }
@@ -71,7 +70,6 @@ public abstract class Representations {
         EvaluateAllFlagsParams evaluateAll;
         IdentifyEventParams identifyEvent;
         CustomEventParams customEvent;
-        AliasEventParams aliasEvent;
     }
 
     public static class EvaluateFlagParams {
@@ -110,10 +108,5 @@ public abstract class Representations {
         LDValue data;
         boolean omitNullData;
         Double metricValue;
-    }
-
-    public static class AliasEventParams {
-        LDUser user;
-        LDUser previousUser;
     }
 }

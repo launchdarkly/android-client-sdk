@@ -14,7 +14,6 @@
 -keep class com.launchdarkly.sdk.android.DeleteFlagResponse { <fields>; }
 
 -keep class com.launchdarkly.sdk.android.Event { <fields>; }
--keep class com.launchdarkly.sdk.android.AliasEvent { <fields>; }
 -keep class com.launchdarkly.sdk.android.CustomEvent { <fields>; }
 -keep class com.launchdarkly.sdk.android.FeatureRequestEvent { <fields>; }
 -keep class com.launchdarkly.sdk.android.GenericEvent { <fields>; }

@@ -44,7 +44,6 @@ public class DiagnosticEventTest {
         expected.addProperty("streamingDisabled", false);
         expected.addProperty("useReport", false);
         expected.addProperty("maxCachedUsers", 5);
-        expected.addProperty("autoAliasingOptOut", false);
         Assert.assertEquals(expected, diagnosticJson);
     }
 
@@ -70,7 +69,6 @@ public class DiagnosticEventTest {
                 .stream(false)
                 .useReport(true)
                 .maxCachedUsers(-1)
-                .autoAliasingOptOut(true)
                 .build();
 
         DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);
@@ -93,7 +91,6 @@ public class DiagnosticEventTest {
         expected.addProperty("streamingDisabled", true);
         expected.addProperty("useReport", true);
         expected.addProperty("maxCachedUsers", -1);
-        expected.addProperty("autoAliasingOptOut", true);
         Assert.assertEquals(expected, diagnosticJson);
     }
 

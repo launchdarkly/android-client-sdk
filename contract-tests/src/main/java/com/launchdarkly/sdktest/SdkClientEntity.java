@@ -8,7 +8,6 @@ import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.LDClientControl;
 
-import com.launchdarkly.sdktest.Representations.AliasEventParams;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
 import com.launchdarkly.sdktest.Representations.CustomEventParams;
@@ -90,9 +89,6 @@ public class SdkClientEntity {
         return null;
       case "customEvent":
         doCustomEvent(params.customEvent);
-        return null;
-      case "aliasEvent":
-        doAliasEvent(params.aliasEvent);
         return null;
       case "flushEvents":
         client.flush();
@@ -184,10 +180,6 @@ public class SdkClientEntity {
     }
   }
 
-  private void doAliasEvent(AliasEventParams params) {
-    client.alias(params.user, params.previousUser);
-  }
-
   private LDConfig buildSdkConfig(SdkConfigParams params) {
     LDConfig.Builder builder = new LDConfig.Builder();
     builder.mobileKey(params.credential);
@@ -243,7 +235,6 @@ public class SdkClientEntity {
       }
     }
     // TODO: disable events if no params.events
-    builder.autoAliasingOptOut(params.clientSide.autoAliasingOptOut);
     builder.evaluationReasons(params.clientSide.evaluationReasons);
     builder.useReport(params.clientSide.useReport);
 

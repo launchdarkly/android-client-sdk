@@ -317,12 +317,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void identifyInternal(@NonNull LDUser user,
                                   LDUtil.ResultCallback<Void> onCompleteListener) {
-        if (!config.isAutoAliasingOptOut()) {
-            LDUser previousUser = userManager.getCurrentUser();
-            if (Event.userContextKind(previousUser).equals("anonymousUser") && Event.userContextKind(user).equals("user")) {
-                sendEvent(new AliasEvent(user, previousUser));
-            }
-        }
         userManager.setCurrentUser(user);
         connectivityManager.reloadUser(onCompleteListener);
         sendEvent(new IdentifyEvent(user));
@@ -581,16 +575,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     public void unregisterAllFlagsListener(LDAllFlagsListener allFlagsListener) {
         userManager.unregisterAllFlagsListener(allFlagsListener);
-    }
-
-    /**
-     * Alias associates two users for analytics purposes.
-     *
-     * @param user The first user
-     * @param previousUser The second user
-     */
-    public void alias(LDUser user, LDUser previousUser) {
-        sendEvent(new AliasEvent(customizeUser(user), customizeUser(previousUser)));
     }
 
     private void triggerPoll() {

@@ -11,7 +11,6 @@ import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-import com.launchdarkly.sdk.android.AliasEvent;
 import com.launchdarkly.sdk.android.CustomEvent;
 import com.launchdarkly.sdk.android.Event;
 import com.launchdarkly.sdk.android.FeatureRequestEvent;
@@ -36,8 +35,6 @@ public class TestUtil {
                     return context.deserialize(json, CustomEvent.class);
                 case "identify":
                     return context.deserialize(json, IdentifyEvent.class);
-                case "alias":
-                    return context.deserialize(json, AliasEvent.class);
             }
             return null;
         }
