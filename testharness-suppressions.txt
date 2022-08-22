@@ -3,8 +3,3 @@
 streaming/updates/
 # sc-159583 (sdk bug) - `anonymous: false` in events
 events/user properties/
-# sc-159578 (sdk bug) - trailing slashes not handled properly
-streaming/requests/URL path is computed correctly/base URI has a trailing slash/GET
-streaming/requests/URL path is computed correctly/base URI has a trailing slash/REPORT
-polling/requests/URL path is computed correctly/base URI has a trailing slash/GET
-polling/requests/URL path is computed correctly/base URI has a trailing slash/REPORT
