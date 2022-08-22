@@ -171,7 +171,11 @@ public class SdkClientEntity {
   }
 
   private void doIdentifyEvent(IdentifyEventParams params) {
-    client.identify(params.user);
+    try {
+      client.identify(params.user).get();
+    } catch (ExecutionException | InterruptedException e) {
+      throw new RuntimeException("Error waiting for identify", e);
+    }
   }
 
   private void doCustomEvent(CustomEventParams params) {

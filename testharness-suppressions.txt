@@ -1,5 +1,3 @@
 # sc-159880 (sdk bug) - NullPointerException on null variation id
 # sc-160002 (sdk bug) - doesn't support initialRetryDelayMs
 streaming/updates/
-# sc-159583 (sdk bug) - `anonymous: false` in events
-events/user properties/
