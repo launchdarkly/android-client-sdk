@@ -64,9 +64,4 @@ nexusPublishing {
     repositories {
         sonatype()
     }
-
-    transitionCheckOptions {
-        maxRetries.set(20)
-        delayBetween.set(Duration.ofMillis(3000))
-    }
 }
