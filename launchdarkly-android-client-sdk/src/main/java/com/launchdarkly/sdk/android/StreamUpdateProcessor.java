@@ -20,6 +20,8 @@ import okhttp3.RequestBody;
 import static com.launchdarkly.sdk.android.LDConfig.GSON;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 
+import android.net.Uri;
+
 class StreamUpdateProcessor {
     private static final String METHOD_REPORT = "REPORT";
 
@@ -151,7 +153,7 @@ class StreamUpdateProcessor {
     }
 
     private URI getUri(@Nullable LDUser user) {
-        String str = config.getStreamUri().toString() + "/meval";
+        String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
 
         if (!config.isUseReport() && user != null) {
             str += "/" + DefaultUserManager.base64Url(user);
