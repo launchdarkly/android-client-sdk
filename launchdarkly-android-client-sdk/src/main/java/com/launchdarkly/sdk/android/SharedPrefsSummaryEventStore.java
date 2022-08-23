@@ -4,6 +4,7 @@ import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDValue;
 
 import java.util.HashMap;
@@ -16,9 +17,11 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
     private static final String START_DATE_KEY = "$startDate$";
 
     private final SharedPreferences sharedPreferences;
+    private final LDLogger logger;
 
-    SharedPrefsSummaryEventStore(Application application, String name) {
+    SharedPrefsSummaryEventStore(Application application, String name, LDLogger logger) {
         this.sharedPreferences = application.getSharedPreferences(name, Context.MODE_PRIVATE);
+        this.logger = logger;
     }
 
     @Override
@@ -49,7 +52,7 @@ class SharedPrefsSummaryEventStore implements SummaryEventStore {
         }
         editor.apply();
 
-        LDConfig.LOG.d("Updated summary for flagKey %s to %s", flagResponseKey, GsonCache.getGson().toJson(storedCounters));
+        logger.debug("Updated summary for flagKey {} to {}", flagResponseKey, GsonCache.getGson().toJson(storedCounters));
     }
 
     @Override

@@ -7,6 +7,8 @@ import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 
 import java.net.URI;
@@ -19,6 +21,8 @@ import okhttp3.RequestBody;
 
 import static com.launchdarkly.sdk.android.LDConfig.GSON;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
+
+import android.net.Uri;
 
 class StreamUpdateProcessor {
     private static final String METHOD_REPORT = "REPORT";
@@ -41,25 +45,28 @@ class StreamUpdateProcessor {
     private final LDUtil.ResultCallback<Void> notifier;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
+    private final LDLogger logger;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, DiagnosticStore diagnosticStore, LDUtil.ResultCallback<Void> notifier) {
+    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, DiagnosticStore diagnosticStore,
+                          LDUtil.ResultCallback<Void> notifier, LDLogger logger) {
         this.config = config;
         this.userManager = userManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
+        this.logger = logger;
         queue = new Debounce();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 
     synchronized void start() {
         if (!running && !connection401Error) {
-            LDConfig.LOG.d("Starting.");
+            logger.debug("Starting.");
 
             EventHandler handler = new EventHandler() {
                 @Override
                 public void onOpen() {
-                    LDConfig.LOG.i("Started LaunchDarkly EventStream");
+                    logger.info("Started LaunchDarkly EventStream");
                     if (diagnosticStore != null) {
                         diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), false);
                     }
@@ -67,13 +74,13 @@ class StreamUpdateProcessor {
 
                 @Override
                 public void onClosed() {
-                    LDConfig.LOG.i("Closed LaunchDarkly EventStream");
+                    logger.info("Closed LaunchDarkly EventStream");
                 }
 
                 @Override
                 public void onMessage(final String name, MessageEvent event) {
                     final String eventData = event.getData();
-                    LDConfig.LOG.d("onMessage: %s: %s", name, eventData);
+                    logger.debug("onMessage: {}: {}", name, eventData);
                     handle(name, eventData, notifier);
                 }
 
@@ -84,14 +91,16 @@ class StreamUpdateProcessor {
 
                 @Override
                 public void onError(Throwable t) {
-                    LDConfig.LOG.e(t, "Encountered EventStream error connecting to URI: %s", getUri(userManager.getCurrentUser()));
+                    LDUtil.logExceptionAtErrorLevel(logger, t,
+                            "Encountered EventStream error connecting to URI: {}",
+                            getUri(userManager.getCurrentUser()));
                     if (t instanceof UnsuccessfulResponseException) {
                         if (diagnosticStore != null) {
                             diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
                         }
                         int code = ((UnsuccessfulResponseException) t).getCode();
                         if (code >= 400 && code < 500) {
-                            LDConfig.LOG.e("Encountered non-retriable error: %s. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
+                            logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
                             notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
@@ -99,7 +108,7 @@ class StreamUpdateProcessor {
                                 try {
                                     LDClient.getForMobileKey(environmentName).setOffline();
                                 } catch (LaunchDarklyException e) {
-                                    LDConfig.LOG.e(e, "Client unavailable to be set offline");
+                                    LDUtil.logExceptionAtErrorLevel(logger, e, "Client unavailable to be set offline");
                                 }
                             }
                             stop(null);
@@ -146,12 +155,12 @@ class StreamUpdateProcessor {
 
     @NonNull
     private RequestBody getRequestBody(@Nullable LDUser user) {
-        LDConfig.LOG.d("Attempting to report user in stream");
+        logger.debug("Attempting to report user in stream");
         return RequestBody.create(GSON.toJson(user), JSON);
     }
 
     private URI getUri(@Nullable LDUser user) {
-        String str = config.getStreamUri().toString() + "/meval";
+        String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
 
         if (!config.isUseReport() && user != null) {
             str += "/" + DefaultUserManager.base64Url(user);
@@ -179,13 +188,13 @@ class StreamUpdateProcessor {
                 });
                 break;
             default:
-                LDConfig.LOG.d("Found an unknown stream protocol: %s", name);
+                logger.debug("Found an unknown stream protocol: {}", name);
                 onCompleteListener.onError(new LDFailure("Unknown Stream Element Type", null, LDFailure.FailureType.UNEXPECTED_STREAM_ELEMENT_TYPE));
         }
     }
 
     void stop(final LDUtil.ResultCallback<Void> onCompleteListener) {
-        LDConfig.LOG.d("Stopping.");
+        logger.debug("Stopping.");
         // We do this in a separate thread because closing the stream involves a network
         // operation and we don't want to do a network operation on the main thread.
         executor.execute(() -> {
@@ -202,6 +211,6 @@ class StreamUpdateProcessor {
         }
         running = false;
         es = null;
-        LDConfig.LOG.d("Stopped.");
+        logger.debug("Stopped.");
     }
 }

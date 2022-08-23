@@ -29,5 +29,5 @@ dependencies {
 
     implementation(project(":launchdarkly-android-client-sdk"))
     // Comment the previous line and uncomment this one to depend on the published artifact:
-    //implementation("com.launchdarkly:launchdarkly-android-client-sdk:3.1.2")
+    //implementation("com.launchdarkly:launchdarkly-android-client-sdk:3.1.5")
 }

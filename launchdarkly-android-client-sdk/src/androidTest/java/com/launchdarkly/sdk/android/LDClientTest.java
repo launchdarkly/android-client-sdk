@@ -6,6 +6,7 @@ import android.net.Uri;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
@@ -601,8 +602,8 @@ public class LDClientTest {
             // Setup flag store with test flag
             TestUtil.markMigrationComplete(application);
             EvaluationReason testReason = EvaluationReason.off();
-            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application).createFlagStore(mobileKey + DefaultUserManager.sharedPrefs(ldUser));
-            flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").trackEvents(true).trackReason(true).reason(testReason).build());
+            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application, LDLogger.none()).createFlagStore(mobileKey + DefaultUserManager.sharedPrefs(ldUser));
+            flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").version(10).trackEvents(true).trackReason(true).reason(testReason).build());
 
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.boolVariation("track-reason-flag", false);
@@ -615,7 +616,7 @@ public class LDClientTest {
                 assertEquals("track-reason-flag", event.key);
                 assertEquals("userKey", event.userKey);
                 assertNull(event.variation);
-                assertNull(event.version);
+                assertEquals(Integer.valueOf(10), event.version);
                 assertFalse(event.value.booleanValue());
                 assertFalse(event.defaultVal.booleanValue());
                 assertEquals(testReason, event.reason);
@@ -642,6 +643,31 @@ public class LDClientTest {
             RecordedRequest r = mockEventsServer.takeRequest();
             assertEquals("token", r.getHeader("Proxy-Authorization"));
             assertEquals("foo", r.getHeader("Authorization"));
+        }
+    }
+
+    @Test
+    public void testEventBufferFillsUp() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .eventsCapacity(1)
+                    .build();
+
+            // Don't wait as we are not set offline
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.identify(ldUser);
+                LDValue testData = LDValue.of("xyz");
+                client.trackData("test-event", testData);
+                client.blockingFlush();
+
+                // Verify that only the first event was sent and other events were dropped
+                Event[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                assertTrue(events[0] instanceof IdentifyEvent);
+            }
         }
     }
 

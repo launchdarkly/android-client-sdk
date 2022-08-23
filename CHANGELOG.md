@@ -3,6 +3,59 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.2.0] - 2022-08-23
+The purpose of this release is to introduce a new logging facade, [`com.launchdarkly.logging`](https://github.com/launchdarkly/java-logging), to streamline how logging works in LaunchDarkly Java and Android code.
+
+Previously, the Android SDK always used Timber for logging. This sometimes led to conflicts with an application's separate use of Timber, as described in [#88](https://github.com/launchdarkly/android-client-sdk/issues/88) and [#147](https://github.com/launchdarkly/android-client-sdk/issues/147).
+
+In this release, the default behavior is still to use Timber, but the logging facade can also be configured programmatically to do simple Android logging without Timber, or to forward output to another framework such as `java.util.logging`, or to multiple destinations, or to capture output in memory. In a future major version release, the default behavior may be changed so that the SDK does not require Timber as a dependency.
+
+### Added:
+- In [`LDConfig.Builder`](https://javadoc.io/doc/com.launchdarkly/launchdarkly-android-client-sdk/latest/com/launchdarkly/sdk/android/LDConfig.Builder.html), the new methods `logAdapter`, `logLevel`, and `loggerName`, for the new logging capabilities mentioned above.
+- New class `LDTimberLogging` for configuring the SDK's Timber integration.
+- New class `LDAndroidLogging` for configuring the SDK to use the Android logging API without Timber.
+
+## [3.1.8] - 2022-08-23
+### Changed:
+- Changed throttling/jitter logic that used `java.util.Random` to use `java.security.SecureRandom`. Even though in this case it is not being used for any cryptographic purpose, but only to produce a pseudo-random delay, static analysis tools may still report every use of `java.util.Random` as a security risk by default. The purpose of this change is simply to avoid such warnings; it has no practical effect on the behavior of the SDK.
+
+### Fixed:
+- The map of existing `LDClient` instances was not being cleared after calling `close()`. ([#108](https://github.com/launchdarkly/android-client-sdk/issues/108))
+- Fixed a bug that caused an `ExecutorService` object to be unnecessarily created when `flush()` was called.
+- The SDK did not correctly persist versioning information when a flag was deleted or archived. In an edge case where flag updates are received out of order, this could cause a deleted flag to appear to be undeleted.
+- Setting `baseUri` or `streamUri` to a URI with a trailing slash could cause requests to fail. Now the SDK works correctly regardless of whether these URIs have a trailing slash or not.
+- The SDK was including `"anonymous": false` in analytics event data for users where the `anonymous` property had not been set at all. In the current user model, `"anonymous": false` is subtly different from not setting the property (flag rules referencing `anonymous` will only work if it is explicitly set), so the event data should accurately represent this by omitting the property if it was omitted.
+- Fixed a bug that could cause a NullPointerException when calling `variation` methods, in an edge case where the SDK received inconsistent data of a kind that the LaunchDarkly services would not normally send (an evaluation result with a value but no variation). This should not be possible in practice, but could happen in test scenarios.
+
+## [3.1.7] - 2022-08-17
+### Fixed:
+- All Timber logs now use a consistent tag `LaunchDarklySdk`. (Thanks, [audkar](https://github.com/launchdarkly/android-client-sdk/pull/178)!)
+
+## [3.1.6] - 2022-08-01
+### Added:
+- CI builds now include the [SDK test harness](https://github.com/launchdarkly/sdk-test-harness), a standardized contract test suite that validates the SDK's behavior against simulated LaunchDarkly endpoints.
+
+### Fixed:
+- Deadlock between `Throttler` and `ConnectivityManager`. (Thanks, [res0nance](https://github.com/launchdarkly/android-client-sdk/pull/163)!)
+- Remove object-level locking in `LDClient` that caused synchronous `init()`s to unnecessarily block other methods, resulting in ANRs.
+
+## [3.1.5] - 2022-05-05
+
+### Fixed
+- Prevent `NullPointerException` when event buffer is full and `diagnosticOptOut` is true. (Thanks, [mattyway](https://github.com/launchdarkly/android-client-sdk/pull/160)!)
+
+## [3.1.4] - 2022-03-23
+### Fixed
+- Removed Android Appcompat dependency.
+- Bump version of okhttp from 4.9.1 to 4.9.2.
+- Prevent multiple allocations of the DiagnosticEventProcessor.
+- Removed application `android:label` attribute from the SDK's manifest. (Thanks, [Exaper](https://github.com/launchdarkly/android-client-sdk/pull/156)!)
+
+## [3.1.3] - 2022-02-24
+### Fixed
+- Add explicit proguard directives for keeping BroadcastReceivers
+- Bump version of git-publish gradle plugin from 3.0.0 to 3.0.1.
+
 ## [3.1.2] - 2021-12-17
 ### Fixed
 - Bump version of gson dependency from 2.8.6 to 2.8.9.
@@ -78,7 +131,6 @@ Usages of `Gson` provided types have been removed from the public API, replacing
 - `LDClient` API changes:
   * `boolVariation` and `intVariation` no longer use nullable object types for argument and return values, instead using primitive types, e.g. `Boolean boolVariation(String, Boolean)` became `boolean boolVariation(String, boolean)`.
   * `boolVariationDetail` and `intVariationDetail` no longer use nullable object types for argument values, instead using primitive types, e.g. `boolVariationDetail(String, Boolean)` became `boolVariationDetail(String, boolean)`.
-  * `floatVariation` and `floatVariationDetail` have been changed to have the same behavior as the removed `doubleVariation` and `doubleVariationDetail`.
   * `allFlags()` now returns `Map<String, LDValue>` rather than `Map<String, ?>`. Rather than the returned `Map` containing `Boolean`, `Float`, and `String` typed objects, with JSON values represented as strings, the `Map` contains `LDValue` typed objects which return the source type (including complex types such as JSON arrays and objects).
 - `EvaluationDetail.getVariationIndex()` now returns `int` instead of `Integer`. No variation index is now represented as the constant `EvaluationReason.NO_VARIATION`.
 - `EvaluationReason` is now a single concrete class rather than an abstract base class. Usages of the sub-classes can be replaced with the base class.
@@ -102,7 +154,7 @@ Usages of `Gson` provided types have been removed from the public API, replacing
   * `custom(String, List<String>)`, `LDUser.customString(String, List<String>)`, `LDUser.privateCustomString(String, List<String>)`. Use `custom(String, LDValue)` and `privateCustom(String, LDValue)` instead.
   * `customNumber(String, List<Number>)` and `LDUser.privateCustomNumber(String, List<Number>)`. Use `custom(String, LDValue)` and `privateCustom(String, LDValue)` instead.
 - `LDClient`:
-  * `doubleVariation` and `doubleVariationDetail` have been removed. Use `floatVariation` and `floatVariationDetail` instead.
+  * `floatVariation` and `floatVariationDetail` have been removed. Use `doubleVariation` and `doubleVariationDetail` instead.
   * `jsonVariation` and `jsonVariationDetail` have been removed. Use `jsonValueVariation` and `jsonValueVariationDetail` instead.
   * `track(String, JsonElement)` and `track(String, JsonElement, Double)` overloads have been removed, please use the designated methods `trackData(String, LDValue)` and `trackMetric(String, LDValue, double)` instead.
 - The public constructor for `EvaluationDetail` has been hidden. Use the new factory methods `EvaluationDetail.fromValue` and `EvaluationDetail.error` instead.

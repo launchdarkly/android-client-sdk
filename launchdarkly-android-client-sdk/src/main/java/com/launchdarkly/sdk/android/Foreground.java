@@ -14,6 +14,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
 import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE;
 
+import com.launchdarkly.logging.LogValues;
+
 // From: https://gist.github.com/steveliles/11116937
 
 /**
@@ -148,17 +150,17 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
 
         if (wasBackground) {
             handler.post(() -> {
-                LDConfig.LOG.d("went foreground");
+                LDClient.getSharedLogger().debug("went foreground");
                 for (Listener l : listeners) {
                     try {
                         l.onBecameForeground();
                     } catch (Exception exc) {
-                        LDConfig.LOG.e(exc, "Listener threw exception!");
+                        LDUtil.logExceptionAtErrorLevel(LDClient.getSharedLogger(), exc, "Listener threw exception");
                     }
                 }
             });
         } else {
-            LDConfig.LOG.d("still foreground");
+            LDClient.getSharedLogger().debug("still foreground");
         }
     }
 
@@ -174,16 +176,16 @@ class Foreground implements Application.ActivityLifecycleCallbacks {
         handler.postDelayed(check = () -> {
             if (foreground && paused) {
                 foreground = false;
-                LDConfig.LOG.d("went background");
+                LDClient.getSharedLogger().debug("went background");
                 for (Listener l : listeners) {
                     try {
                         l.onBecameBackground();
                     } catch (Exception exc) {
-                        LDConfig.LOG.e(exc, "Listener threw exception!");
+                        LDUtil.logExceptionAtErrorLevel(LDClient.getSharedLogger(), exc, "Listener threw exception");
                     }
                 }
             } else {
-                LDConfig.LOG.d("still background");
+                LDClient.getSharedLogger().debug("still foreground");
             }
         }, CHECK_DELAY);
     }

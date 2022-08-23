@@ -32,6 +32,9 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
 import static com.launchdarkly.sdk.android.LDUtil.isClientConnected;
 import static com.launchdarkly.sdk.android.LDUtil.isHttpErrorRecoverable;
 
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
+
 class DefaultEventProcessor implements EventProcessor, Closeable {
     private static final HashMap<String, String> baseEventHeaders = new HashMap<String, String>() {{
         put("Content-Type", "application/json");
@@ -48,9 +51,10 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     private final SummaryEventStore summaryEventStore;
     private long currentTimeMs = System.currentTimeMillis();
     private DiagnosticStore diagnosticStore;
+    private final LDLogger logger;
 
     DefaultEventProcessor(Context context, LDConfig config, SummaryEventStore summaryEventStore, String environmentName,
-                          final DiagnosticStore diagnosticStore, final OkHttpClient sharedClient) {
+                          final DiagnosticStore diagnosticStore, final OkHttpClient sharedClient, LDLogger logger) {
         this.context = context;
         this.config = config;
         this.environmentName = environmentName;
@@ -59,6 +63,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         this.summaryEventStore = summaryEventStore;
         this.client = sharedClient;
         this.diagnosticStore = diagnosticStore;
+        this.logger = logger;
     }
 
     public void start() {
@@ -98,7 +103,9 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     }
 
     public void flush() {
-        Executors.newSingleThreadExecutor().execute(consumer);
+        if (scheduler != null) {
+            scheduler.schedule(consumer, 0, TimeUnit.MILLISECONDS);
+        }
     }
 
     @VisibleForTesting
@@ -149,12 +156,12 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
             baseHeadersForRequest.put("X-LaunchDarkly-Payload-ID", eventPayloadId);
             baseHeadersForRequest.putAll(baseEventHeaders);
 
-            LDConfig.LOG.d("Posting %s event(s) to %s", events.size(), url);
-            LDConfig.LOG.d("Events body: %s", content);
+            logger.debug("Posting {} event(s) to {}", events.size(), url);
+            logger.debug("Events body: {}", content);
 
             for (int attempt = 0; attempt < 2; attempt++) {
                 if (attempt > 0) {
-                    LDConfig.LOG.w("Will retry posting events after 1 second");
+                    logger.warn("Will retry posting events after 1 second");
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException e) {}
@@ -166,11 +173,11 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    LDConfig.LOG.d("Events Response: %s", response.code());
-                    LDConfig.LOG.d("Events Response Date: %s", response.header("Date"));
+                    logger.debug("Events Response: {}", response.code());
+                    logger.debug("Events Response Date: {}", response.header("Date"));
 
                     if (!response.isSuccessful()) {
-                        LDConfig.LOG.w("Unexpected response status when posting events: %d", response.code());
+                        logger.warn("Unexpected response status when posting events: {}", response.code());
                         if (isHttpErrorRecoverable(response.code())) {
                             continue;
                         }
@@ -179,7 +186,9 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     tryUpdateDate(response);
                     break;
                 } catch (IOException e) {
-                    LDConfig.LOG.e(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+                    LDUtil.logExceptionAtErrorLevel(logger, e,
+                            "Unhandled exception in LaunchDarkly client attempting to connect to URI: {}",
+                            request.url());
                 }
             }
         }
@@ -192,7 +201,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                     Date date = sdf.parse(dateString);
                     currentTimeMs = date.getTime();
                 } catch (ParseException pe) {
-                    LDConfig.LOG.e(pe, "Failed to parse date header");
+                    LDUtil.logExceptionAtErrorLevel(logger, pe, "Failed to parse date header");
                 }
             }
         }

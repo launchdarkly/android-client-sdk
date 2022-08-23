@@ -13,11 +13,15 @@ import androidx.annotation.NonNull;
 import com.google.gson.TypeAdapter;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import com.launchdarkly.logging.LDLogLevel;
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -75,7 +79,8 @@ class LDUtil {
         try {
             return deviceConnected && !LDClient.getForMobileKey(environmentName).isOffline();
         } catch (LaunchDarklyException e) {
-            LDConfig.LOG.e(e, "Exception caught when getting LDClient");
+            LDClient.getSharedLogger().error("Exception caught when getting LDClient: {}", LogValues.exceptionSummary(e));
+            LDClient.getSharedLogger().debug(LogValues.exceptionTrace(e));
             return false;
         }
     }
@@ -128,6 +133,27 @@ class LDUtil {
             }
         }
         return true;
+    }
+
+    static void logExceptionAtErrorLevel(LDLogger logger, Throwable ex, String msgFormat, Object... msgArgs) {
+        logException(logger, ex, true, msgFormat, msgArgs);
+    }
+
+    static void logExceptionAtWarnLevel(LDLogger logger, Throwable ex, String msgFormat, Object... msgArgs) {
+        logException(logger, ex, false, msgFormat, msgArgs);
+    }
+
+    private static void logException(LDLogger logger, Throwable ex, boolean asError, String msgFormat, Object... msgArgs) {
+        String addFormat = msgFormat + " - {}";
+        Object exSummary = LogValues.exceptionSummary(ex);
+        Object[] args = Arrays.copyOf(msgArgs, msgArgs.length + 1);
+        args[msgArgs.length] = exSummary;
+        if (asError) {
+            logger.error(addFormat, args);
+        } else {
+            logger.warn(addFormat, args);
+        }
+        logger.debug(LogValues.exceptionTrace(ex));
     }
 
     static class LDUserPrivateAttributesTypeAdapter extends TypeAdapter<LDUser> {
@@ -220,7 +246,10 @@ class LDUtil {
             out.beginObject();
 
             out.name("key").value(user.getKey());
-            out.name("anonymous").value(user.isAnonymous());
+
+            if (!user.getAttribute(UserAttribute.ANONYMOUS).isNull()) {
+                out.name("anonymous").value(user.isAnonymous());
+            }
 
             for (UserAttribute attrib : OPTIONAL_BUILTINS) {
                 safeWrite(out, user, attrib, privateAttrs);

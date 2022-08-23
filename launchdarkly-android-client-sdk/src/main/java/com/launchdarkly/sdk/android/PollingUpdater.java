@@ -10,6 +10,8 @@ import android.os.SystemClock;
 
 import static android.app.PendingIntent.FLAG_IMMUTABLE;
 
+import com.launchdarkly.logging.LogValues;
+
 /**
  * Used internally by the SDK.
  */
@@ -27,13 +29,13 @@ public class PollingUpdater extends BroadcastReceiver {
     }
 
     synchronized static void startBackgroundPolling(Context context) {
-        LDConfig.LOG.d("Starting background polling");
+        LDClient.getSharedLogger().debug("Starting background polling");
         startPolling(context, backgroundPollingIntervalMillis, backgroundPollingIntervalMillis);
     }
 
     synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {
         stop(context);
-        LDConfig.LOG.d("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis);
+        LDClient.getSharedLogger().debug("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis);
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
@@ -44,12 +46,13 @@ public class PollingUpdater extends BroadcastReceiver {
                     intervalMillis,
                     pendingIntent);
         } catch (Exception ex) {
-            LDConfig.LOG.w(ex, "Exception occurred when creating [background] polling alarm, likely due to the host application having too many existing alarms.");
+            LDUtil.logExceptionAtWarnLevel(LDClient.getSharedLogger(), ex,
+                    "Exception occurred when creating [background] polling alarm, likely due to the host application having too many existing alarms");
         }
     }
 
     synchronized static void stop(Context context) {
-        LDConfig.LOG.d("Stopping pollingUpdater");
+        LDClient.getSharedLogger().debug("Stopping pollingUpdater");
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 

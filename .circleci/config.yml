@@ -1,105 +1,169 @@
 version: 2.1
+
 orbs:
-  android: circleci/android@1.0
-jobs:
-  build:
-    executor:
-      name: android/android-machine
-      resource-class: large
+  android: circleci/android@2.1.2
 
+workflows:
+  test:
+    jobs:
+      - package
+      - unit-tests
+      - instrumented-tests:
+          matrix:
+            parameters:
+              api-level:
+                # - 21 - TODO: EasyMock makes our tests fail
+                - 25
+                # - 29 - TODO: offline tests fail
+# Contract tests are temporarily disabled for API 31 and API 33 due to a degree of
+# test instability that impedes development. Currently there are two common failure
+# modes: SDK initialization times out, or SDK initialization completes immediately
+# without acquiring any data because the emulator reports no network availability.
+# These do not appear correlated to any actual SDK logic flaw.
+      - contract-tests:
+          matrix:
+            parameters:
+              api-level:
+                - 21
+                - 25
+                - 30
+#                - 31
+      # # "default" images are faster than "google_apis" images, but are otherwise equivalent for our purposes.
+      # # however, there are no "default" images for Android 32+, so as a workaround we have a separate matrix
+      # # for Android 32+
+      # - contract-tests:
+      #     matrix:
+      #       parameters:
+      #         api-level:
+      #           - 33
+      #         system-image-type:
+      #           - google_apis
+      #         resource-class:
+      #           - xlarge
+
+commands:
+  check-emulator-available:
     steps:
-      - checkout
-
-      # Create and start emulator
-      - android/create-avd:
-          avd-name: ci-android-avd
-          system-image: system-images;android-25;default;x86
-          install: true
-
-      - android/start-emulator:
-          avd-name: ci-android-avd
-          wait-for-emulator: false
-
-      # Perform tasks we can do while waiting for emulator to start
-
-      # Restore caches
-      - android/restore-gradle-cache
-      - android/restore-build-cache
-
-      - run:
-          name: Build local tests
-          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugUnitTest
-
-      - run:
-          name: Build connected tests
-          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugAndroidTest
-
-      # Save caches
-      - android/save-build-cache
-      - android/save-gradle-cache
-
-      # Run unit tests that do not require the emulator
-      - run:
-          name: Run local tests
-          command: ./gradlew :launchdarkly-android-client-sdk:testDebugUnitTest
-
-      # Now wait for emulator to fully start
-      - android/wait-for-emulator
-
       # Additional validation that emulator is fully started and will accept adb
       # commands
       - run:
-          name: Validate retrieving emulator SDK version
+          name: Check emulator is available
           command: |
             while ! adb shell getprop ro.build.version.sdk; do
               sleep 1
             done
 
-      # Necessary for test mocking to disable network access through WiFi
-      # configuration, allowing testing of behavior when device is offline
-      - run:
-          name: Disable mobile data for network tests
-          command: adb shell svc data disable
-
-      - run:
-          name: Fetch logcat and props
-          background: true
-          command: |
-            mkdir -p ~/artifacts
-            adb shell getprop | tee -a ~/artifacts/props.txt
-            adb logcat | tee -a ~/artifacts/logcat.txt
-
-      - android/run-tests:
-          max-tries: 1
-
-      - android/kill-emulators
-
+jobs:
+  package:
+    docker:
+      - image: cimg/android:2022.06
+    steps:
+      - checkout
+      - android/restore-gradle-cache:
+          cache-prefix: package
       - run:
           name: Validate package creation
           command: ./gradlew packageRelease --console=plain -PdisablePreDex
-
       - run:
           name: Validate Javadoc
           command: ./gradlew Javadoc
-      
-      - run:
-          name: Save test results
-          command: |
-            mkdir -p ~/test-results
-            cp -r ./launchdarkly-android-client-sdk/build/test-results/testDebugUnitTest ~/test-results/
-            cp -r ./launchdarkly-android-client-sdk/build/outputs/androidTest-results/*  ~/test-results/
-          when: always
-
-      - run:
-          name: Save artifacts
-          command: |
-            mv ./launchdarkly-android-client-sdk/build/test-results ~/artifacts
-            mv ./launchdarkly-android-client-sdk/build/reports      ~/artifacts
-            mv ./launchdarkly-android-client-sdk/build/outputs      ~/artifacts
-            mv ./launchdarkly-android-client-sdk/build/docs         ~/artifacts
-          when: always
-
-      - store_test_results:
-            path: ~/test-results
       - store_artifacts:
-            path: ~/artifacts
+          path: ./launchdarkly-android-client-sdk/build/reports/
+      - android/save-gradle-cache:
+          cache-prefix: package
+
+  unit-tests:
+    docker:
+      - image: cimg/android:2022.06
+    steps:
+      - checkout
+      - android/restore-gradle-cache:
+          cache-prefix: unit
+      - run:
+          name: Build unit tests
+          command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugUnitTest
+      - run:
+          name: Run local tests
+          command: ./gradlew :launchdarkly-android-client-sdk:testDebugUnitTest
+      - android/save-gradle-cache:
+          cache-prefix: unit
+      - store_test_results:
+          path: ./launchdarkly-android-client-sdk/build/test-results/testDebugUnitTest
+
+  instrumented-tests:
+    parameters:
+      api-level:
+        type: integer
+      system-image-type:
+        type: string
+        default: default
+      resource-class:
+        type: string
+        default: large
+
+    executor:
+      name: android/android-machine
+      tag: 2022.07.1
+      resource-class: << parameters.resource-class >>
+
+    steps:
+      - checkout
+      - android/start-emulator-and-run-tests:
+          avd-name: ci-android-avd
+          system-image: system-images;android-<< parameters.api-level >>;<< parameters.system-image-type >>;x86_64
+          run-logcat: true
+          restore-gradle-cache-prefix: instrumented-v1
+          post-emulator-launch-assemble-command: ./gradlew :launchdarkly-android-client-sdk:assembleDebugAndroidTest
+          pre-run-tests-steps:
+            - check-emulator-available
+            # Necessary for test mocking to disable network access through WiFi
+            # configuration, allowing testing of behavior when device is offline
+            - run:
+                name: Disable mobile data for network tests
+                command: adb shell svc data disable
+          test-command: ./gradlew connectedDebugAndroidTest
+          max-tries: 1
+          post-run-tests-steps:
+            - store_test_results:
+                path: ./launchdarkly-android-client-sdk/build/outputs/androidTest-results/
+            - store_artifacts:
+                path: ./launchdarkly-android-client-sdk/build/reports/
+
+  contract-tests:
+    parameters:
+      api-level:
+        type: integer
+      system-image-type:
+        type: string
+        default: default
+      resource-class:
+        type: string
+        default: large
+
+    executor:
+      name: android/android-machine
+      tag: 2022.07.1
+      resource-class: << parameters.resource-class >>
+
+    environment:
+      TEST_HARNESS_PARAMS: -junit /home/circleci/junit/contract-tests-junit.xml
+
+    steps:
+      - checkout
+      - android/start-emulator-and-run-tests:
+          avd-name: ci-android-avd
+          system-image: system-images;android-<< parameters.api-level >>;<< parameters.system-image-type >>;x86_64
+          run-logcat: true
+          restore-gradle-cache-prefix: contract-v1
+          post-emulator-launch-assemble-command: make build-contract-tests
+          pre-run-tests-steps:
+            - check-emulator-available
+            - run: mkdir -p ~/junit
+            - run: make start-contract-test-service
+          test-command: make run-contract-tests
+          max-tries: 1
+          post-run-tests-steps:
+            - store_test_results:
+                path: ~/junit
+            - store_artifacts:
+                path: ./launchdarkly-android-client-sdk/build/reports/

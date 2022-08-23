@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDUser;
 
 import org.easymock.Capture;
@@ -47,7 +48,8 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     @Before
     public void before() {
-        userManager = new DefaultUserManager(ApplicationProvider.getApplicationContext(), fetcher, "test", "test", 3);
+        userManager = new DefaultUserManager(ApplicationProvider.getApplicationContext(), fetcher,
+                "test", "test", 3, LDLogger.none());
     }
 
     @Test
@@ -195,8 +197,11 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         AwaitableCallback<Void> deleteAwait = new AwaitableCallback<>();
         userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":16}", deleteAwait);
         deleteAwait.await();
-        assertNull(flagStore.getFlag("stringFlag1"));
-        assertEquals(true, flagStore.getFlag("boolFlag1").getValue().booleanValue());
+        Flag updated = flagStore.getFlag("stringFlag1");
+        assertNotNull(updated);
+        assertEquals("stringFlag1", updated.getKey());
+        assertEquals(16, updated.getVersion());
+        assertTrue(updated.isDeleted());
 
         deleteAwait.reset();
         userManager.deleteCurrentUserFlag("{\"key\":\"nonExistentFlag\",\"version\":16,\"value\":false}", deleteAwait);
@@ -274,7 +279,8 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         userManager.deleteCurrentUserFlag("{\"key\":\"stringFlag1\",\"version\":127}", awaitableCallback);
         awaitableCallback.await();
         awaitableCallback.reset();
-        assertNull(flagStore.getFlag("stringFlag1"));
+        assertNotNull(flagStore.getFlag("stringFlag1"));
+        assertTrue(flagStore.getFlag("stringFlag1").isDeleted());
 
         userManager.deleteCurrentUserFlag("{\"key\":\"nonExistent\",\"version\":1}", awaitableCallback);
         awaitableCallback.await();
@@ -323,32 +329,13 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         FlagStore flagStore = userManager.getCurrentUserFlagStore();
         AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
 
-        // version does not exist in shared preferences and patch.
-        // ---------------------------
-        //// case 1: value does not exist in shared preferences.
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}", awaitableCallback);
-        awaitableCallback.await();
-        awaitableCallback.reset();
-        Flag flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().stringValue());
-        assertNull(flag1.getVersion());
-
-        //// case 2: value exists in shared preferences without version.
-        userManager.putCurrentUserFlags("{\"flag1\": {\"value\": \"value1\"}}", null);
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}", awaitableCallback);
-        awaitableCallback.await();
-        awaitableCallback.reset();
-        flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().stringValue());
-        assertNull(flag1.getVersion());
-
         // version does not exist in shared preferences but exists in patch.
         // ---------------------------
         //// case 1: value does not exist in shared preferences.
         userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"version\":558,\"flagVersion\":3,\"value\":\"value-from-patch\",\"variation\":1,\"trackEvents\":false}", awaitableCallback);
         awaitableCallback.await();
         awaitableCallback.reset();
-        flag1 = flagStore.getFlag("flag1");
+        Flag flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().stringValue());
         assertEquals(558, (int) flag1.getVersion());
         assertEquals(3, (int) flag1.getFlagVersion());
@@ -361,21 +348,9 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.reset();
         flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().stringValue());
-        assertEquals(558, (int) flag1.getVersion());
-        assertEquals(3, (int) flag1.getFlagVersion());
-        assertEquals(3, (int) flag1.getVersionForEvents());
-
-        // version exists in shared preferences but does not exist in patch.
-        // ---------------------------
-        userManager.putCurrentUserFlags("{\"flag1\": {\"version\": 558, \"flagVersion\": 110,\"value\": \"value1\", \"variation\": 1, \"trackEvents\": false}}", null);
-        userManager.patchCurrentUserFlags("{\"key\":\"flag1\",\"value\":\"value-from-patch\"}", awaitableCallback);
-        awaitableCallback.await();
-        awaitableCallback.reset();
-        flag1 = flagStore.getFlag("flag1");
-        assertEquals("value-from-patch", flag1.getValue().stringValue());
-        assertNull(flag1.getVersion());
-        assertNull(flag1.getFlagVersion());
-        assertNull(flag1.getVersionForEvents());
+        assertEquals(558, flag1.getVersion());
+        assertEquals(Integer.valueOf(3), flag1.getFlagVersion());
+        assertEquals(3, flag1.getVersionForEvents());
 
         // version exists in shared preferences and patch.
         // ---------------------------
@@ -384,9 +359,9 @@ public class DefaultUserManagerTest extends EasyMockSupport {
         awaitableCallback.await();
         flag1 = flagStore.getFlag("flag1");
         assertEquals("value-from-patch", flag1.getValue().stringValue());
-        assertEquals(559, (int) flag1.getVersion());
-        assertEquals(3, (int) flag1.getFlagVersion());
-        assertEquals(3, (int) flag1.getVersionForEvents());
+        assertEquals(559, flag1.getVersion());
+        assertEquals(Integer.valueOf(3), flag1.getFlagVersion());
+        assertEquals(3, flag1.getVersionForEvents());
     }
 
     @Test

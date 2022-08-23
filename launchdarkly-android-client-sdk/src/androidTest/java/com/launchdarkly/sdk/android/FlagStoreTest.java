@@ -51,7 +51,7 @@ public abstract class FlagStoreTest extends EasyMockSupport {
                         Objects.equals(flag.getVersion(), received.getVersion()) &&
                         Objects.equals(flag.getFlagVersion(), received.getFlagVersion()) &&
                         Objects.equals(flag.getVariation(), received.getVariation()) &&
-                        Objects.equals(flag.getTrackEvents(), received.getTrackEvents()) &&
+                        Objects.equals(flag.isTrackEvents(), received.isTrackEvents()) &&
                         Objects.equals(flag.isTrackReason(), received.isTrackReason()) &&
                         Objects.equals(flag.getDebugEventsUntilDate(),
                                 received.getDebugEventsUntilDate()) &&
@@ -79,7 +79,7 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         assertEquals(expected.getVersion(), received.getVersion());
         assertEquals(expected.getFlagVersion(), received.getFlagVersion());
         assertEquals(expected.getVariation(), received.getVariation());
-        assertEquals(expected.getTrackEvents(), received.getTrackEvents());
+        assertEquals(expected.isTrackEvents(), received.isTrackEvents());
         assertEquals(expected.isTrackReason(), received.isTrackReason());
         assertEquals(expected.getDebugEventsUntilDate(), received.getDebugEventsUntilDate());
         assertEquals(expected.getReason(), received.getReason());
@@ -204,7 +204,7 @@ public abstract class FlagStoreTest extends EasyMockSupport {
 
     @Test
     public void testUnregisterStoreUpdate() {
-        final Flag initialFlag = new FlagBuilder("flag").build();
+        final Flag initialFlag = new FlagBuilder("flag").version(10).build();
 
         final FlagUpdate mockCreate = strictMock(FlagUpdate.class);
         expect(mockCreate.flagToUpdate()).andReturn("flag");

@@ -15,6 +15,7 @@ import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.sdk.LDUser;
 
@@ -131,7 +132,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
-        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default", null);
+        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default",
+                null, null, LDLogger.none());
     }
 
     private void awaitStartUp() throws ExecutionException {

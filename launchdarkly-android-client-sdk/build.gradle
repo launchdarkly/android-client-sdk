@@ -2,7 +2,7 @@ plugins {
     id("com.android.library")
     id("signing")
     id("maven-publish")
-    id("org.ajoberstar.git-publish") version "3.0.0"
+    id("org.ajoberstar.git-publish") version "3.0.1"
     id("com.getkeepsafe.dexcount")
 }
 
@@ -55,22 +55,20 @@ configurations {
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
-    "androidAppcompat": "1.2.0",
-    "androidJunit": "1.1.2",
-    "androidTest": "1.3.0",
-    "easymock": "4.3",
-    "eventsource": "1.11.2",
+    "eventsource": "1.11.3",
     "gson": "2.8.9",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
     "launchdarklyJavaSdkCommon": "1.2.0",
-    "okhttp": "4.9.1",
+    "launchdarklyLogging": "1.1.1",
+    "okhttp": "4.9.2",
     "timber": "5.0.1",
 ]
 
 dependencies {
     api("com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}")
+    api("com.launchdarkly:launchdarkly-logging:${versions.launchdarklyLogging}")
 
     commonDoc("com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}:sources")
     // These are included only for Javadoc generation.
@@ -79,7 +77,6 @@ dependencies {
 
     implementation("com.google.code.gson:gson:${versions.gson}")
     implementation("androidx.annotation:annotation:${versions.androidAnnotation}")
-    implementation("androidx.appcompat:appcompat:${versions.androidAppcompat}")
     implementation("com.launchdarkly:okhttp-eventsource:${versions.eventsource}")
     implementation("com.squareup.okhttp3:okhttp:${versions.okhttp}")
     implementation("com.jakewharton.timber:timber:${versions.timber}")
@@ -87,14 +84,15 @@ dependencies {
     testImplementation("junit:junit:${versions.junit}")
 
     androidTestImplementation("junit:junit:${versions.junit}")
-    androidTestImplementation("androidx.test:core:${versions.androidTest}")
-    androidTestImplementation("androidx.test:runner:${versions.androidTest}")
-    androidTestImplementation("androidx.test:rules:${versions.androidTest}")
-    androidTestImplementation("androidx.test.ext:junit:${versions.androidJunit}")
-    androidTestImplementation("org.easymock:easymock:${versions.easymock}")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
 
-    androidTestUtil("androidx.test:orchestrator:${versions.androidTest}")
+    androidTestImplementation("androidx.test:core:1.4.0")
+    androidTestImplementation("androidx.test:runner:1.4.0")
+    androidTestImplementation("androidx.test:rules:1.4.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.3")
+    androidTestImplementation("org.easymock:easymock:4.3")
+
+    androidTestUtil("androidx.test:orchestrator:1.4.1")
 }
 
 task javadoc(type: Javadoc) {
@@ -138,6 +136,16 @@ if (JavaVersion.current().isJava8Compatible()) {
         // See JDK-8200363 (https://bugs.openjdk.java.net/browse/JDK-8200363)
         // for information about the -Xwerror option.
         options.addStringOption("Xwerror", "-quiet")
+    }
+}
+
+tasks.withType(Javadoc) {
+    // The following should allow hyperlinks to com.launchdarkly.logging classes to go to
+    // the correct external URLs
+    if (options instanceof StandardJavadocDocletOptions) {
+        (options as StandardJavadocDocletOptions).links(
+            "https://javadoc.io/doc/com.launchdarkly/launchdarkly-logging/${versions.launchdarklyLogging}"
+        )
     }
 }
 

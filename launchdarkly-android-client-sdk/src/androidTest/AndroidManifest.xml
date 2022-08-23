@@ -9,7 +9,7 @@
     <application android:usesCleartextTraffic="true">
         <activity
             android:name="com.launchdarkly.sdk.android.TestActivity"
-            android:theme="@style/Theme.AppCompat.Light" />
+            android:theme="@android:style/Theme.DeviceDefault" />
     </application>
 
     <!-- This suppression is because the Android linter falsely flags the targetPackage as unresolved. -->

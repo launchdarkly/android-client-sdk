@@ -20,6 +20,9 @@ import okhttp3.Response;
 
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
+
 class DiagnosticEventProcessor {
     private static final HashMap<String, String> baseDiagnosticHeaders = new HashMap<String, String>() {{
         put("Content-Type", "application/json");
@@ -31,15 +34,17 @@ class DiagnosticEventProcessor {
     private final DiagnosticStore diagnosticStore;
     private final ThreadFactory diagnosticThreadFactory;
     private final Context context;
+    private final LDLogger logger;
     private ScheduledExecutorService executorService;
 
     DiagnosticEventProcessor(LDConfig config, String environment, final DiagnosticStore diagnosticStore, Context context,
-                             OkHttpClient sharedClient) {
+                             OkHttpClient sharedClient, LDLogger logger) {
         this.config = config;
         this.environment = environment;
         this.diagnosticStore = diagnosticStore;
         this.client = sharedClient;
         this.context = context;
+        this.logger = logger;
 
         diagnosticThreadFactory = new ThreadFactory() {
             final AtomicLong count = new AtomicLong(0);
@@ -89,16 +94,18 @@ class DiagnosticEventProcessor {
     }
 
     void startScheduler() {
-        long initialDelay = config.getDiagnosticRecordingIntervalMillis() - (System.currentTimeMillis() - diagnosticStore.getDataSince());
-        long safeDelay = Math.min(Math.max(initialDelay, 0), config.getDiagnosticRecordingIntervalMillis());
+        if (executorService == null) {
+            long initialDelay = config.getDiagnosticRecordingIntervalMillis() - (System.currentTimeMillis() - diagnosticStore.getDataSince());
+            long safeDelay = Math.min(Math.max(initialDelay, 0), config.getDiagnosticRecordingIntervalMillis());
 
-        executorService = Executors.newSingleThreadScheduledExecutor(diagnosticThreadFactory);
-        executorService.scheduleAtFixedRate(
-            this::enqueueEvent,
-            safeDelay, 
-            config.getDiagnosticRecordingIntervalMillis(), 
-            TimeUnit.MILLISECONDS
-        );
+            executorService = Executors.newSingleThreadScheduledExecutor(diagnosticThreadFactory);
+            executorService.scheduleAtFixedRate(
+                    this::enqueueEvent,
+                    safeDelay,
+                    config.getDiagnosticRecordingIntervalMillis(),
+                    TimeUnit.MILLISECONDS
+            );
+        }
     }
 
     void stopScheduler() {
@@ -124,13 +131,14 @@ class DiagnosticEventProcessor {
                 .headers(config.headersForEnvironment(environment, baseDiagnosticHeaders))
                 .post(RequestBody.create(content, JSON)).build();
 
-        LDConfig.LOG.d("Posting diagnostic event to %s with body %s", request.url(), content);
+        logger.debug("Posting diagnostic event to {} with body {}", request.url(), content);
 
         try (Response response = client.newCall(request).execute()) {
-            LDConfig.LOG.d("Diagnostic Event Response: %s", response.code());
-            LDConfig.LOG.d("Diagnostic Event Response Date: %s", response.header("Date"));
+            logger.debug("Diagnostic Event Response: {}", response.code());
+            logger.debug("Diagnostic Event Response Date: {}", response.header("Date"));
         } catch (IOException e) {
-            LDConfig.LOG.w(e, "Unhandled exception in LaunchDarkly client attempting to connect to URI: %s", request.url());
+            logger.warn("Unhandled exception in LaunchDarkly client attempting to connect to URI \"{}\": {}",
+                    request.url(), LogValues.exceptionSummary(e));
         }
     }
 }

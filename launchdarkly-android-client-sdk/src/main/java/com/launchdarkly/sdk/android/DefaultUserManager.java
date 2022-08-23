@@ -8,6 +8,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
 import com.google.gson.JsonObject;
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 
 import java.util.Collection;
@@ -27,21 +29,27 @@ class DefaultUserManager implements UserManager {
     private final FlagStoreManager flagStoreManager;
     private final SummaryEventStore summaryEventStore;
     private final String environmentName;
+    private final LDLogger logger;
 
     private LDUser currentUser;
 
     private final ExecutorService executor;
 
-    static synchronized DefaultUserManager newInstance(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey, int maxCachedUsers) {
-        return new DefaultUserManager(application, fetcher, environmentName, mobileKey, maxCachedUsers);
+    static synchronized DefaultUserManager newInstance(Application application, FeatureFetcher fetcher, String environmentName,
+                                                       String mobileKey, int maxCachedUsers, LDLogger logger) {
+        return new DefaultUserManager(application, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
     }
 
-    DefaultUserManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey, int maxCachedUsers) {
+    DefaultUserManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey,
+                       int maxCachedUsers, LDLogger logger) {
         this.application = application;
         this.fetcher = fetcher;
-        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey, new SharedPrefsFlagStoreFactory(application), maxCachedUsers);
-        this.summaryEventStore = new SharedPrefsSummaryEventStore(application, LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents");
+        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey,
+                new SharedPrefsFlagStoreFactory(application, logger), maxCachedUsers, logger);
+        this.summaryEventStore = new SharedPrefsSummaryEventStore(application,
+                LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents", logger);
         this.environmentName = environmentName;
+        this.logger = logger;
 
         executor = new BackgroundThreadExecutor().newFixedThreadPool(1);
     }
@@ -80,7 +88,7 @@ class DefaultUserManager implements UserManager {
      */
     void setCurrentUser(final LDUser user) {
         String userBase64 = base64Url(user);
-        LDConfig.LOG.d("Setting current user to: [%s] [%s]", userBase64, userBase64ToJson(userBase64));
+        logger.debug("Setting current user to: [{}] [{}]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
         flagStoreManager.switchToUser(DefaultUserManager.sharedPrefs(user));
     }
@@ -98,9 +106,10 @@ class DefaultUserManager implements UserManager {
             @Override
             public void onError(Throwable e) {
                 if (LDUtil.isClientConnected(application, environmentName)) {
-                    LDConfig.LOG.e(e, "Error when attempting to set user: [%s] [%s]",
+                    logger.error("Error when attempting to set user: [{}] [{}]: {}",
                             base64Url(currentUser),
-                            userBase64ToJson(base64Url(currentUser)));
+                            userBase64ToJson(base64Url(currentUser)),
+                            LogValues.exceptionSummary(e));
                 }
                 onCompleteListener.onError(e);
             }
@@ -133,14 +142,14 @@ class DefaultUserManager implements UserManager {
      */
     @SuppressWarnings("JavaDoc")
     private void saveFlagSettings(JsonObject flagsJson, LDUtil.ResultCallback<Void> onCompleteListener) {
-        LDConfig.LOG.d("saveFlagSettings for user key: %s", currentUser.getKey());
+        logger.debug("saveFlagSettings for user key: {}", currentUser.getKey());
 
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
             flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
             onCompleteListener.onSuccess(null);
         } catch (Exception e) {
-            LDConfig.LOG.d("Invalid JsonObject for flagSettings: %s", flagsJson);
+            logger.debug("Invalid JsonObject for flagSettings: {}", flagsJson);
             onCompleteListener.onError(new LDFailure("Invalid Json received from flags endpoint", e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
     }
@@ -157,13 +166,13 @@ class DefaultUserManager implements UserManager {
                     flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
                     onCompleteListener.onSuccess(null);
                 } else {
-                    LDConfig.LOG.d("Invalid DELETE payload: %s", json);
+                    logger.debug("Invalid DELETE payload: {}", json);
                     onCompleteListener.onError(new LDFailure("Invalid DELETE payload",
                             LDFailure.FailureType.INVALID_RESPONSE_BODY));
                 }
             });
         } catch (Exception ex) {
-            LDConfig.LOG.d(ex, "Invalid DELETE payload: %s", json);
+            logger.debug("Invalid DELETE payload: {}", json);
             onCompleteListener.onError(new LDFailure("Invalid DELETE payload", ex,
                     LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
@@ -173,12 +182,12 @@ class DefaultUserManager implements UserManager {
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
             executor.submit(() -> {
-                LDConfig.LOG.d("PUT for user key: %s", currentUser.getKey());
+                logger.debug("PUT for user key: {}", currentUser.getKey());
                 flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
                 onCompleteListener.onSuccess(null);
             });
         } catch (Exception ex) {
-            LDConfig.LOG.d(ex, "Invalid PUT payload: %s", json);
+            logger.debug("Invalid PUT payload: {}", json);
             onCompleteListener.onError(new LDFailure("Invalid PUT payload", ex,
                     LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }
@@ -192,13 +201,13 @@ class DefaultUserManager implements UserManager {
                     flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
                     onCompleteListener.onSuccess(null);
                 } else {
-                    LDConfig.LOG.d("Invalid PATCH payload: %s", json);
+                    logger.debug("Invalid PATCH payload: {}", json);
                     onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
                             LDFailure.FailureType.INVALID_RESPONSE_BODY));
                 }
             });
         } catch (Exception ex) {
-            LDConfig.LOG.d(ex, "Invalid PATCH payload: %s", json);
+            logger.debug("Invalid PATCH payload: {}", json);
             onCompleteListener.onError(new LDFailure("Invalid PATCH payload", ex,
                     LDFailure.FailureType.INVALID_RESPONSE_BODY));
         }

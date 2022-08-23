@@ -10,6 +10,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.google.gson.Gson;
+import com.launchdarkly.logging.LDLogger;
 
 import java.io.File;
 import java.lang.ref.WeakReference;
@@ -29,12 +30,14 @@ class SharedPrefsFlagStore implements FlagStore {
     private final Application application;
     private SharedPreferences sharedPreferences;
     private WeakReference<StoreUpdatedListener> listenerWeakReference;
+    private LDLogger logger;
 
-    SharedPrefsFlagStore(@NonNull Application application, @NonNull String identifier) {
+    SharedPrefsFlagStore(@NonNull Application application, @NonNull String identifier, LDLogger logger) {
         this.application = application;
         this.prefsKey = SHARED_PREFS_BASE_KEY + identifier + "-flags";
         this.sharedPreferences = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE);
         this.listenerWeakReference = new WeakReference<>(null);
+        this.logger = logger;
     }
 
     @SuppressLint("ApplySharedPref")
@@ -44,7 +47,7 @@ class SharedPrefsFlagStore implements FlagStore {
         sharedPreferences = null;
 
         File file = new File(application.getFilesDir().getParent() + "/shared_prefs/" + prefsKey + ".xml");
-        LDConfig.LOG.i("Deleting SharedPrefs file:%s", file.getAbsolutePath());
+        logger.info("Deleting SharedPrefs file:{}", file.getAbsolutePath());
 
         //noinspection ResultOfMethodCallIgnored
         file.delete();

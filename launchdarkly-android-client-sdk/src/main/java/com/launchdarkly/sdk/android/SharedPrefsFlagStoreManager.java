@@ -9,6 +9,8 @@ import android.util.Pair;
 
 import androidx.annotation.NonNull;
 
+import com.launchdarkly.logging.LDLogger;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -36,17 +38,20 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
     private final SharedPreferences usersSharedPrefs;
     private final ConcurrentHashMap<String, Set<FeatureFlagChangeListener>> listeners;
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners;
+    private final LDLogger logger;
 
     SharedPrefsFlagStoreManager(@NonNull Application application,
                                 @NonNull String mobileKey,
                                 @NonNull FlagStoreFactory flagStoreFactory,
-                                int maxCachedUsers) {
+                                int maxCachedUsers,
+                                @NonNull LDLogger logger) {
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
         this.maxCachedUsers = maxCachedUsers;
         this.usersSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
         this.listeners = new ConcurrentHashMap<>();
         this.allFlagsListeners = new CopyOnWriteArrayList<>();
+        this.logger = logger;
     }
 
     @Override
@@ -73,7 +78,7 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
             // Remove oldest users until we are at MAX_USERS.
             for (int i = 0; i < usersToRemove; i++) {
                 String removed = oldestFirstUsers.next();
-                LDConfig.LOG.d("Exceeded max # of users: [%s] Removing user: [%s]", maxCachedUsers, removed);
+                logger.debug("Exceeded max # of users: [{}] Removing user: [{}]", maxCachedUsers, removed);
                 // Load FlagStore for oldest user and delete it.
                 flagStoreFactory.createFlagStore(storeIdentifierForUser(removed)).delete();
                 // Remove entry from usersSharedPrefs.
@@ -99,9 +104,9 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         Set<FeatureFlagChangeListener> oldSet = listeners.putIfAbsent(key, newSet);
         if (oldSet != null) {
             oldSet.add(listener);
-            LDConfig.LOG.d("Added listener. Total count: [%s]", oldSet.size());
+            logger.debug("Added listener. Total count: [{}]", oldSet.size());
         } else {
-            LDConfig.LOG.d("Added listener. Total count: 1");
+            logger.debug("Added listener. Total count: 1");
         }
     }
 
@@ -111,7 +116,7 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         if (keySet != null) {
             boolean removed = keySet.remove(listener);
             if (removed) {
-                LDConfig.LOG.d("Removing listener for key: [%s]", key);
+                logger.debug("Removing listener for key: [{}]", key);
             }
         }
     }
@@ -135,9 +140,9 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         for (String k : all.keySet()) {
             try {
                 sortedMap.put((Long) all.get(k), k);
-                LDConfig.LOG.d("Found user: %s", userAndTimeStampToHumanReadableString(k, (Long) all.get(k)));
+                logger.debug("Found user: {}", userAndTimeStampToHumanReadableString(k, (Long) all.get(k)));
             } catch (ClassCastException cce) {
-                LDConfig.LOG.e(cce, "Unexpected type! This is not good");
+                LDUtil.logExceptionAtErrorLevel(logger, cce, "Unexpected type! This is not good");
             }
         }
         return sortedMap.values();
