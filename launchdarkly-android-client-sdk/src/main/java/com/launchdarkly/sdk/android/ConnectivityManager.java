@@ -6,6 +6,9 @@ import android.content.SharedPreferences;
 
 import androidx.annotation.NonNull;
 
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
+
 import java.util.Calendar;
 import java.util.TimeZone;
 
@@ -32,6 +35,7 @@ class ConnectivityManager {
     private final String environmentName;
     private final int pollingInterval;
     private final LDUtil.ResultCallback<Void> monitor;
+    private final LDLogger logger;
     private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
     private volatile boolean setOffline;
@@ -42,12 +46,14 @@ class ConnectivityManager {
                         @NonNull final UserManager userManager,
                         @NonNull final String environmentName,
                         final DiagnosticEventProcessor diagnosticEventProcessor,
-                        final DiagnosticStore diagnosticStore) {
+                        final DiagnosticStore diagnosticStore,
+                        final LDLogger logger) {
         this.application = application;
         this.eventProcessor = eventProcessor;
         this.diagnosticEventProcessor = diagnosticEventProcessor;
         this.userManager = userManager;
         this.environmentName = environmentName;
+        this.logger = logger;
         pollingInterval = ldConfig.getPollingIntervalMillis();
         String prefsKey = LDConfig.SHARED_PREFS_BASE_KEY + ldConfig.getMobileKeys().get(environmentName) + "-connectionstatus";
         stateStore = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE);
@@ -112,14 +118,15 @@ class ConnectivityManager {
                         LDClient ldClient = LDClient.getForMobileKey(environmentName);
                         ldClient.updateListenersOnFailure(connectionInformation.getLastFailure());
                     } catch (LaunchDarklyException ex) {
-                        LDConfig.log().e(e, "Error getting LDClient for ConnectivityManager");
+                        LDUtil.logExceptionAtErrorLevel(logger, e, "Error getting LDClient for ConnectivityManager");
                     }
                     callInitCallback();
                 }
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName, diagnosticStore, monitor) : null;
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName,
+                diagnosticStore, monitor, logger) : null;
     }
 
     boolean isInitialized() {
@@ -374,13 +381,13 @@ class ConnectivityManager {
         try {
             saveConnectionInformation();
         } catch (Exception ex) {
-            LDConfig.log().w(ex, "Error saving connection information");
+            LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
         }
         try {
             LDClient ldClient = LDClient.getForMobileKey(environmentName);
             ldClient.updateListenersConnectionModeChanged(connectionInformation);
         } catch (LaunchDarklyException e) {
-            LDConfig.log().e(e, "Error getting LDClient for ConnectivityManager");
+            LDUtil.logExceptionAtErrorLevel(logger, e, "Error getting LDClient for ConnectivityManager: {}");
         }
     }
 

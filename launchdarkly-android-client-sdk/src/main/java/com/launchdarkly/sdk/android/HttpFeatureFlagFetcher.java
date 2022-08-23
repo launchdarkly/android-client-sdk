@@ -7,6 +7,8 @@ import androidx.annotation.NonNull;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 
 import java.io.File;
@@ -35,18 +37,20 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     private final String environmentName;
     private final Context context;
     private final OkHttpClient client;
+    private final LDLogger logger;
 
-    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environmentName) {
-        return new HttpFeatureFlagFetcher(context, config, environmentName);
+    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environmentName, LDLogger logger) {
+        return new HttpFeatureFlagFetcher(context, config, environmentName, logger);
     }
 
-    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environmentName) {
+    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environmentName, LDLogger logger) {
         this.config = config;
         this.environmentName = environmentName;
         this.context = context;
+        this.logger = logger;
 
         File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
-        LDConfig.log().d("Using cache at: %s", cacheDir.getAbsolutePath());
+        logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
 
         client = new OkHttpClient.Builder()
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
@@ -63,12 +67,12 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                     ? getReportRequest(user)
                     : getDefaultRequest(user);
 
-            LDConfig.log().d(request.toString());
+            logger.debug(request.toString());
             Call call = client.newCall(request);
             call.enqueue(new Callback() {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                    LDConfig.log().e(e, "Exception when fetching flags.");
+                    LDUtil.logExceptionAtErrorLevel(logger, e, "Exception when fetching flags");
                     callback.onError(new LDFailure("Exception while fetching flags", e, LDFailure.FailureType.NETWORK_FAILURE));
                 }
 
@@ -82,20 +86,21 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                         }
                         if (!response.isSuccessful()) {
                             if (response.code() == 400) {
-                                LDConfig.log().e("Received 400 response when fetching flag values. Please check recommended ProGuard settings");
+                                logger.error("Received 400 response when fetching flag values. Please check recommended ProGuard settings");
                             }
                             callback.onError(new LDInvalidResponseCodeFailure("Unexpected response when retrieving Feature Flags: " + response + " using url: "
                                     + request.url() + " with body: " + body, response.code(), true));
                         }
-                        LDConfig.log().d(body);
-                        LDConfig.log().d("Cache hit count: %s Cache network Count: %s", client.cache().hitCount(), client.cache().networkCount());
-                        LDConfig.log().d("Cache response: %s", response.cacheResponse());
-                        LDConfig.log().d("Network response: %s", response.networkResponse());
+                        logger.debug(body);
+                        logger.debug("Cache hit count: {} Cache network Count: {}", client.cache().hitCount(), client.cache().networkCount());
+                        logger.debug("Cache response: {}", response.cacheResponse());
+                        logger.debug("Network response: {}", response.networkResponse());
 
                         JsonObject jsonObject = JsonParser.parseString(body).getAsJsonObject();
                         callback.onSuccess(jsonObject);
                     } catch (Exception e) {
-                        LDConfig.log().e(e, "Exception when handling response for url: %s with body: %s", request.url(), body);
+                        LDUtil.logExceptionAtErrorLevel(logger, e,
+                                "Exception when handling response for url: {} with body: {}", request.url(), body);
                         callback.onError(new LDFailure("Exception while handling flag fetch response", e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     } finally {
                         if (response != null) {
@@ -113,7 +118,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }
-        LDConfig.log().d("Attempting to fetch Feature flags using uri: %s", uri);
+        logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
         return new Request.Builder().url(uri)
                 .headers(config.headersForEnvironment(environmentName, null))
                 .build();
@@ -124,7 +129,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }
-        LDConfig.log().d("Attempting to report user using uri: %s", reportUri);
+        logger.debug("Attempting to report user using uri: {}", reportUri);
         String userJson = GSON.toJson(user);
         RequestBody reportBody = RequestBody.create(userJson, JSON);
 

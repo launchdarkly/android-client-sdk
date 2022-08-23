@@ -19,6 +19,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.launchdarkly.logging.LDLogger;
+
 @RunWith(AndroidJUnit4.class)
 public class SharedPrefsFlagStoreTest extends FlagStoreTest {
 
@@ -33,14 +35,14 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
     }
 
     public FlagStore createFlagStore(String identifier) {
-        return new SharedPrefsFlagStore(testApplication, identifier);
+        return new SharedPrefsFlagStore(testApplication, identifier, LDLogger.none());
     }
 
     @Test
     public void deletesVersionAndStoresDeletedItemPlaceholder() {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 13));
 
@@ -55,7 +57,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
     public void doesNotDeleteIfDeletionVersionIsLessThanOrEqualToExistingVersion() {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 11));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 12));
@@ -72,7 +74,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
         final Flag updatedKey1 = new FlagBuilder(key1.getKey()).version(15).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
@@ -85,7 +87,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
         final Flag key1 = new FlagBuilder("key1").version(100).flagVersion(12).build();
         final Flag updatedKey1 = new FlagBuilder(key1.getKey()).version(101).flagVersion(15).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
@@ -99,7 +101,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
                 new FlagBuilder("withFlagVersion").version(12).flagVersion(13).build();
         final Flag withOnlyVersion = new FlagBuilder("withOnlyVersion").version(12).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc");
+        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(withFlagVersion, withOnlyVersion));
 
         assertEquals(flagStore.getFlag(withFlagVersion.getKey()).getVersionForEvents(), 13, 0);

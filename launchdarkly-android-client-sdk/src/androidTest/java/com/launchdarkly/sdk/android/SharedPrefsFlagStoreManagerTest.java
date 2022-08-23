@@ -5,6 +5,8 @@ import android.app.Application;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import com.launchdarkly.logging.LDLogger;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.runner.RunWith;
@@ -23,7 +25,7 @@ public class SharedPrefsFlagStoreManagerTest extends FlagStoreManagerTest {
     }
 
     public FlagStoreManager createFlagStoreManager(String mobileKey, FlagStoreFactory flagStoreFactory, int maxCachedUsers) {
-        return new SharedPrefsFlagStoreManager(testApplication, mobileKey, flagStoreFactory, maxCachedUsers);
+        return new SharedPrefsFlagStoreManager(testApplication, mobileKey, flagStoreFactory, maxCachedUsers, LDLogger.none());
     }
 
 }

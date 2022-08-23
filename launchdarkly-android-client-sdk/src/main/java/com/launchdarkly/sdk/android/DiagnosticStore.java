@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.launchdarkly.logging.LogValues;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -81,7 +82,7 @@ class DiagnosticStore {
             DiagnosticEvent.StreamInit[] streamInitsArr = GsonCache.getGson().fromJson(streamInitsString, DiagnosticEvent.StreamInit[].class);
             streamInits = Arrays.asList(streamInitsArr);
         } catch (Exception ex) {
-            LDConfig.log().w(ex, "Invalid stream inits array in diagnostic data store");
+            LDClient.getSharedLogger().warn("Invalid stream inits array in diagnostic data store: {}", LogValues.exceptionSummary(ex));
             streamInits = null;
         }
         return streamInits;

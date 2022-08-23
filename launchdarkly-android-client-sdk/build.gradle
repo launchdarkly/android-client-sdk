@@ -61,12 +61,14 @@ ext.versions = [
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
     "launchdarklyJavaSdkCommon": "1.2.0",
+    "launchdarklyLogging": "1.1.1",
     "okhttp": "4.9.2",
     "timber": "5.0.1",
 ]
 
 dependencies {
     api("com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}")
+    api("com.launchdarkly:launchdarkly-logging:${versions.launchdarklyLogging}")
 
     commonDoc("com.launchdarkly:launchdarkly-java-sdk-common:${versions.launchdarklyJavaSdkCommon}:sources")
     // These are included only for Javadoc generation.
@@ -134,6 +136,16 @@ if (JavaVersion.current().isJava8Compatible()) {
         // See JDK-8200363 (https://bugs.openjdk.java.net/browse/JDK-8200363)
         // for information about the -Xwerror option.
         options.addStringOption("Xwerror", "-quiet")
+    }
+}
+
+tasks.withType(Javadoc) {
+    // The following should allow hyperlinks to com.launchdarkly.logging classes to go to
+    // the correct external URLs
+    if (options instanceof StandardJavadocDocletOptions) {
+        (options as StandardJavadocDocletOptions).links(
+            "https://javadoc.io/doc/com.launchdarkly/launchdarkly-logging/${versions.launchdarklyLogging}"
+        )
     }
 }
 
