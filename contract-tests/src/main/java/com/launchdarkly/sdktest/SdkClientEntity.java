@@ -70,6 +70,9 @@ public class SdkClientEntity {
       this.client = LDClient.get();
       if (!client.isInitialized() && !params.configuration.initCanFail) {
         // If `initCanFail` is true, we can proceed with an uninitialized client
+        try {
+          client.close();
+        } catch (IOException e) {}
         throw new RuntimeException("client initialization failed or timed out");
       }
     } catch (LaunchDarklyException e) {
