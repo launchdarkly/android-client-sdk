@@ -98,7 +98,9 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     }
 
     public void flush() {
-        Executors.newSingleThreadExecutor().execute(consumer);
+        if (scheduler != null) {
+            scheduler.schedule(consumer, 0, TimeUnit.MILLISECONDS);
+        }
     }
 
     @VisibleForTesting

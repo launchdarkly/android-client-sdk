@@ -220,7 +220,10 @@ class LDUtil {
             out.beginObject();
 
             out.name("key").value(user.getKey());
-            out.name("anonymous").value(user.isAnonymous());
+
+            if (!user.getAttribute(UserAttribute.ANONYMOUS).isNull()) {
+                out.name("anonymous").value(user.isAnonymous());
+            }
 
             for (UserAttribute attrib : OPTIONAL_BUILTINS) {
                 safeWrite(out, user, attrib, privateAttrs);

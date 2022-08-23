@@ -10,15 +10,16 @@ class Flag implements FlagUpdate {
     @NonNull
     private final String key;
     private final LDValue value;
-    private final Integer version;
+    private final int version;
     private final Integer flagVersion;
     private final Integer variation;
     private final Boolean trackEvents;
     private final Boolean trackReason;
     private final Long debugEventsUntilDate;
     private final EvaluationReason reason;
+    private final Boolean deleted;
 
-    Flag(@NonNull String key, LDValue value, Integer version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason) {
+    private Flag(@NonNull String key, LDValue value, int version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason, boolean deleted) {
         this.key = key;
         this.value = value;
         this.version = version;
@@ -28,9 +29,17 @@ class Flag implements FlagUpdate {
         this.trackReason = trackReason;
         this.debugEventsUntilDate = debugEventsUntilDate;
         this.reason = reason;
+        this.deleted = deleted ? Boolean.valueOf(true) : null;
     }
 
-    @NonNull
+    Flag(@NonNull String key, LDValue value, int version, Integer flagVersion, Integer variation, Boolean trackEvents, Boolean trackReason, Long debugEventsUntilDate, EvaluationReason reason) {
+        this(key, value, version, flagVersion, variation, trackEvents, trackReason, debugEventsUntilDate, reason, false);
+    }
+
+    static Flag deletedItemPlaceholder(@NonNull String key, int version) {
+        return new Flag(key, null, version, null, null, null, null, null, null, true);
+    }
+
     String getKey() {
         return key;
     }
@@ -41,7 +50,7 @@ class Flag implements FlagUpdate {
         return LDValue.normalize(value);
     }
 
-    Integer getVersion() {
+    int getVersion() {
         return version;
     }
 
@@ -53,11 +62,11 @@ class Flag implements FlagUpdate {
         return variation;
     }
 
-    boolean getTrackEvents() {
-        return trackEvents == null ? false : trackEvents;
+    boolean isTrackEvents() {
+        return trackEvents != null && trackEvents.booleanValue();
     }
 
-    boolean isTrackReason() { return trackReason == null ? false : trackReason; }
+    boolean isTrackReason() { return trackReason != null && trackReason.booleanValue(); }
 
     Long getDebugEventsUntilDate() {
         return debugEventsUntilDate;
@@ -67,20 +76,17 @@ class Flag implements FlagUpdate {
         return reason;
     }
 
-    boolean isVersionMissing() {
-        return version == null;
+    int getVersionForEvents() {
+        return flagVersion == null ? version : flagVersion.intValue();
     }
 
-    Integer getVersionForEvents() {
-        if (flagVersion == null) {
-            return version;
-        }
-        return flagVersion;
+    boolean isDeleted() {
+        return deleted != null && deleted.booleanValue();
     }
 
     @Override
     public Flag updateFlag(Flag before) {
-        if (before == null || this.isVersionMissing() || before.isVersionMissing() || this.getVersion() > before.getVersion()) {
+        if (before == null || this.getVersion() > before.getVersion()) {
             return this;
         }
         return before;

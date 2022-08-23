@@ -120,13 +120,6 @@ public class FlagTest {
     }
 
     @Test
-    public void versionDefaultWhenOmitted() {
-        final String jsonStr = "{\"flagVersion\": 99}";
-        final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertNull(r.getVersion());
-    }
-
-    @Test
     public void flagVersionIsSerialized() {
         final Flag r = new FlagBuilder("flag").flagVersion(100).build();
         final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
@@ -180,14 +173,14 @@ public class FlagTest {
     public void trackEventsIsDeserialized() {
         final String jsonStr = "{\"version\": 99, \"trackEvents\": true}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertTrue(r.getTrackEvents());
+        assertTrue(r.isTrackEvents());
     }
 
     @Test
     public void trackEventsDefaultWhenOmitted() {
         final String jsonStr = "{\"version\": 99}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertFalse(r.getTrackEvents());
+        assertFalse(r.isTrackEvents());
     }
 
     @Test
@@ -285,24 +278,21 @@ public class FlagTest {
     }
 
     @Test
-    public void testIsVersionMissing() {
-        final Flag noVersion = new FlagBuilder("flag").build();
-        final Flag withVersion = new FlagBuilder("flag").version(10).build();
-        assertTrue(noVersion.isVersionMissing());
-        assertFalse(withVersion.isVersionMissing());
+    public void testIsDeleted() {
+        final Flag normalFlag = new FlagBuilder("flag").version(10).build();
+        final Flag placeholder = Flag.deletedItemPlaceholder("flag", 10);
+        assertFalse(normalFlag.isDeleted());
+        assertTrue(placeholder.isDeleted());
+        assertEquals(normalFlag.getVersion(), placeholder.getVersion());
     }
 
     @Test
     public void testGetVersionForEvents() {
-        final Flag noVersions = new FlagBuilder("flag").build();
         final Flag withVersion = new FlagBuilder("flag").version(10).build();
-        final Flag withFlagVersion = new FlagBuilder("flag").flagVersion(5).build();
-        final Flag withBothVersions = new FlagBuilder("flag").version(10).flagVersion(5).build();
+        final Flag withVersionAndFlagVersion = new FlagBuilder("flag").version(10).flagVersion(5).build();
 
-        assertNull(noVersions.getVersionForEvents());
-        assertEquals(10, (int) withVersion.getVersionForEvents());
-        assertEquals(5, (int) withFlagVersion.getVersionForEvents());
-        assertEquals(5, (int) withBothVersions.getVersionForEvents());
+        assertEquals(10, withVersion.getVersionForEvents());
+        assertEquals(5, withVersionAndFlagVersion.getVersionForEvents());
     }
 
     @Test
@@ -313,17 +303,11 @@ public class FlagTest {
 
     @Test
     public void testUpdateFlag() {
-        final Flag flagNoVersion = new FlagBuilder("flagNoVersion").build();
-        final Flag flagNoVersion2 = new FlagBuilder("flagNoVersion2").build();
         final Flag flagLowVersion = new FlagBuilder("flagLowVersion").version(50).build();
         final Flag flagSameVersion = new FlagBuilder("flagSameVersion").version(50).build();
         final Flag flagHighVersion = new FlagBuilder("flagHighVersion").version(100).build();
 
-        assertEquals(flagNoVersion, flagNoVersion.updateFlag(null));
         assertEquals(flagLowVersion, flagLowVersion.updateFlag(null));
-        assertEquals(flagNoVersion, flagNoVersion.updateFlag(flagNoVersion2));
-        assertEquals(flagLowVersion, flagLowVersion.updateFlag(flagNoVersion));
-        assertEquals(flagNoVersion, flagNoVersion.updateFlag(flagLowVersion));
         assertEquals(flagSameVersion, flagLowVersion.updateFlag(flagSameVersion));
         assertEquals(flagHighVersion, flagHighVersion.updateFlag(flagLowVersion));
         assertEquals(flagHighVersion, flagLowVersion.updateFlag(flagHighVersion));
