@@ -235,14 +235,15 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @SuppressWarnings("WeakerAccess")
     public static LDClient getForMobileKey(String keyName) throws LaunchDarklyException {
-        if (instances == null) {
+        Map<String, LDClient> instancesNow = instances; // ensures atomicity
+        if (instancesNow == null) {
             LDConfig.log().e("LDClient.getForMobileKey() was called before init()!");
             throw new LaunchDarklyException("LDClient.getForMobileKey() was called before init()!");
         }
-        if (!(instances.containsKey(keyName))) {
+        if (!(instancesNow.containsKey(keyName))) {
             throw new LaunchDarklyException("LDClient.getForMobileKey() called with invalid keyName");
         }
-        return instances.get(keyName);
+        return instancesNow.get(keyName);
     }
 
     @VisibleForTesting
@@ -312,7 +313,23 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             LDConfig.log().w("identify called with null user or null user key!");
         }
-        return LDClient.identifyInstances(customizeUser(user));
+        return identifyInstances(customizeUser(user));
+    }
+
+    private @NonNull Map<String, LDClient> getInstancesIfTheyIncludeThisClient() {
+        // Using this method ensures that 1. we are operating on an atomic snapshot of the
+        // instances (in the unlikely case that they get closed & recreated right around now) and
+        // 2. we do *not* operate on these instances if the current client is not one of them (i.e.
+        // if it's already been closed). This method is guaranteed never to return null.
+        Map<String, LDClient> ret = instances;
+        if (ret != null) {
+            for (LDClient c: ret.values()) {
+                if (c == this) {
+                    return ret;
+                }
+            }
+        }
+        return Collections.emptyMap();
     }
 
     private void identifyInternal(@NonNull LDUser user,
@@ -328,9 +345,10 @@ public class LDClient implements LDClientInterface, Closeable {
         sendEvent(new IdentifyEvent(user));
     }
 
-    private static Future<Void> identifyInstances(@NonNull LDUser user) {
+    private Future<Void> identifyInstances(@NonNull LDUser user) {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
-        final AtomicInteger identifyCounter = new AtomicInteger(instances.size());
+        final Map<String, LDClient> instancesNow = getInstancesIfTheyIncludeThisClient();
+        final AtomicInteger identifyCounter = new AtomicInteger(instancesNow.size());
         LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
@@ -345,7 +363,7 @@ public class LDClient implements LDClientInterface, Closeable {
             }
         };
 
-        for (LDClient client : instances.values()) {
+        for (LDClient client : instancesNow.values()) {
             client.identifyInternal(user, completeWhenCounterZero);
         }
 
@@ -455,7 +473,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
-        LDClient.closeInstances();
+        closeInstances();
     }
 
     private void closeInternal() {
@@ -468,25 +486,26 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private static void closeInstances() {
-        for (LDClient client : instances.values()) {
+    private void closeInstances() {
+        Iterable<LDClient> oldClients;
+        synchronized (initLock) {
+            oldClients = getInstancesIfTheyIncludeThisClient().values();
+            instances = null;
+        }
+        for (LDClient client : oldClients) {
             client.closeInternal();
         }
     }
 
     @Override
     public void flush() {
-        LDClient.flushInstances();
+        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+           client.flushInternal();
+        }
     }
 
     private void flushInternal() {
         eventProcessor.flush();
-    }
-
-    private static void flushInstances() {
-        for (LDClient client : instances.values()) {
-            client.flushInternal();
-        }
     }
 
     @VisibleForTesting
@@ -506,32 +525,24 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public void setOffline() {
-        LDClient.setInstancesOffline();
+        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+            client.setOfflineInternal();
+        }
     }
 
     private void setOfflineInternal() {
         connectivityManager.setOffline();
     }
 
-    private static void setInstancesOffline() {
-        for (LDClient client : instances.values()) {
-            client.setOfflineInternal();
-        }
-    }
-
     @Override
     public void setOnline() {
-        setOnlineStatusInstances();
+        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+            client.setOnlineStatusInternal();
+        }
     }
 
     private void setOnlineStatusInternal() {
         connectivityManager.setOnline();
-    }
-
-    private static void setOnlineStatusInstances() {
-        for (LDClient client : instances.values()) {
-            client.setOnlineStatusInternal();
-        }
     }
 
     @Override
