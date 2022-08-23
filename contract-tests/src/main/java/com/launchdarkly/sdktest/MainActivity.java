@@ -4,15 +4,15 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.widget.TextView;
 
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.android.LDAndroidLogging;
+
 import java.io.IOException;
 
-import timber.log.Timber;
-
 public class MainActivity extends Activity {
-
     private Config config;
     private TestService server;
-    private Timber.DebugTree debugTree;
+    private LDLogger logger = LDLogger.withAdapter(LDAndroidLogging.adapter(), "MainActivity");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -22,11 +22,6 @@ public class MainActivity extends Activity {
 
         TextView textIpaddr = findViewById(R.id.ipaddr);
         textIpaddr.setText("Contract test service running on port " + config.port);
-
-        if (Timber.treeCount() == 0) {
-            debugTree = new Timber.DebugTree();
-            Timber.plant(debugTree);
-        }
     }
 
     @Override
@@ -40,13 +35,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        Timber.w("Restarting test service on port " + config.port);
+        logger.warn("Restarting test service on port {}", config.port);
         server = new TestService(getApplication());
         if (!server.isAlive()) {
             try {
                 server.start();
             } catch (IOException e) {
-                Timber.e(e, "Error starting server");
+                logger.error("Error starting server: {}", e);
             }
         }
     }

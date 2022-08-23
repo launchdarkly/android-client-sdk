@@ -6,6 +6,7 @@ import android.net.Uri;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
@@ -543,7 +544,7 @@ public class LDClientTest {
             // Setup flag store with test flag
             TestUtil.markMigrationComplete(application);
             EvaluationReason testReason = EvaluationReason.off();
-            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application).createFlagStore(mobileKey + DefaultUserManager.sharedPrefs(ldUser));
+            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application, LDLogger.none()).createFlagStore(mobileKey + DefaultUserManager.sharedPrefs(ldUser));
             flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").version(10).trackEvents(true).trackReason(true).reason(testReason).build());
 
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {

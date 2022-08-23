@@ -11,6 +11,8 @@ import org.junit.runner.RunWith;
 
 import static org.junit.Assert.assertTrue;
 
+import com.launchdarkly.logging.LDLogger;
+
 @RunWith(AndroidJUnit4.class)
 public class SharedPrefsFlagStoreFactoryTest {
 
@@ -20,7 +22,7 @@ public class SharedPrefsFlagStoreFactoryTest {
     @Test
     public void createsSharedPrefsFlagStore() {
         Application application = ApplicationProvider.getApplicationContext();
-        SharedPrefsFlagStoreFactory factory = new SharedPrefsFlagStoreFactory(application);
+        SharedPrefsFlagStoreFactory factory = new SharedPrefsFlagStoreFactory(application, LDLogger.none());
         FlagStore flagStore = factory.createFlagStore("flagstore_factory_test");
         assertTrue(flagStore instanceof SharedPrefsFlagStore);
     }
