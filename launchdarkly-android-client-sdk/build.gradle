@@ -55,7 +55,7 @@ configurations {
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
-    "eventsource": "1.11.2",
+    "eventsource": "1.11.3",
     "gson": "2.8.9",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
