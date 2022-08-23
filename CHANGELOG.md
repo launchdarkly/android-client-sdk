@@ -3,6 +3,18 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.8] - 2022-08-23
+### Changed:
+- Changed throttling/jitter logic that used `java.util.Random` to use `java.security.SecureRandom`. Even though in this case it is not being used for any cryptographic purpose, but only to produce a pseudo-random delay, static analysis tools may still report every use of `java.util.Random` as a security risk by default. The purpose of this change is simply to avoid such warnings; it has no practical effect on the behavior of the SDK.
+
+### Fixed:
+- The map of existing `LDClient` instances was not being cleared after calling `close()`. ([#108](https://github.com/launchdarkly/android-client-sdk/issues/108))
+- Fixed a bug that caused an `ExecutorService` object to be unnecessarily created when `flush()` was called.
+- The SDK did not correctly persist versioning information when a flag was deleted or archived. In an edge case where flag updates are received out of order, this could cause a deleted flag to appear to be undeleted.
+- Setting `baseUri` or `streamUri` to a URI with a trailing slash could cause requests to fail. Now the SDK works correctly regardless of whether these URIs have a trailing slash or not.
+- The SDK was including `"anonymous": false` in analytics event data for users where the `anonymous` property had not been set at all. In the current user model, `"anonymous": false` is subtly different from not setting the property (flag rules referencing `anonymous` will only work if it is explicitly set), so the event data should accurately represent this by omitting the property if it was omitted.
+- Fixed a bug that could cause a NullPointerException when calling `variation` methods, in an edge case where the SDK received inconsistent data of a kind that the LaunchDarkly services would not normally send (an evaluation result with a value but no variation). This should not be possible in practice, but could happen in test scenarios.
+
 ## [3.1.7] - 2022-08-17
 ### Fixed:
 - All Timber logs now use a consistent tag `LaunchDarklySdk`. (Thanks, [audkar](https://github.com/launchdarkly/android-client-sdk/pull/178)!)
