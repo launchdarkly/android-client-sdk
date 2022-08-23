@@ -357,7 +357,9 @@ public class LDClient implements LDClientInterface, Closeable {
         Collection<Flag> allFlags = userManager.getCurrentUserFlagStore().getAllFlags();
         HashMap<String, LDValue> flagValues = new HashMap<>();
         for (Flag flag: allFlags) {
-            flagValues.put(flag.getKey(), flag.getValue());
+            if (!flag.isDeleted()) {
+                flagValues.put(flag.getKey(), flag.getValue());
+            }
         }
         return flagValues;
     }
@@ -421,7 +423,7 @@ public class LDClient implements LDClientInterface, Closeable {
         EvaluationDetail<LDValue> result;
         LDValue value = defaultValue;
 
-        if (flag == null) {
+        if (flag == null || flag.isDeleted()) {
             LDConfig.log().i("Unknown feature flag \"%s\"; returning default value", key);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
@@ -639,9 +641,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue defaultValue, EvaluationReason reason) {
-        Integer version = flag.getVersionForEvents();
+        int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
-        if (flag.getTrackEvents()) {
+        if (flag.isTrackEvents()) {
             sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
                     variation, reason, config.inlineUsersInEvents(), false));
         } else {
