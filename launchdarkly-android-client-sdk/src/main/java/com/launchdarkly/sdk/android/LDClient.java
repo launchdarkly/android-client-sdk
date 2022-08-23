@@ -426,17 +426,17 @@ public class LDClient implements LDClientInterface, Closeable {
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
+            int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
             if (value.isNull()) {
                 LDConfig.log().w("Feature flag \"%s\" retrieved with no value; returning default value", key);
                 value = defaultValue;
-                int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
                 result = EvaluationDetail.fromValue(defaultValue, variation, flag.getReason());
             } else if (checkType && !defaultValue.isNull() && value.getType() != defaultValue.getType()) {
                 LDConfig.log().w("Feature flag \"%s\" with type %s retrieved as %s; returning default value", key, value.getType(), defaultValue.getType());
                 value = defaultValue;
                 result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE));
             } else {
-                result = EvaluationDetail.fromValue(value, flag.getVariation(), flag.getReason());
+                result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
             sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
