@@ -3,7 +3,6 @@ package com.launchdarkly.sdk.android;
 import androidx.annotation.NonNull;
 
 import java.security.SecureRandom;
-import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -81,7 +80,7 @@ class Throttler {
 
     // Adapted from http://stackoverflow.com/questions/2546078/java-random-long-number-in-0-x-n-range
     // Since ThreadLocalRandom.current().nextLong(n) requires Android 5
-    private long nextLong(Random rand, long bound) {
+    private long nextLong(SecureRandom rand, long bound) {
         if (bound <= 0) {
             throw new IllegalArgumentException("bound must be positive");
         }
