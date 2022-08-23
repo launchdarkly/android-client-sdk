@@ -602,7 +602,7 @@ public class LDClientTest {
             TestUtil.markMigrationComplete(application);
             EvaluationReason testReason = EvaluationReason.off();
             FlagStore flagStore = new SharedPrefsFlagStoreFactory(application).createFlagStore(mobileKey + DefaultUserManager.sharedPrefs(ldUser));
-            flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").trackEvents(true).trackReason(true).reason(testReason).build());
+            flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").version(10).trackEvents(true).trackReason(true).reason(testReason).build());
 
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.boolVariation("track-reason-flag", false);
@@ -615,7 +615,7 @@ public class LDClientTest {
                 assertEquals("track-reason-flag", event.key);
                 assertEquals("userKey", event.userKey);
                 assertNull(event.variation);
-                assertNull(event.version);
+                assertEquals(Integer.valueOf(10), event.version);
                 assertFalse(event.value.booleanValue());
                 assertFalse(event.defaultVal.booleanValue());
                 assertEquals(testReason, event.reason);
