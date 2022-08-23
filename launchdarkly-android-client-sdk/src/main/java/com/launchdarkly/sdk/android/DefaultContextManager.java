@@ -10,7 +10,10 @@ import androidx.annotation.VisibleForTesting;
 import com.google.gson.JsonObject;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.json.JsonSerialization;
+import com.launchdarkly.sdk.json.SerializationException;
 
 import java.util.Collection;
 import java.util.List;
@@ -21,7 +24,7 @@ import java.util.concurrent.ExecutorService;
  * Also enables realtime updates via registering a {@link FeatureFlagChangeListener}
  * with a feature flag.
  */
-class DefaultUserManager implements UserManager {
+class DefaultContextManager implements ContextManager {
 
     private final FeatureFetcher fetcher;
 
@@ -32,15 +35,16 @@ class DefaultUserManager implements UserManager {
     private final LDLogger logger;
 
     private LDUser currentUser;
+    private LDContext currentContext;
 
     private final ExecutorService executor;
 
-    static synchronized DefaultUserManager newInstance(Application application, FeatureFetcher fetcher, String environmentName,
+    static synchronized DefaultContextManager newInstance(Application application, FeatureFetcher fetcher, String environmentName,
                                                        String mobileKey, int maxCachedUsers, LDLogger logger) {
-        return new DefaultUserManager(application, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
+        return new DefaultContextManager(application, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
     }
 
-    DefaultUserManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey,
+    DefaultContextManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey,
                        int maxCachedUsers, LDLogger logger) {
         this.application = application;
         this.fetcher = fetcher;
@@ -56,6 +60,10 @@ class DefaultUserManager implements UserManager {
 
     public LDUser getCurrentUser() {
         return currentUser;
+    }
+
+    public LDContext getCurrentContext() {
+        return currentContext;
     }
 
     FlagStore getCurrentUserFlagStore() {
@@ -76,8 +84,8 @@ class DefaultUserManager implements UserManager {
 
     static final UserHasher HASHER = new UserHasher();
 
-    public static String sharedPrefs(final LDUser user) {
-        return HASHER.hash(toJson(user));
+    public static String sharedPreferencesKey(final LDContext context) {
+        return HASHER.hash(context.getFullyQualifiedKey());
     }
 
     /**
@@ -90,7 +98,21 @@ class DefaultUserManager implements UserManager {
         String userBase64 = base64Url(user);
         logger.debug("Setting current user to: [{}] [{}]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
-        flagStoreManager.switchToUser(DefaultUserManager.sharedPrefs(user));
+        currentContext = userToContext(user);
+        flagStoreManager.switchToUser(DefaultContextManager.sharedPreferencesKey(currentContext));
+    }
+
+    static LDContext userToContext(LDUser user) {
+        // This is a temporary method to allow us to migrate some pieces of SDK implementation to
+        // the context model while the API is still using the old user model. Because LDUser has
+        // looser validation than LDContext - specifically, it allows an empty string key - we'll
+        // do this conversion inefficiently by converting to and from JSON; LDContext's JSON
+        // deserializer allows an empty string key only when parsing from old-style user JSON.
+        try {
+            return JsonSerialization.deserialize(JsonSerialization.serialize(user), LDContext.class);
+        } catch (SerializationException e) {
+            throw new RuntimeException(e); // shouldn't be possible
+        }
     }
 
     /**

@@ -36,7 +36,7 @@ class StreamUpdateProcessor {
 
     private EventSource es;
     private final LDConfig config;
-    private final UserManager userManager;
+    private final ContextManager contextManager;
     private volatile boolean running = false;
     private final Debounce queue;
     private boolean connection401Error = false;
@@ -47,10 +47,10 @@ class StreamUpdateProcessor {
     private long eventSourceStarted;
     private final LDLogger logger;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, DiagnosticStore diagnosticStore,
+    StreamUpdateProcessor(LDConfig config, ContextManager contextManager, String environmentName, DiagnosticStore diagnosticStore,
                           LDUtil.ResultCallback<Void> notifier, LDLogger logger) {
         this.config = config;
-        this.userManager = userManager;
+        this.contextManager = contextManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
@@ -93,7 +93,7 @@ class StreamUpdateProcessor {
                 public void onError(Throwable t) {
                     LDUtil.logExceptionAtErrorLevel(logger, t,
                             "Encountered EventStream error connecting to URI: {}",
-                            getUri(userManager.getCurrentUser()));
+                            getUri(contextManager.getCurrentUser()));
                     if (t instanceof UnsuccessfulResponseException) {
                         if (diagnosticStore != null) {
                             diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
@@ -122,7 +122,7 @@ class StreamUpdateProcessor {
                 }
             };
 
-            EventSource.Builder builder = new EventSource.Builder(handler, getUri(userManager.getCurrentUser()));
+            EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextManager.getCurrentUser()));
 
             builder.requestTransformer(input -> {
                 Map<String, List<String>> esHeaders = input.headers().toMultimap();
@@ -140,7 +140,7 @@ class StreamUpdateProcessor {
 
             if (config.isUseReport()) {
                 builder.method(METHOD_REPORT);
-                builder.body(getRequestBody(userManager.getCurrentUser()));
+                builder.body(getRequestBody(contextManager.getCurrentUser()));
             }
 
             builder.maxReconnectTimeMs(MAX_RECONNECT_TIME_MS);
@@ -163,7 +163,7 @@ class StreamUpdateProcessor {
         String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
 
         if (!config.isUseReport() && user != null) {
-            str += "/" + DefaultUserManager.base64Url(user);
+            str += "/" + DefaultContextManager.base64Url(user);
         }
 
         if (config.isEvaluationReasons()) {
@@ -176,14 +176,14 @@ class StreamUpdateProcessor {
     private void handle(final String name, final String eventData,
                         @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
         switch (name.toLowerCase()) {
-            case PUT: userManager.putCurrentUserFlags(eventData, onCompleteListener); break;
-            case PATCH: userManager.patchCurrentUserFlags(eventData, onCompleteListener); break;
-            case DELETE: userManager.deleteCurrentUserFlag(eventData, onCompleteListener); break;
+            case PUT: contextManager.putCurrentUserFlags(eventData, onCompleteListener); break;
+            case PATCH: contextManager.patchCurrentUserFlags(eventData, onCompleteListener); break;
+            case DELETE: contextManager.deleteCurrentUserFlag(eventData, onCompleteListener); break;
             case PING:
                 // We debounce ping requests as they trigger a separate asynchronous request for the
                 // flags, overriding all flag values.
                 queue.call(() -> {
-                    userManager.updateCurrentUser(onCompleteListener);
+                    contextManager.updateCurrentUser(onCompleteListener);
                     return null;
                 });
                 break;

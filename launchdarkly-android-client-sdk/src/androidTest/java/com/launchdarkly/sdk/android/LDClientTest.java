@@ -544,7 +544,8 @@ public class LDClientTest {
             // Setup flag store with test flag
             TestUtil.markMigrationComplete(application);
             EvaluationReason testReason = EvaluationReason.off();
-            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application, LDLogger.none()).createFlagStore(mobileKey + DefaultUserManager.sharedPrefs(ldUser));
+            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application, LDLogger.none()).createFlagStore(
+                    mobileKey + DefaultContextManager.sharedPreferencesKey(DefaultContextManager.userToContext(ldUser)));
             flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").version(10).trackEvents(true).trackReason(true).reason(testReason).build());
 
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
