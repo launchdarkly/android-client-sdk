@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
 
+import java.security.SecureRandom;
 import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -20,7 +21,7 @@ class Throttler {
     private final long retryTimeMs;
     private final long maxRetryTimeMs;
 
-    private final Random jitter = new Random();
+    private final SecureRandom jitter = new SecureRandom();
     private final AtomicInteger attempts = new AtomicInteger(-1);
     private final ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
 
