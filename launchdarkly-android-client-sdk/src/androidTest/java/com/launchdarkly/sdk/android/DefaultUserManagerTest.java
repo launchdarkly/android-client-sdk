@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDUser;
 
 import org.easymock.Capture;
@@ -47,7 +48,8 @@ public class DefaultUserManagerTest extends EasyMockSupport {
 
     @Before
     public void before() {
-        userManager = new DefaultUserManager(ApplicationProvider.getApplicationContext(), fetcher, "test", "test", 3);
+        userManager = new DefaultUserManager(ApplicationProvider.getApplicationContext(), fetcher,
+                "test", "test", 3, LDLogger.none());
     }
 
     @Test

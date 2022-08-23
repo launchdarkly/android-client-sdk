@@ -6,20 +6,24 @@ import androidx.annotation.NonNull;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.launchdarkly.logging.LDLogAdapter;
+import com.launchdarkly.logging.LDLogLevel;
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import okhttp3.Headers;
 import okhttp3.MediaType;
-import timber.log.Timber;
-import timber.log.Timber.Tree;
 
 /**
  * This class exposes advanced configuration options for {@link LDClient}. Instances of this class
@@ -27,7 +31,9 @@ import timber.log.Timber.Tree;
  */
 public class LDConfig {
 
-    static final String TIMBER_TAG = "LaunchDarklySdk";
+    static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
+    static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
+
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final String AUTH_SCHEME = "api_key ";
@@ -87,6 +93,9 @@ public class LDConfig {
 
     private final boolean autoAliasingOptOut;
 
+    private final LDLogAdapter logAdapter;
+    private final String loggerName;
+
     LDConfig(Map<String, String> mobileKeys,
              Uri pollUri,
              Uri eventsUri,
@@ -110,7 +119,9 @@ public class LDConfig {
              String wrapperVersion,
              int maxCachedUsers,
              LDHeaderUpdater headerTransform,
-             boolean autoAliasingOptOut) {
+             boolean autoAliasingOptOut,
+             LDLogAdapter logAdapter,
+             String loggerName) {
 
         this.mobileKeys = mobileKeys;
         this.pollUri = pollUri;
@@ -136,11 +147,12 @@ public class LDConfig {
         this.maxCachedUsers = maxCachedUsers;
         this.headerTransform = headerTransform;
         this.autoAliasingOptOut = autoAliasingOptOut;
+        this.logAdapter = logAdapter;
+        this.loggerName = loggerName;
 
         this.filteredEventGson = new GsonBuilder()
                 .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
                 .create();
-
     }
 
     Headers headersForEnvironment(@NonNull String environmentName,
@@ -281,6 +293,10 @@ public class LDConfig {
         return autoAliasingOptOut;
     }
 
+    LDLogAdapter getLogAdapter() { return logAdapter; }
+
+    String getLoggerName() { return loggerName; }
+
     /**
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
@@ -323,6 +339,10 @@ public class LDConfig {
         private String wrapperVersion;
         private LDHeaderUpdater headerTransform;
         private boolean autoAliasingOptOut = false;
+
+        private LDLogAdapter logAdapter = defaultLogAdapter();
+        private String loggerName = DEFAULT_LOGGER_NAME;
+        private LDLogLevel logLevel = null;
 
         /**
          * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
@@ -682,42 +702,154 @@ public class LDConfig {
             this.headerTransform = headerTransform;
             return this;
         }
-        
+
+        /**
+         * Specifies the implementation of logging to use.
+         * <p>
+         * The <a href="https://github.com/launchdarkly/java-logging"><code>com.launchdarkly.logging</code></a>
+         * API defines the {@link LDLogAdapter} interface to specify where log output should be sent. By default,
+         * it is set to {@link LDTimberLogging#adapter()}, meaning that output will be sent to the
+         * <a href="https://github.com/JakeWharton/timber">Timber</a> framework and controlled by whatever Timber
+         * configuration the application has created. You may change this to {@link LDAndroidLogging#adapter()}
+         * to bypass Timber and use Android native logging directly; or, use the
+         * {@link com.launchdarkly.logging.Logs} factory methods, or a custom implementation, to handle log
+         * output differently.
+         * <p>
+         * Specifying {@code logAdapter(Logs.none())} completely disables log output.
+         * <p>
+         * For more about logging adapters,
+         * see the <a href="https://docs.launchdarkly.com/sdk/features/logging#android">SDK reference guide</a>
+         * and the <a href="https://launchdarkly.github.io/java-logging">API documentation</a> for
+         * <code>com.launchdarkly.logging</code>.
+         *
+         * @param logAdapter an {@link LDLogAdapter} for the desired logging implementation
+         * @return the builder
+         * @since 3.2.0
+         * @see #logLevel(LDLogLevel)
+         * @see #loggerName(String)
+         * @see LDTimberLogging
+         * @see LDAndroidLogging
+         * @see com.launchdarkly.logging.Logs
+         */
+        public LDConfig.Builder logAdapter(LDLogAdapter logAdapter) {
+            this.logAdapter = logAdapter == null ? defaultLogAdapter() : logAdapter;
+            return this;
+        }
+
+        /**
+         * Specifies the lowest level of logging to enable.
+         * <p>
+         * This is only applicable when using an implementation of logging that does not have its own
+         * external filter/configuration mechanism, such as {@link LDAndroidLogging}. It adds
+         * a log level filter so that log messages at lower levels are suppressed. The default is
+         * {@link LDLogLevel#INFO}, meaning that {@code INFO}, {@code WARN}, and {@code ERROR} levels
+         * are enabled, but {@code DEBUG} is disabled. To enable {@code DEBUG} level as well:
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder()
+         *         .logAdapter(LDAndroidLogging.adapter())
+         *         .level(LDLogLevel.DEBUG)
+         *         .build();
+         * </code></pre>
+         * <p>
+         * Or, to raise the logging threshold so that only WARN and ERROR levels are enabled, and
+         * DEBUG and INFO are disabled:
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder()
+         *         .logAdapter(LDAndroidLogging.adapter())
+         *         .level(LDLogLevel.WARN)
+         *         .build();
+         * </code></pre>
+         * <p>
+         * When using {@link LDTimberLogging}, Timber has its own mechanism for determining whether
+         * to enable debug-level logging, so this method has no effect.
+         *
+         * @param logLevel the lowest level of logging to enable
+         * @return the builder
+         * @since 3.2.0
+         * @see #logAdapter(LDLogAdapter)
+         * @see #loggerName(String)
+         */
+        public LDConfig.Builder logLevel(LDLogLevel logLevel) {
+            this.logLevel = logLevel;
+            return this;
+        }
+
+        /**
+         * Specifies a custom logger name/tag for the SDK.
+         * <p>
+         * When using Timber or native Android logging, this becomes the tag for all SDK log output.
+         * If you have specified a different logging implementation with {@link #logAdapter(LDLogAdapter)},
+         * the meaning of the logger name depends on the logging framework.
+         * <p>
+         * If not specified, the default is "LaunchDarklySdk".
+         *
+         * @param loggerName the logger name or tag
+         * @return the builder
+         * @since 3.2.0
+         * @see #logAdapter(LDLogAdapter)
+         * @see #logLevel(LDLogLevel) 
+         */
+        public LDConfig.Builder loggerName(String loggerName) {
+            this.loggerName = loggerName == null ? DEFAULT_LOGGER_NAME : loggerName;
+            return this;
+        }
+
+        private static LDLogAdapter defaultLogAdapter() {
+            return LDTimberLogging.adapter();
+        }
+
         /**
          * Returns the configured {@link LDConfig} object.
          * @return the configuration
          */
         public LDConfig build() {
+            LDLogAdapter actualLogAdapter = Logs.level(logAdapter,
+                logLevel == null ? DEFAULT_LOG_LEVEL : logLevel);
+            // Note: if the log adapter is LDTimberLogging, then Logs.level has no effect - we will still
+            // forward all of our logging to Timber, because it has its own mechanism for filtering out
+            // debug logging. But if it is LDAndroidLogging or anything else, Logs.level ensures that no
+            // output at a lower level than logLevel will be sent anywhere.
+
+            LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
+
             if (!stream) {
                 if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    LDConfig.log().w("setPollingIntervalMillis: %s was set below the allowed minimum of: %s. Ignoring and using minimum value.", pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
+                    logger.warn(
+                            "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
+                            pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
                     pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                    LDConfig.log().w("BackgroundPollingIntervalMillis: %s was set below the foreground polling interval: %s. Ignoring and using minimum value for background polling.", backgroundPollingIntervalMillis, pollingIntervalMillis);
+                    logger.warn(
+                            "BackgroundPollingIntervalMillis: {} was set below the foreground polling interval: {}. Ignoring and using minimum value for background polling.",
+                            backgroundPollingIntervalMillis, pollingIntervalMillis);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
 
                 if (eventsFlushIntervalMillis == 0) {
                     eventsFlushIntervalMillis = pollingIntervalMillis;
-                    LDConfig.log().d("Streaming is disabled, so we're setting the events flush interval to the polling interval value: %s", pollingIntervalMillis);
+                    // this is a normal occurrence, so don't log a warning about it
                 }
             }
 
             if (!disableBackgroundUpdating) {
                 if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
-                    LDConfig.log().w("BackgroundPollingIntervalMillis: %s was set below the minimum allowed: %s. Ignoring and using minimum value.", backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
+                    logger.warn(
+                            "BackgroundPollingIntervalMillis: {} was set below the minimum allowed: {}. Ignoring and using minimum value.",
+                            backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
             }
 
             if (eventsFlushIntervalMillis == 0) {
-                eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
+                eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS; // this is a normal occurrence, so don't log a warning about it
             }
 
             if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
-                LDConfig.log().w("diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.", diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
+                logger.warn(
+                        "diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.",
+                        diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
                 diagnosticRecordingIntervalMillis = MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
             }
 
@@ -754,11 +886,9 @@ public class LDConfig {
                     wrapperVersion,
                     maxCachedUsers,
                     headerTransform,
-                    autoAliasingOptOut);
+                    autoAliasingOptOut,
+                    actualLogAdapter,
+                    loggerName);
         }
-    }
-
-    public static final Tree log() {
-        return Timber.tag(TIMBER_TAG);
     }
 }

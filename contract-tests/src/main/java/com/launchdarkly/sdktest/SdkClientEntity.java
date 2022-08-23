@@ -1,5 +1,7 @@
 package com.launchdarkly.sdktest;
 
+import com.launchdarkly.logging.LDLogAdapter;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
@@ -30,8 +32,6 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import timber.log.Timber;
-
 /**
  * This class implements all the client-level testing protocols defined in
  * the contract tests service specification, such as executing commands,
@@ -41,13 +41,13 @@ import timber.log.Timber;
  */
 public class SdkClientEntity {
   private final LDClient client;
+  private final LDLogger logger;
 
-  public SdkClientEntity(Application application, CreateInstanceParams params) {
-    Timber.i("Creating client for %s", params.tag);
-    LDConfig config = buildSdkConfig(params.configuration);
-    // Each new client will plant a new Timber tree, so we uproot any existing ones
-    // to avoid spamming stdout with duplicate log lines
-    Timber.uprootAll();
+  public SdkClientEntity(Application application, CreateInstanceParams params, LDLogAdapter logAdapter) {
+    LDLogAdapter logAdapterForTest = new PrefixedLogAdapter(logAdapter, "test");
+    this.logger = LDLogger.withAdapter(logAdapterForTest, params.tag);
+    logger.info("Creating client");
+    LDConfig config = buildSdkConfig(params.configuration, logAdapterForTest, params.tag);
     long startWaitMs = params.configuration.startWaitTimeMs != null ?
             params.configuration.startWaitTimeMs.longValue() : 5000;
     Future<LDClient> initFuture = LDClient.init(
@@ -59,9 +59,9 @@ public class SdkClientEntity {
     try {
       initFuture.get(startWaitMs, TimeUnit.MILLISECONDS);
     } catch (InterruptedException | ExecutionException e) {
-      Timber.e(e, "Exception during Client initialization");
+      logger.error("Exception during Client initialization: {}", e);
     } catch (TimeoutException e) {
-      Timber.w("Client did not successfully initialize within %s ms. It could be taking longer than expected to start up", startWaitMs);
+      logger.warn("Client did not successfully initialize within {} ms. It could be taking longer than expected to start up", startWaitMs);
     }
     try {
       this.client = LDClient.get();
@@ -73,13 +73,13 @@ public class SdkClientEntity {
         throw new RuntimeException("client initialization failed or timed out");
       }
     } catch (LaunchDarklyException e) {
-      Timber.e(e, "Exception when initializing LDClient");
+      logger.error("Exception when initializing LDClient: {}", e);
       throw new RuntimeException("Exception when initializing LDClient", e);
     }
   }
 
   public Object doCommand(CommandParams params) throws TestService.BadRequestException {
-    Timber.i("Test harness sent command: %s", TestService.gson.toJson(params));
+    logger.info("Test harness sent command: {}", TestService.gson.toJson(params));
     switch (params.command) {
       case "evaluate":
         return doEvaluateFlag(params.evaluate);
@@ -192,9 +192,10 @@ public class SdkClientEntity {
     client.alias(params.user, params.previousUser);
   }
 
-  private LDConfig buildSdkConfig(SdkConfigParams params) {
+  private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
     LDConfig.Builder builder = new LDConfig.Builder();
     builder.mobileKey(params.credential);
+    builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
 
     if (params.streaming != null) {
       builder.stream(true);
@@ -257,9 +258,9 @@ public class SdkClientEntity {
   public void close() {
     try {
       client.close();
-      Timber.i("Closed LDClient");
+      logger.info("Closed LDClient");
     } catch (IOException e) {
-      Timber.e(e, "Unexpected error closing client");
+      logger.error("Unexpected error closing client: {}", e);
       throw new RuntimeException("Unexpected error closing client", e);
     }
   }

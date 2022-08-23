@@ -5,10 +5,13 @@ import android.app.Application;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSyntaxException;
+import com.launchdarkly.logging.LDLogAdapter;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
 import com.launchdarkly.sdktest.Representations.Status;
 import com.launchdarkly.sdk.android.BuildConfig;
+import com.launchdarkly.sdk.android.LDAndroidLogging;
 import com.launchdarkly.sdk.json.LDGson;
 
 import java.io.IOException;
@@ -19,8 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 import fi.iki.elonen.NanoHTTPD;
-
-import timber.log.Timber;
 
 public class TestService extends NanoHTTPD {
     private static final int PORT = 8001;
@@ -37,6 +38,8 @@ public class TestService extends NanoHTTPD {
 
     private final Router router = new Router();
     private final Application application;
+    private final LDLogAdapter logAdapter;
+    private final LDLogger logger;
 
     private final Map<String, SdkClientEntity> clients = new ConcurrentHashMap<String, SdkClientEntity>();
     private final AtomicInteger clientCounter = new AtomicInteger(0);
@@ -50,6 +53,8 @@ public class TestService extends NanoHTTPD {
     TestService(Application application) {
         super(PORT);
         this.application = application;
+        this.logAdapter = LDAndroidLogging.adapter();
+        this.logger = LDLogger.withAdapter(logAdapter, "service");
         router.add("GET", "/", (params, body) -> getStatus());
         router.add("POST", "/", (params, body) -> postCreateClient(body));
         router.addRegex("POST", Pattern.compile("/clients/(.*)"), (params, body) -> postClientCommand(params, body));
@@ -72,13 +77,13 @@ public class TestService extends NanoHTTPD {
             body = new String(buffer);
         }
 
-        Timber.i("Handling request: %s %s", method.name(), session.getUri());
+        logger.info("Handling request: {} {}", method.name(), session.getUri());
         try {
             return router.route(method.name(), session.getUri(), body);
         } catch (JsonSyntaxException jse) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, NanoHTTPD.MIME_PLAINTEXT, "Invalid JSON Format\n");
         } catch (Exception e) {
-            Timber.e(e, "Exception when handling request: %s %s", method.name(), session.getUri());
+            logger.error("Exception when handling request: {} {} - {}", method.name(), session.getUri(), e);
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, e.toString());
         }
     }
@@ -97,7 +102,7 @@ public class TestService extends NanoHTTPD {
         CreateInstanceParams params = gson.fromJson(jsonPayload, CreateInstanceParams.class);
 
         String clientId = String.valueOf(clientCounter.incrementAndGet());
-        SdkClientEntity client = new SdkClientEntity(application, params);
+        SdkClientEntity client = new SdkClientEntity(application, params, logAdapter);
 
         clients.put(clientId, client);
 
