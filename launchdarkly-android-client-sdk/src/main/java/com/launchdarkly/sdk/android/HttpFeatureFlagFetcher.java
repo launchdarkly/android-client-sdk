@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import android.content.Context;
+import android.net.Uri;
 
 import androidx.annotation.NonNull;
 
@@ -107,7 +108,8 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getDefaultRequest(LDUser user) {
-        String uri = config.getPollUri() + "/msdk/evalx/users/" + DefaultUserManager.base64Url(user);
+        String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/users/").toString() +
+                DefaultUserManager.base64Url(user);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }
@@ -118,7 +120,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getReportRequest(LDUser user) {
-        String reportUri = config.getPollUri() + "/msdk/evalx/user";
+        String reportUri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/user").toString();
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }

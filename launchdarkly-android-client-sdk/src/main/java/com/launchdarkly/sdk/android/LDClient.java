@@ -235,14 +235,15 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @SuppressWarnings("WeakerAccess")
     public static LDClient getForMobileKey(String keyName) throws LaunchDarklyException {
-        if (instances == null) {
+        Map<String, LDClient> instancesNow = instances; // ensures atomicity
+        if (instancesNow == null) {
             LDConfig.log().e("LDClient.getForMobileKey() was called before init()!");
             throw new LaunchDarklyException("LDClient.getForMobileKey() was called before init()!");
         }
-        if (!(instances.containsKey(keyName))) {
+        if (!(instancesNow.containsKey(keyName))) {
             throw new LaunchDarklyException("LDClient.getForMobileKey() called with invalid keyName");
         }
-        return instances.get(keyName);
+        return instancesNow.get(keyName);
     }
 
     @VisibleForTesting
@@ -312,7 +313,23 @@ public class LDClient implements LDClientInterface, Closeable {
         if (user.getKey() == null) {
             LDConfig.log().w("identify called with null user or null user key!");
         }
-        return LDClient.identifyInstances(customizeUser(user));
+        return identifyInstances(customizeUser(user));
+    }
+
+    private @NonNull Map<String, LDClient> getInstancesIfTheyIncludeThisClient() {
+        // Using this method ensures that 1. we are operating on an atomic snapshot of the
+        // instances (in the unlikely case that they get closed & recreated right around now) and
+        // 2. we do *not* operate on these instances if the current client is not one of them (i.e.
+        // if it's already been closed). This method is guaranteed never to return null.
+        Map<String, LDClient> ret = instances;
+        if (ret != null) {
+            for (LDClient c: ret.values()) {
+                if (c == this) {
+                    return ret;
+                }
+            }
+        }
+        return Collections.emptyMap();
     }
 
     private void identifyInternal(@NonNull LDUser user,
@@ -328,9 +345,10 @@ public class LDClient implements LDClientInterface, Closeable {
         sendEvent(new IdentifyEvent(user));
     }
 
-    private static Future<Void> identifyInstances(@NonNull LDUser user) {
+    private Future<Void> identifyInstances(@NonNull LDUser user) {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
-        final AtomicInteger identifyCounter = new AtomicInteger(instances.size());
+        final Map<String, LDClient> instancesNow = getInstancesIfTheyIncludeThisClient();
+        final AtomicInteger identifyCounter = new AtomicInteger(instancesNow.size());
         LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
             @Override
             public void onSuccess(Void result) {
@@ -345,7 +363,7 @@ public class LDClient implements LDClientInterface, Closeable {
             }
         };
 
-        for (LDClient client : instances.values()) {
+        for (LDClient client : instancesNow.values()) {
             client.identifyInternal(user, completeWhenCounterZero);
         }
 
@@ -357,7 +375,9 @@ public class LDClient implements LDClientInterface, Closeable {
         Collection<Flag> allFlags = userManager.getCurrentUserFlagStore().getAllFlags();
         HashMap<String, LDValue> flagValues = new HashMap<>();
         for (Flag flag: allFlags) {
-            flagValues.put(flag.getKey(), flag.getValue());
+            if (!flag.isDeleted()) {
+                flagValues.put(flag.getKey(), flag.getValue());
+            }
         }
         return flagValues;
     }
@@ -421,22 +441,22 @@ public class LDClient implements LDClientInterface, Closeable {
         EvaluationDetail<LDValue> result;
         LDValue value = defaultValue;
 
-        if (flag == null) {
+        if (flag == null || flag.isDeleted()) {
             LDConfig.log().i("Unknown feature flag \"%s\"; returning default value", key);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
+            int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
             if (value.isNull()) {
                 LDConfig.log().w("Feature flag \"%s\" retrieved with no value; returning default value", key);
                 value = defaultValue;
-                int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
                 result = EvaluationDetail.fromValue(defaultValue, variation, flag.getReason());
             } else if (checkType && !defaultValue.isNull() && value.getType() != defaultValue.getType()) {
                 LDConfig.log().w("Feature flag \"%s\" with type %s retrieved as %s; returning default value", key, value.getType(), defaultValue.getType());
                 value = defaultValue;
                 result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.WRONG_TYPE));
             } else {
-                result = EvaluationDetail.fromValue(value, flag.getVariation(), flag.getReason());
+                result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
             sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
@@ -453,7 +473,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     @Override
     public void close() throws IOException {
-        LDClient.closeInstances();
+        closeInstances();
     }
 
     private void closeInternal() {
@@ -466,25 +486,26 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private static void closeInstances() {
-        for (LDClient client : instances.values()) {
+    private void closeInstances() {
+        Iterable<LDClient> oldClients;
+        synchronized (initLock) {
+            oldClients = getInstancesIfTheyIncludeThisClient().values();
+            instances = null;
+        }
+        for (LDClient client : oldClients) {
             client.closeInternal();
         }
     }
 
     @Override
     public void flush() {
-        LDClient.flushInstances();
+        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+           client.flushInternal();
+        }
     }
 
     private void flushInternal() {
         eventProcessor.flush();
-    }
-
-    private static void flushInstances() {
-        for (LDClient client : instances.values()) {
-            client.flushInternal();
-        }
     }
 
     @VisibleForTesting
@@ -504,32 +525,24 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public void setOffline() {
-        LDClient.setInstancesOffline();
+        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+            client.setOfflineInternal();
+        }
     }
 
     private void setOfflineInternal() {
         connectivityManager.setOffline();
     }
 
-    private static void setInstancesOffline() {
-        for (LDClient client : instances.values()) {
-            client.setOfflineInternal();
-        }
-    }
-
     @Override
     public void setOnline() {
-        setOnlineStatusInstances();
+        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+            client.setOnlineStatusInternal();
+        }
     }
 
     private void setOnlineStatusInternal() {
         connectivityManager.setOnline();
-    }
-
-    private static void setOnlineStatusInstances() {
-        for (LDClient client : instances.values()) {
-            client.setOnlineStatusInternal();
-        }
     }
 
     @Override
@@ -639,9 +652,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue defaultValue, EvaluationReason reason) {
-        Integer version = flag.getVersionForEvents();
+        int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
-        if (flag.getTrackEvents()) {
+        if (flag.isTrackEvents()) {
             sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
                     variation, reason, config.inlineUsersInEvents(), false));
         } else {

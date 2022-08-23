@@ -10,7 +10,7 @@ public class FlagBuilder {
     @NonNull
     private String key;
     private LDValue value = null;
-    private Integer version = null;
+    private int version = 0;
     private Integer flagVersion = null;
     private Integer variation = null;
     private Boolean trackEvents = null;
@@ -27,7 +27,7 @@ public class FlagBuilder {
         return this;
     }
 
-    public FlagBuilder version(Integer version) {
+    public FlagBuilder version(int version) {
         this.version = version;
         return this;
     }

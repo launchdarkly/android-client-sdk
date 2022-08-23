@@ -6,7 +6,6 @@ import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
-import com.launchdarkly.sdk.android.LDClientControl;
 
 import com.launchdarkly.sdktest.Representations.AliasEventParams;
 import com.launchdarkly.sdktest.Representations.CommandParams;
@@ -45,8 +44,6 @@ public class SdkClientEntity {
 
   public SdkClientEntity(Application application, CreateInstanceParams params) {
     Timber.i("Creating client for %s", params.tag);
-    LDClientControl.resetInstances();
-    Timber.i("Reset global state to allow for another client");
     LDConfig config = buildSdkConfig(params.configuration);
     // Each new client will plant a new Timber tree, so we uproot any existing ones
     // to avoid spamming stdout with duplicate log lines
@@ -70,6 +67,9 @@ public class SdkClientEntity {
       this.client = LDClient.get();
       if (!client.isInitialized() && !params.configuration.initCanFail) {
         // If `initCanFail` is true, we can proceed with an uninitialized client
+        try {
+          client.close();
+        } catch (IOException e) {}
         throw new RuntimeException("client initialization failed or timed out");
       }
     } catch (LaunchDarklyException e) {
@@ -171,7 +171,11 @@ public class SdkClientEntity {
   }
 
   private void doIdentifyEvent(IdentifyEventParams params) {
-    client.identify(params.user);
+    try {
+      client.identify(params.user).get();
+    } catch (ExecutionException | InterruptedException e) {
+      throw new RuntimeException("Error waiting for identify", e);
+    }
   }
 
   private void doCustomEvent(CustomEventParams params) {

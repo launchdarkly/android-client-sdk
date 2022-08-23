@@ -15,6 +15,11 @@ workflows:
                 # - 21 - TODO: EasyMock makes our tests fail
                 - 25
                 # - 29 - TODO: offline tests fail
+# Contract tests are temporarily disabled for API 31 and API 33 due to a degree of
+# test instability that impedes development. Currently there are two common failure
+# modes: SDK initialization times out, or SDK initialization completes immediately
+# without acquiring any data because the emulator reports no network availability.
+# These do not appear correlated to any actual SDK logic flaw.
       - contract-tests:
           matrix:
             parameters:
@@ -22,19 +27,19 @@ workflows:
                 - 21
                 - 25
                 - 30
-                - 31
-      # "default" images are faster than "google_apis" images, but are otherwise equivalent for our purposes.
-      # however, there are no "default" images for Android 32+, so as a workaround we have a separate matrix
-      # for Android 32+
-      - contract-tests:
-          matrix:
-            parameters:
-              api-level:
-                - 33
-              system-image-type:
-                - google_apis
-              resource-class:
-                - xlarge
+#                - 31
+      # # "default" images are faster than "google_apis" images, but are otherwise equivalent for our purposes.
+      # # however, there are no "default" images for Android 32+, so as a workaround we have a separate matrix
+      # # for Android 32+
+      # - contract-tests:
+      #     matrix:
+      #       parameters:
+      #         api-level:
+      #           - 33
+      #         system-image-type:
+      #           - google_apis
+      #         resource-class:
+      #           - xlarge
 
 commands:
   check-emulator-available:
