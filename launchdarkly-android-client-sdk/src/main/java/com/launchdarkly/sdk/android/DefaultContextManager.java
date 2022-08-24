@@ -67,7 +67,7 @@ class DefaultContextManager implements ContextManager {
     }
 
     FlagStore getCurrentUserFlagStore() {
-        return flagStoreManager.getCurrentUserStore();
+        return flagStoreManager.getCurrentContextStore();
     }
 
     SummaryEventStore getSummaryEventStore() {
@@ -99,7 +99,7 @@ class DefaultContextManager implements ContextManager {
         logger.debug("Setting current user to: [{}] [{}]", userBase64, userBase64ToJson(userBase64));
         currentUser = user;
         currentContext = userToContext(user);
-        flagStoreManager.switchToUser(DefaultContextManager.sharedPreferencesKey(currentContext));
+        flagStoreManager.switchToContext(DefaultContextManager.sharedPreferencesKey(currentContext));
     }
 
     static LDContext userToContext(LDUser user) {
@@ -168,7 +168,7 @@ class DefaultContextManager implements ContextManager {
 
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
-            flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
+            flagStoreManager.getCurrentContextStore().clearAndApplyFlagUpdates(flags);
             onCompleteListener.onSuccess(null);
         } catch (Exception e) {
             logger.debug("Invalid JsonObject for flagSettings: {}", flagsJson);
@@ -185,7 +185,7 @@ class DefaultContextManager implements ContextManager {
             final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
             executor.submit(() -> {
                 if (deleteFlagResponse != null) {
-                    flagStoreManager.getCurrentUserStore().applyFlagUpdate(deleteFlagResponse);
+                    flagStoreManager.getCurrentContextStore().applyFlagUpdate(deleteFlagResponse);
                     onCompleteListener.onSuccess(null);
                 } else {
                     logger.debug("Invalid DELETE payload: {}", json);
@@ -205,7 +205,7 @@ class DefaultContextManager implements ContextManager {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
             executor.submit(() -> {
                 logger.debug("PUT for user key: {}", currentUser.getKey());
-                flagStoreManager.getCurrentUserStore().clearAndApplyFlagUpdates(flags);
+                flagStoreManager.getCurrentContextStore().clearAndApplyFlagUpdates(flags);
                 onCompleteListener.onSuccess(null);
             });
         } catch (Exception ex) {
@@ -220,7 +220,7 @@ class DefaultContextManager implements ContextManager {
             final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
             executor.submit(() -> {
                 if (flag != null) {
-                    flagStoreManager.getCurrentUserStore().applyFlagUpdate(flag);
+                    flagStoreManager.getCurrentContextStore().applyFlagUpdate(flag);
                     onCompleteListener.onSuccess(null);
                 } else {
                     logger.debug("Invalid PATCH payload: {}", json);
