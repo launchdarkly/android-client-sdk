@@ -28,7 +28,6 @@ class DefaultContextManager implements ContextManager {
 
     private final Application application;
     private final FlagStoreManager flagStoreManager;
-    private final SummaryEventStore summaryEventStore;
     private final String environmentName;
     private final LDLogger logger;
 
@@ -47,8 +46,6 @@ class DefaultContextManager implements ContextManager {
         this.fetcher = fetcher;
         this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey,
                 new SharedPrefsFlagStoreFactory(application, logger), maxCachedUsers, logger);
-        this.summaryEventStore = new SharedPrefsSummaryEventStore(application,
-                LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents", logger);
         this.environmentName = environmentName;
         this.logger = logger;
 
@@ -61,10 +58,6 @@ class DefaultContextManager implements ContextManager {
 
     FlagStore getCurrentContextFlagStore() {
         return flagStoreManager.getCurrentContextStore();
-    }
-
-    SummaryEventStore getSummaryEventStore() {
-        return summaryEventStore;
     }
 
     public static String base64Url(final LDContext context) {

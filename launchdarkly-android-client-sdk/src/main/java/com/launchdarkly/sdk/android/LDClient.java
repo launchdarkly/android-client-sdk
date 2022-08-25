@@ -15,6 +15,11 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
+import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.events.Event;
+import com.launchdarkly.sdk.internal.events.EventsConfiguration;
+import com.launchdarkly.sdk.internal.http.HttpProperties;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -60,7 +65,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private final DefaultContextManager contextManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
-    private final DiagnosticEventProcessor diagnosticEventProcessor;
     private final DiagnosticStore diagnosticStore;
     private ConnectivityReceiver connectivityReceiver;
     private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
@@ -166,8 +170,10 @@ public class LDClient implements LDClientInterface, Closeable {
             // Start up all instances
             for (final LDClient instance : instances.values()) {
                 if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                    // TODO: use new event processor
-                    // instance.sendEvent(new IdentifyEvent(user));
+                    instance.eventProcessor.sendEvent(new Event.Identify(
+                            System.currentTimeMillis(),
+                            context
+                    ));
                 }
             }
 
@@ -254,19 +260,24 @@ public class LDClient implements LDClientInterface, Closeable {
         OkHttpClient sharedEventClient = makeSharedEventClient();
         if (config.getDiagnosticOptOut()) {
             this.diagnosticStore = null;
-            this.diagnosticEventProcessor = null;
         } else {
-            this.diagnosticStore = new DiagnosticStore(application, sdkKey);
-            this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, application,
-                    sharedEventClient, logger);
+            this.diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(config, sdkKey));
         }
         this.contextManager = DefaultContextManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedContexts(),
                 logger);
 
-        eventProcessor = new DefaultEventProcessor(application, config, contextManager.getSummaryEventStore(), environmentName,
-                diagnosticStore, sharedEventClient, logger);
+        HttpProperties httpProperties = LDUtil.makeHttpProperties(config, sdkKey);
+        EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(config, httpProperties,
+                !Foreground.get().isForeground(), logger);
+        eventProcessor = new DefaultEventProcessor(
+                eventsConfig,
+                EventUtil.makeEventsTaskExecutor(),
+                Thread.MIN_PRIORITY, // TODO
+                logger
+        );
+
         connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextManager, environmentName,
-                diagnosticEventProcessor, diagnosticStore, logger);
+                diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();
@@ -299,8 +310,13 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
-        // TODO: use new event processor
-        //sendEvent(new CustomEvent(eventName, contextManager.getCurrentUser(), data, metricValue));
+        eventProcessor.sendEvent(new Event.Custom(
+                System.currentTimeMillis(),
+                eventName,
+                contextManager.getCurrentContext(),
+                data,
+                metricValue
+        ));
     }
 
     @Override
@@ -335,8 +351,7 @@ public class LDClient implements LDClientInterface, Closeable {
                                   LDUtil.ResultCallback<Void> onCompleteListener) {
         contextManager.setCurrentContext(context);
         connectivityManager.reloadUser(onCompleteListener);
-        // TODO: use new event processor
-        // sendEvent(new IdentifyEvent(user));
+        eventProcessor.sendEvent(new Event.Identify(System.currentTimeMillis(), context));
     }
 
     private Future<Void> identifyInstances(@NonNull LDContext context) {
@@ -437,6 +452,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (flag == null || flag.isDeleted()) {
             logger.info("Unknown feature flag \"{}\"; returning default value", key);
+            sendFlagRequestEvent(key, null, defaultValue, defaultValue, null);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
@@ -456,7 +472,6 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, contextManager.getCurrentContext().getKey());
-        updateSummaryEvents(key, flag, value, defaultValue);
         return result;
     }
 
@@ -472,8 +487,10 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void closeInternal() {
         connectivityManager.shutdown();
-        eventProcessor.close();
-        
+        try {
+            eventProcessor.close();
+        } catch (Exception e) {}
+
         if (connectivityReceiver != null) {
             application.unregisterReceiver(connectivityReceiver);
             connectivityReceiver = null;
@@ -500,12 +517,12 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void flushInternal() {
-        eventProcessor.flush();
+        eventProcessor.flushAsync();
     }
 
     @VisibleForTesting
     void blockingFlush() {
-        eventProcessor.blockingFlush();
+        eventProcessor.flushBlocking();
     }
 
     @Override
@@ -637,52 +654,20 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue defaultValue, EvaluationReason reason) {
-        int version = flag.getVersionForEvents();
-        Integer variation = flag.getVariation();
-        if (flag.isTrackEvents()) {
-            // TODO: use new event processor
-//            sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
-//                    variation, reason, false, false));
-        } else {
-            Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
-            if (debugEventsUntilDate != null) {
-                long serverTimeMs = eventProcessor.getCurrentTimeMs();
-                if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    // TODO: use new event processor
-//                    sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
-//                            variation, reason, false, true));
-                }
-            }
-        }
-    }
-
-    private void sendEvent(Event event) {
-        if (!connectivityManager.isOffline()) {
-            boolean processed = eventProcessor.sendEvent(event);
-            if (!processed) {
-                logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
-                if (diagnosticStore != null) {
-                    diagnosticStore.incrementDroppedEventCount();
-                }
-            }
-        }
-    }
-
-    /**
-     * Updates the internal representation of a summary event, either adding a new field or updating the existing count.
-     * Nothing is sent to the server.
-     *
-     * @param flagKey      The flagKey that will be updated
-     * @param flag         The stored flag used in the evaluation of the flagKey
-     * @param result       The value that was returned in the evaluation of the flagKey
-     * @param defaultValue The default value used in the evaluation of the flagKey
-     */
-    private void updateSummaryEvents(String flagKey, Flag flag, LDValue result, LDValue defaultValue) {
-        result = LDValue.normalize(result);
-        defaultValue = LDValue.normalize(defaultValue);
-        Integer version = flag == null ? null : flag.getVersionForEvents();
-        Integer variation = flag == null ? null : flag.getVariation();
-        contextManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, defaultValue, version, variation);
+        eventProcessor.sendEvent(new Event.FeatureRequest(
+                System.currentTimeMillis(),
+                flagKey,
+                contextManager.getCurrentContext(),
+                flag == null ? -1 : flag.getVersionForEvents(),
+                flag == null || flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
+                value,
+                defaultValue,
+                reason, // TODO
+                null,
+                flag != null && flag.isTrackEvents(),
+                flag == null ? null : flag.getDebugEventsUntilDate(),
+                false
+        ));
     }
 
     static void triggerPollInstances() {
@@ -721,10 +706,5 @@ public class LDClient implements LDClientInterface, Closeable {
             return logger;
         }
         return LDLogger.none();
-    }
-
-    @VisibleForTesting
-    SummaryEventStore getSummaryEventStore() {
-        return contextManager.getSummaryEventStore();
     }
 }

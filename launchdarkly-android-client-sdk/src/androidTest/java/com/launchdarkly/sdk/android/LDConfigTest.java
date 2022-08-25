@@ -2,8 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import com.google.gson.JsonElement;
-import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
 
 import org.junit.Rule;
@@ -18,7 +16,6 @@ import okhttp3.Headers;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -254,23 +251,12 @@ public class LDConfigTest {
     @Test
     public void headersForEnvironment() {
         LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
-        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        Map<String, String> headers = headersToMap(
+                LDUtil.makeHttpProperties(config, "test-key").toHeadersBuilder().build()
+        );
         assertEquals(2, headers.size());
         assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("api_key test-key", headers.get("authorization"));
-        // Additional headers extend/replace defaults
-        HashMap<String, String> additional = new HashMap<>();
-        additional.put("Authorization", "other-key");
-        additional.put("Proxy-Authorization", "token");
-        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
-        assertEquals(3, headers.size());
-        assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
-        assertEquals("other-key", headers.get("authorization"));
-        assertEquals("token", headers.get("proxy-authorization"));
-        // Also should not modify the given additional headers
-        assertEquals(2, additional.size());
-        assertEquals("other-key", additional.get("Authorization"));
-        assertEquals("token", additional.get("Proxy-Authorization"));
     }
 
     @Test
@@ -287,40 +273,11 @@ public class LDConfigTest {
 
         expected.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
-        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        Map<String, String> headers = headersToMap(
+                LDUtil.makeHttpProperties(config, "test-key").toHeadersBuilder().build()
+        );
         assertEquals(2, headers.size());
         assertEquals("api_key test-key, more", headers.get("authorization"));
         assertEquals("value", headers.get("new"));
-        // Additional headers extend/replace defaults
-        HashMap<String, String> additional = new HashMap<>();
-        additional.put("Authorization", "other-key");
-        additional.put("Proxy-Authorization", "token");
-        expected.putAll(additional);
-        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
-        assertEquals(3, headers.size());
-        assertEquals("other-key, more", headers.get("authorization"));
-        assertEquals("token", headers.get("proxy-authorization"));
-        assertEquals("value", headers.get("new"));
-        // Also should not modify the given additional headers
-        assertEquals(2, additional.size());
-        assertEquals("other-key", additional.get("Authorization"));
-        assertEquals("token", additional.get("Proxy-Authorization"));
-    }
-
-    @Test
-    public void keyShouldNeverBeRemoved() {
-        // even with all attributes being private the key should always be retained
-        LDConfig config = new LDConfig.Builder()
-            .allAttributesPrivate()
-            .build();
-
-        LDUser user = new LDUser.Builder("myUserKey").email("weShouldNotFindThis@test.com").build();
-
-        JsonElement elem = config.getFilteredEventGson().toJsonTree(user).getAsJsonObject();
-
-        assertNotNull(elem);
-
-        assertTrue(elem.toString().contains("myUserKey"));
-        assertFalse(elem.toString().contains("weShouldNotFindThis@test.com"));
     }
 }

@@ -9,14 +9,18 @@ import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
+import java.io.Closeable;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
+import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
 
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
@@ -34,6 +38,7 @@ class StreamUpdateProcessor {
     private static final long MAX_RECONNECT_TIME_MS = 3_600_000; // 1 hour
 
     private EventSource es;
+    private final HttpProperties httpProperties;
     private final LDConfig config;
     private final ContextManager contextManager;
     private volatile boolean running = false;
@@ -49,6 +54,7 @@ class StreamUpdateProcessor {
     StreamUpdateProcessor(LDConfig config, ContextManager contextManager, String environmentName, DiagnosticStore diagnosticStore,
                           LDUtil.ResultCallback<Void> notifier, LDLogger logger) {
         this.config = config;
+        this.httpProperties = LDUtil.makeHttpProperties(config, config.getMobileKeys().get(environmentName));
         this.contextManager = contextManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
@@ -67,7 +73,7 @@ class StreamUpdateProcessor {
                 public void onOpen() {
                     logger.info("Started LaunchDarkly EventStream");
                     if (diagnosticStore != null) {
-                        diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), false);
+                        diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), false);
                     }
                 }
 
@@ -95,7 +101,7 @@ class StreamUpdateProcessor {
                             getUri(contextManager.getCurrentContext()));
                     if (t instanceof UnsuccessfulResponseException) {
                         if (diagnosticStore != null) {
-                            diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
+                            diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
                         }
                         int code = ((UnsuccessfulResponseException) t).getCode();
                         if (code >= 400 && code < 500) {
@@ -122,19 +128,17 @@ class StreamUpdateProcessor {
             };
 
             EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextManager.getCurrentContext()));
+            builder.clientBuilderActions(new EventSource.Builder.ClientConfigurer() {
+                public void configure(OkHttpClient.Builder clientBuilder) {
+                    httpProperties.applyToHttpClientBuilder(clientBuilder);
+                }
+            });
 
             builder.requestTransformer(input -> {
-                Map<String, List<String>> esHeaders = input.headers().toMultimap();
-                HashMap<String, String> collapsed = new HashMap<>();
-                for (Map.Entry<String, List<String>> entry: esHeaders.entrySet()) {
-                    for (String headerVal: entry.getValue()) {
-                        collapsed.put(entry.getKey(), headerVal);
-                        // We never provide multiple values for a header so we collapse to just
-                        // the first entry in the multimap.
-                        break;
-                    }
-                }
-                return input.newBuilder().headers(config.headersForEnvironment(environmentName, collapsed)).build();
+                return input.newBuilder()
+                        .headers(
+                                input.headers().newBuilder().addAll(httpProperties.toHeadersBuilder().build()).build()
+                        ).build();
             });
 
             if (config.isUseReport()) {

@@ -18,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.internal.events.EventProcessor;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockRule;
@@ -133,7 +134,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .build();
 
         connectivityManager = new ConnectivityManager(app, config, eventProcessor, contextManager, "default",
-                null, null, LDLogger.none());
+                null, LDLogger.none());
     }
 
     private void awaitStartUp() throws ExecutionException {
@@ -187,7 +188,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void initBackgroundDisabled() throws ExecutionException {
-        eventProcessor.start();
+        eventProcessor.setOffline(false);
         replayAll();
 
         ForegroundTestController.setup(false);
@@ -204,7 +205,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void initBackgroundPolling() throws ExecutionException {
-        eventProcessor.start();
+        eventProcessor.setOffline(false);
         replayAll();
 
         ForegroundTestController.setup(false);
@@ -227,7 +228,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             callbackCapture.getValue().onSuccess(null);
             return null;
         });
-        eventProcessor.start();
+        eventProcessor.setOffline(false);
         replayAll();
 
         createTestManager(false, false, false);
@@ -253,7 +254,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             callbackCapture.getValue().onError(new LDFailure("failure", testError, LDFailure.FailureType.NETWORK_FAILURE));
             return null;
         });
-        eventProcessor.start();
+        eventProcessor.setOffline(false);
         replayAll();
 
         createTestManager(false, false, false);
@@ -283,7 +284,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             callbackCapture.getValue().onError(testError);
             return null;
         });
-        eventProcessor.start();
+        eventProcessor.setOffline(false);
         replayAll();
 
         createTestManager(false, false, false);
@@ -376,8 +377,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void setOfflineDuringInitStreaming() throws ExecutionException {
         expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key"));
-        eventProcessor.start();
-        eventProcessor.stop();
+        eventProcessor.setOffline(false);
+        eventProcessor.setOffline(true);
         replayAll();
 
         // 192.0.2.1 is assigned as TEST-NET-1 reserved usage.
@@ -399,7 +400,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void shutdownDuringInitStreaming() throws ExecutionException {
         expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key"));
-        eventProcessor.start();
+        eventProcessor.setOffline(false); // goes online at startup
+        eventProcessor.setOffline(true); // goes offline at shutdown
         replayAll();
 
         // 192.0.2.1 is assigned as TEST-NET-1 reserved usage.
@@ -422,7 +424,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void backgroundedDuringInitStreaming() throws ExecutionException {
         ForegroundTestController.setup(true);
         expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
-        eventProcessor.start();
+        eventProcessor.setOffline(false);
         replayAll();
 
         // 192.0.2.1 is assigned as TEST-NET-1 reserved usage.
@@ -444,8 +446,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void deviceOfflinedDuringInitStreaming() throws ExecutionException, InterruptedException {
         expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
-        eventProcessor.start();
-        eventProcessor.stop();
+        eventProcessor.setOffline(false);
+        eventProcessor.setOffline(true);
         replayAll();
 
         // 192.0.2.1 is assigned as TEST-NET-1 reserved usage.
@@ -469,7 +471,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void reloadCompletesPending() throws ExecutionException {
         expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
-        eventProcessor.start();
+        eventProcessor.setOffline(false);
         expectLastCall().anyTimes();
         replayAll();
 

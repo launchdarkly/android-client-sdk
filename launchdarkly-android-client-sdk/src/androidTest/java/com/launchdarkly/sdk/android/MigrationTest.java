@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.json.JsonSerialization;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -129,6 +130,6 @@ public class MigrationTest {
     }
 
     private static String oldSharedPrefsKeyForUser(LDUser user) {
-        return DefaultContextManager.HASHER.hash(LDConfig.GSON.toJson(user));
+        return DefaultContextManager.HASHER.hash(JsonSerialization.serialize(user));
     }
 }

@@ -2,10 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import android.net.Uri;
 
-import androidx.annotation.NonNull;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
@@ -20,7 +16,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import okhttp3.Headers;
 import okhttp3.MediaType;
 
 /**
@@ -36,7 +31,6 @@ public class LDConfig {
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final String AUTH_SCHEME = "api_key ";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-    static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
     static final String primaryEnvironmentName = "default";
 
@@ -77,8 +71,6 @@ public class LDConfig {
 
     private final boolean allAttributesPrivate;
     private final Set<UserAttribute> privateAttributes;
-
-    private final Gson filteredEventGson;
 
     private final boolean evaluationReasons;
 
@@ -138,39 +130,6 @@ public class LDConfig {
         this.headerTransform = headerTransform;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
-
-        this.filteredEventGson = new GsonBuilder()
-                .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
-                .create();
-    }
-
-    Headers headersForEnvironment(@NonNull String environmentName,
-                                  Map<String, String> additionalHeaders) {
-        String sdkKey = mobileKeys.get(environmentName);
-
-        HashMap<String, String> baseHeaders = new HashMap<>();
-        baseHeaders.put("User-Agent", USER_AGENT_HEADER_VALUE);
-        if (sdkKey != null) {
-            baseHeaders.put("Authorization", LDConfig.AUTH_SCHEME + sdkKey);
-        }
-
-        if (getWrapperName() != null) {
-            String wrapperVersion = "";
-            if (getWrapperVersion() != null) {
-                wrapperVersion = "/" + getWrapperVersion();
-            }
-            baseHeaders.put("X-LaunchDarkly-Wrapper", wrapperName + wrapperVersion);
-        }
-
-        if (additionalHeaders != null) {
-            baseHeaders.putAll(additionalHeaders);
-        }
-
-        if (headerTransform != null) {
-            headerTransform.updateHeaders(baseHeaders);
-        }
-
-        return Headers.of(baseHeaders);
     }
 
     public String getMobileKey() {
@@ -240,10 +199,6 @@ public class LDConfig {
 
     public Set<UserAttribute> getPrivateAttributes() {
         return Collections.unmodifiableSet(privateAttributes);
-    }
-
-    public Gson getFilteredEventGson() {
-        return filteredEventGson;
     }
 
     public boolean isEvaluationReasons() {
