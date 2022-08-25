@@ -3,7 +3,7 @@ package com.launchdarkly.sdk.android;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.LDValueType;
 
@@ -21,7 +21,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-
 @RunWith(AndroidJUnit4.class)
 public class SharedPrefsSummaryEventStoreTest {
     @Rule
@@ -29,7 +28,7 @@ public class SharedPrefsSummaryEventStoreTest {
 
     private LDClient ldClient;
     private LDConfig ldConfig;
-    private LDUser ldUser;
+    private LDContext ldUser;
     private SummaryEventStore summaryEventStore;
 
     @Before
@@ -38,7 +37,7 @@ public class SharedPrefsSummaryEventStoreTest {
                 .offline(true)
                 .build();
 
-        ldUser = new LDUser.Builder("userKey").build();
+        ldUser = LDContext.create("userKey");
 
         ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldUser, 1);
         summaryEventStore = ldClient.getSummaryEventStore();

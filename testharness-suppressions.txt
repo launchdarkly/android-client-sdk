@@ -1,2 +1,0 @@
-# temporary during U2C migration, while still using v1 tests: disable alias events
-events/alias events

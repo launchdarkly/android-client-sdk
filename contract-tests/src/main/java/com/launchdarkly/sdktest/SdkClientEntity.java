@@ -52,7 +52,7 @@ public class SdkClientEntity {
     Future<LDClient> initFuture = LDClient.init(
             application,
             config,
-            params.configuration.clientSide.initialUser);
+            params.configuration.clientSide.initialContext);
     // Try to initialize client, but if it fails, keep going in case the test harness wants us to
     // work with an uninitialized client
     try {
@@ -168,7 +168,7 @@ public class SdkClientEntity {
 
   private void doIdentifyEvent(IdentifyEventParams params) {
     try {
-      client.identify(params.user).get();
+      client.identify(params.context).get();
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException("Error waiting for identify", e);
     }

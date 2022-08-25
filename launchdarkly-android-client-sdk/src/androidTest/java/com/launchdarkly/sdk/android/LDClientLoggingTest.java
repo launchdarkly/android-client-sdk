@@ -8,7 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LogCapture;
 import com.launchdarkly.logging.Logs;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -23,12 +23,12 @@ public class LDClientLoggingTest {
 
     private static final String mobileKey = "test-mobile-key";
     private Application application;
-    private LDUser ldUser;
+    private LDContext ldUser;
 
     @Before
     public void setUp() {
         application = ApplicationProvider.getApplicationContext();
-        ldUser = new LDUser("key");
+        ldUser = LDContext.create("key");
     }
 
     @Test

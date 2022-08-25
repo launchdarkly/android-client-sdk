@@ -13,9 +13,8 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.UserAttribute;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -41,7 +40,7 @@ import okhttp3.OkHttpClient;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
- * The main entry point is the {@link #init(Application, LDConfig, LDUser)} method.
+ * The main entry point is the {@link #init(Application, LDConfig, LDContext)} method.
  */
 public class LDClient implements LDClientInterface, Closeable {
 
@@ -81,12 +80,12 @@ public class LDClient implements LDClientInterface, Closeable {
      *
      * @param application Your Android application.
      * @param config      Configuration used to set up the client
-     * @param user        The user used in evaluating feature flags
+     * @param context     The initial evaluation context
      * @return a {@link Future} which will complete once the client has been initialized.
      */
     public static Future<LDClient> init(@NonNull Application application,
                                         @NonNull LDConfig config,
-                                        @NonNull LDUser user) {
+                                        @NonNull LDContext context) {
         // As this is an externally facing API we should still check these, so we hide the linter
         // warnings
 
@@ -99,8 +98,9 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
         //noinspection ConstantConditions
-        if (user == null) {
-            return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid user"));
+        if (context == null || !context.isValid()) {
+            return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid evaluation context ("
+                + (context == null ? "was null" : context.getError() + ")")));
         }
 
         initSharedLogger(config);
@@ -136,7 +136,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
             for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
                 final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
-                instance.contextManager.setCurrentUser(user);
+                instance.contextManager.setCurrentContext(context);
 
                 newInstances.put(mobileKeys.getKey(), instance);
             }
@@ -161,12 +161,13 @@ public class LDClient implements LDClientInterface, Closeable {
 
             PollingUpdater.setBackgroundPollingIntervalMillis(config.getBackgroundPollingIntervalMillis());
 
-            user = customizeUser(user);
+            context = customizeContext(context);
 
             // Start up all instances
             for (final LDClient instance : instances.values()) {
                 if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                    instance.sendEvent(new IdentifyEvent(user));
+                    // TODO: use new event processor
+                    // instance.sendEvent(new IdentifyEvent(user));
                 }
             }
 
@@ -175,24 +176,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    static LDUser customizeUser(LDUser user) {
-        LDUser.Builder builder = new LDUser.Builder(user);
-
-        if (user.getAttribute(UserAttribute.forName("os")).isNull()) {
-            builder.custom("os", Build.VERSION.SDK_INT);
-        }
-        if (user.getAttribute(UserAttribute.forName("device")).isNull()) {
-            builder.custom("device", Build.MODEL + " " + Build.PRODUCT);
-        }
-
-        String key = user.getKey();
-        if (key == null || key.equals("")) {
-            getSharedLogger().info("User was created with null/empty key. Using device-unique anonymous user key: {}", LDClient.getInstanceId());
-            builder.key(LDClient.getInstanceId());
-            builder.anonymous(true);
-        }
-
-        return builder.build();
+    static LDContext customizeContext(LDContext context) {
+        // TODO: auto-generate key for anonymous context if appropriate
+        return context;
     }
 
     /**
@@ -203,14 +189,14 @@ public class LDClient implements LDClientInterface, Closeable {
      *
      * @param application      Your Android application.
      * @param config           Configuration used to set up the client
-     * @param user             The user used in evaluating feature flags
+     * @param context          The initial evaluation context
      * @param startWaitSeconds Maximum number of seconds to wait for the client to initialize
      * @return The primary LDClient instance
      */
-    public static LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
+    public static LDClient init(Application application, LDConfig config, LDContext context, int startWaitSeconds) {
         initSharedLogger(config);
         getSharedLogger().info("Initializing Client and waiting up to {} for initialization to complete", startWaitSeconds);
-        Future<LDClient> initFuture = init(application, config, user);
+        Future<LDClient> initFuture = init(application, config, context);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException e) {
@@ -224,7 +210,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     /**
      * @return the singleton instance.
-     * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
+     * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDContext)} has not been called.
      */
     public static LDClient get() throws LaunchDarklyException {
         if (instances == null) {
@@ -237,7 +223,7 @@ public class LDClient implements LDClientInterface, Closeable {
     /**
      * @return the singleton instance for the environment associated with the given name.
      * @param keyName The name to lookup the instance by.
-     * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDUser)} has not been called.
+     * @throws LaunchDarklyException if {@link #init(Application, LDConfig, LDContext)} has not been called.
      */
     @SuppressWarnings("WeakerAccess")
     public static LDClient getForMobileKey(String keyName) throws LaunchDarklyException {
@@ -313,18 +299,20 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
-        sendEvent(new CustomEvent(eventName, contextManager.getCurrentUser(), data, metricValue));
+        // TODO: use new event processor
+        //sendEvent(new CustomEvent(eventName, contextManager.getCurrentUser(), data, metricValue));
     }
 
     @Override
-    public Future<Void> identify(LDUser user) {
-        if (user == null) {
-            return new LDFailedFuture<>(new LaunchDarklyException("User cannot be null"));
+    public Future<Void> identify(LDContext context) {
+        if (context == null) {
+            return new LDFailedFuture<>(new LaunchDarklyException("Context cannot be null"));
         }
-        if (user.getKey() == null) {
-            logger.warn("identify called with null user or null user key!");
+        if (!context.isValid()) {
+            logger.warn("identify() was called with an invalid context: {}", context.getError());
+            return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
-        return identifyInstances(customizeUser(user));
+        return identifyInstances(customizeContext(context));
     }
 
     private @NonNull Map<String, LDClient> getInstancesIfTheyIncludeThisClient() {
@@ -343,14 +331,15 @@ public class LDClient implements LDClientInterface, Closeable {
         return Collections.emptyMap();
     }
 
-    private void identifyInternal(@NonNull LDUser user,
+    private void identifyInternal(@NonNull LDContext context,
                                   LDUtil.ResultCallback<Void> onCompleteListener) {
-        contextManager.setCurrentUser(user);
+        contextManager.setCurrentContext(context);
         connectivityManager.reloadUser(onCompleteListener);
-        sendEvent(new IdentifyEvent(user));
+        // TODO: use new event processor
+        // sendEvent(new IdentifyEvent(user));
     }
 
-    private Future<Void> identifyInstances(@NonNull LDUser user) {
+    private Future<Void> identifyInstances(@NonNull LDContext context) {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
         final Map<String, LDClient> instancesNow = getInstancesIfTheyIncludeThisClient();
         final AtomicInteger identifyCounter = new AtomicInteger(instancesNow.size());
@@ -369,7 +358,7 @@ public class LDClient implements LDClientInterface, Closeable {
         };
 
         for (LDClient client : instancesNow.values()) {
-            client.identifyInternal(user, completeWhenCounterZero);
+            client.identifyInternal(context, completeWhenCounterZero);
         }
 
         return resultFuture;
@@ -377,7 +366,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public Map<String, LDValue> allFlags() {
-        Collection<Flag> allFlags = contextManager.getCurrentUserFlagStore().getAllFlags();
+        Collection<Flag> allFlags = contextManager.getCurrentContextFlagStore().getAllFlags();
         HashMap<String, LDValue> flagValues = new HashMap<>();
         for (Flag flag: allFlags) {
             if (!flag.isDeleted()) {
@@ -442,7 +431,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
-        Flag flag = contextManager.getCurrentUserFlagStore().getFlag(key);
+        Flag flag = contextManager.getCurrentContextFlagStore().getFlag(key);
         EvaluationDetail<LDValue> result;
         LDValue value = defaultValue;
 
@@ -466,7 +455,7 @@ public class LDClient implements LDClientInterface, Closeable {
             sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
 
-        logger.debug("returning variation: {} flagKey: {} user key: {}", result, key, contextManager.getCurrentUser().getKey());
+        logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, contextManager.getCurrentContext().getKey());
         updateSummaryEvents(key, flag, value, defaultValue);
         return result;
     }
@@ -651,15 +640,17 @@ public class LDClient implements LDClientInterface, Closeable {
         int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
         if (flag.isTrackEvents()) {
-            sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
-                    variation, reason, false, false));
+            // TODO: use new event processor
+//            sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
+//                    variation, reason, false, false));
         } else {
             Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {
                 long serverTimeMs = eventProcessor.getCurrentTimeMs();
                 if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
-                            variation, reason, false, true));
+                    // TODO: use new event processor
+//                    sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
+//                            variation, reason, false, true));
                 }
             }
         }

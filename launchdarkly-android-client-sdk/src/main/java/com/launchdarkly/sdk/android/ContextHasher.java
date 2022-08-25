@@ -11,7 +11,7 @@ import java.security.NoSuchAlgorithmException;
  * It exists as a separate class so we can unit test it and assert that different instances
  * produce the same output given the same input.
  */
-class UserHasher {
+class ContextHasher {
 
     String hash(String toHash) {
         try {

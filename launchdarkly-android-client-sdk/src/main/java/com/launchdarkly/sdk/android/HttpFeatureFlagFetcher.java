@@ -9,7 +9,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,21 +36,21 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private final LDConfig config;
     private final String environmentName;
-    private final Context context;
+    private final Context appContext;
     private final OkHttpClient client;
     private final LDLogger logger;
 
-    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environmentName, LDLogger logger) {
-        return new HttpFeatureFlagFetcher(context, config, environmentName, logger);
+    static HttpFeatureFlagFetcher newInstance(Context appContext, LDConfig config, String environmentName, LDLogger logger) {
+        return new HttpFeatureFlagFetcher(appContext, config, environmentName, logger);
     }
 
-    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environmentName, LDLogger logger) {
+    private HttpFeatureFlagFetcher(Context appContext, LDConfig config, String environmentName, LDLogger logger) {
         this.config = config;
         this.environmentName = environmentName;
-        this.context = context;
+        this.appContext = appContext;
         this.logger = logger;
 
-        File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
+        File cacheDir = new File(appContext.getCacheDir(), "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
 
         client = new OkHttpClient.Builder()
@@ -60,12 +61,12 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     @Override
-    public synchronized void fetch(LDUser user, final LDUtil.ResultCallback<JsonObject> callback) {
-        if (user != null && isClientConnected(context, environmentName)) {
+    public synchronized void fetch(LDContext ldContext, final LDUtil.ResultCallback<JsonObject> callback) {
+        if (ldContext != null && isClientConnected(appContext, environmentName)) {
 
             final Request request = config.isUseReport()
-                    ? getReportRequest(user)
-                    : getDefaultRequest(user);
+                    ? getReportRequest(ldContext)
+                    : getDefaultRequest(ldContext);
 
             logger.debug(request.toString());
             Call call = client.newCall(request);
@@ -112,9 +113,9 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         }
     }
 
-    private Request getDefaultRequest(LDUser user) {
+    private Request getDefaultRequest(LDContext ldContext) {
         String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/users/").toString() +
-                DefaultContextManager.base64Url(user);
+                DefaultContextManager.base64Url(ldContext);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }
@@ -124,14 +125,14 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                 .build();
     }
 
-    private Request getReportRequest(LDUser user) {
+    private Request getReportRequest(LDContext ldContext) {
         String reportUri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/user").toString();
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }
         logger.debug("Attempting to report user using uri: {}", reportUri);
-        String userJson = GSON.toJson(user);
-        RequestBody reportBody = RequestBody.create(userJson, JSON);
+        String contextJson = JsonSerialization.serialize(ldContext);
+        RequestBody reportBody = RequestBody.create(contextJson, JSON);
 
         return new Request.Builder().url(reportUri)
                 .headers(config.headersForEnvironment(environmentName, null))

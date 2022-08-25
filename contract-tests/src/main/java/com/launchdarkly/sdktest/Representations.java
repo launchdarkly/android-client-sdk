@@ -1,7 +1,7 @@
 package com.launchdarkly.sdktest;
 
 import com.launchdarkly.sdk.EvaluationReason;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 
 import java.util.Map;
@@ -58,7 +58,7 @@ public abstract class Representations {
     }
 
     public static class SdkConfigClientSideParams {
-        LDUser initialUser;
+        LDContext initialContext;
         boolean evaluationReasons;
         boolean useReport;
     }
@@ -73,9 +73,7 @@ public abstract class Representations {
 
     public static class EvaluateFlagParams {
         String flagKey;
-        LDUser user;
         String valueType;
-        LDValue value;
         LDValue defaultValue;
         boolean detail;
     }
@@ -87,7 +85,6 @@ public abstract class Representations {
     }
 
     public static class EvaluateAllFlagsParams {
-        LDUser user;
         boolean clientSideOnly;
         boolean detailsOnlyForTrackedFlags;
         boolean withReasons;
@@ -98,12 +95,11 @@ public abstract class Representations {
     }
 
     public static class IdentifyEventParams {
-        LDUser user;
+        LDContext context;
     }
 
     public static class CustomEventParams {
         String eventKey;
-        LDUser user;
         LDValue data;
         boolean omitNullData;
         Double metricValue;

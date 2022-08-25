@@ -1,10 +1,10 @@
 package com.launchdarkly.sdk.android;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 
 interface ContextManager {
-    LDUser getCurrentUser();
-    void putCurrentUserFlags(String json, LDUtil.ResultCallback<Void> onCompleteListener);
-    void patchCurrentUserFlags(String json, LDUtil.ResultCallback<Void> onCompleteListener);
-    void deleteCurrentUserFlag(String json, LDUtil.ResultCallback<Void> onCompleteListener);
-    void updateCurrentUser(LDUtil.ResultCallback<Void> onCompleteListener);
+    LDContext getCurrentContext();
+    void putCurrentContextFlags(String json, LDUtil.ResultCallback<Void> onCompleteListener);
+    void patchCurrentContextFlags(String json, LDUtil.ResultCallback<Void> onCompleteListener);
+    void deleteCurrentContextFlag(String json, LDUtil.ResultCallback<Void> onCompleteListener);
+    void updateCurrentContext(LDUtil.ResultCallback<Void> onCompleteListener);
 }

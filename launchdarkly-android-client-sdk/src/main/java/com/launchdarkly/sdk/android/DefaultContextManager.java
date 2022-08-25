@@ -11,16 +11,14 @@ import com.google.gson.JsonObject;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.json.JsonSerialization;
-import com.launchdarkly.sdk.json.SerializationException;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 /**
- * Persists and retrieves feature flag values for different {@link LDUser}s.
+ * Persists and retrieves feature flag values for different {@link LDContext}s.
  * Also enables realtime updates via registering a {@link FeatureFlagChangeListener}
  * with a feature flag.
  */
@@ -34,7 +32,6 @@ class DefaultContextManager implements ContextManager {
     private final String environmentName;
     private final LDLogger logger;
 
-    private LDUser currentUser;
     private LDContext currentContext;
 
     private final ExecutorService executor;
@@ -45,7 +42,7 @@ class DefaultContextManager implements ContextManager {
     }
 
     DefaultContextManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey,
-                       int maxCachedUsers, LDLogger logger) {
+                          int maxCachedUsers, LDLogger logger) {
         this.application = application;
         this.fetcher = fetcher;
         this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey,
@@ -58,15 +55,11 @@ class DefaultContextManager implements ContextManager {
         executor = new BackgroundThreadExecutor().newFixedThreadPool(1);
     }
 
-    public LDUser getCurrentUser() {
-        return currentUser;
-    }
-
     public LDContext getCurrentContext() {
         return currentContext;
     }
 
-    FlagStore getCurrentUserFlagStore() {
+    FlagStore getCurrentContextFlagStore() {
         return flagStoreManager.getCurrentContextStore();
     }
 
@@ -74,52 +67,35 @@ class DefaultContextManager implements ContextManager {
         return summaryEventStore;
     }
 
-    private static String toJson(final LDUser user) {
-        return LDConfig.GSON.toJson(user);
+    public static String base64Url(final LDContext context) {
+        return Base64.encodeToString(JsonSerialization.serialize(context).getBytes(),
+                Base64.URL_SAFE + Base64.NO_WRAP);
     }
 
-    public static String base64Url(final LDUser user) {
-        return Base64.encodeToString(toJson(user).getBytes(), Base64.URL_SAFE + Base64.NO_WRAP);
-    }
-
-    static final UserHasher HASHER = new UserHasher();
+    static final ContextHasher HASHER = new ContextHasher();
 
     public static String sharedPreferencesKey(final LDContext context) {
         return HASHER.hash(context.getFullyQualifiedKey());
     }
 
     /**
-     * Sets the current user. If there are more than MAX_USERS stored in shared preferences,
+     * Sets the current context. If there are more than MAX_USERS stored in shared preferences,
      * the oldest one is deleted.
      *
-     * @param user The user to switch to.
+     * @param context The context to switch to.
      */
-    void setCurrentUser(final LDUser user) {
-        String userBase64 = base64Url(user);
-        logger.debug("Setting current user to: [{}] [{}]", userBase64, userBase64ToJson(userBase64));
-        currentUser = user;
-        currentContext = userToContext(user);
+    void setCurrentContext(final LDContext context) {
+        String contextBase64 = base64Url(context);
+        logger.debug("Setting current context to: [{}] [{}]", contextBase64, context);
+        currentContext = context;
         flagStoreManager.switchToContext(DefaultContextManager.sharedPreferencesKey(currentContext));
     }
 
-    static LDContext userToContext(LDUser user) {
-        // This is a temporary method to allow us to migrate some pieces of SDK implementation to
-        // the context model while the API is still using the old user model. Because LDUser has
-        // looser validation than LDContext - specifically, it allows an empty string key - we'll
-        // do this conversion inefficiently by converting to and from JSON; LDContext's JSON
-        // deserializer allows an empty string key only when parsing from old-style user JSON.
-        try {
-            return JsonSerialization.deserialize(JsonSerialization.serialize(user), LDContext.class);
-        } catch (SerializationException e) {
-            throw new RuntimeException(e); // shouldn't be possible
-        }
-    }
-
     /**
-     * fetch flags for the current user then update the current flags with the new flags
+     * fetch flags for the current context then update the current flags with the new flags
      */
-    public void updateCurrentUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
-        fetcher.fetch(currentUser, new LDUtil.ResultCallback<JsonObject>() {
+    public void updateCurrentContext(final LDUtil.ResultCallback<Void> onCompleteListener) {
+        fetcher.fetch(currentContext, new LDUtil.ResultCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
                 saveFlagSettings(result, onCompleteListener);
@@ -129,8 +105,8 @@ class DefaultContextManager implements ContextManager {
             public void onError(Throwable e) {
                 if (LDUtil.isClientConnected(application, environmentName)) {
                     logger.error("Error when attempting to set user: [{}] [{}]: {}",
-                            base64Url(currentUser),
-                            userBase64ToJson(base64Url(currentUser)),
+                            base64Url(currentContext),
+                            currentContext,
                             LogValues.exceptionSummary(e));
                 }
                 onCompleteListener.onError(e);
@@ -164,7 +140,7 @@ class DefaultContextManager implements ContextManager {
      */
     @SuppressWarnings("JavaDoc")
     private void saveFlagSettings(JsonObject flagsJson, LDUtil.ResultCallback<Void> onCompleteListener) {
-        logger.debug("saveFlagSettings for user key: {}", currentUser.getKey());
+        logger.debug("saveFlagSettings for context key: {}", currentContext.getFullyQualifiedKey());
 
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
@@ -180,7 +156,7 @@ class DefaultContextManager implements ContextManager {
         return new String(Base64.decode(base64, Base64.URL_SAFE));
     }
 
-    public void deleteCurrentUserFlag(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
+    public void deleteCurrentContextFlag(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
             executor.submit(() -> {
@@ -200,11 +176,11 @@ class DefaultContextManager implements ContextManager {
         }
     }
 
-    public void putCurrentUserFlags(final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
+    public void putCurrentContextFlags(final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
             executor.submit(() -> {
-                logger.debug("PUT for user key: {}", currentUser.getKey());
+                logger.debug("PUT for user key: {}", currentContext.getFullyQualifiedKey());
                 flagStoreManager.getCurrentContextStore().clearAndApplyFlagUpdates(flags);
                 onCompleteListener.onSuccess(null);
             });
@@ -215,7 +191,7 @@ class DefaultContextManager implements ContextManager {
         }
     }
 
-    public void patchCurrentUserFlags(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
+    public void patchCurrentContextFlags(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
             executor.submit(() -> {

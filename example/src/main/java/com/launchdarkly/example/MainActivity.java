@@ -13,7 +13,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
 import com.launchdarkly.sdk.android.LDClient;
@@ -72,11 +72,11 @@ public class MainActivity extends AppCompatActivity {
                 .useReport(false) // change to `true` if the request is to be REPORT'ed instead of GET'ed
                 .build();
 
-        LDUser user = new LDUser.Builder("user key")
-                .email("fake@example.com")
+        LDContext context = LDContext.builder("user key")
+                .set("email", "fake@example.com")
                 .build();
 
-        Future<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, user);
+        Future<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, context);
         try {
             ldClient = initFuture.get(10, TimeUnit.SECONDS);
             updateStatusString(ldClient.getConnectionInformation());
@@ -154,8 +154,8 @@ public class MainActivity extends AppCompatActivity {
         identify.setOnClickListener(v -> {
             Timber.i("identify onClick");
             String userKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText)).getText().toString();
-            final LDUser updatedUser = new LDUser.Builder(userKey).build();
-            MainActivity.this.doSafeClientAction(() -> ldClient.identify(updatedUser));
+            final LDContext updatedContext = LDContext.create(userKey);
+            MainActivity.this.doSafeClientAction(() -> ldClient.identify(updatedContext));
         });
     }
 

@@ -1,8 +1,8 @@
 package com.launchdarkly.sdk.android;
 
 import com.google.gson.JsonObject;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 
 interface FeatureFetcher {
-    void fetch(LDUser user, final LDUtil.ResultCallback<JsonObject> callback);
+    void fetch(LDContext context, final LDUtil.ResultCallback<JsonObject> callback);
 }
