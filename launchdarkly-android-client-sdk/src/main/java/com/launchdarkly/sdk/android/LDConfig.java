@@ -13,12 +13,10 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -47,7 +45,7 @@ public class LDConfig {
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
     static final int DEFAULT_EVENTS_CAPACITY = 100;
-    static final int DEFAULT_MAX_CACHED_USERS = 5;
+    static final int DEFAULT_MAX_CACHED_CONTEXTS = 5;
     static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
@@ -69,7 +67,7 @@ public class LDConfig {
     private final int pollingIntervalMillis;
     private final int backgroundPollingIntervalMillis;
     private final int diagnosticRecordingIntervalMillis;
-    private final int maxCachedUsers;
+    private final int maxCachedContexts;
 
     private final boolean stream;
     private final boolean offline;
@@ -112,7 +110,7 @@ public class LDConfig {
              int diagnosticRecordingIntervalMillis,
              String wrapperName,
              String wrapperVersion,
-             int maxCachedUsers,
+             int maxCachedContexts,
              LDHeaderUpdater headerTransform,
              LDLogAdapter logAdapter,
              String loggerName) {
@@ -136,7 +134,7 @@ public class LDConfig {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
-        this.maxCachedUsers = maxCachedUsers;
+        this.maxCachedContexts = maxCachedContexts;
         this.headerTransform = headerTransform;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
@@ -268,8 +266,8 @@ public class LDConfig {
         return wrapperVersion;
     }
 
-    int getMaxCachedUsers() {
-        return maxCachedUsers;
+    int getMaxCachedContexts() {
+        return maxCachedContexts;
     }
 
     public LDHeaderUpdater getHeaderTransform() {
@@ -304,7 +302,7 @@ public class LDConfig {
         private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
         private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
         private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
-        private int maxCachedUsers = DEFAULT_MAX_CACHED_USERS;
+        private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
 
         private boolean offline = false;
         private boolean stream = true;
@@ -326,8 +324,8 @@ public class LDConfig {
         private LDLogLevel logLevel = null;
 
         /**
-         * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
-         * If this is set, all user attribute values will be private, not just the attributes
+         * Specifies that context attributes (other than the key) should be hidden from LaunchDarkly.
+         * If this is set, all context attribute values will be private, not just the attributes
          * specified in {@link #privateAttributes(UserAttribute...)}.
          *
          * @return the builder
@@ -338,13 +336,13 @@ public class LDConfig {
         }
 
         /**
-         * Marks a set of attributes private. Any users sent to LaunchDarkly with this configuration
+         * Marks a set of attributes private. Any contexts sent to LaunchDarkly with this configuration
          * active will have attributes with these names removed.
          *
-         * This can also be specified on a per-user basis with {@link LDUser.Builder} methods like
+         * This can also be specified on a per-context basis with {@link LDUser.Builder} methods like
          * {@link LDUser.Builder#privateName(String)}.
          *
-         * @param privateAttributes a set of names that will be removed from user data sent to LaunchDarkly
+         * @param privateAttributes a set of names that will be removed from context data sent to LaunchDarkly
          * @return the builder
          */
         public Builder privateAttributes(UserAttribute... privateAttributes) {
@@ -631,18 +629,18 @@ public class LDConfig {
         }
 
         /**
-         * Sets the maximum number of users to cache the flag values for locally in the device's
-         * SharedPreferences.
+         * Sets the maximum number of evaluation contexts to cache the flag values for locally in
+         * the device's SharedPreferences.
          * <p>
-         * Note that the active user is not considered part of this limit, as it will always be
-         * served from the backing SharedPreferences.
+         * Note that the active evaluation context is not considered part of this limit, as it will
+         * always be served from the backing SharedPreferences.
          *
-         * @param maxCachedUsers The maximum number of users to cache, negative values represent
-         *                       allowing an unlimited number of cached users.
+         * @param maxCachedContexts The maximum number of evaluation contexts to cache; negative
+         *                          values represent allowing an unlimited number of cached contexts
          * @return the builder
          */
-        public LDConfig.Builder maxCachedUsers(int maxCachedUsers) {
-            this.maxCachedUsers = maxCachedUsers;
+        public LDConfig.Builder maxCachedContexts(int maxCachedContexts) {
+            this.maxCachedContexts = maxCachedContexts;
             return this;
         }
 
@@ -837,7 +835,7 @@ public class LDConfig {
                     diagnosticRecordingIntervalMillis,
                     wrapperName,
                     wrapperVersion,
-                    maxCachedUsers,
+                    maxCachedContexts,
                     headerTransform,
                     actualLogAdapter,
                     loggerName);

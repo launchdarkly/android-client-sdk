@@ -260,7 +260,7 @@ public class LDClient implements LDClientInterface, Closeable {
             this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, application,
                     sharedEventClient, logger);
         }
-        this.contextManager = DefaultContextManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedUsers(),
+        this.contextManager = DefaultContextManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedContexts(),
                 logger);
 
         eventProcessor = new DefaultEventProcessor(application, config, contextManager.getSummaryEventStore(), environmentName,

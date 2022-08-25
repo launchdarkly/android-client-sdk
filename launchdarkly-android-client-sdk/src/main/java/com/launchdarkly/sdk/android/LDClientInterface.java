@@ -125,8 +125,8 @@ public interface LDClientInterface extends Closeable {
      *
      * @param context the new evaluation context; see {@link LDClient} for more about
      *   setting the context and optionally requesting a unique key for it
-     * @return a Future whose success indicates this user's flag settings have been stored locally
-     *   and are ready for evaluation
+     * @return a Future whose success indicates the flag values for the new evaluation context have
+     *   been stored locally and are ready for use
      */
     Future<Void> identify(LDContext context);
 
@@ -225,11 +225,17 @@ public interface LDClientInterface extends Closeable {
     double doubleVariation(String flagKey, double defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
+     * Returns the double-precision floating-point numeric value of a feature flag for the
+     * current evaluation context, along with information about how it was calculated.
      *
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
+     * <p>
+     * The behavior is otherwise identical to {@link #doubleVariation}.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #doubleVariation(String, double)})
@@ -238,12 +244,11 @@ public interface LDClientInterface extends Closeable {
     EvaluationDetail<Double> doubleVariationDetail(String flagKey, double defaultValue);
 
     /**
-     * Returns the flag value for the current user. Returns <code>default</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a string type</li>
-     * <li>Any other error</li>
-     * </ol>
+     * Returns the string value of a feature flag for the current evaluation context.
+     * <p>
+     * If the flag variation does not have a string value, or if an error makes it impossible to
+     * evaluate the flag (for instance, if {@code flagKey} does not match any existing flag),
+     * {@code defaultValue} is returned.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag
@@ -252,11 +257,17 @@ public interface LDClientInterface extends Closeable {
     String stringVariation(String flagKey, String defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
-     *
+     * Returns the string value of a feature flag for the current evaluation context, along with
+     * information about how it was calculated.
+     * <p>
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
+     * <p>
+     * The behavior is otherwise identical to {@link #stringVariation}.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #stringVariation(String, String)})
@@ -277,11 +288,11 @@ public interface LDClientInterface extends Closeable {
     void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 
     /**
-     * Returns the flag value for the current user. Returns <code>defualtValue</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>Any other error</li>
-     * </ol>
+     * Returns the value of a feature flag for the current evaluation context, which may be of any
+     * type.
+     * <p>
+     * The type {@link LDValue} is used to represent any of the value types that can exist in JSON.
+     * Use {@link LDValue} methods to examine its type and value.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag
@@ -290,11 +301,20 @@ public interface LDClientInterface extends Closeable {
     LDValue jsonValueVariation(String flagKey, LDValue defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
-     *
+     * Returns the value of a feature flag for the current evaluation context, which may be of any
+     * type, along with information about how it was calculated.
+     * <p>
+     * The type {@link LDValue} is used to represent any of the value types that can exist in JSON.
+     * Use {@link LDValue} methods to examine its type and value.
+     * <p>
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
+     * <p>
+     * The behavior is otherwise identical to {@link #jsonValueVariation}.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #jsonValueVariation(String, LDValue)})
