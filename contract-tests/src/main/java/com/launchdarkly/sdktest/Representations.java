@@ -1,5 +1,6 @@
 package com.launchdarkly.sdktest;
 
+import com.google.gson.annotations.SerializedName;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -69,6 +70,8 @@ public abstract class Representations {
         EvaluateAllFlagsParams evaluateAll;
         IdentifyEventParams identifyEvent;
         CustomEventParams customEvent;
+        ContextBuildParams contextBuild;
+        ContextConvertParams contextConvert;
     }
 
     public static class EvaluateFlagParams {
@@ -103,5 +106,29 @@ public abstract class Representations {
         LDValue data;
         boolean omitNullData;
         Double metricValue;
+    }
+
+    public static class ContextBuildParams {
+        ContextBuildSingleParams single;
+        ContextBuildSingleParams[] multi;
+    }
+
+    public static class ContextBuildSingleParams {
+        public String kind;
+        public String key;
+        public String name;
+        public Boolean anonymous;
+        public String secondary;
+        @SerializedName("private") public String[] privateAttrs;
+        public Map<String, LDValue> custom;
+    }
+
+    public static class ContextBuildResponse {
+        String output;
+        String error;
+    }
+
+    public static class ContextConvertParams {
+        String input;
     }
 }

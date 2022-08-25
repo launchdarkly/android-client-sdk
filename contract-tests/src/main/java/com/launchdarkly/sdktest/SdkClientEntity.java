@@ -2,14 +2,22 @@ package com.launchdarkly.sdktest;
 
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.ContextBuilder;
+import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.EvaluationDetail;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
+import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdktest.Representations.CommandParams;
+import com.launchdarkly.sdktest.Representations.ContextBuildParams;
+import com.launchdarkly.sdktest.Representations.ContextBuildResponse;
+import com.launchdarkly.sdktest.Representations.ContextBuildSingleParams;
+import com.launchdarkly.sdktest.Representations.ContextConvertParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
 import com.launchdarkly.sdktest.Representations.CustomEventParams;
 import com.launchdarkly.sdktest.Representations.EvaluateAllFlagsParams;
@@ -93,6 +101,10 @@ public class SdkClientEntity {
       case "flushEvents":
         client.flush();
         return null;
+      case "contextBuild":
+        return doContextBuild(params.contextBuild);
+      case "contextConvert":
+        return doContextConvert(params.contextConvert);
       default:
         throw new TestService.BadRequestException("unknown command: " + params.command);
     }
@@ -182,6 +194,56 @@ public class SdkClientEntity {
     } else {
       client.trackMetric(params.eventKey, params.data, params.metricValue.doubleValue());
     }
+  }
+
+  private ContextBuildResponse doContextBuild(ContextBuildParams params) {
+    LDContext c;
+    if (params.multi == null) {
+      c = doContextBuildSingle(params.single);
+    } else {
+      ContextMultiBuilder b = LDContext.multiBuilder();
+      for (ContextBuildSingleParams s: params.multi) {
+        b.add(doContextBuildSingle(s));
+      }
+      c = b.build();
+    }
+    ContextBuildResponse resp = new ContextBuildResponse();
+    if (c.isValid()) {
+      resp.output = JsonSerialization.serialize(c);
+    } else {
+      resp.error = c.getError();
+    }
+    return resp;
+  }
+
+  private LDContext doContextBuildSingle(ContextBuildSingleParams params) {
+    ContextBuilder b = LDContext.builder(params.key)
+            .kind(params.kind)
+            .name(params.name)
+            .secondary(params.secondary);
+    if (params.anonymous != null) {
+      b.anonymous(params.anonymous.booleanValue());
+    }
+    if (params.custom != null) {
+      for (Map.Entry<String, LDValue> kv: params.custom.entrySet()) {
+        b.set(kv.getKey(), kv.getValue());
+      }
+    }
+    if (params.privateAttrs != null) {
+      b.privateAttributes(params.privateAttrs);
+    }
+    return b.build();
+  }
+
+  private ContextBuildResponse doContextConvert(ContextConvertParams params) {
+    ContextBuildResponse resp = new ContextBuildResponse();
+    try {
+      LDContext c = JsonSerialization.deserialize(params.input, LDContext.class);
+      resp.output = JsonSerialization.serialize(c);
+    } catch (Exception e) {
+      resp.error = e.getMessage();
+    }
+    return resp;
   }
 
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
