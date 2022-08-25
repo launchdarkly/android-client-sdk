@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
@@ -122,7 +124,7 @@ class LDUtil {
         for (Map.Entry<String, ?> entry : flags.entrySet()) {
             if (entry.getValue() instanceof String) {
                 try {
-                    T obj = GsonCache.getGson().fromJson((String) entry.getValue(), typeOf);
+                    T obj = gsonInstance().fromJson((String) entry.getValue(), typeOf);
                     deserialized.put(entry.getKey(), obj);
                 } catch (Exception ignored) {
                 }
@@ -135,7 +137,7 @@ class LDUtil {
         String data = sharedPreferences.getString(key, null);
         if (data == null) return null;
         try {
-            return GsonCache.getGson().fromJson(data, typeOf);
+            return gsonInstance().fromJson(data, typeOf);
         } catch (Exception ignored) {
             return null;
         }

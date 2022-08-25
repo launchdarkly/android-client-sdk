@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -46,7 +48,7 @@ class Migration {
     }
 
     private static String reconstructFlag(String key, String metadata, Object value) {
-        JsonObject flagJson = GsonCache.getGson().fromJson(metadata, JsonObject.class);
+        JsonObject flagJson = gsonInstance().fromJson(metadata, JsonObject.class);
         flagJson.addProperty("key", key);
         if (value instanceof Float) {
             flagJson.addProperty("value", (Float) value);
@@ -54,14 +56,14 @@ class Migration {
             flagJson.addProperty("value", (Boolean) value);
         } else if (value instanceof String) {
             try {
-                JsonElement jsonVal = GsonCache.getGson().fromJson((String) value, JsonElement.class);
+                JsonElement jsonVal = gsonInstance().fromJson((String) value, JsonElement.class);
                 flagJson.add("value", jsonVal);
             } catch (JsonSyntaxException unused) {
                 flagJson.addProperty("value", (String) value);
             }
         }
 
-        return GsonCache.getGson().toJson(flagJson);
+        return gsonInstance().toJson(flagJson);
     }
 
     private static void migrate_2_7_fresh(Application application, LDConfig config) {

@@ -8,6 +8,7 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventProcessor;
@@ -17,6 +18,7 @@ import java.util.TimeZone;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import static com.launchdarkly.sdk.android.LDUtil.isInternetConnected;
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
 class ConnectivityManager {
 
@@ -148,7 +150,7 @@ class ConnectivityManager {
         String lastFailureString = stateStore.getString("lastFailure", null);
         if (lastFailureString != null) {
             try {
-                LDFailure lastFailure = GsonCache.getGson().fromJson(lastFailureString, LDFailure.class);
+                LDFailure lastFailure = gsonInstance().fromJson(lastFailureString, LDFailure.class);
                 connectionInformation.setLastFailure(lastFailure);
             } catch (Exception unused) {
                 stateStore.edit().putString("lastFailure", null).apply();
@@ -170,7 +172,7 @@ class ConnectivityManager {
         if (connectionInformation.getLastFailure() == null) {
             editor.putString("lastFailure", null);
         } else {
-            String failJson = GsonCache.getGson().toJson(connectionInformation.getLastFailure());
+            String failJson = gsonInstance().toJson(connectionInformation.getLastFailure());
             editor.putString("lastFailure", failJson);
         }
         editor.apply();

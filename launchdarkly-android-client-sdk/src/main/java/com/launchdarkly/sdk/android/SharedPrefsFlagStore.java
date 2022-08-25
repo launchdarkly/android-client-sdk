@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.Context;
@@ -80,11 +82,11 @@ class SharedPrefsFlagStore implements FlagStore {
             editor.remove(flagKey);
             return new Pair<>(flagKey, FlagStoreUpdateType.FLAG_DELETED);
         } else if (flag == null && newFlag != null) {
-            String flagData = GsonCache.getGson().toJson(newFlag);
+            String flagData = gsonInstance().toJson(newFlag);
             editor.putString(flagKey, flagData);
             return new Pair<>(flagKey, FlagStoreUpdateType.FLAG_CREATED);
         } else if (flag != newFlag) {
-            String flagData = GsonCache.getGson().toJson(newFlag);
+            String flagData = gsonInstance().toJson(newFlag);
             editor.putString(flagKey, flagData);
             return new Pair<>(flagKey, FlagStoreUpdateType.FLAG_UPDATED);
         }
@@ -125,7 +127,7 @@ class SharedPrefsFlagStore implements FlagStore {
 
     @Override
     public void clearAndApplyFlagUpdates(List<? extends FlagUpdate> newFlags) {
-        Gson gson = GsonCache.getGson();
+        Gson gson = gsonInstance();
         Map<String, Flag> cachedFlags = LDUtil.sharedPrefsGetAllGson(sharedPreferences, Flag.class);
         // here we explicitly copy the keySet()
         // this is because modifying a keySet() also modifies the underlying map

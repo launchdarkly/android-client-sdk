@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import com.google.gson.Gson;
 
 import org.junit.Test;
@@ -10,7 +12,7 @@ import static org.junit.Assert.assertTrue;
 
 public class DeleteFlagResponseTest {
 
-    private static final Gson gson = GsonCache.getGson();
+    private static final Gson gson = gsonInstance();
 
     private static final String jsonWithNullVersion = "{\"key\": \"flag2\", \"version\": null}";
     private static final String jsonWithVersion = "{\"key\": \"flag\", \"version\": 50}";
