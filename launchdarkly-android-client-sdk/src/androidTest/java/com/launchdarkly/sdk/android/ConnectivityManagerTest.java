@@ -424,7 +424,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void backgroundedDuringInitStreaming() throws ExecutionException {
         ForegroundTestController.setup(true);
         expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
-        eventProcessor.setOffline(false);
+        eventProcessor.setOffline(false); // goes online at startup
+        eventProcessor.setInBackground(true); // expect it to be put into the background
         replayAll();
 
         // 192.0.2.1 is assigned as TEST-NET-1 reserved usage.
