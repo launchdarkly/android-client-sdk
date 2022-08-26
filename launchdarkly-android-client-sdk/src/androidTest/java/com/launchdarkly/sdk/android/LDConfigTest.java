@@ -194,7 +194,7 @@ public class LDConfigTest {
         assertEquals(config.getPrivateAttributes().size(), 0);
 
         config = new LDConfig.Builder()
-                .privateAttributes(UserAttribute.forName("email"), UserAttribute.forName("name"))
+                .privateAttributes("email", "name")
                 .build();
 
         assertEquals(config.getPrivateAttributes().size(), 2);

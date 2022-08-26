@@ -5,22 +5,17 @@ import android.os.Build;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.internal.events.DefaultEventSender;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -37,12 +32,6 @@ abstract class EventUtil {
             boolean initiallyInBackground,
             LDLogger logger
     ) {
-        List<AttributeRef> privateAttributes = new ArrayList<>();
-        if (config.getPrivateAttributes() != null) {
-            for (UserAttribute a: config.getPrivateAttributes()) {
-                privateAttributes.add(AttributeRef.fromLiteral(a.getName()));
-            }
-        }
         return new EventsConfiguration(
                 config.allAttributesPrivate(),
                 config.getEventsCapacity(),
@@ -60,7 +49,7 @@ abstract class EventUtil {
                 config.getEventsFlushIntervalMillis(),
                 initiallyInBackground, // initiallyInBackground
                 true, // initiallyOffline
-                privateAttributes
+                config.getPrivateAttributes()
         );
         // Note, we are always setting initiallyOffline to true because ConnectivityManager will
         // tell the DefaultEventProcessor when it is OK to go online.
