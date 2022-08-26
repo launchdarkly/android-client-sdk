@@ -207,7 +207,7 @@ public class LDClientEventTest {
     private LDValue[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws InterruptedException {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());
-        assertEquals("/bulk", r.getPath());
+        assertEquals("/mobile/events/bulk", r.getPath());
         assertEquals(LDConfig.AUTH_SCHEME + mobileKey, r.getHeader("Authorization"));
         String body = r.getBody().readUtf8();
         System.out.println(body);
