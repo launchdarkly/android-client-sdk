@@ -27,6 +27,9 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
 
 abstract class EventUtil {
+    private static final String ANALYTICS_EVENTS_REQUEST_PATH = "/mobile/events/bulk";
+    private static final String DIAGNOSTIC_EVENTS_REQUEST_PATH = "/mobile/events/diagnostic";
+
     // Constructs the EventsConfiguration parameters used by components in java-sdk-internal.
     static EventsConfiguration makeEventsConfiguration(
             LDConfig config,
@@ -46,7 +49,12 @@ abstract class EventUtil {
                 null, // contextDeduplicator - not needed for client-side use
                 config.getDiagnosticRecordingIntervalMillis(),
                 null, // TODO: diagnosticStore
-                new DefaultEventSender(httpProperties, 0, logger), // TODO
+                new DefaultEventSender(
+                        httpProperties,
+                        ANALYTICS_EVENTS_REQUEST_PATH,
+                        DIAGNOSTIC_EVENTS_REQUEST_PATH,
+                        0, // use default retry delay
+                        logger),
                 1, // eventSendingThreadPoolSize
                 URI.create(config.getEventsUri().toString()),
                 config.getEventsFlushIntervalMillis(),
