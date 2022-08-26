@@ -3,6 +3,18 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.2.0] - 2022-08-23
+The purpose of this release is to introduce a new logging facade, [`com.launchdarkly.logging`](https://github.com/launchdarkly/java-logging), to streamline how logging works in LaunchDarkly Java and Android code.
+
+Previously, the Android SDK always used Timber for logging. This sometimes led to conflicts with an application's separate use of Timber, as described in [#88](https://github.com/launchdarkly/android-client-sdk/issues/88) and [#147](https://github.com/launchdarkly/android-client-sdk/issues/147).
+
+In this release, the default behavior is still to use Timber, but the logging facade can also be configured programmatically to do simple Android logging without Timber, or to forward output to another framework such as `java.util.logging`, or to multiple destinations, or to capture output in memory. In a future major version release, the default behavior may be changed so that the SDK does not require Timber as a dependency.
+
+### Added:
+- In [`LDConfig.Builder`](https://javadoc.io/doc/com.launchdarkly/launchdarkly-android-client-sdk/latest/com/launchdarkly/sdk/android/LDConfig.Builder.html), the new methods `logAdapter`, `logLevel`, and `loggerName`, for the new logging capabilities mentioned above.
+- New class `LDTimberLogging` for configuring the SDK's Timber integration.
+- New class `LDAndroidLogging` for configuring the SDK to use the Android logging API without Timber.
+
 ## [3.1.8] - 2022-08-23
 ### Changed:
 - Changed throttling/jitter logic that used `java.util.Random` to use `java.security.SecureRandom`. Even though in this case it is not being used for any cryptographic purpose, but only to produce a pseudo-random delay, static analysis tools may still report every use of `java.util.Random` as a security risk by default. The purpose of this change is simply to avoid such warnings; it has no practical effect on the behavior of the SDK.
