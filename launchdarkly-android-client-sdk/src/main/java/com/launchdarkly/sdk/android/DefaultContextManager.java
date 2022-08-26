@@ -11,7 +11,6 @@ import com.google.gson.JsonObject;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.util.Collection;

@@ -29,6 +29,7 @@ abstract class EventUtil {
     static EventsConfiguration makeEventsConfiguration(
             LDConfig config,
             HttpProperties httpProperties,
+            DiagnosticStore diagnosticStore,
             boolean initiallyInBackground,
             LDLogger logger
     ) {
@@ -37,7 +38,7 @@ abstract class EventUtil {
                 config.getEventsCapacity(),
                 null, // contextDeduplicator - not needed for client-side use
                 config.getDiagnosticRecordingIntervalMillis(),
-                null, // TODO: diagnosticStore
+                diagnosticStore,
                 new DefaultEventSender(
                         httpProperties,
                         ANALYTICS_EVENTS_REQUEST_PATH,

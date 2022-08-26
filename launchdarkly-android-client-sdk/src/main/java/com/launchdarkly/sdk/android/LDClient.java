@@ -267,12 +267,17 @@ public class LDClient implements LDClientInterface, Closeable {
                 logger);
 
         HttpProperties httpProperties = LDUtil.makeHttpProperties(config, sdkKey);
-        EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(config, httpProperties,
-                !Foreground.get().isForeground(), logger);
+        EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(
+                config,
+                httpProperties,
+                diagnosticStore,
+                !Foreground.get().isForeground(),
+                logger
+        );
         eventProcessor = new DefaultEventProcessor(
                 eventsConfig,
                 EventUtil.makeEventsTaskExecutor(),
-                Thread.MIN_PRIORITY, // TODO
+                Thread.NORM_PRIORITY, // note, we may want to make this configurable as it is in java-server-sdk
                 logger
         );
 
