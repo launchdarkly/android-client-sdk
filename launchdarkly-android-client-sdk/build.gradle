@@ -2,7 +2,6 @@ plugins {
     id("com.android.library")
     id("signing")
     id("maven-publish")
-    id("org.ajoberstar.git-publish") version "3.0.1"
     id("com.getkeepsafe.dexcount")
 }
 
@@ -153,14 +152,6 @@ tasks.withType(Javadoc) {
 
 artifacts {
     archives sourcesJar, javadocJar
-}
-
-gitPublish {
-    repoUri = "https://github.com/launchdarkly/android-client-sdk.git"
-    branch = "gh-pages"
-    contents {
-        from(javadoc)
-    }
 }
 
 afterEvaluate {
