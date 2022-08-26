@@ -14,9 +14,12 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
+import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -51,7 +54,18 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         File cacheDir = new File(appContext.getCacheDir(), "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
 
-        client = httpProperties.toHttpClientBuilder().build();
+        client = httpProperties.toHttpClientBuilder()
+                // The following client options are currently only used for polling requests; caching is
+                // not relevant for streaming or events, and we don't use OkHttp's auto-retry logic for
+                // streaming or events because we have our own different retry logic. However, in the
+                // the future we may want to share a ConnectionPool across clients. We may also want to
+                // create a single HTTP client at init() time and share it across multiple SDK clients,
+                // if there are multiple environments; right now a new HTTP client is being created for
+                // polling for each environment, even though they all have the same configuration.
+                .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
+                .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
+                .retryOnConnectionFailure(true)
+                .build();
     }
 
     @Override
