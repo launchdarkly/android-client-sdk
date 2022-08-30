@@ -121,7 +121,8 @@ public interface LDClientInterface extends Closeable {
      * flag values for the new context from LaunchDarkly, or received an unrecoverable error. If the SDK
      * is offline, the returned {@code Future} is completed immediately.
      * <p>
-     * The 5 most recent contexts' flag settings are kept locally.
+     * The SDK normally caches flag settings for recently used evaluation contexts; this behavior
+     * can be configured with {@link LDConfig.Builder#maxCachedContexts(int)}.
      *
      * @param context the new evaluation context; see {@link LDClient} for more about
      *   setting the context and optionally requesting a unique key for it
