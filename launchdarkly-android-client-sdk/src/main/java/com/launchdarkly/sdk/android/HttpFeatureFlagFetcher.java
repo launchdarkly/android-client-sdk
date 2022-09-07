@@ -114,7 +114,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private Request getDefaultRequest(LDUser user) {
         String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/users/").toString() +
-                DefaultUserManager.base64Url(user);
+                DefaultContextManager.base64Url(user);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }

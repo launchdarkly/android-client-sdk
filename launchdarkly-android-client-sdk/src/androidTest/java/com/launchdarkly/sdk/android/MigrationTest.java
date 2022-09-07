@@ -104,12 +104,12 @@ public class MigrationTest {
         LDUser user1 = new LDUser.Builder("user1").build();
         LDUser user2 = new LDUser.Builder("user2").build();
         // Create shared prefs files
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + DefaultUserManager.sharedPrefs(user1), Context.MODE_PRIVATE).edit().commit();
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + DefaultUserManager.sharedPrefs(user2), Context.MODE_PRIVATE).edit().commit();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + oldSharedPrefsKeyForUser(user1), Context.MODE_PRIVATE).edit().commit();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + oldSharedPrefsKeyForUser(user2), Context.MODE_PRIVATE).edit().commit();
         LDConfig ldConfig = new LDConfig.Builder().mobileKey(FAKE_MOB_KEY).build();
         ArrayList<String> userKeys = getUserKeysPre_2_6(getApplication(), ldConfig);
-        assertTrue(userKeys.contains(DefaultUserManager.sharedPrefs(user1)));
-        assertTrue(userKeys.contains(DefaultUserManager.sharedPrefs(user2)));
+        assertTrue(userKeys.contains(oldSharedPrefsKeyForUser(user1)));
+        assertTrue(userKeys.contains(oldSharedPrefsKeyForUser(user2)));
         assertEquals(2, userKeys.size());
     }
 
@@ -118,13 +118,17 @@ public class MigrationTest {
         LDUser user1 = new LDUser.Builder("user1").build();
         LDUser user2 = new LDUser.Builder("user2").build();
         // Create shared prefs files
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + DefaultUserManager.sharedPrefs(user1) + "-user", Context.MODE_PRIVATE).edit().commit();
-        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + DefaultUserManager.sharedPrefs(user2) + "-user", Context.MODE_PRIVATE).edit().commit();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + oldSharedPrefsKeyForUser(user1) + "-user", Context.MODE_PRIVATE).edit().commit();
+        getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + FAKE_MOB_KEY + oldSharedPrefsKeyForUser(user2) + "-user", Context.MODE_PRIVATE).edit().commit();
         Map<String, Set<String>> userKeys = getUserKeys_2_6(getApplication());
         assertTrue(userKeys.containsKey(FAKE_MOB_KEY));
-        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(DefaultUserManager.sharedPrefs(user1)));
-        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(DefaultUserManager.sharedPrefs(user2)));
+        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(oldSharedPrefsKeyForUser(user1)));
+        assertTrue(userKeys.get(FAKE_MOB_KEY).contains(oldSharedPrefsKeyForUser(user2)));
         assertEquals(2, userKeys.get(FAKE_MOB_KEY).size());
         assertEquals(1, userKeys.keySet().size());
+    }
+
+    private static String oldSharedPrefsKeyForUser(LDUser user) {
+        return DefaultContextManager.HASHER.hash(LDConfig.GSON.toJson(user));
     }
 }

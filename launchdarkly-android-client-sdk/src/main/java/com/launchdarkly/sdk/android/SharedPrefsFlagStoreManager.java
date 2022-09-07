@@ -32,10 +32,10 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
     private final FlagStoreFactory flagStoreFactory;
     @NonNull
     private final String mobileKey;
-    private final int maxCachedUsers;
+    private final int maxCachedContexts;
 
     private FlagStore currentFlagStore;
-    private final SharedPreferences usersSharedPrefs;
+    private final SharedPreferences contextsSharedPrefs;
     private final ConcurrentHashMap<String, Set<FeatureFlagChangeListener>> listeners;
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners;
     private final LDLogger logger;
@@ -43,56 +43,56 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
     SharedPrefsFlagStoreManager(@NonNull Application application,
                                 @NonNull String mobileKey,
                                 @NonNull FlagStoreFactory flagStoreFactory,
-                                int maxCachedUsers,
+                                int maxCachedContexts,
                                 @NonNull LDLogger logger) {
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
-        this.maxCachedUsers = maxCachedUsers;
-        this.usersSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
+        this.maxCachedContexts = maxCachedContexts;
+        this.contextsSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
         this.listeners = new ConcurrentHashMap<>();
         this.allFlagsListeners = new CopyOnWriteArrayList<>();
         this.logger = logger;
     }
 
     @Override
-    public void switchToUser(String userKey) {
-        String storeId = storeIdentifierForUser(userKey);
+    public void switchToContext(String hashedContextKey) {
+        String storeId = storeIdentifierForContext(hashedContextKey);
         if (currentFlagStore != null) {
             currentFlagStore.unregisterOnStoreUpdatedListener();
         }
         currentFlagStore = flagStoreFactory.createFlagStore(storeId);
         currentFlagStore.registerOnStoreUpdatedListener(this);
 
-        // Store the user's key and the current time in usersSharedPrefs so it can be removed when
-        // MAX_USERS is exceeded.
-        usersSharedPrefs.edit()
-                .putLong(userKey, System.currentTimeMillis())
+        // Store the context's key and the current time in contextsSharedPrefs so it can be removed when
+        // maxCachedContexts is exceeded.
+        contextsSharedPrefs.edit()
+                .putLong(hashedContextKey, System.currentTimeMillis())
                 .apply();
 
-        int usersStored = usersSharedPrefs.getAll().size();
-        // Negative numbers represent an unlimited number of cached users. The active user is not
-        // considered a cached user, so we subtract one.
-        int usersToRemove = maxCachedUsers >= 0 ? usersStored - maxCachedUsers - 1 : 0;
-        if (usersToRemove > 0) {
-            Iterator<String> oldestFirstUsers = getCachedUsers(storeId).iterator();
-            // Remove oldest users until we are at MAX_USERS.
-            for (int i = 0; i < usersToRemove; i++) {
-                String removed = oldestFirstUsers.next();
-                logger.debug("Exceeded max # of users: [{}] Removing user: [{}]", maxCachedUsers, removed);
-                // Load FlagStore for oldest user and delete it.
-                flagStoreFactory.createFlagStore(storeIdentifierForUser(removed)).delete();
-                // Remove entry from usersSharedPrefs.
-                usersSharedPrefs.edit().remove(removed).apply();
+        int contextsStored = contextsSharedPrefs.getAll().size();
+        // Negative numbers represent an unlimited number of cached contexts. The active context is not
+        // considered a cached context, so we subtract one.
+        int contextsToRemove = maxCachedContexts >= 0 ? contextsStored - maxCachedContexts - 1 : 0;
+        if (contextsToRemove > 0) {
+            Iterator<String> oldestFirstContexts = getCachedContexts(storeId).iterator();
+            // Remove oldest contexts until we are at the configured limit.
+            for (int i = 0; i < contextsToRemove; i++) {
+                String removed = oldestFirstContexts.next();
+                logger.debug("Exceeded max # of contexts: [{}] Removing context: [{}]", maxCachedContexts, removed);
+                // Load FlagStore for oldest context and delete it.
+                flagStoreFactory.createFlagStore(storeIdentifierForContext(removed)).delete();
+                // Remove entry from contextsSharedPrefs.
+                contextsSharedPrefs.edit().remove(removed).apply();
             }
         }
     }
 
-    private String storeIdentifierForUser(String userKey) {
-        return mobileKey + userKey;
+    private String storeIdentifierForContext(String hashedContextKey) {
+        return mobileKey + hashedContextKey;
     }
 
     @Override
-    public FlagStore getCurrentUserStore() {
+    public FlagStore getCurrentContextStore() {
         return currentFlagStore;
     }
 
@@ -131,16 +131,16 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         allFlagsListeners.remove(listener);
     }
 
-    // Gets cached users (does not include the active user) sorted by creation time (oldest first)
-    private Collection<String> getCachedUsers(String activeUser) {
-        Map<String, ?> all = usersSharedPrefs.getAll();
-        all.remove(activeUser);
+    // Gets cached contexts (does not include the active context) sorted by creation time (oldest first)
+    private Collection<String> getCachedContexts(String activeContext) {
+        Map<String, ?> all = contextsSharedPrefs.getAll();
+        all.remove(activeContext);
         TreeMap<Long, String> sortedMap = new TreeMap<>();
-        //get typed versions of the users' timestamps and insert into sorted TreeMap
+        //get typed versions of the contexts' timestamps and insert into sorted TreeMap
         for (String k : all.keySet()) {
             try {
                 sortedMap.put((Long) all.get(k), k);
-                logger.debug("Found user: {}", userAndTimeStampToHumanReadableString(k, (Long) all.get(k)));
+                logger.debug("Found context: {}", contextAndTimeStampToHumanReadableString(k, (Long) all.get(k)));
             } catch (ClassCastException cce) {
                 LDUtil.logExceptionAtErrorLevel(logger, cce, "Unexpected type! This is not good");
             }
@@ -148,8 +148,8 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         return sortedMap.values();
     }
 
-    private static String userAndTimeStampToHumanReadableString(String userSharedPrefsKey, Long timestamp) {
-        return userSharedPrefsKey + " [" + userSharedPrefsKey + "] timestamp: [" + timestamp + "]" + " [" + new Date(timestamp) + "]";
+    private static String contextAndTimeStampToHumanReadableString(String contextSharedPrefsKey, Long timestamp) {
+        return contextSharedPrefsKey + " [" + contextSharedPrefsKey + "] timestamp: [" + timestamp + "]" + " [" + new Date(timestamp) + "]";
     }
 
     private void dispatchStoreUpdateCallback(final String flagKey, final FlagStoreUpdateType flagStoreUpdateType) {

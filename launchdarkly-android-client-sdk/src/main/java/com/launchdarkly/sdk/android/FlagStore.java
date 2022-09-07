@@ -141,19 +141,19 @@ interface FlagStoreFactory {
 interface FlagStoreManager {
 
     /**
-     * Loads the FlagStore for the particular userKey. If too many users have a locally cached
+     * Loads the FlagStore for the particular context. If too many contexts have a locally cached
      * FlagStore, deletes the oldest.
      *
-     * @param userKey The key representing the user to switch to
+     * @param hashedContextKey The hashed key representing the context to switch to
      */
-    void switchToUser(String userKey);
+    void switchToContext(String hashedContextKey);
 
     /**
-     * Gets the current user's flag store.
+     * Gets the current context's flag store.
      *
-     * @return The flag store for the current user.
+     * @return The flag store for the current context.
      */
-    FlagStore getCurrentUserStore();
+    FlagStore getCurrentContextStore();
 
     /**
      * Register a listener to be called when a flag with the given key is created or updated.

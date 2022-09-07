@@ -3,13 +3,6 @@ package com.launchdarkly.sdk.android;
 import android.os.Looper;
 import android.util.Pair;
 
-import com.launchdarkly.sdk.android.FeatureFlagChangeListener;
-import com.launchdarkly.sdk.android.FlagStore;
-import com.launchdarkly.sdk.android.FlagStoreFactory;
-import com.launchdarkly.sdk.android.FlagStoreManager;
-import com.launchdarkly.sdk.android.FlagStoreUpdateType;
-import com.launchdarkly.sdk.android.StoreUpdatedListener;
-
 import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.easymock.EasyMockSupport;
@@ -43,11 +36,11 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
     @Test
     public void initialFlagStoreIsNull() {
         final FlagStoreManager manager = createFlagStoreManager("testKey", null, 0);
-        assertNull(manager.getCurrentUserStore());
+        assertNull(manager.getCurrentContextStore());
     }
 
     @Test
-    public void testSwitchToUser() {
+    public void testswitchToContext() {
         final FlagStoreFactory mockCreate = strictMock(FlagStoreFactory.class);
         final FlagStore mockStore = strictMock(FlagStore.class);
         final FlagStoreManager manager = createFlagStoreManager("testKey", mockCreate, 0);
@@ -57,11 +50,11 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
 
         verifyAll();
 
-        assertSame(mockStore, manager.getCurrentUserStore());
+        assertSame(mockStore, manager.getCurrentContextStore());
     }
 
     @Test
@@ -86,13 +79,13 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
         Thread.sleep(2);
-        manager.switchToUser("user2");
+        manager.switchToContext("user2");
 
         verifyAll();
 
-        assertSame(secondUserStore, manager.getCurrentUserStore());
+        assertSame(secondUserStore, manager.getCurrentContextStore());
         assertNotEquals(firstUserIdentifier.getValue(), secondUserIdentifier.getValue());
     }
 
@@ -112,7 +105,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         replayAll();
 
         for (int i = 0; i < 10; i++) {
-            manager.switchToUser("user" + i);
+            manager.switchToContext("user" + i);
         }
 
         verifyAll();
@@ -139,9 +132,9 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
         Thread.sleep(2);
-        manager.switchToUser("user2");
+        manager.switchToContext("user2");
         Thread.sleep(2);
 
         verifyAll();
@@ -159,7 +152,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
         replayAll();
 
         manager = createFlagStoreManager("testKey", mockCreate, 0);
-        manager.switchToUser("user3");
+        manager.switchToContext("user3");
 
         verifyAll();
     }
@@ -198,7 +191,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         // Adds 2 to maxCachedUsers as one is for the active user, and we want one extra to evict the last.
         for (int i = 0; i < maxCachedUsers + 2; i++) {
-            manager.switchToUser("user" + i);
+            manager.switchToContext("user" + i);
             // Unfortunately we need to use Thread.sleep() to stagger the loading of users for this test
             // otherwise the millisecond precision is not good enough to guarantee an ordering of the
             // users for removing the oldest.
@@ -261,7 +254,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
         manager.registerListener("flag", mockFlagListener);
         Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_CREATED);
         managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
@@ -289,7 +282,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
         manager.registerListener("flag", mockFlagListener);
         Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_UPDATED);
         managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
@@ -311,7 +304,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
         manager.registerListener("flag", mockFlagListener);
         Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_DELETED);
         managerListener.getValue().onStoreUpdate(Collections.singletonList(update));
@@ -335,7 +328,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
         manager.registerListener("flag", mockFlagListener);
         manager.unRegisterListener("flag", mockFlagListener);
         Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_CREATED);
@@ -369,7 +362,7 @@ public abstract class FlagStoreManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        manager.switchToUser("user1");
+        manager.switchToContext("user1");
         manager.registerListener("flag", mockFlagListener);
         Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_CREATED);
         managerListener.getValue().onStoreUpdate(Collections.singletonList(update));

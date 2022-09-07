@@ -1,3 +1,7 @@
+TEST_HARNESS_PARAMS= \
+	-skip events/custom/basic/inline \
+	-skip events/user/inlineUsers=true
+
 build-contract-tests:
 	@cd contract-tests && ../gradlew --no-daemon -s assembleDebug -PdisablePreDex
 

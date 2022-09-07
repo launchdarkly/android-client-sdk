@@ -58,7 +58,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private final Application application;
     private final LDConfig config;
-    private final DefaultUserManager userManager;
+    private final DefaultContextManager contextManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final DiagnosticEventProcessor diagnosticEventProcessor;
@@ -136,7 +136,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
             for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
                 final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
-                instance.userManager.setCurrentUser(user);
+                instance.contextManager.setCurrentUser(user);
 
                 newInstances.put(mobileKeys.getKey(), instance);
             }
@@ -274,12 +274,12 @@ public class LDClient implements LDClientInterface, Closeable {
             this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, application,
                     sharedEventClient, logger);
         }
-        this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedUsers(),
+        this.contextManager = DefaultContextManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedUsers(),
                 logger);
 
-        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventStore(), environmentName,
+        eventProcessor = new DefaultEventProcessor(application, config, contextManager.getSummaryEventStore(), environmentName,
                 diagnosticStore, sharedEventClient, logger);
-        connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName,
+        connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextManager, environmentName,
                 diagnosticEventProcessor, diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -313,7 +313,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
-        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue));
+        sendEvent(new CustomEvent(eventName, contextManager.getCurrentUser(), data, metricValue));
     }
 
     @Override
@@ -345,7 +345,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void identifyInternal(@NonNull LDUser user,
                                   LDUtil.ResultCallback<Void> onCompleteListener) {
-        userManager.setCurrentUser(user);
+        contextManager.setCurrentUser(user);
         connectivityManager.reloadUser(onCompleteListener);
         sendEvent(new IdentifyEvent(user));
     }
@@ -377,7 +377,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public Map<String, LDValue> allFlags() {
-        Collection<Flag> allFlags = userManager.getCurrentUserFlagStore().getAllFlags();
+        Collection<Flag> allFlags = contextManager.getCurrentUserFlagStore().getAllFlags();
         HashMap<String, LDValue> flagValues = new HashMap<>();
         for (Flag flag: allFlags) {
             if (!flag.isDeleted()) {
@@ -442,7 +442,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
-        Flag flag = userManager.getCurrentUserFlagStore().getFlag(key);
+        Flag flag = contextManager.getCurrentUserFlagStore().getFlag(key);
         EvaluationDetail<LDValue> result;
         LDValue value = defaultValue;
 
@@ -466,7 +466,7 @@ public class LDClient implements LDClientInterface, Closeable {
             sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
 
-        logger.debug("returning variation: {} flagKey: {} user key: {}", result, key, userManager.getCurrentUser().getKey());
+        logger.debug("returning variation: {} flagKey: {} user key: {}", result, key, contextManager.getCurrentUser().getKey());
         updateSummaryEvents(key, flag, value, defaultValue);
         return result;
     }
@@ -553,12 +553,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
-        userManager.registerListener(flagKey, listener);
+        contextManager.registerListener(flagKey, listener);
     }
 
     @Override
     public void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
-        userManager.unregisterListener(flagKey, listener);
+        contextManager.unregisterListener(flagKey, listener);
     }
 
     @Override
@@ -595,11 +595,11 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     public void registerAllFlagsListener(LDAllFlagsListener allFlagsListener) {
-        userManager.registerAllFlagsListener(allFlagsListener);
+        contextManager.registerAllFlagsListener(allFlagsListener);
     }
 
     public void unregisterAllFlagsListener(LDAllFlagsListener allFlagsListener) {
-        userManager.unregisterAllFlagsListener(allFlagsListener);
+        contextManager.unregisterAllFlagsListener(allFlagsListener);
     }
 
     private void triggerPoll() {
@@ -651,14 +651,14 @@ public class LDClient implements LDClientInterface, Closeable {
         int version = flag.getVersionForEvents();
         Integer variation = flag.getVariation();
         if (flag.isTrackEvents()) {
-            sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
+            sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
                     variation, reason, false, false));
         } else {
             Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
             if (debugEventsUntilDate != null) {
                 long serverTimeMs = eventProcessor.getCurrentTimeMs();
                 if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
+                    sendEvent(new FeatureRequestEvent(flagKey, contextManager.getCurrentUser(), value, defaultValue, version,
                             variation, reason, false, true));
                 }
             }
@@ -691,7 +691,7 @@ public class LDClient implements LDClientInterface, Closeable {
         defaultValue = LDValue.normalize(defaultValue);
         Integer version = flag == null ? null : flag.getVersionForEvents();
         Integer variation = flag == null ? null : flag.getVariation();
-        userManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, defaultValue, version, variation);
+        contextManager.getSummaryEventStore().addOrUpdateEvent(flagKey, result, defaultValue, version, variation);
     }
 
     static void triggerPollInstances() {
@@ -734,6 +734,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @VisibleForTesting
     SummaryEventStore getSummaryEventStore() {
-        return userManager.getSummaryEventStore();
+        return contextManager.getSummaryEventStore();
     }
 }

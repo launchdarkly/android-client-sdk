@@ -82,7 +82,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @SuppressWarnings("unused")
     @Mock(MockType.STRICT)
-    private UserManager userManager;
+    private ContextManager contextManager;
 
     private ConnectivityManager connectivityManager;
     private MockWebServer mockStreamServer;
@@ -132,7 +132,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
-        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default",
+        connectivityManager = new ConnectivityManager(app, config, eventProcessor, contextManager, "default",
                 null, null, LDLogger.none());
     }
 
@@ -222,7 +222,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void initPolling() throws ExecutionException {
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        userManager.updateCurrentUser(capture(callbackCapture));
+        contextManager.updateCurrentUser(capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onSuccess(null);
             return null;
@@ -248,7 +248,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void initPollingKnownError() throws ExecutionException {
         final Throwable testError = new Throwable();
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        userManager.updateCurrentUser(capture(callbackCapture));
+        contextManager.updateCurrentUser(capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onError(new LDFailure("failure", testError, LDFailure.FailureType.NETWORK_FAILURE));
             return null;
@@ -278,7 +278,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void initPollingUnknownError() throws ExecutionException {
         final Throwable testError = new Throwable();
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        userManager.updateCurrentUser(capture(callbackCapture));
+        contextManager.updateCurrentUser(capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onError(testError);
             return null;
@@ -375,7 +375,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void setOfflineDuringInitStreaming() throws ExecutionException {
-        expect(userManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build());
+        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build());
         eventProcessor.start();
         eventProcessor.stop();
         replayAll();
@@ -398,7 +398,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void shutdownDuringInitStreaming() throws ExecutionException {
-        expect(userManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build());
+        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build());
         eventProcessor.start();
         replayAll();
 
@@ -421,7 +421,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void backgroundedDuringInitStreaming() throws ExecutionException {
         ForegroundTestController.setup(true);
-        expect(userManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
+        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
         eventProcessor.start();
         replayAll();
 
@@ -443,7 +443,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void deviceOfflinedDuringInitStreaming() throws ExecutionException, InterruptedException {
-        expect(userManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
+        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
         eventProcessor.start();
         eventProcessor.stop();
         replayAll();
@@ -468,7 +468,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void reloadCompletesPending() throws ExecutionException {
-        expect(userManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
+        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
         eventProcessor.start();
         expectLastCall().anyTimes();
         replayAll();

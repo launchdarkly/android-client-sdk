@@ -27,7 +27,7 @@ class ConnectivityManager {
     private final ConnectionInformationState connectionInformation;
     private final SharedPreferences stateStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
-    private final UserManager userManager;
+    private final ContextManager contextManager;
     private final EventProcessor eventProcessor;
     private final DiagnosticEventProcessor diagnosticEventProcessor;
     private final Throttler throttler;
@@ -43,7 +43,7 @@ class ConnectivityManager {
     ConnectivityManager(@NonNull final Application application,
                         @NonNull final LDConfig ldConfig,
                         @NonNull final EventProcessor eventProcessor,
-                        @NonNull final UserManager userManager,
+                        @NonNull final ContextManager contextManager,
                         @NonNull final String environmentName,
                         final DiagnosticEventProcessor diagnosticEventProcessor,
                         final DiagnosticStore diagnosticStore,
@@ -51,7 +51,7 @@ class ConnectivityManager {
         this.application = application;
         this.eventProcessor = eventProcessor;
         this.diagnosticEventProcessor = diagnosticEventProcessor;
-        this.userManager = userManager;
+        this.contextManager = contextManager;
         this.environmentName = environmentName;
         this.logger = logger;
         pollingInterval = ldConfig.getPollingIntervalMillis();
@@ -125,7 +125,7 @@ class ConnectivityManager {
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName,
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, contextManager, environmentName,
                 diagnosticStore, monitor, logger) : null;
     }
 
@@ -421,6 +421,6 @@ class ConnectivityManager {
     }
 
     void triggerPoll() {
-        userManager.updateCurrentUser(monitor);
+        contextManager.updateCurrentUser(monitor);
     }
 }
