@@ -122,7 +122,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getDefaultRequest(LDContext ldContext) {
-        String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/users/").toString() +
+        String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/contexts/").toString() +
                 DefaultContextManager.base64Url(ldContext);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
@@ -134,7 +134,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getReportRequest(LDContext ldContext) {
-        String reportUri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/user").toString();
+        String reportUri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/context").toString();
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }
