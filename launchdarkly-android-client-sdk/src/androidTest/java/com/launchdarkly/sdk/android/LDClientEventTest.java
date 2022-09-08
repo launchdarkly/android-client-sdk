@@ -97,6 +97,50 @@ public class LDClientEventTest {
     }
 
     @Test
+    public void testTrackDataValueNull() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.trackData("test-event", null);
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], customEvent = events[1];
+                assertIdentifyEvent(identifyEvent, ldUser);
+                assertCustomEvent(customEvent, ldUser, "test-event");
+                assertEquals(LDValue.ofNull(), customEvent.get("data"));
+                assertEquals(LDValue.ofNull(), customEvent.get("metricValue"));
+            }
+        }
+    }
+
+    @Test
+    public void testTrackDataValueOfNull() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
+                client.trackData("test-event", LDValue.ofNull());
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], customEvent = events[1];
+                assertIdentifyEvent(identifyEvent, ldUser);
+                assertCustomEvent(customEvent, ldUser, "test-event");
+                assertEquals(LDValue.ofNull(), customEvent.get("data"));
+                assertEquals(LDValue.ofNull(), customEvent.get("metricValue"));
+            }
+        }
+    }
+
+    @Test
     public void testTrackMetric() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
