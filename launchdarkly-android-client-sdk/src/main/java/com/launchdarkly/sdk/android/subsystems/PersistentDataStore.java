@@ -19,18 +19,6 @@ import java.util.Map;
  *     <li> The value can be any non-null string, including an empty string. </li>
  * </ul>
  * <p>
- * Unlike server-side SDKs, the persistent data store in this SDK treats the entire set of flags
- * for a given user as a single value which is written to the store all at once, rather than one
- * value per flag. This is for two reasons:
- * <ul>
- *     <li> The SDK assumes that the persistent store (at least, the keys in it that we are using)
- *     will not be written to by any other process, so it does not need to implement read-through
- *     behavior when getting individual flags, and can read flags only from the in-memory cache. It
- *     only needs to read the persistent store at startup time or when changing users, to get any
- *     last known data for all flags at once.</li>
- *     <li> Reading or writing multiple separate keys is inefficient and can't be done atomically. </li>
- * </ul>
- * <p>
  * The SDK will also provide its own caching layer on top of the persistent data store; the data
  * store implementation should not provide caching, but simply do every query or update that the
  * SDK tells it to do.
