@@ -51,7 +51,7 @@ final class ContextDecorator {
                 }
                 return builder.build();
             }
-        } else if (!context.isAnonymous()) {
+        } else if (context.isAnonymous()) {
             return singleKindContextWithGeneratedKey(context, logger);
         }
         return context;
