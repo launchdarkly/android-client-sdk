@@ -163,7 +163,7 @@ public class LDClientEventTest {
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
-                client.track("test-event");
+                client.trackData("test-event", null);
                 client.blockingFlush();
 
                 Event[] events = getEventsFromLastRequest(mockEventsServer, 2);
