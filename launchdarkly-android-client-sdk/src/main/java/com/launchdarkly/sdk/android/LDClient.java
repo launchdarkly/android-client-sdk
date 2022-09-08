@@ -15,6 +15,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
@@ -126,7 +127,9 @@ public class LDClient implements LDClientInterface, Closeable {
                 return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
             }
 
-            contextDecorator = new ContextDecorator(application, config.isGenerateAnonymousKeys());
+            PersistentDataStore persistentDataStore =
+                    new SharedPreferencesPersistentDataStore(application);
+            contextDecorator = new ContextDecorator(persistentDataStore, config.isGenerateAnonymousKeys());
 
             Foreground.init(application);
 

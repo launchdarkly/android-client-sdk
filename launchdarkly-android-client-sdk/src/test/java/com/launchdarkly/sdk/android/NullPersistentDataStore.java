@@ -1,0 +1,21 @@
+package com.launchdarkly.sdk.android;
+
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
+
+import java.util.Map;
+
+public final class NullPersistentDataStore implements PersistentDataStore {
+    @Override
+    public String getValue(String storeNamespace, String key) {
+        return null;
+    }
+
+    @Override
+    public void setValue(String storeNamespace, String key, String value) {}
+
+    @Override
+    public void setValues(String storeNamespace, Map<String, String> keysAndValues) {}
+
+    @Override
+    public void clear(String storeNamespace, boolean fullyDelete) {}
+}
