@@ -18,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.events.EventProcessor;
 
 import org.easymock.Capture;
@@ -85,6 +86,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Mock(MockType.STRICT)
     private ContextManager contextManager;
 
+    private final PersistentDataStore store = new InMemoryPersistentDataStore();
+
     private ConnectivityManager connectivityManager;
     private MockWebServer mockStreamServer;
     private ActivityScenario<TestActivity> scenario;
@@ -133,8 +136,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
-        connectivityManager = new ConnectivityManager(app, config, eventProcessor, contextManager, "default",
-                null, LDLogger.none());
+        connectivityManager = new ConnectivityManager(app, config, eventProcessor, contextManager,
+                store, "default", null, LDLogger.none());
     }
 
     private void awaitStartUp() throws ExecutionException {

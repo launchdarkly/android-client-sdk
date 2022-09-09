@@ -1,7 +1,6 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.content.SharedPreferences;
 import android.util.Base64;
 
 import androidx.annotation.NonNull;
@@ -11,6 +10,7 @@ import com.google.gson.JsonObject;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.util.Collection;
@@ -37,17 +37,31 @@ class DefaultContextManager implements ContextManager {
 
     private final ExecutorService executor;
 
-    static synchronized DefaultContextManager newInstance(Application application, FeatureFetcher fetcher, String environmentName,
-                                                       String mobileKey, int maxCachedUsers, LDLogger logger) {
-        return new DefaultContextManager(application, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
+    static synchronized DefaultContextManager newInstance(
+            Application application,
+            PersistentDataStore store,
+            FeatureFetcher fetcher,
+            String environmentName,
+            String mobileKey,
+            int maxCachedUsers,
+            LDLogger logger
+    ) {
+        return new DefaultContextManager(application,store, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
     }
 
-    DefaultContextManager(Application application, FeatureFetcher fetcher, String environmentName, String mobileKey,
-                          int maxCachedUsers, LDLogger logger) {
+    DefaultContextManager(
+            Application application,
+            PersistentDataStore store,
+            FeatureFetcher fetcher,
+            String environmentName,
+            String mobileKey,
+            int maxCachedUsers,
+            LDLogger logger
+    ) {
         this.application = application;
         this.fetcher = fetcher;
-        this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey,
-                new SharedPrefsFlagStoreFactory(application, logger), maxCachedUsers, logger);
+        this.flagStoreManager = new FlagStoreManagerImpl(mobileKey,
+                new FlagStoreImplFactory(store, logger), store, maxCachedUsers, logger);
         this.environmentName = environmentName;
         this.logger = logger;
 
@@ -126,8 +140,8 @@ class DefaultContextManager implements ContextManager {
     }
 
     /**
-     * Saves the flags param to {@link SharedPreferences} for the current user.
-     * Completely overwrites all values in the current user's {@link SharedPreferences} and
+     * Saves the flags param to persistent storage for the current user.
+     * Completely overwrites all values in the current user's data store and
      * saves those values to the active user, triggering any registered {@link FeatureFlagChangeListener}
      * objects.
      *

@@ -2,6 +2,8 @@ package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 
 public final class NullPersistentDataStore implements PersistentDataStore {
@@ -15,6 +17,11 @@ public final class NullPersistentDataStore implements PersistentDataStore {
 
     @Override
     public void setValues(String storeNamespace, Map<String, String> keysAndValues) {}
+
+    @Override
+    public Collection<String> getKeys(String storeNamespace) {
+        return Collections.emptyList();
+    }
 
     @Override
     public void clear(String storeNamespace, boolean fullyDelete) {}

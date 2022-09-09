@@ -9,7 +9,9 @@ import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
+import java.util.AbstractMap;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;

@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.io.File;
+import java.util.Collection;
 import java.util.Map;
 
 final class SharedPreferencesPersistentDataStore implements PersistentDataStore {
@@ -42,6 +43,12 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
             editor.putString(kv.getKey(), kv.getValue());
         }
         editor.apply();
+    }
+
+    @Override
+    public Collection<String> getKeys(String storeNamespace) {
+        SharedPreferences prefs = application.getSharedPreferences(storeNamespace, Context.MODE_PRIVATE);
+        return prefs.getAll().keySet();
     }
 
     @Override

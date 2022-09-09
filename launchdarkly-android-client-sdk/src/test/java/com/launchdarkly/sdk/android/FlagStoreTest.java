@@ -1,7 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import android.util.Pair;
-
 import com.launchdarkly.sdk.ArrayBuilder;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
@@ -11,11 +9,13 @@ import org.easymock.EasyMockSupport;
 import org.easymock.IArgumentMatcher;
 import org.junit.Test;
 
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -26,6 +26,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+
+import android.util.Pair;
 
 public abstract class FlagStoreTest extends EasyMockSupport {
 
@@ -178,13 +180,11 @@ public abstract class FlagStoreTest extends EasyMockSupport {
 
     @Test
     public void mockFlagDeleteBehavior() {
-        final Flag initialFlag = new FlagBuilder("flag").build();
+        final Flag initialFlag = new FlagBuilder("flag").version(1).build();
         final FlagStore underTest = createFlagStore("abc");
         underTest.applyFlagUpdate(initialFlag);
 
-        final FlagUpdate mockDelete = strictMock(FlagUpdate.class);
-        expect(mockDelete.flagToUpdate()).andReturn("flag");
-        expect(mockDelete.updateFlag(eqFlag(initialFlag))).andReturn(null);
+        final Flag deletedFlag = Flag.deletedItemPlaceholder(initialFlag.getKey(), 2);
 
         final StoreUpdatedListener mockUpdateListener = strictMock(StoreUpdatedListener.class);
         Pair<String, FlagStoreUpdateType> update = new Pair<>("flag", FlagStoreUpdateType.FLAG_DELETED);
@@ -193,13 +193,11 @@ public abstract class FlagStoreTest extends EasyMockSupport {
         replayAll();
 
         underTest.registerOnStoreUpdatedListener(mockUpdateListener);
-        underTest.applyFlagUpdate(mockDelete);
+        underTest.applyFlagUpdate(deletedFlag);
 
         verifyAll();
 
-        assertNull(underTest.getFlag("flag"));
-        assertEquals(0, underTest.getAllFlags().size());
-        assertFalse(underTest.containsKey("flag"));
+        AssertHelpers.assertFlagsEqual(deletedFlag, underTest.getFlag("flag"));
     }
 
     @Test

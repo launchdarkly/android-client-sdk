@@ -10,6 +10,7 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -82,6 +83,8 @@ public class LDConfig {
 
     private final boolean generateAnonymousKeys;
 
+    private final PersistentDataStore persistentDataStore; // configurable for testing only
+
     private final LDLogAdapter logAdapter;
     private final String loggerName;
 
@@ -108,6 +111,7 @@ public class LDConfig {
              int maxCachedContexts,
              LDHeaderUpdater headerTransform,
              boolean generateAnonymousKeys,
+             PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
              String loggerName) {
         this.mobileKeys = mobileKeys;
@@ -133,6 +137,7 @@ public class LDConfig {
         this.maxCachedContexts = maxCachedContexts;
         this.headerTransform = headerTransform;
         this.generateAnonymousKeys = generateAnonymousKeys;
+        this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
     }
@@ -236,6 +241,8 @@ public class LDConfig {
 
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
 
+    PersistentDataStore getPersistentDataStore() { return persistentDataStore; }
+
     LDLogAdapter getLogAdapter() { return logAdapter; }
 
     String getLoggerName() { return loggerName; }
@@ -281,6 +288,8 @@ public class LDConfig {
         private String wrapperVersion;
         private LDHeaderUpdater headerTransform;
         private boolean generateAnonymousKeys;
+
+        private PersistentDataStore persistentDataStore;
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = DEFAULT_LOGGER_NAME;
@@ -658,9 +667,22 @@ public class LDConfig {
          *
          * @param generateAnonymousKeys true to enable automatic anonymous key generation
          * @return the same builder
+         * @since 4.0.0
          */
         public LDConfig.Builder generateAnonymousKeys(boolean generateAnonymousKeys) {
             this.generateAnonymousKeys = generateAnonymousKeys;
+            return this;
+        }
+
+        /**
+         * Specifies a custom data store. Deliberately package-private-- currently this is only
+         * configurable for tests.
+         *
+         * @param persistentDataStore the store implementation
+         * @return the same builder
+         */
+        LDConfig.Builder persistentDataStore(PersistentDataStore persistentDataStore) {
+            this.persistentDataStore = persistentDataStore;
             return this;
         }
 
@@ -847,6 +869,7 @@ public class LDConfig {
                     maxCachedContexts,
                     headerTransform,
                     generateAnonymousKeys,
+                    persistentDataStore,
                     actualLogAdapter,
                     loggerName);
         }

@@ -1,19 +1,17 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.content.Context;
-import android.content.SharedPreferences;
 
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
-import com.launchdarkly.sdk.internal.GsonHelpers;
-import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventProcessor;
 
 import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.TimeZone;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
@@ -30,7 +28,8 @@ class ConnectivityManager {
 
     private final Application application;
     private final ConnectionInformationState connectionInformation;
-    private final SharedPreferences stateStore;
+    private final PersistentDataStore store;
+    private final String storeNamespace;
     private final StreamUpdateProcessor streamUpdateProcessor;
     private final ContextManager contextManager;
     private final EventProcessor eventProcessor;
@@ -48,17 +47,18 @@ class ConnectivityManager {
                         @NonNull final LDConfig ldConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextManager contextManager,
+                        @NonNull final PersistentDataStore store,
                         @NonNull final String environmentName,
                         final DiagnosticStore diagnosticStore,
                         final LDLogger logger) {
         this.application = application;
         this.eventProcessor = eventProcessor;
         this.contextManager = contextManager;
+        this.store = store;
         this.environmentName = environmentName;
         this.logger = logger;
         pollingInterval = ldConfig.getPollingIntervalMillis();
-        String prefsKey = LDConfig.SHARED_PREFS_BASE_KEY + ldConfig.getMobileKeys().get(environmentName) + "-connectionstatus";
-        stateStore = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE);
+        storeNamespace = LDConfig.SHARED_PREFS_BASE_KEY + ldConfig.getMobileKeys().get(environmentName) + "-connectionstatus";
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
         setOffline = ldConfig.isOffline();
@@ -143,17 +143,19 @@ class ConnectivityManager {
     }
 
     private void readStoredConnectionState() {
-        long lastSuccess = stateStore.getLong("lastSuccessfulConnection", 0);
-        long lastFailureTime = stateStore.getLong("lastFailedConnection", 0);
-        connectionInformation.setLastSuccessfulConnection(lastSuccess == 0 ? null : lastSuccess);
-        connectionInformation.setLastFailedConnection(lastFailureTime == 0 ? null : lastFailureTime);
-        String lastFailureString = stateStore.getString("lastFailure", null);
+        Long lastSuccess = LDUtil.getStoreValueAsLong(store, storeNamespace, "lastSuccessfulConnection");
+        Long lastFailureTime = LDUtil.getStoreValueAsLong(store, storeNamespace, "lastFailedConnection");
+        connectionInformation.setLastSuccessfulConnection(lastSuccess == null || lastSuccess.longValue() == 0 ?
+                null : lastSuccess.longValue());
+        connectionInformation.setLastFailedConnection(lastFailureTime == null || lastFailureTime.longValue() == 0 ?
+                null : lastFailureTime.longValue());
+        String lastFailureString = store.getValue(storeNamespace, "lastFailure");
         if (lastFailureString != null) {
             try {
                 LDFailure lastFailure = gsonInstance().fromJson(lastFailureString, LDFailure.class);
                 connectionInformation.setLastFailure(lastFailure);
             } catch (Exception unused) {
-                stateStore.edit().putString("lastFailure", null).apply();
+                store.setValue(storeNamespace, "lastFailure", null);
                 connectionInformation.setLastFailure(null);
             }
         }
@@ -162,20 +164,20 @@ class ConnectivityManager {
     private synchronized void saveConnectionInformation() {
         Long lastSuccessfulConnection = connectionInformation.getLastSuccessfulConnection();
         Long lastFailedConnection = connectionInformation.getLastFailedConnection();
-        SharedPreferences.Editor editor = stateStore.edit();
+        Map<String, String> updates = new HashMap<>();
         if (lastSuccessfulConnection != null) {
-            editor.putLong("lastSuccessfulConnection", lastSuccessfulConnection);
+            updates.put("lastSuccessfulConnection", String.valueOf(lastSuccessfulConnection));
         }
         if (lastFailedConnection != null) {
-            editor.putLong("lastFailedConnection", connectionInformation.getLastFailedConnection());
+            updates.put("lastFailedConnection", String.valueOf(lastFailedConnection));
         }
         if (connectionInformation.getLastFailure() == null) {
-            editor.putString("lastFailure", null);
+            updates.put("lastFailure", null);
         } else {
             String failJson = gsonInstance().toJson(connectionInformation.getLastFailure());
-            editor.putString("lastFailure", failJson);
+            updates.put("lastFailure", failJson);
         }
-        editor.apply();
+        store.setValues(storeNamespace, updates);
     }
 
     private void stopPolling() {

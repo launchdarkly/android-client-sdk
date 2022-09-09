@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android.subsystems;
 
+import java.util.Collection;
 import java.util.Map;
 
 /**
@@ -55,6 +56,14 @@ public interface PersistentDataStore {
      * @param keysAndValues the keys and values to update
      */
     void setValues(String storeNamespace, Map<String, String> keysAndValues);
+
+    /**
+     * Returns all keys that exist in the namespace.
+     *
+     * @param storeNamespace the namespace identifier
+     * @return the keys
+     */
+    Collection<String> getKeys(String storeNamespace);
 
     /**
      * Removes any values that currently exist in the given namespace.

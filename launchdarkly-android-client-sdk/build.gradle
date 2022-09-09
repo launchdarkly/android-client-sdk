@@ -83,6 +83,7 @@ dependencies {
     implementation("com.jakewharton.timber:timber:${versions.timber}")
 
     testImplementation("junit:junit:${versions.junit}")
+    testImplementation("org.easymock:easymock:4.3")
 
     androidTestImplementation("junit:junit:${versions.junit}")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")

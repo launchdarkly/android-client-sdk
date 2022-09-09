@@ -27,6 +27,10 @@ public class FlagBuilder {
         return this;
     }
 
+    public FlagBuilder value(boolean value) {
+        return value(LDValue.of(value));
+    }
+
     public FlagBuilder version(int version) {
         this.version = version;
         return this;
