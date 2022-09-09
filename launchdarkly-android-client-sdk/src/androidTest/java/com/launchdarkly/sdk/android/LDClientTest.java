@@ -38,7 +38,7 @@ public class LDClientTest {
                 .offline(true)
                 .build();
 
-        ldUser = LDClient.customizeContext(LDContext.create("userKey"));
+        ldUser = LDContext.create("userKey");
     }
 
     @Test

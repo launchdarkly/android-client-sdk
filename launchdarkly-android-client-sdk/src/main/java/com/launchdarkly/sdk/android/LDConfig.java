@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android;
 
+import android.app.Application;
 import android.net.Uri;
 
 import com.launchdarkly.logging.LDLogAdapter;
@@ -7,6 +8,8 @@ import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.AttributeRef;
+import com.launchdarkly.sdk.ContextKind;
+import com.launchdarkly.sdk.LDContext;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -77,6 +80,8 @@ public class LDConfig {
 
     private final LDHeaderUpdater headerTransform;
 
+    private final boolean generateAnonymousKeys;
+
     private final LDLogAdapter logAdapter;
     private final String loggerName;
 
@@ -102,6 +107,7 @@ public class LDConfig {
              String wrapperVersion,
              int maxCachedContexts,
              LDHeaderUpdater headerTransform,
+             boolean generateAnonymousKeys,
              LDLogAdapter logAdapter,
              String loggerName) {
         this.mobileKeys = mobileKeys;
@@ -126,6 +132,7 @@ public class LDConfig {
         this.wrapperVersion = wrapperVersion;
         this.maxCachedContexts = maxCachedContexts;
         this.headerTransform = headerTransform;
+        this.generateAnonymousKeys = generateAnonymousKeys;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
     }
@@ -227,6 +234,8 @@ public class LDConfig {
         return headerTransform;
     }
 
+    public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
+
     LDLogAdapter getLogAdapter() { return logAdapter; }
 
     String getLoggerName() { return loggerName; }
@@ -271,6 +280,7 @@ public class LDConfig {
         private String wrapperName;
         private String wrapperVersion;
         private LDHeaderUpdater headerTransform;
+        private boolean generateAnonymousKeys;
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = DEFAULT_LOGGER_NAME;
@@ -600,6 +610,8 @@ public class LDConfig {
          * <p>
          * Note that the active evaluation context is not considered part of this limit, as it will
          * always be served from the backing SharedPreferences.
+         * <p>
+         * If not specified, the default is {@link #DEFAULT_MAX_CACHED_CONTEXTS} (5).
          *
          * @param maxCachedContexts The maximum number of evaluation contexts to cache; negative
          *                          values represent allowing an unlimited number of cached contexts
@@ -618,6 +630,37 @@ public class LDConfig {
          */
         public LDConfig.Builder headerTransform(LDHeaderUpdater headerTransform) {
             this.headerTransform = headerTransform;
+            return this;
+        }
+
+        /**
+         * Set to {@code true} to make the SDK provide unique keys for anonymous contexts.
+         * <p>
+         * If enabled, this option changes the SDK's behavior whenever the {@link LDContext} (as
+         * given to methods like {@link LDClient#init(Application, LDConfig, LDContext, int)} or
+         * {@link LDClient#identify(LDContext)}) has an {@link LDContext#isAnonymous()} property of
+         * {@code true}, as follows:
+         * <ul>
+         * <li> The first time this happens in the application, the SDK will generate a
+         * pseudo-random GUID and overwrite the context's {@code key} with this string. </li>
+         * <li> The SDK will then cache this key so that the same key will be reused next time. </li>
+         * <li> This uses the same persistent storage (shared preferences) mechanism as the caching
+         * of flag values, so that the key can persist across restarts. </li>
+         * </ul>
+         * <p>
+         * If you use multiple {@link ContextKind}s, this behavior is per-kind: that is, a separate
+         * randomized key is generated and cached for each context kind.
+         * <p>
+         * Every {@link LDContext} must always have a key, even if the key will later be overwritten
+         * by the SDK, so if you use this functionality you must still provide a placeholder key.
+         * This ensures that if the SDK configuration is changed so {@code generateAnonymousKeys} is
+         * no longer enabled, the SDK will still be able to use the context for evaluations.
+         *
+         * @param generateAnonymousKeys true to enable automatic anonymous key generation
+         * @return the same builder
+         */
+        public LDConfig.Builder generateAnonymousKeys(boolean generateAnonymousKeys) {
+            this.generateAnonymousKeys = generateAnonymousKeys;
             return this;
         }
 
@@ -803,6 +846,7 @@ public class LDConfig {
                     wrapperVersion,
                     maxCachedContexts,
                     headerTransform,
+                    generateAnonymousKeys,
                     actualLogAdapter,
                     loggerName);
         }
