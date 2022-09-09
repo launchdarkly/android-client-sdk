@@ -49,7 +49,6 @@ public class NetworkTestController {
             setData.setAccessible(true);
             setData.invoke(connectivityManager, network);
         } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 }

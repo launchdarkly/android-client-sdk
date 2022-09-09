@@ -7,7 +7,6 @@ import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
@@ -292,12 +291,7 @@ public class SdkClientEntity {
         builder.eventsFlushIntervalMillis(params.events.flushIntervalMs.intValue());
       }
       if (params.events.globalPrivateAttributes != null) {
-        String[] attrNames = params.events.globalPrivateAttributes;
-        List<UserAttribute> privateAttributes = new ArrayList<>();
-        for (String a : attrNames) {
-          privateAttributes.add(UserAttribute.forName(a));
-        }
-        builder.privateAttributes((UserAttribute[]) privateAttributes.toArray(new UserAttribute[]{}));
+        builder.privateAttributes(params.events.globalPrivateAttributes);
       }
     }
     // TODO: disable events if no params.events

@@ -17,6 +17,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 /**
  * Persists and retrieves feature flag values for different {@link LDContext}s.
  * Also enables realtime updates via registering a {@link FeatureFlagChangeListener}
@@ -28,7 +30,6 @@ class DefaultContextManager implements ContextManager {
 
     private final Application application;
     private final FlagStoreManager flagStoreManager;
-    private final SummaryEventStore summaryEventStore;
     private final String environmentName;
     private final LDLogger logger;
 
@@ -47,8 +48,6 @@ class DefaultContextManager implements ContextManager {
         this.fetcher = fetcher;
         this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey,
                 new SharedPrefsFlagStoreFactory(application, logger), maxCachedUsers, logger);
-        this.summaryEventStore = new SharedPrefsSummaryEventStore(application,
-                LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents", logger);
         this.environmentName = environmentName;
         this.logger = logger;
 
@@ -61,10 +60,6 @@ class DefaultContextManager implements ContextManager {
 
     FlagStore getCurrentContextFlagStore() {
         return flagStoreManager.getCurrentContextStore();
-    }
-
-    SummaryEventStore getSummaryEventStore() {
-        return summaryEventStore;
     }
 
     public static String base64Url(final LDContext context) {
@@ -143,7 +138,7 @@ class DefaultContextManager implements ContextManager {
         logger.debug("saveFlagSettings for context key: {}", currentContext.getFullyQualifiedKey());
 
         try {
-            final List<Flag> flags = GsonCache.getGson().fromJson(flagsJson, FlagsResponse.class).getFlags();
+            final List<Flag> flags = gsonInstance().fromJson(flagsJson, FlagsResponse.class).getFlags();
             flagStoreManager.getCurrentContextStore().clearAndApplyFlagUpdates(flags);
             onCompleteListener.onSuccess(null);
         } catch (Exception e) {
@@ -158,7 +153,7 @@ class DefaultContextManager implements ContextManager {
 
     public void deleteCurrentContextFlag(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
-            final DeleteFlagResponse deleteFlagResponse = GsonCache.getGson().fromJson(json, DeleteFlagResponse.class);
+            final DeleteFlagResponse deleteFlagResponse = gsonInstance().fromJson(json, DeleteFlagResponse.class);
             executor.submit(() -> {
                 if (deleteFlagResponse != null) {
                     flagStoreManager.getCurrentContextStore().applyFlagUpdate(deleteFlagResponse);
@@ -178,7 +173,7 @@ class DefaultContextManager implements ContextManager {
 
     public void putCurrentContextFlags(final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
-            final List<Flag> flags = GsonCache.getGson().fromJson(json, FlagsResponse.class).getFlags();
+            final List<Flag> flags = gsonInstance().fromJson(json, FlagsResponse.class).getFlags();
             executor.submit(() -> {
                 logger.debug("PUT for user key: {}", currentContext.getFullyQualifiedKey());
                 flagStoreManager.getCurrentContextStore().clearAndApplyFlagUpdates(flags);
@@ -193,7 +188,7 @@ class DefaultContextManager implements ContextManager {
 
     public void patchCurrentContextFlags(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
-            final Flag flag = GsonCache.getGson().fromJson(json, Flag.class);
+            final Flag flag = gsonInstance().fromJson(json, Flag.class);
             executor.submit(() -> {
                 if (flag != null) {
                     flagStoreManager.getCurrentContextStore().applyFlagUpdate(flag);

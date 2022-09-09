@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -24,7 +26,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class FlagTest {
-    private static final Gson gson = GsonCache.getGson();
+    private static final Gson gson = gsonInstance();
 
     private Map<EvaluationReason, String> TEST_REASONS;
 

@@ -1,7 +1,5 @@
-TEST_HARNESS_PARAMS= \
-	-skip events
-# *all* event-related contract tests are temporarily disabled until U2C migration is done;
-# currently the U2C logic is in place for most things, but not events
+TEST_HARNESS_PARAMS=
+# can add temporary test skips etc. here
 
 build-contract-tests:
 	@cd contract-tests && ../gradlew --no-daemon -s assembleDebug -PdisablePreDex

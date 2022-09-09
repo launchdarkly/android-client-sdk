@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
@@ -10,24 +12,54 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 
-import com.google.gson.TypeAdapter;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
-import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
-import com.launchdarkly.sdk.LDUser;
-import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.internal.http.HeadersTransformer;
+import com.launchdarkly.sdk.internal.http.HttpProperties;
 
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 class LDUtil {
+    static HttpProperties makeHttpProperties(
+            LDConfig config,
+            String mobileKey
+    ) {
+        HashMap<String, String> baseHeaders = new HashMap<>();
+        baseHeaders.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
+        if (mobileKey != null) {
+            baseHeaders.put("Authorization", LDConfig.AUTH_SCHEME + mobileKey);
+        }
+        if (config.getWrapperName() != null) {
+            String wrapperVersion = "";
+            if (config.getWrapperVersion() != null) {
+                wrapperVersion = "/" + config.getWrapperVersion();
+            }
+            baseHeaders.put("X-LaunchDarkly-Wrapper", config.getWrapperName() + wrapperVersion);
+        }
+        HeadersTransformer headersTransformer = null;
+        if (config.getHeaderTransform() != null) {
+            headersTransformer = new HeadersTransformer() {
+                @Override
+                public void updateHeaders(Map<String, String> headers) {
+                    config.getHeaderTransform().updateHeaders(headers);
+                }
+            };
+        }
+
+        return new HttpProperties(
+                config.getConnectionTimeoutMillis(),
+                baseHeaders,
+                headersTransformer,
+                null, // proxy
+                null, // proxyAuth
+                null, // socketFactory
+                config.getConnectionTimeoutMillis(),
+                null, // sslSocketFactory
+                null // trustManager
+        );
+    }
 
     /**
      * Looks at the Android device status to determine if the device is online.
@@ -92,7 +124,7 @@ class LDUtil {
         for (Map.Entry<String, ?> entry : flags.entrySet()) {
             if (entry.getValue() instanceof String) {
                 try {
-                    T obj = GsonCache.getGson().fromJson((String) entry.getValue(), typeOf);
+                    T obj = gsonInstance().fromJson((String) entry.getValue(), typeOf);
                     deserialized.put(entry.getKey(), obj);
                 } catch (Exception ignored) {
                 }
@@ -105,7 +137,7 @@ class LDUtil {
         String data = sharedPreferences.getString(key, null);
         if (data == null) return null;
         try {
-            return GsonCache.getGson().fromJson(data, typeOf);
+            return gsonInstance().fromJson(data, typeOf);
         } catch (Exception ignored) {
             return null;
         }
@@ -154,116 +186,5 @@ class LDUtil {
             logger.warn(addFormat, args);
         }
         logger.debug(LogValues.exceptionTrace(ex));
-    }
-
-    static class LDUserPrivateAttributesTypeAdapter extends TypeAdapter<LDUser> {
-        private final LDConfig config;
-
-        LDUserPrivateAttributesTypeAdapter(LDConfig cfg) {
-            config = cfg;
-        }
-
-        private boolean isPrivate(LDUser user, UserAttribute attribute) {
-            return config.allAttributesPrivate() ||
-                    config.getPrivateAttributes().contains(attribute) ||
-                    user.isAttributePrivate(attribute);
-        }
-
-        private void safeWrite(
-            JsonWriter out, LDUser user,
-            UserAttribute attrib,
-            Set<String> attrs) throws IOException {
-
-            LDValue value = user.getAttribute(attrib);
-
-            // skip null attributes
-            if (value.isNull()) {
-                return;
-            }
-
-            if (isPrivate(user, attrib)) {
-                attrs.add(attrib.getName());
-            } else {
-                out.name(attrib.getName()).value(value.stringValue());
-            }
-        }
-
-        private void writeAttribs(JsonWriter out, LDUser user, Set<String> names) throws IOException {
-            boolean started = false;
-
-            for (UserAttribute entry : user.getCustomAttributes()) {
-                if (isPrivate(user, entry)) {
-                    names.add(entry.getName());
-                } else {
-                    if (!started) {
-                        out.name("custom");
-                        out.beginObject();
-                        started = true;
-                    }
-                    out.name(entry.getName());
-                    LDConfig.GSON.getAdapter(LDValue.class).write(out, user.getAttribute(entry));
-                }
-            }
-
-            if (started) {
-                out.endObject();
-            }
-        }
-
-        private void writePrivateAttribs(JsonWriter out, Set<String> attrs) throws IOException {
-            if (attrs.isEmpty()) 
-                return;
-
-            out.name("privateAttrs");
-            out.beginArray();
-
-            for (String name : attrs)
-                out.value(name);
-
-            out.endArray();
-        }
-
-        private static final UserAttribute[] OPTIONAL_BUILTINS = {
-            UserAttribute.SECONDARY_KEY,
-            UserAttribute.IP,
-            UserAttribute.EMAIL,
-            UserAttribute.NAME,
-            UserAttribute.AVATAR,
-            UserAttribute.FIRST_NAME,
-            UserAttribute.LAST_NAME,
-            UserAttribute.COUNTRY
-        };
-
-        @Override
-        public void write(JsonWriter out, LDUser user) throws IOException {
-            if (user == null) {
-                out.nullValue();
-                return;
-            }
-
-            Set<String> privateAttrs = new HashSet<>();
-
-            out.beginObject();
-
-            out.name("key").value(user.getKey());
-
-            if (!user.getAttribute(UserAttribute.ANONYMOUS).isNull()) {
-                out.name("anonymous").value(user.isAnonymous());
-            }
-
-            for (UserAttribute attrib : OPTIONAL_BUILTINS) {
-                safeWrite(out, user, attrib, privateAttrs);
-            }
-
-            writeAttribs(out, user, privateAttrs);
-            writePrivateAttribs(out, privateAttrs);
-
-            out.endObject();
-        }
-
-        @Override
-        public LDUser read(JsonReader in) throws IOException {
-            return LDConfig.GSON.fromJson(in, LDUser.class);
-        }
     }
 }

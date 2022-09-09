@@ -8,8 +8,8 @@ import androidx.annotation.NonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.io.File;
@@ -26,7 +26,6 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-import static com.launchdarkly.sdk.android.LDConfig.GSON;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 import static com.launchdarkly.sdk.android.LDUtil.isClientConnected;
 
@@ -35,6 +34,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
     private final LDConfig config;
+    private final HttpProperties httpProperties;
     private final String environmentName;
     private final Context appContext;
     private final OkHttpClient client;
@@ -47,13 +47,21 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     private HttpFeatureFlagFetcher(Context appContext, LDConfig config, String environmentName, LDLogger logger) {
         this.config = config;
         this.environmentName = environmentName;
+        this.httpProperties = LDUtil.makeHttpProperties(config, config.getMobileKeys().get(environmentName));
         this.appContext = appContext;
         this.logger = logger;
 
         File cacheDir = new File(appContext.getCacheDir(), "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
 
-        client = new OkHttpClient.Builder()
+        client = httpProperties.toHttpClientBuilder()
+                // The following client options are currently only used for polling requests; caching is
+                // not relevant for streaming or events, and we don't use OkHttp's auto-retry logic for
+                // streaming or events because we have our own different retry logic. However, in the
+                // the future we may want to share a ConnectionPool across clients. We may also want to
+                // create a single HTTP client at init() time and share it across multiple SDK clients,
+                // if there are multiple environments; right now a new HTTP client is being created for
+                // polling for each environment, even though they all have the same configuration.
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
                 .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .retryOnConnectionFailure(true)
@@ -121,7 +129,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         }
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
         return new Request.Builder().url(uri)
-                .headers(config.headersForEnvironment(environmentName, null))
+                .headers(httpProperties.toHeadersBuilder().build())
                 .build();
     }
 
@@ -135,7 +143,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         RequestBody reportBody = RequestBody.create(contextJson, JSON);
 
         return new Request.Builder().url(reportUri)
-                .headers(config.headersForEnvironment(environmentName, null))
+                .headers(httpProperties.toHeadersBuilder().build())
                 .method("REPORT", reportBody)
                 .build();
     }

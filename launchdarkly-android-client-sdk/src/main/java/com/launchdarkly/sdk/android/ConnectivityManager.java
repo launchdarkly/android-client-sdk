@@ -8,12 +8,17 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.internal.GsonHelpers;
+import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
+import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.events.EventProcessor;
 
 import java.util.Calendar;
 import java.util.TimeZone;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import static com.launchdarkly.sdk.android.LDUtil.isInternetConnected;
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
 class ConnectivityManager {
 
@@ -29,7 +34,6 @@ class ConnectivityManager {
     private final StreamUpdateProcessor streamUpdateProcessor;
     private final ContextManager contextManager;
     private final EventProcessor eventProcessor;
-    private final DiagnosticEventProcessor diagnosticEventProcessor;
     private final Throttler throttler;
     private final Foreground.Listener foregroundListener;
     private final String environmentName;
@@ -45,12 +49,10 @@ class ConnectivityManager {
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextManager contextManager,
                         @NonNull final String environmentName,
-                        final DiagnosticEventProcessor diagnosticEventProcessor,
                         final DiagnosticStore diagnosticStore,
                         final LDLogger logger) {
         this.application = application;
         this.eventProcessor = eventProcessor;
-        this.diagnosticEventProcessor = diagnosticEventProcessor;
         this.contextManager = contextManager;
         this.environmentName = environmentName;
         this.logger = logger;
@@ -77,6 +79,7 @@ class ConnectivityManager {
                     if (isInternetConnected(application) && !setOffline &&
                             connectionInformation.getConnectionMode() != foregroundMode) {
                         throttler.attemptRun();
+                        eventProcessor.setInBackground(false);
                     }
                 }
             }
@@ -87,6 +90,7 @@ class ConnectivityManager {
                     if (isInternetConnected(application) && !setOffline &&
                             connectionInformation.getConnectionMode() != backgroundMode) {
                         throttler.cancel();
+                        eventProcessor.setInBackground(true);
                         attemptTransition(backgroundMode);
                     }
                 }
@@ -146,7 +150,7 @@ class ConnectivityManager {
         String lastFailureString = stateStore.getString("lastFailure", null);
         if (lastFailureString != null) {
             try {
-                LDFailure lastFailure = GsonCache.getGson().fromJson(lastFailureString, LDFailure.class);
+                LDFailure lastFailure = gsonInstance().fromJson(lastFailureString, LDFailure.class);
                 connectionInformation.setLastFailure(lastFailure);
             } catch (Exception unused) {
                 stateStore.edit().putString("lastFailure", null).apply();
@@ -168,7 +172,7 @@ class ConnectivityManager {
         if (connectionInformation.getLastFailure() == null) {
             editor.putString("lastFailure", null);
         } else {
-            String failJson = GsonCache.getGson().toJson(connectionInformation.getLastFailure());
+            String failJson = gsonInstance().toJson(connectionInformation.getLastFailure());
             editor.putString("lastFailure", failJson);
         }
         editor.apply();
@@ -284,18 +288,6 @@ class ConnectivityManager {
         }
     }
 
-    private void startDiagnostics() {
-        if (diagnosticEventProcessor != null) {
-            diagnosticEventProcessor.startScheduler();
-        }
-    }
-
-    private void stopDiagnostics() {
-        if (diagnosticEventProcessor != null) {
-            diagnosticEventProcessor.stopScheduler();
-        }
-    }
-
     synchronized boolean startUp(LDUtil.ResultCallback<Void> onCompleteListener) {
         initialized = false;
         if (setOffline) {
@@ -315,8 +307,7 @@ class ConnectivityManager {
         }
 
         initCallback = onCompleteListener;
-        eventProcessor.start();
-        startDiagnostics();
+        eventProcessor.setOffline(false);
         throttler.attemptRun();
         return true;
     }
@@ -329,7 +320,7 @@ class ConnectivityManager {
         stopStreaming();
         stopPolling();
         setOffline = true;
-        stopDiagnostics();
+        eventProcessor.setOffline(true);
         callInitCallback();
     }
 
@@ -345,8 +336,7 @@ class ConnectivityManager {
             setOffline = true;
             throttler.cancel();
             attemptTransition(ConnectionMode.SET_OFFLINE);
-            eventProcessor.stop();
-            stopDiagnostics();
+            eventProcessor.setOffline(true);
         }
     }
 
@@ -397,12 +387,10 @@ class ConnectivityManager {
             return;
         }
         if (connectionInformation.getConnectionMode() == ConnectionMode.OFFLINE && connectedToInternet) {
-            eventProcessor.start();
-            startDiagnostics();
+            eventProcessor.setOffline(false);
             throttler.attemptRun();
         } else if (connectionInformation.getConnectionMode() != ConnectionMode.OFFLINE && !connectedToInternet) {
-            eventProcessor.stop();
-            stopDiagnostics();
+            eventProcessor.setOffline(true);
             throttler.cancel();
             attemptTransition(ConnectionMode.OFFLINE);
         }

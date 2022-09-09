@@ -2,25 +2,18 @@ package com.launchdarkly.sdk.android;
 
 import android.net.Uri;
 
-import androidx.annotation.NonNull;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
-import com.launchdarkly.sdk.LDUser;
-import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.AttributeRef;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import okhttp3.Headers;
 import okhttp3.MediaType;
 
 /**
@@ -36,7 +29,6 @@ public class LDConfig {
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final String AUTH_SCHEME = "api_key ";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-    static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
     static final String primaryEnvironmentName = "default";
 
@@ -76,9 +68,7 @@ public class LDConfig {
     private final boolean diagnosticOptOut;
 
     private final boolean allAttributesPrivate;
-    private final Set<UserAttribute> privateAttributes;
-
-    private final Gson filteredEventGson;
+    private final Set<AttributeRef> privateAttributes;
 
     private final boolean evaluationReasons;
 
@@ -104,7 +94,7 @@ public class LDConfig {
              boolean disableBackgroundUpdating,
              boolean useReport,
              boolean allAttributesPrivate,
-             Set<UserAttribute> privateAttributes,
+             Set<AttributeRef> privateAttributes,
              boolean evaluationReasons,
              boolean diagnosticOptOut,
              int diagnosticRecordingIntervalMillis,
@@ -138,39 +128,6 @@ public class LDConfig {
         this.headerTransform = headerTransform;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
-
-        this.filteredEventGson = new GsonBuilder()
-                .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
-                .create();
-    }
-
-    Headers headersForEnvironment(@NonNull String environmentName,
-                                  Map<String, String> additionalHeaders) {
-        String sdkKey = mobileKeys.get(environmentName);
-
-        HashMap<String, String> baseHeaders = new HashMap<>();
-        baseHeaders.put("User-Agent", USER_AGENT_HEADER_VALUE);
-        if (sdkKey != null) {
-            baseHeaders.put("Authorization", LDConfig.AUTH_SCHEME + sdkKey);
-        }
-
-        if (getWrapperName() != null) {
-            String wrapperVersion = "";
-            if (getWrapperVersion() != null) {
-                wrapperVersion = "/" + getWrapperVersion();
-            }
-            baseHeaders.put("X-LaunchDarkly-Wrapper", wrapperName + wrapperVersion);
-        }
-
-        if (additionalHeaders != null) {
-            baseHeaders.putAll(additionalHeaders);
-        }
-
-        if (headerTransform != null) {
-            headerTransform.updateHeaders(baseHeaders);
-        }
-
-        return Headers.of(baseHeaders);
     }
 
     public String getMobileKey() {
@@ -238,12 +195,8 @@ public class LDConfig {
         return allAttributesPrivate;
     }
 
-    public Set<UserAttribute> getPrivateAttributes() {
+    public Set<AttributeRef> getPrivateAttributes() {
         return Collections.unmodifiableSet(privateAttributes);
-    }
-
-    public Gson getFilteredEventGson() {
-        return filteredEventGson;
     }
 
     public boolean isEvaluationReasons() {
@@ -311,7 +264,7 @@ public class LDConfig {
         private boolean diagnosticOptOut = false;
 
         private boolean allAttributesPrivate = false;
-        private Set<UserAttribute> privateAttributes = new HashSet<>();
+        private Set<AttributeRef> privateAttributes = new HashSet<>();
 
         private boolean evaluationReasons = false;
 
@@ -326,7 +279,7 @@ public class LDConfig {
         /**
          * Specifies that context attributes (other than the key) should be hidden from LaunchDarkly.
          * If this is set, all context attribute values will be private, not just the attributes
-         * specified in {@link #privateAttributes(UserAttribute...)}.
+         * specified in {@link #privateAttributes(String...)}.
          *
          * @return the builder
          */
@@ -336,17 +289,30 @@ public class LDConfig {
         }
 
         /**
-         * Marks a set of attributes private. Any contexts sent to LaunchDarkly with this configuration
-         * active will have attributes with these names removed.
+         * Marks a set of attribute names or subproperties as private.
+         * <p>
+         * Any contexts sent to LaunchDarkly with this configuration active will have attributes with these
+         * names removed. This is in addition to any attributes that were marked as private for an
+         * individual context with {@link com.launchdarkly.sdk.ContextBuilder} methods.
+         * <p>
+         * If and only if a parameter starts with a slash, it is interpreted as a slash-delimited path that
+         * can denote a nested property within a JSON object. For instance, "/address/street" means that if
+         * there is an attribute called "address" that is a JSON object, and one of the object's properties
+         * is "street", the "street" property will be redacted from the analytics data but other properties
+         * within "address" will still be sent. This syntax also uses the JSON Pointer convention of escaping
+         * a literal slash character as "~1" and a tilde as "~0".
+         * <p>
+         * This method replaces any previous private attributes that were set on the same builder, rather
+         * than adding to them.
          *
-         * This can also be specified on a per-context basis with {@link LDUser.Builder} methods like
-         * {@link LDUser.Builder#privateName(String)}.
-         *
-         * @param privateAttributes a set of names that will be removed from context data sent to LaunchDarkly
+         * @param privateAttributes a set of names or paths that will be removed from context data set to LaunchDarkly
          * @return the builder
          */
-        public Builder privateAttributes(UserAttribute... privateAttributes) {
-            this.privateAttributes = new HashSet<>(Arrays.asList(privateAttributes));
+        public Builder privateAttributes(String... privateAttributes) {
+            this.privateAttributes = new HashSet<>();
+            for (String a: privateAttributes) {
+                this.privateAttributes.add(AttributeRef.fromPath(a));
+            }
             return this;
         }
 
