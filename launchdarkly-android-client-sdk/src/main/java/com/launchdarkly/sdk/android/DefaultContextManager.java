@@ -188,10 +188,13 @@ class DefaultContextManager implements ContextManager {
     public void putCurrentContextFlags(final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final List<Flag> flags = gsonInstance().fromJson(json, FlagsResponse.class).getFlags();
+            logger.warn("### submitting task for PUT: {}", json);
             executor.submit(() -> {
                 logger.debug("PUT for user key: {}", currentContext.getFullyQualifiedKey());
+                logger.warn("### now we will save flags");
                 flagStoreManager.getCurrentContextStore().clearAndApplyFlagUpdates(flags);
                 onCompleteListener.onSuccess(null);
+                logger.warn("### called listener");
             });
         } catch (Exception ex) {
             logger.debug("Invalid PUT payload: {}", json);
@@ -203,7 +206,9 @@ class DefaultContextManager implements ContextManager {
     public void patchCurrentContextFlags(@NonNull final String json, final LDUtil.ResultCallback<Void> onCompleteListener) {
         try {
             final Flag flag = gsonInstance().fromJson(json, Flag.class);
+            logger.warn("### submitting task for PATCH: {}", json);
             executor.submit(() -> {
+                logger.warn("### now we will save flag");
                 if (flag != null) {
                     flagStoreManager.getCurrentContextStore().applyFlagUpdate(flag);
                     onCompleteListener.onSuccess(null);
@@ -212,6 +217,7 @@ class DefaultContextManager implements ContextManager {
                     onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
                             LDFailure.FailureType.INVALID_RESPONSE_BODY));
                 }
+                logger.warn("### called listener");
             });
         } catch (Exception ex) {
             logger.debug("Invalid PATCH payload: {}", json);
