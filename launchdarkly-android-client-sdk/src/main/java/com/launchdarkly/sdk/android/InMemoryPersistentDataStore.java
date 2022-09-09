@@ -7,7 +7,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-public class InMemoryPersistentDataStore implements PersistentDataStore {
+/**
+ * An implementation of {@link PersistentDataStore} that keeps data in a simple in-memory map and
+ * does not write it to SharedPreferences.
+ * <p>
+ * Currently this component is used only in testing, to ensure that tests do not interfere with each
+ * other's state. In the future, we may provide a way for applications to choose a persistence
+ * implementation.
+ */
+final class InMemoryPersistentDataStore implements PersistentDataStore {
     private final Map<String, Map<String, String>> data = new HashMap<>();
 
     @Override

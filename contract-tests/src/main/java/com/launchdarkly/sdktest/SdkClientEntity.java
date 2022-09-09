@@ -7,6 +7,7 @@ import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.ConfigHelper;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
@@ -249,6 +250,12 @@ public class SdkClientEntity {
     LDConfig.Builder builder = new LDConfig.Builder();
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
+
+    // We don't want to use the default persistent storage mechanism when running contract tests
+    // because the state of each test is supposed to be independent from the others. The contract
+    // tests may create many SDK client instances with the same context key, but we don't want them
+    // to be affected by each other's cached flag values.
+    ConfigHelper.configureIsolatedInMemoryPersistence(builder);
 
     if (params.streaming != null) {
       builder.stream(true);
