@@ -20,7 +20,18 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
     @Override
     public String getValue(String storeNamespace, String key) {
         SharedPreferences prefs = application.getSharedPreferences(storeNamespace, Context.MODE_PRIVATE);
-        return prefs.getString(key, null);
+        try {
+            return prefs.getString(key, null);
+        } catch (ClassCastException e) {
+            try {
+                // In the past, we sometimes stored numeric values directly as numbers via the
+                // SharedPreferences API. Our new persistence model is simpler and expects strings.
+                Long longValue = prefs.getLong(key, 0);
+                return longValue == null ? null : String.valueOf(longValue);
+            } catch (ClassCastException e1) {
+                return null;
+            }
+        }
     }
 
     @Override
