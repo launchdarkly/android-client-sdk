@@ -126,7 +126,7 @@ public class LDClient implements LDClientInterface, Closeable {
             }
 
             PersistentDataStore persistentDataStore = config.getPersistentDataStore() == null ?
-                    new SharedPreferencesPersistentDataStore(application) :
+                    new SharedPreferencesPersistentDataStore(application, getSharedLogger()) :
                     config.getPersistentDataStore();
             contextDecorator = new ContextDecorator(persistentDataStore, config.isGenerateAnonymousKeys());
 
