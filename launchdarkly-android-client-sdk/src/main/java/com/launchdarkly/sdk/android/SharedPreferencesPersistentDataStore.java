@@ -29,7 +29,6 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
         SharedPreferences prefs = getSharedPreferences(storeNamespace);
         try {
             String ret = prefs.getString(key, null);
-            logger.warn("### getValue({}, {}) = {}", storeNamespace, key, ret);
             return ret;
         } catch (ClassCastException e) {
             try {
@@ -48,14 +47,11 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
         SharedPreferences prefs = getSharedPreferences(storeNamespace);
         SharedPreferences.Editor editor = prefs.edit();
         if (value == null) {
-            logger.warn("### removing ({}, {})", storeNamespace, key);
             editor.remove(key);
         } else {
-            logger.warn("### setting ({}, {}) to {}", storeNamespace, key, value);
             editor.putString(key, value);
         }
         editor.apply();
-        logger.warn("### applied");
     }
 
     @Override
@@ -63,11 +59,9 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
         SharedPreferences prefs = getSharedPreferences(storeNamespace);
         SharedPreferences.Editor editor = prefs.edit();
         for (Map.Entry<String, String> kv: keysAndValues.entrySet()) {
-            logger.warn("### setting ({}, {}) to {}", storeNamespace, kv.getKey(), kv.getValue());
             editor.putString(kv.getKey(), kv.getValue());
         }
         editor.apply();
-        logger.warn("### applied");
     }
 
     @Override
@@ -80,13 +74,11 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
     public void clear(String storeNamespace, boolean fullyDelete) {
         SharedPreferences prefs = getSharedPreferences(storeNamespace);
         prefs.edit().clear().apply();
-        logger.warn("### cleared {} & applied", storeNamespace);
         if (fullyDelete) {
             File file = new File(application.getFilesDir().getParent() + "/shared_prefs/" +
                     storeNamespace + ".xml");
             //noinspection ResultOfMethodCallIgnored
             file.delete();
-            logger.warn("### deleted {}", file.getPath());
         }
     }
 
