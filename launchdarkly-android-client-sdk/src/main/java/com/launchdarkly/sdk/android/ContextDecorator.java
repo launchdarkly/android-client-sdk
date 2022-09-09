@@ -1,13 +1,12 @@
 package com.launchdarkly.sdk.android;
 
-import android.app.Application;
-import android.content.Context;
-import android.content.SharedPreferences;
+import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -16,18 +15,17 @@ import java.util.UUID;
 final class ContextDecorator {
     private static final String GENERATED_KEY_SHARED_PREFS_PREFIX = "anon-key-";
 
-    private final Application application;
     private final boolean generateAnonymousKeys;
 
     private Map<ContextKind, String> cachedGeneratedKey = new HashMap<>();
-    private SharedPreferences generatedKeysSharedPreferences = null;
+    private PersistentDataStore store = null;
     private Object generatedKeyLock = new Object();
 
     public ContextDecorator(
-            Application application,
+            @NonNull PersistentDataStore store,
             boolean generateAnonymousKeys
     ) {
-        this.application = application;
+        this.store = store;
         this.generateAnonymousKeys = generateAnonymousKeys;
     }
 
@@ -69,12 +67,9 @@ final class ContextDecorator {
             if (key != null) {
                 return key;
             }
-            final String sharedPrefsKey = GENERATED_KEY_SHARED_PREFS_PREFIX + contextKind.toString();
-            if (generatedKeysSharedPreferences == null) {
-                generatedKeysSharedPreferences = application.getSharedPreferences(
-                        LDConfig.SHARED_PREFS_BASE_KEY + "id", Context.MODE_PRIVATE);
-            }
-            key = generatedKeysSharedPreferences.getString(sharedPrefsKey, null);
+            final String storeNamespace = LDConfig.SHARED_PREFS_BASE_KEY + "id";
+            final String storeKey = GENERATED_KEY_SHARED_PREFS_PREFIX + contextKind.toString();
+            key = store.getValue(storeNamespace, storeKey);
             if (key != null) {
                 cachedGeneratedKey.put(contextKind, key);
                 return key;
@@ -86,15 +81,13 @@ final class ContextDecorator {
                     "Did not find a generated anonymous key for context kind \"{}\". Generating a new one: {}",
                     contextKind, generatedKey);
 
-            // Editing SharedPreferences is a blocking I/O call, so don't do it on the main thread.
-            // That part doesn't need to be done under this lock anyway - the fact that we've put it
-            // into the cachedGeneratedKey map already means any subsequent calls will get that
-            // value and not have to hit the preference store.
+            // Updating persistent storage may be a blocking I/O call, so don't do it on the main
+            // thread. That part doesn't need to be done under this lock anyway - the fact that
+            // we've put it into the cachedGeneratedKey map already means any subsequent calls will
+            // get that value and not have to hit the persistent store.
             new Thread(new Runnable() {
                 public void run() {
-                    SharedPreferences.Editor editor = generatedKeysSharedPreferences.edit();
-                    editor.putString(sharedPrefsKey, generatedKey);
-                    editor.apply();
+                    store.setValue(storeNamespace, storeKey, generatedKey);
                 }
             }).run();
 
