@@ -151,7 +151,9 @@ public class LDClient implements LDClientInterface, Closeable {
             LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
                 @Override
                 public void onSuccess(Void result) {
+                    getSharedLogger().warn("### LDClient onSuccess");
                     if (initCounter.decrementAndGet() == 0) {
+                        getSharedLogger().warn("### notifying that initialization is complete ");
                         resultFuture.set(newInstances.get(LDConfig.primaryEnvironmentName));
                     }
                 }
