@@ -8,7 +8,7 @@ package com.launchdarkly.sdk.android;
 @FunctionalInterface
 public interface FeatureFlagChangeListener {
     /**
-     * The SDK calls this method when a feature flag value has changed for the current user.
+     * The SDK calls this method when a feature flag value has changed for the current evaluation context.
      * <p>
      * To obtain the new value, call one of the client methods such as {@link LDClientInterface#boolVariation(String, boolean)}.
      *

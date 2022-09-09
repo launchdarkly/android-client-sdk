@@ -16,8 +16,8 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
-import com.launchdarkly.sdk.LDUser;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockRule;
@@ -222,7 +222,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void initPolling() throws ExecutionException {
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        contextManager.updateCurrentUser(capture(callbackCapture));
+        contextManager.updateCurrentContext(capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onSuccess(null);
             return null;
@@ -248,7 +248,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void initPollingKnownError() throws ExecutionException {
         final Throwable testError = new Throwable();
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        contextManager.updateCurrentUser(capture(callbackCapture));
+        contextManager.updateCurrentContext(capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onError(new LDFailure("failure", testError, LDFailure.FailureType.NETWORK_FAILURE));
             return null;
@@ -278,7 +278,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void initPollingUnknownError() throws ExecutionException {
         final Throwable testError = new Throwable();
         final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        contextManager.updateCurrentUser(capture(callbackCapture));
+        contextManager.updateCurrentContext(capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onError(testError);
             return null;
@@ -375,7 +375,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void setOfflineDuringInitStreaming() throws ExecutionException {
-        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build());
+        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key"));
         eventProcessor.start();
         eventProcessor.stop();
         replayAll();
@@ -398,7 +398,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void shutdownDuringInitStreaming() throws ExecutionException {
-        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build());
+        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key"));
         eventProcessor.start();
         replayAll();
 
@@ -421,7 +421,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void backgroundedDuringInitStreaming() throws ExecutionException {
         ForegroundTestController.setup(true);
-        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
+        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
         eventProcessor.start();
         replayAll();
 
@@ -443,7 +443,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void deviceOfflinedDuringInitStreaming() throws ExecutionException, InterruptedException {
-        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
+        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
         eventProcessor.start();
         eventProcessor.stop();
         replayAll();
@@ -468,7 +468,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void reloadCompletesPending() throws ExecutionException {
-        expect(contextManager.getCurrentUser()).andReturn(new LDUser.Builder("test-key").build()).anyTimes();
+        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
         eventProcessor.start();
         expectLastCall().anyTimes();
         replayAll();

@@ -59,7 +59,7 @@ class DiagnosticEvent {
             this.evaluationReasonsRequested = config.isEvaluationReasons();
             this.mobileKeyCount = config.getMobileKeys().size();
             this.diagnosticRecordingIntervalMillis = config.getDiagnosticRecordingIntervalMillis();
-            this.maxCachedUsers = config.getMaxCachedUsers();
+            this.maxCachedUsers = config.getMaxCachedContexts();
         }
 
     }

@@ -231,12 +231,12 @@ public class LDConfigTest {
 
     @Test
     public void testBuilderMaxCachedUsers() {
-        LDConfig config = new LDConfig.Builder().maxCachedUsers(0).build();
-        assertEquals(0, config.getMaxCachedUsers());
-        config = new LDConfig.Builder().maxCachedUsers(10).build();
-        assertEquals(10, config.getMaxCachedUsers());
-        config = new LDConfig.Builder().maxCachedUsers(-1).build();
-        assertEquals(-1, config.getMaxCachedUsers());
+        LDConfig config = new LDConfig.Builder().maxCachedContexts(0).build();
+        assertEquals(0, config.getMaxCachedContexts());
+        config = new LDConfig.Builder().maxCachedContexts(10).build();
+        assertEquals(10, config.getMaxCachedContexts());
+        config = new LDConfig.Builder().maxCachedContexts(-1).build();
+        assertEquals(-1, config.getMaxCachedContexts());
     }
 
     Map<String, String> headersToMap(Headers headers) {

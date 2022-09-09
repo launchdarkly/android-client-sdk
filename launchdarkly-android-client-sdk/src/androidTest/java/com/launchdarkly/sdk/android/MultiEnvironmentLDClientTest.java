@@ -3,7 +3,7 @@ package com.launchdarkly.sdk.android;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 
 import org.junit.Before;
@@ -30,7 +30,7 @@ public class MultiEnvironmentLDClientTest {
     private LDClient ldClient;
     private Future<LDClient> ldClientFuture;
     private LDConfig ldConfig;
-    private LDUser ldUser;
+    private LDContext ldUser;
 
     @Before
     public void setUp() {
@@ -43,7 +43,7 @@ public class MultiEnvironmentLDClientTest {
                 .secondaryMobileKeys(secondaryKeys)
                 .build();
 
-        ldUser = new LDUser.Builder("userKey").build();
+        ldUser = LDContext.create("userKey");
     }
 
     @Test

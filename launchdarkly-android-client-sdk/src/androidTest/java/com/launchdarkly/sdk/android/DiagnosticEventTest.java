@@ -66,7 +66,7 @@ public class DiagnosticEventTest {
                 .pollingIntervalMillis(600_000)
                 .stream(false)
                 .useReport(true)
-                .maxCachedUsers(-1)
+                .maxCachedContexts(-1)
                 .build();
 
         DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);

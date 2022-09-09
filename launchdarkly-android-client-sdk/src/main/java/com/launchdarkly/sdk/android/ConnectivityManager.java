@@ -421,6 +421,6 @@ class ConnectivityManager {
     }
 
     void triggerPoll() {
-        contextManager.updateCurrentUser(monitor);
+        contextManager.updateCurrentContext(monitor);
     }
 }

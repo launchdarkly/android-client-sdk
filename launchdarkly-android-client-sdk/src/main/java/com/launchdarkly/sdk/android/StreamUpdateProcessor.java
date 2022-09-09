@@ -8,8 +8,8 @@ import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -19,7 +19,6 @@ import java.util.concurrent.ExecutorService;
 
 import okhttp3.RequestBody;
 
-import static com.launchdarkly.sdk.android.LDConfig.GSON;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 
 import android.net.Uri;
@@ -93,7 +92,7 @@ class StreamUpdateProcessor {
                 public void onError(Throwable t) {
                     LDUtil.logExceptionAtErrorLevel(logger, t,
                             "Encountered EventStream error connecting to URI: {}",
-                            getUri(contextManager.getCurrentUser()));
+                            getUri(contextManager.getCurrentContext()));
                     if (t instanceof UnsuccessfulResponseException) {
                         if (diagnosticStore != null) {
                             diagnosticStore.addStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
@@ -122,7 +121,7 @@ class StreamUpdateProcessor {
                 }
             };
 
-            EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextManager.getCurrentUser()));
+            EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextManager.getCurrentContext()));
 
             builder.requestTransformer(input -> {
                 Map<String, List<String>> esHeaders = input.headers().toMultimap();
@@ -140,7 +139,7 @@ class StreamUpdateProcessor {
 
             if (config.isUseReport()) {
                 builder.method(METHOD_REPORT);
-                builder.body(getRequestBody(contextManager.getCurrentUser()));
+                builder.body(getRequestBody(contextManager.getCurrentContext()));
             }
 
             builder.maxReconnectTimeMs(MAX_RECONNECT_TIME_MS);
@@ -154,16 +153,16 @@ class StreamUpdateProcessor {
     }
 
     @NonNull
-    private RequestBody getRequestBody(@Nullable LDUser user) {
+    private RequestBody getRequestBody(@Nullable LDContext context) {
         logger.debug("Attempting to report user in stream");
-        return RequestBody.create(GSON.toJson(user), JSON);
+        return RequestBody.create(JsonSerialization.serialize(context), JSON);
     }
 
-    private URI getUri(@Nullable LDUser user) {
+    private URI getUri(@Nullable LDContext context) {
         String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
 
-        if (!config.isUseReport() && user != null) {
-            str += "/" + DefaultContextManager.base64Url(user);
+        if (!config.isUseReport() && context != null) {
+            str += "/" + DefaultContextManager.base64Url(context);
         }
 
         if (config.isEvaluationReasons()) {
@@ -176,14 +175,14 @@ class StreamUpdateProcessor {
     private void handle(final String name, final String eventData,
                         @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
         switch (name.toLowerCase()) {
-            case PUT: contextManager.putCurrentUserFlags(eventData, onCompleteListener); break;
-            case PATCH: contextManager.patchCurrentUserFlags(eventData, onCompleteListener); break;
-            case DELETE: contextManager.deleteCurrentUserFlag(eventData, onCompleteListener); break;
+            case PUT: contextManager.putCurrentContextFlags(eventData, onCompleteListener); break;
+            case PATCH: contextManager.patchCurrentContextFlags(eventData, onCompleteListener); break;
+            case DELETE: contextManager.deleteCurrentContextFlag(eventData, onCompleteListener); break;
             case PING:
                 // We debounce ping requests as they trigger a separate asynchronous request for the
                 // flags, overriding all flag values.
                 queue.call(() -> {
-                    contextManager.updateCurrentUser(onCompleteListener);
+                    contextManager.updateCurrentContext(onCompleteListener);
                     return null;
                 });
                 break;
