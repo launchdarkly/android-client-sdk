@@ -46,7 +46,7 @@ class DefaultContextManager implements ContextManager {
             int maxCachedUsers,
             LDLogger logger
     ) {
-        return new DefaultContextManager(application,store, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
+        return new DefaultContextManager(application, store, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
     }
 
     DefaultContextManager(
