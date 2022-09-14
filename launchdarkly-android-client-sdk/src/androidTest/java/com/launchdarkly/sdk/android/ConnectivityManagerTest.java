@@ -15,10 +15,8 @@ import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.events.EventProcessor;
 
 import org.easymock.Capture;
@@ -72,7 +70,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             new ActivityScenarioRule<>(TestActivity.class);
 
     @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+    public AndroidLoggingRule logging = new AndroidLoggingRule();
     @Rule
     public EasyMockRule easyMockRule = new EasyMockRule(this);
     @Rule
@@ -85,8 +83,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @SuppressWarnings("unused")
     @Mock(MockType.STRICT)
     private ContextManager contextManager;
-
-    private final PersistentDataStore store = new InMemoryPersistentDataStore();
 
     private ConnectivityManager connectivityManager;
     private MockWebServer mockStreamServer;
@@ -137,7 +133,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .build();
 
         connectivityManager = new ConnectivityManager(app, config, eventProcessor, contextManager,
-                store, "default", null, LDLogger.none());
+                TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData("test-mobile-key"),
+                "default", null, logging.logger);
     }
 
     private void awaitStartUp() throws ExecutionException {

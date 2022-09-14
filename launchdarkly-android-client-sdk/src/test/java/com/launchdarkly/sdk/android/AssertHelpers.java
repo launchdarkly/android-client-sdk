@@ -8,6 +8,10 @@ import static org.junit.Assert.assertNull;
 import com.launchdarkly.sdk.LDValue;
 
 public class AssertHelpers {
+    public static void assertDataSetsEqual(EnvironmentData expected, EnvironmentData actual) {
+        assertJsonEqual(expected.toJson(), actual.toJson());
+    }
+
     public static void assertFlagsEqual(Flag expected, Flag actual) {
         if (expected == null) {
             assertNull(actual);

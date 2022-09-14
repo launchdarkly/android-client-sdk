@@ -28,10 +28,17 @@ public class MigrationTest {
     private static final String FAKE_MOB_KEY = "mob-fakemob6-key9-fake-mob0-keyfakemob22";
 
     @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+    public AndroidLoggingRule logging = new AndroidLoggingRule();
 
     private Application getApplication() {
         return ApplicationProvider.getApplicationContext();
+    }
+
+    private LDConfig makeConfig() {
+        return new LDConfig.Builder().mobileKey("fake_mob_key")
+                .logAdapter(logging.logAdapter)
+                .loggerName(logging.loggerName)
+                .build();
     }
 
     @Before
@@ -58,9 +65,8 @@ public class MigrationTest {
 
     @Test
     public void setsCurrentVersionInMigrationsPrefs() {
-        LDConfig ldConfig = new LDConfig.Builder().mobileKey("fake_mob_key").build();
         // perform migration from fresh env
-        Migration.migrateWhenNeeded(getApplication(), ldConfig);
+        Migration.migrateWhenNeeded(getApplication(), makeConfig());
         assertTrue(getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + "migrations", Context.MODE_PRIVATE).contains("v2.7.0"));
     }
 
@@ -73,9 +79,8 @@ public class MigrationTest {
                 .commit();
         //noinspection UnusedAssignment
         existing = null;
-        LDConfig ldConfig = new LDConfig.Builder().mobileKey("fake_mob_key").build();
         // perform migration from fresh env
-        Migration.migrateWhenNeeded(getApplication(), ldConfig);
+        Migration.migrateWhenNeeded(getApplication(), makeConfig());
         setUp();
         // Check existing shared prefs still exist
         existing = getApplication().getSharedPreferences("arbitrary", Context.MODE_PRIVATE);
@@ -90,8 +95,7 @@ public class MigrationTest {
 
     @Test
     public void migrationNoMobileKeysFresh() {
-        LDConfig ldConfig = new LDConfig.Builder().mobileKey("fake_mob_key").build();
-        Migration.migrateWhenNeeded(getApplication(), ldConfig);
+        Migration.migrateWhenNeeded(getApplication(), makeConfig());
     }
 
     @Test
@@ -107,8 +111,7 @@ public class MigrationTest {
         // Create shared prefs files
         getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + oldSharedPrefsKeyForUser(user1), Context.MODE_PRIVATE).edit().commit();
         getApplication().getSharedPreferences(LDConfig.SHARED_PREFS_BASE_KEY + oldSharedPrefsKeyForUser(user2), Context.MODE_PRIVATE).edit().commit();
-        LDConfig ldConfig = new LDConfig.Builder().mobileKey(FAKE_MOB_KEY).build();
-        ArrayList<String> userKeys = getUserKeysPre_2_6(getApplication(), ldConfig);
+        ArrayList<String> userKeys = getUserKeysPre_2_6(getApplication(), makeConfig());
         assertTrue(userKeys.contains(oldSharedPrefsKeyForUser(user1)));
         assertTrue(userKeys.contains(oldSharedPrefsKeyForUser(user2)));
         assertEquals(2, userKeys.size());

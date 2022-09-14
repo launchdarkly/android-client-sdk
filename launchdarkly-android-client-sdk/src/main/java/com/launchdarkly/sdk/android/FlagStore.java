@@ -14,13 +14,6 @@ import java.util.List;
  * replacing backing store for flags at a future date, as well as mocking for unit testing.
  */
 interface FlagStore {
-
-    /**
-     * Delete the backing persistent store for this identifier entirely. Further operations on a
-     * FlagStore are undefined after calling this method.
-     */
-    void delete();
-
     /**
      * Remove all flags from the store.
      */
@@ -127,10 +120,10 @@ interface FlagStoreFactory {
     /**
      * Create a new flag store
      *
-     * @param identifier identifier to associate all flags under
+     * @param hashedContextId identifier to associate all flags under
      * @return A new instance of a FlagStore backed by a concrete implementation.
      */
-    FlagStore createFlagStore(@NonNull String identifier);
+    FlagStore createFlagStore(@NonNull String hashedContextId);
 
 }
 

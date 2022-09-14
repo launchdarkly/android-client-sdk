@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
@@ -148,7 +149,8 @@ public class ContextDecoratorTest {
     }
     private ContextDecorator makeDecoratorWithPersistence(PersistentDataStore store,
                                                           boolean generateAnonymousKeys) {
-        return new ContextDecorator(store, generateAnonymousKeys);
+        PersistentDataStoreWrapper persistentData = new PersistentDataStoreWrapper(store, LDLogger.none());
+        return new ContextDecorator(persistentData, generateAnonymousKeys);
     }
 
     private ContextDecorator makeDecoratorWithoutPersistence(boolean generateAnonymousKeys) {

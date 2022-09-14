@@ -31,7 +31,11 @@ final class InMemoryPersistentDataStore implements PersistentDataStore {
             namespaceMap = new HashMap<>();
             data.put(storeNamespace, namespaceMap);
         }
-        namespaceMap.put(key, value);
+        if (value == null) {
+            namespaceMap.remove(key);
+        } else {
+            namespaceMap.put(key, value);
+        }
     }
 
     @Override

@@ -20,14 +20,15 @@ public class FlagStoreImplTest extends FlagStoreTest {
     public LogCaptureRule logging = new LogCaptureRule();
 
     public FlagStore createFlagStore(String identifier) {
-        return new FlagStoreImpl(store, identifier, LDLogger.none());
+        PersistentDataStoreWrapper persistentData = new PersistentDataStoreWrapper(store, LDLogger.none());
+        return new FlagStoreImpl(persistentData.perEnvironmentData("a"), identifier, LDLogger.none());
     }
 
     @Test
     public void deletesVersionAndStoresDeletedItemPlaceholder() {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
 
-        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
+        final FlagStore flagStore = createFlagStore("abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 13));
 
@@ -42,7 +43,7 @@ public class FlagStoreImplTest extends FlagStoreTest {
     public void doesNotDeleteIfDeletionVersionIsLessThanOrEqualToExistingVersion() {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
 
-        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
+        final FlagStore flagStore = createFlagStore("abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 11));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 12));
@@ -59,7 +60,7 @@ public class FlagStoreImplTest extends FlagStoreTest {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
         final Flag updatedKey1 = new FlagBuilder(key1.getKey()).version(15).build();
 
-        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
+        final FlagStore flagStore = createFlagStore("abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
@@ -72,7 +73,7 @@ public class FlagStoreImplTest extends FlagStoreTest {
         final Flag key1 = new FlagBuilder("key1").version(100).flagVersion(12).build();
         final Flag updatedKey1 = new FlagBuilder(key1.getKey()).version(101).flagVersion(15).build();
 
-        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
+        final FlagStore flagStore = createFlagStore("abc");
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
@@ -86,7 +87,7 @@ public class FlagStoreImplTest extends FlagStoreTest {
                 new FlagBuilder("withFlagVersion").version(12).flagVersion(13).build();
         final Flag withOnlyVersion = new FlagBuilder("withOnlyVersion").version(12).build();
 
-        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
+        final FlagStore flagStore = createFlagStore("abc");
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(withFlagVersion, withOnlyVersion));
 
         assertEquals(flagStore.getFlag(withFlagVersion.getKey()).getVersionForEvents(), 13, 0);

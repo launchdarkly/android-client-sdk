@@ -179,10 +179,7 @@ public class LDClientEventTest {
                     .variation(1).value(LDValue.of(true)).reason(EvaluationReason.off())
                     .trackEvents(true).trackReason(true).build();
             PersistentDataStore store = new InMemoryPersistentDataStore();
-            FlagStoreImpl flagStore = new FlagStoreImpl(store,
-                    mobileKey + DefaultContextManager.sharedPreferencesKey(ldUser),
-                    LDLogger.none());
-            flagStore.applyFlagUpdate(flag);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldUser, flag);
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
                     .persistentDataStore(store).build();

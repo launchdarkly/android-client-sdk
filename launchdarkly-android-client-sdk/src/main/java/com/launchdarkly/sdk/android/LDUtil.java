@@ -6,18 +6,31 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.os.Build;
+import android.util.Base64;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.http.HeadersTransformer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
+import java.nio.charset.Charset;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
 class LDUtil {
+    static String urlSafeBase64Hash(String input) {
+        try {
+            MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = messageDigest.digest(input.getBytes(Charset.forName("UTF-8")));
+            return Base64.encodeToString(hash, Base64.URL_SAFE + Base64.NO_WRAP);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e); // shouldn't be possible; SHA-256 is built in
+        }
+    }
+
     static HttpProperties makeHttpProperties(
             LDConfig config,
             String mobileKey
@@ -55,18 +68,6 @@ class LDUtil {
                 null, // sslSocketFactory
                 null // trustManager
         );
-    }
-
-    static Long getStoreValueAsLong(PersistentDataStore store, String namespace, String key) {
-        String value = store.getValue(namespace, key);
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     /**

@@ -7,18 +7,14 @@ import android.util.Pair;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -29,66 +25,53 @@ class FlagStoreManagerImpl implements FlagStoreManager, StoreUpdatedListener {
     @NonNull
     private final FlagStoreFactory flagStoreFactory;
     @NonNull
-    private final PersistentDataStore store;
-    @NonNull
-    private final String mobileKey;
+    private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final int maxCachedContexts;
-    private final String contextsStoreNamespace;
 
     private FlagStore currentFlagStore;
     private final ConcurrentHashMap<String, Set<FeatureFlagChangeListener>> listeners;
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners;
     private final LDLogger logger;
 
-    FlagStoreManagerImpl(@NonNull String mobileKey,
-                         @NonNull FlagStoreFactory flagStoreFactory,
-                         @NonNull PersistentDataStore store,
+    FlagStoreManagerImpl(@NonNull FlagStoreFactory flagStoreFactory,
+                         @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
                          int maxCachedContexts,
                          @NonNull LDLogger logger) {
-        this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
-        this.store = store;
+        this.environmentStore = environmentStore;
         this.maxCachedContexts = maxCachedContexts;
-        this.contextsStoreNamespace = SHARED_PREFS_BASE_KEY + mobileKey + "-users";
         this.listeners = new ConcurrentHashMap<>();
         this.allFlagsListeners = new CopyOnWriteArrayList<>();
         this.logger = logger;
     }
 
     @Override
-    public void switchToContext(String hashedContextKey) {
-        String storeId = storeIdentifierForContext(hashedContextKey);
+    public void switchToContext(String hashedContextId) {
         if (currentFlagStore != null) {
             currentFlagStore.unregisterOnStoreUpdatedListener();
+            if (maxCachedContexts == 0) {
+                // Normally, removing old flag data sets is done by the ContextIndex/prune logic
+                // below. However, in the special case where maxCachedContexts is zero, there won't
+                // ever be an old context in the index and so it won't be pruned... so we need to
+                // explicitly throw out the old flag data here. This isn't quite right because it
+                // means there's a brief time when no flag data exists-- but this logic will be
+                // replaced when we unify the ContextManager and FlagStoreManager components.
+                currentFlagStore.clear();
+            }
         }
-        currentFlagStore = flagStoreFactory.createFlagStore(storeId);
+        currentFlagStore = flagStoreFactory.createFlagStore(hashedContextId);
         currentFlagStore.registerOnStoreUpdatedListener(this);
 
         // Store the context's key and the current time in the data store so it can be removed when
         // maxCachedContexts is exceeded.
-        store.setValue(contextsStoreNamespace, hashedContextKey,
-                String.valueOf(System.currentTimeMillis()));
-
-        int contextsStored = store.getKeys(contextsStoreNamespace).size();
-        // Negative numbers represent an unlimited number of cached contexts. The active context is not
-        // considered a cached context, so we subtract one.
-        int contextsToRemove = maxCachedContexts >= 0 ? contextsStored - maxCachedContexts - 1 : 0;
-        if (contextsToRemove > 0) {
-            Iterator<String> oldestFirstContexts = getCachedContexts(storeId).iterator();
-            // Remove oldest contexts until we are at the configured limit.
-            for (int i = 0; i < contextsToRemove; i++) {
-                String removed = oldestFirstContexts.next();
-                logger.debug("Exceeded max # of contexts: [{}] Removing context: [{}]", maxCachedContexts, removed);
-                // Load FlagStore for oldest context and delete it.
-                flagStoreFactory.createFlagStore(storeIdentifierForContext(removed)).delete();
-                // Remove entry from contextsSharedPrefs.
-                store.setValue(contextsStoreNamespace, removed, null);
-            }
+        ContextIndex index = environmentStore.getIndex();
+        index = index.updateTimestamp(hashedContextId, System.currentTimeMillis());
+        List<String> purgedContexts = new ArrayList<>();
+        index = index.prune(maxCachedContexts, purgedContexts);
+        environmentStore.setIndex(index);
+        for (String purgedContext: purgedContexts) {
+            environmentStore.removeContextData(purgedContext);
         }
-    }
-
-    private String storeIdentifierForContext(String hashedContextKey) {
-        return mobileKey + hashedContextKey;
     }
 
     @Override
@@ -129,29 +112,6 @@ class FlagStoreManagerImpl implements FlagStoreManager, StoreUpdatedListener {
     @Override
     public void unregisterAllFlagsListener(LDAllFlagsListener listener) {
         allFlagsListeners.remove(listener);
-    }
-
-    // Gets cached contexts (does not include the active context) sorted by creation time (oldest first)
-    private Collection<String> getCachedContexts(String activeContext) {
-        Collection<String> allKeys = store.getKeys(contextsStoreNamespace);
-        TreeMap<Long, String> sortedMap = new TreeMap<>();
-        //get typed versions of the contexts' timestamps and insert into sorted TreeMap
-        for (String k : allKeys) {
-            if (k.equals(activeContext)) {
-                continue;
-            }
-            Long timestamp = LDUtil.getStoreValueAsLong(store, contextsStoreNamespace, k);
-            if (timestamp == null) {
-                continue;
-            }
-            sortedMap.put(timestamp, k);
-            logger.debug("Found context: {}", contextAndTimeStampToHumanReadableString(k, timestamp));
-        }
-        return sortedMap.values();
-    }
-
-    private static String contextAndTimeStampToHumanReadableString(String contextSharedPrefsKey, Long timestamp) {
-        return contextSharedPrefsKey + " [" + contextSharedPrefsKey + "] timestamp: [" + timestamp + "]" + " [" + new Date(timestamp) + "]";
     }
 
     private void dispatchStoreUpdateCallback(final String flagKey, final FlagStoreUpdateType flagStoreUpdateType) {

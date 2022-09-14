@@ -10,7 +10,6 @@ import com.google.gson.JsonObject;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.util.Collection;
@@ -39,29 +38,32 @@ class DefaultContextManager implements ContextManager {
 
     static synchronized DefaultContextManager newInstance(
             Application application,
-            PersistentDataStore store,
+            PersistentDataStoreWrapper.PerEnvironmentData persistentEnvironmentData,
             FeatureFetcher fetcher,
             String environmentName,
-            String mobileKey,
             int maxCachedUsers,
             LDLogger logger
     ) {
-        return new DefaultContextManager(application,store, fetcher, environmentName, mobileKey, maxCachedUsers, logger);
+        return new DefaultContextManager(application, persistentEnvironmentData, fetcher,
+                environmentName, maxCachedUsers, logger);
     }
 
     DefaultContextManager(
             Application application,
-            PersistentDataStore store,
+            PersistentDataStoreWrapper.PerEnvironmentData persistentEnvironmentData,
             FeatureFetcher fetcher,
             String environmentName,
-            String mobileKey,
             int maxCachedUsers,
             LDLogger logger
     ) {
         this.application = application;
         this.fetcher = fetcher;
-        this.flagStoreManager = new FlagStoreManagerImpl(mobileKey,
-                new FlagStoreImplFactory(store, logger), store, maxCachedUsers, logger);
+        this.flagStoreManager = new FlagStoreManagerImpl(
+                new FlagStoreImplFactory(persistentEnvironmentData, logger),
+                persistentEnvironmentData,
+                maxCachedUsers,
+                logger
+        );
         this.environmentName = environmentName;
         this.logger = logger;
 
@@ -83,7 +85,7 @@ class DefaultContextManager implements ContextManager {
 
     static final ContextHasher HASHER = new ContextHasher();
 
-    public static String sharedPreferencesKey(final LDContext context) {
+    public static String storageKey(final LDContext context) {
         return HASHER.hash(context.getFullyQualifiedKey());
     }
 
@@ -97,7 +99,7 @@ class DefaultContextManager implements ContextManager {
         String contextBase64 = base64Url(context);
         logger.debug("Setting current context to: [{}] [{}]", contextBase64, context);
         currentContext = context;
-        flagStoreManager.switchToContext(DefaultContextManager.sharedPreferencesKey(currentContext));
+        flagStoreManager.switchToContext(DefaultContextManager.storageKey(currentContext));
     }
 
     /**

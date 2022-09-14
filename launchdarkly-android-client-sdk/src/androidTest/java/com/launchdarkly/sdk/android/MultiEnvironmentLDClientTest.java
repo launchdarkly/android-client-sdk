@@ -25,7 +25,7 @@ import static org.junit.Assert.fail;
 public class MultiEnvironmentLDClientTest {
 
     @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+    public AndroidLoggingRule logging = new AndroidLoggingRule();
 
     private LDClient ldClient;
     private Future<LDClient> ldClientFuture;
@@ -39,8 +39,11 @@ public class MultiEnvironmentLDClientTest {
         secondaryKeys.put("test1", "test1");
 
         ldConfig = new LDConfig.Builder()
+                .mobileKey("default-mobile-key")
                 .offline(true)
                 .secondaryMobileKeys(secondaryKeys)
+                .logAdapter(logging.logAdapter)
+                .loggerName(logging.loggerName)
                 .build();
 
         ldUser = LDContext.create("userKey");

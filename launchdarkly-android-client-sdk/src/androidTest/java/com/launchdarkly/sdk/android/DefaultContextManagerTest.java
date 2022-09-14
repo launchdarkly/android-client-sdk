@@ -4,7 +4,6 @@ import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonObject;
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
@@ -36,7 +35,7 @@ import static org.junit.Assert.assertTrue;
 public class DefaultContextManagerTest extends EasyMockSupport {
 
     @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+    public AndroidLoggingRule logging = new AndroidLoggingRule();
 
     @Rule
     public EasyMockRule easyMockRule = new EasyMockRule(this);
@@ -52,7 +51,8 @@ public class DefaultContextManagerTest extends EasyMockSupport {
     @Before
     public void before() {
         contextManager = new DefaultContextManager(ApplicationProvider.getApplicationContext(),
-                store, fetcher, "test", "test", 3, LDLogger.none());
+                TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData("mobile-key"),
+                fetcher, "test", 3, logging.logger);
     }
 
     @Test

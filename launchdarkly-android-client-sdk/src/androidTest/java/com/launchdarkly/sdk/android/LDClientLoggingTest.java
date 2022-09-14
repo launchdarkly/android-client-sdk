@@ -34,7 +34,7 @@ public class LDClientLoggingTest {
     @Test
     public void customLogAdapterWithDefaultLevel() throws Exception {
         LogCapture logCapture = Logs.capture();
-        LDConfig config = new LDConfig.Builder().offline(true).logAdapter(logCapture).build();
+        LDConfig config = new LDConfig.Builder().mobileKey(mobileKey).offline(true).logAdapter(logCapture).build();
         try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
             for (LogCapture.Message m: logCapture.getMessages()) {
                 assertNotEquals(LDLogLevel.DEBUG, m.getLevel());
@@ -47,7 +47,7 @@ public class LDClientLoggingTest {
     @Test
     public void customLogAdapterWithDebugLevel() throws Exception {
         LogCapture logCapture = Logs.capture();
-        LDConfig config = new LDConfig.Builder().offline(true).logAdapter(logCapture).logLevel(LDLogLevel.DEBUG).build();
+        LDConfig config = new LDConfig.Builder().mobileKey(mobileKey).offline(true).logAdapter(logCapture).logLevel(LDLogLevel.DEBUG).build();
         try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
             logCapture.requireMessage(LDLogLevel.DEBUG, 2000);
         }

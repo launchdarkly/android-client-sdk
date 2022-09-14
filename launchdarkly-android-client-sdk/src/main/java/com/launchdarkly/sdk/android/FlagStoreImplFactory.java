@@ -3,20 +3,22 @@ package com.launchdarkly.sdk.android;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 class FlagStoreImplFactory implements FlagStoreFactory {
 
-    @NonNull private final PersistentDataStore store;
+    @NonNull private final PersistentDataStoreWrapper.PerEnvironmentData environmentData;
     @NonNull private final LDLogger logger;
 
-    FlagStoreImplFactory(@NonNull PersistentDataStore store, @NonNull LDLogger logger) {
-        this.store = store;
+    FlagStoreImplFactory(
+            @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentData,
+            @NonNull LDLogger logger
+    ) {
+        this.environmentData = environmentData;
         this.logger = logger;
     }
 
     @Override
-    public FlagStore createFlagStore(@NonNull String identifier) {
-        return new FlagStoreImpl(store, identifier, logger);
+    public FlagStore createFlagStore(@NonNull String hashedContextId) {
+        return new FlagStoreImpl(environmentData, hashedContextId, logger);
     }
 }
