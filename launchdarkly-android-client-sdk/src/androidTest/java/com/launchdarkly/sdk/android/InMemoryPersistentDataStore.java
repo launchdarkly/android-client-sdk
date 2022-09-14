@@ -18,9 +18,6 @@ import java.util.Map;
 final class InMemoryPersistentDataStore implements PersistentDataStore {
     private final Map<String, Map<String, String>> data = new HashMap<>();
 
-    public InMemoryPersistentDataStore() {
-    }
-
     @Override
     public synchronized String getValue(String storeNamespace, String key) {
         Map<String, String> namespaceMap = data.get(storeNamespace);

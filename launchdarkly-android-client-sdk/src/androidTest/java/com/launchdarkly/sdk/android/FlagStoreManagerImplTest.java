@@ -4,19 +4,14 @@ import android.os.Looper;
 import android.util.Pair;
 
 import org.easymock.Capture;
-import org.easymock.EasyMock;
 import org.easymock.EasyMockSupport;
-import org.easymock.IArgumentMatcher;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.util.Collections;
-import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import static org.easymock.EasyMock.and;
-import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.anyString;
 import static org.easymock.EasyMock.capture;
 import static org.easymock.EasyMock.expect;
@@ -351,44 +346,5 @@ public class FlagStoreManagerImplTest extends EasyMockSupport {
         waitLatch.await(1000, TimeUnit.MILLISECONDS);
 
         verifyAll();
-    }
-
-    static <T> T captureEq(Capture<T> in) {
-        //noinspection unchecked
-        EasyMock.reportMatcher(new CaptureEq(in, false));
-        return null;
-    }
-
-    static <T> T captureNeq(Capture<T> in) {
-        //noinspection unchecked
-        EasyMock.reportMatcher(new CaptureEq(in, true));
-        return null;
-    }
-
-    static class CaptureEq<T> implements IArgumentMatcher {
-
-        private final boolean invert;
-        private final Capture<T> expected;
-
-        CaptureEq(Capture<T> expected, boolean invert) {
-            this.expected = expected;
-            this.invert = invert;
-        }
-
-        public boolean matches(Object actual) {
-            return invert != equalTo(actual);
-        }
-
-        private boolean equalTo(Object actual) {
-            return Objects.equals(expected.getValue(), actual);
-        }
-
-        public void appendTo(StringBuffer buffer) {
-            buffer.append("captureEq(expected: ");
-            buffer.append(expected.getValue());
-            buffer.append(", invert: ");
-            buffer.append(invert);
-            buffer.append(")");
-        }
     }
 }
