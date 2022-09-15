@@ -1,4 +1,4 @@
-package com.launchdarkly.sdktest;
+package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
