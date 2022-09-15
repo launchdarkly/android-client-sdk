@@ -1,15 +1,7 @@
 package com.launchdarkly.sdk.android;
 
-import android.app.Application;
-
-import androidx.test.core.app.ApplicationProvider;
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-
-import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -21,28 +13,21 @@ import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.logging.LDLogger;
 
-@RunWith(AndroidJUnit4.class)
-public class SharedPrefsFlagStoreTest extends FlagStoreTest {
-
-    private Application testApplication;
+public class FlagStoreImplTest extends FlagStoreTest {
+    private final InMemoryPersistentDataStore store = new InMemoryPersistentDataStore();
 
     @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
-
-    @Before
-    public void setUp() {
-        this.testApplication = ApplicationProvider.getApplicationContext();
-    }
+    public LogCaptureRule logging = new LogCaptureRule();
 
     public FlagStore createFlagStore(String identifier) {
-        return new SharedPrefsFlagStore(testApplication, identifier, LDLogger.none());
+        return new FlagStoreImpl(store, identifier, LDLogger.none());
     }
 
     @Test
     public void deletesVersionAndStoresDeletedItemPlaceholder() {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
+        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 13));
 
@@ -57,7 +42,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
     public void doesNotDeleteIfDeletionVersionIsLessThanOrEqualToExistingVersion() {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
+        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 11));
         flagStore.applyFlagUpdate(new DeleteFlagResponse(key1.getKey(), 12));
@@ -74,7 +59,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
         final Flag key1 = new FlagBuilder("key1").version(12).build();
         final Flag updatedKey1 = new FlagBuilder(key1.getKey()).version(15).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
+        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
@@ -87,7 +72,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
         final Flag key1 = new FlagBuilder("key1").version(100).flagVersion(12).build();
         final Flag updatedKey1 = new FlagBuilder(key1.getKey()).version(101).flagVersion(15).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
+        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Collections.<FlagUpdate>singletonList(key1));
 
         flagStore.applyFlagUpdate(updatedKey1);
@@ -101,7 +86,7 @@ public class SharedPrefsFlagStoreTest extends FlagStoreTest {
                 new FlagBuilder("withFlagVersion").version(12).flagVersion(13).build();
         final Flag withOnlyVersion = new FlagBuilder("withOnlyVersion").version(12).build();
 
-        final SharedPrefsFlagStore flagStore = new SharedPrefsFlagStore(testApplication, "abc", LDLogger.none());
+        final FlagStoreImpl flagStore = new FlagStoreImpl(store, "abc", LDLogger.none());
         flagStore.applyFlagUpdates(Arrays.<FlagUpdate>asList(withFlagVersion, withOnlyVersion));
 
         assertEquals(flagStore.getFlag(withFlagVersion.getKey()).getVersionForEvents(), 13, 0);

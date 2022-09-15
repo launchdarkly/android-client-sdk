@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 import android.app.Application;
+import android.content.Context;
+import android.content.SharedPreferences;
 
 import androidx.test.core.app.ApplicationProvider;
 
@@ -119,7 +121,7 @@ public class SharedPreferencesPersistentDataStoreTest {
 
     @Test
     public void clear() {
-        String subNamespace = "-updateValues",
+        String subNamespace = "-clear",
                 key1 = "test-key-1", key2 = "test-key-2",
                 value1 = "test-value-1",  value2 = "test-value-2";
 
@@ -131,5 +133,21 @@ public class SharedPreferencesPersistentDataStoreTest {
 
         assertNull(store.getValue(BASE_NAMESPACE + subNamespace, key1));
         assertNull(store.getValue(BASE_NAMESPACE + subNamespace, key2));
+    }
+
+    @Test
+    public void getLongIntegerValue() {
+        String subNamespace = "-getLongIntegerValue",
+                key = "test-key";
+        long value = 12345;
+
+        SharedPreferences prefs = application.getSharedPreferences(BASE_NAMESPACE + subNamespace,
+                Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putLong(key, value);
+        editor.apply();
+
+        PersistentDataStore store = new SharedPreferencesPersistentDataStore(application);
+        assertEquals(String.valueOf(value), store.getValue(BASE_NAMESPACE + subNamespace, key));
     }
 }

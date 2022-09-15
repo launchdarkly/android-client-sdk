@@ -5,7 +5,6 @@ import static org.junit.Assert.fail;
 
 import android.app.Application;
 import android.net.Uri;
-import android.util.Log;
 
 import androidx.test.core.app.ApplicationProvider;
 
@@ -14,10 +13,10 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -30,6 +29,10 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
 public class LDClientEventTest {
+    // For better test isolation, any tests here that need to inject flag data will use a simple
+    // in-memory store rather than the actual SharedPreferences-based storage mechanism. The
+    // purpose of these tests is to validate event-related logic, not the store implementation.
+
     private static final String mobileKey = "test-mobile-key";
     private Application application;
     private LDClient ldClient;
@@ -171,16 +174,18 @@ public class LDClientEventTest {
             // Enqueue a successful empty response
             mockEventsServer.enqueue(new MockResponse());
 
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
-
             // Setup flag store with test flag
-            TestUtil.markMigrationComplete(application);
-            EvaluationReason testReason = EvaluationReason.off();
-            FlagStore flagStore = new SharedPrefsFlagStoreFactory(application, LDLogger.none()).createFlagStore(
-                    mobileKey + DefaultContextManager.sharedPreferencesKey(ldUser));
-            flagStore.applyFlagUpdate(new FlagBuilder("track-reason-flag").version(10)
-                            .variation(1).value(LDValue.of(true)).reason(testReason)
-                            .trackEvents(true).trackReason(true).build());
+            Flag flag = new FlagBuilder("track-reason-flag").version(10)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.off())
+                    .trackEvents(true).trackReason(true).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            FlagStoreImpl flagStore = new FlagStoreImpl(store,
+                    mobileKey + DefaultContextManager.sharedPreferencesKey(ldUser),
+                    LDLogger.none());
+            flagStore.applyFlagUpdate(flag);
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store).build();
 
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.boolVariation("track-reason-flag", false);
@@ -194,7 +199,7 @@ public class LDClientEventTest {
                 assertEquals(LDValue.of(1), featureEvent.get("variation"));
                 assertEquals(LDValue.of(true), featureEvent.get("value"));
                 assertEquals(LDValue.of(10), featureEvent.get("version"));
-                assertEquals(LDValue.parse(JsonSerialization.serialize(testReason)),
+                assertEquals(LDValue.parse(JsonSerialization.serialize(flag.getReason())),
                         featureEvent.get("reason"));
                 assertSummaryEvent(summaryEvent);
             }

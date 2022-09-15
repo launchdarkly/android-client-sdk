@@ -1,8 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import android.app.Application;
-import android.content.Context;
-import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Pair;
@@ -10,6 +7,7 @@ import android.util.Pair;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -24,31 +22,34 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListener {
+class FlagStoreManagerImpl implements FlagStoreManager, StoreUpdatedListener {
 
     private static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
 
     @NonNull
     private final FlagStoreFactory flagStoreFactory;
     @NonNull
+    private final PersistentDataStore store;
+    @NonNull
     private final String mobileKey;
     private final int maxCachedContexts;
+    private final String contextsStoreNamespace;
 
     private FlagStore currentFlagStore;
-    private final SharedPreferences contextsSharedPrefs;
     private final ConcurrentHashMap<String, Set<FeatureFlagChangeListener>> listeners;
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners;
     private final LDLogger logger;
 
-    SharedPrefsFlagStoreManager(@NonNull Application application,
-                                @NonNull String mobileKey,
-                                @NonNull FlagStoreFactory flagStoreFactory,
-                                int maxCachedContexts,
-                                @NonNull LDLogger logger) {
+    FlagStoreManagerImpl(@NonNull String mobileKey,
+                         @NonNull FlagStoreFactory flagStoreFactory,
+                         @NonNull PersistentDataStore store,
+                         int maxCachedContexts,
+                         @NonNull LDLogger logger) {
         this.mobileKey = mobileKey;
         this.flagStoreFactory = flagStoreFactory;
+        this.store = store;
         this.maxCachedContexts = maxCachedContexts;
-        this.contextsSharedPrefs = application.getSharedPreferences(SHARED_PREFS_BASE_KEY + mobileKey + "-users", Context.MODE_PRIVATE);
+        this.contextsStoreNamespace = SHARED_PREFS_BASE_KEY + mobileKey + "-users";
         this.listeners = new ConcurrentHashMap<>();
         this.allFlagsListeners = new CopyOnWriteArrayList<>();
         this.logger = logger;
@@ -63,13 +64,12 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
         currentFlagStore = flagStoreFactory.createFlagStore(storeId);
         currentFlagStore.registerOnStoreUpdatedListener(this);
 
-        // Store the context's key and the current time in contextsSharedPrefs so it can be removed when
+        // Store the context's key and the current time in the data store so it can be removed when
         // maxCachedContexts is exceeded.
-        contextsSharedPrefs.edit()
-                .putLong(hashedContextKey, System.currentTimeMillis())
-                .apply();
+        store.setValue(contextsStoreNamespace, hashedContextKey,
+                String.valueOf(System.currentTimeMillis()));
 
-        int contextsStored = contextsSharedPrefs.getAll().size();
+        int contextsStored = store.getKeys(contextsStoreNamespace).size();
         // Negative numbers represent an unlimited number of cached contexts. The active context is not
         // considered a cached context, so we subtract one.
         int contextsToRemove = maxCachedContexts >= 0 ? contextsStored - maxCachedContexts - 1 : 0;
@@ -82,7 +82,7 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
                 // Load FlagStore for oldest context and delete it.
                 flagStoreFactory.createFlagStore(storeIdentifierForContext(removed)).delete();
                 // Remove entry from contextsSharedPrefs.
-                contextsSharedPrefs.edit().remove(removed).apply();
+                store.setValue(contextsStoreNamespace, removed, null);
             }
         }
     }
@@ -133,17 +133,19 @@ class SharedPrefsFlagStoreManager implements FlagStoreManager, StoreUpdatedListe
 
     // Gets cached contexts (does not include the active context) sorted by creation time (oldest first)
     private Collection<String> getCachedContexts(String activeContext) {
-        Map<String, ?> all = contextsSharedPrefs.getAll();
-        all.remove(activeContext);
+        Collection<String> allKeys = store.getKeys(contextsStoreNamespace);
         TreeMap<Long, String> sortedMap = new TreeMap<>();
         //get typed versions of the contexts' timestamps and insert into sorted TreeMap
-        for (String k : all.keySet()) {
-            try {
-                sortedMap.put((Long) all.get(k), k);
-                logger.debug("Found context: {}", contextAndTimeStampToHumanReadableString(k, (Long) all.get(k)));
-            } catch (ClassCastException cce) {
-                LDUtil.logExceptionAtErrorLevel(logger, cce, "Unexpected type! This is not good");
+        for (String k : allKeys) {
+            if (k.equals(activeContext)) {
+                continue;
             }
+            Long timestamp = LDUtil.getStoreValueAsLong(store, contextsStoreNamespace, k);
+            if (timestamp == null) {
+                continue;
+            }
+            sortedMap.put(timestamp, k);
+            logger.debug("Found context: {}", contextAndTimeStampToHumanReadableString(k, timestamp));
         }
         return sortedMap.values();
     }

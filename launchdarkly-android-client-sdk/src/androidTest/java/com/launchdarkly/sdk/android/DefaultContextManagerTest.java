@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.gson.JsonObject;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockRule;
@@ -44,12 +45,14 @@ public class DefaultContextManagerTest extends EasyMockSupport {
     @Mock
     private FeatureFetcher fetcher;
 
+    private final PersistentDataStore store = new InMemoryPersistentDataStore();
+
     private DefaultContextManager contextManager;
 
     @Before
     public void before() {
-        contextManager = new DefaultContextManager(ApplicationProvider.getApplicationContext(), fetcher,
-                "test", "test", 3, LDLogger.none());
+        contextManager = new DefaultContextManager(ApplicationProvider.getApplicationContext(),
+                store, fetcher, "test", "test", 3, LDLogger.none());
     }
 
     @Test

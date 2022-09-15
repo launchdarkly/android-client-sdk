@@ -1,9 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.content.Context;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.os.Build;
 
 import androidx.annotation.NonNull;
@@ -127,8 +125,9 @@ public class LDClient implements LDClientInterface, Closeable {
                 return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
             }
 
-            PersistentDataStore persistentDataStore =
-                    new SharedPreferencesPersistentDataStore(application);
+            PersistentDataStore persistentDataStore = config.getPersistentDataStore() == null ?
+                    new SharedPreferencesPersistentDataStore(application, getSharedLogger()) :
+                    config.getPersistentDataStore();
             contextDecorator = new ContextDecorator(persistentDataStore, config.isGenerateAnonymousKeys());
 
             Foreground.init(application);
@@ -139,7 +138,7 @@ public class LDClient implements LDClientInterface, Closeable {
             final Map<String, LDClient> newInstances = new HashMap<>();
 
             for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
-                final LDClient instance = new LDClient(application, config, mobileKeys.getKey());
+                final LDClient instance = new LDClient(application, persistentDataStore, config, mobileKeys.getKey());
                 instance.contextManager.setCurrentContext(context);
 
                 newInstances.put(mobileKeys.getKey(), instance);
@@ -257,12 +256,21 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @VisibleForTesting
-    protected LDClient(final Application application, @NonNull final LDConfig config) {
-        this(application, config, LDConfig.primaryEnvironmentName);
+    protected LDClient(
+            final Application application,
+            @NonNull PersistentDataStore persistentDataStore,
+            @NonNull final LDConfig config
+    ) {
+        this(application, persistentDataStore, config, LDConfig.primaryEnvironmentName);
     }
 
     @VisibleForTesting
-    protected LDClient(final Application application, @NonNull final LDConfig config, final String environmentName) {
+    protected LDClient(
+            final Application application,
+            @NonNull PersistentDataStore persistentDataStore,
+            @NonNull final LDConfig config,
+            final String environmentName
+    ) {
         this.logger = LDLogger.withAdapter(config.getLogAdapter(), config.getLoggerName());
         logger.info("Creating LaunchDarkly client. Version: {}", BuildConfig.VERSION_NAME);
         this.config = config;
@@ -275,8 +283,15 @@ public class LDClient implements LDClientInterface, Closeable {
         } else {
             this.diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(config, sdkKey));
         }
-        this.contextManager = DefaultContextManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedContexts(),
-                logger);
+        this.contextManager = DefaultContextManager.newInstance(
+                application,
+                persistentDataStore,
+                fetcher,
+                environmentName,
+                sdkKey,
+                config.getMaxCachedContexts(),
+                logger
+        );
 
         HttpProperties httpProperties = LDUtil.makeHttpProperties(config, sdkKey);
         EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(
@@ -293,8 +308,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 logger
         );
 
-        connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextManager, environmentName,
-                diagnosticStore, logger);
+        connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextManager,
+                persistentDataStore, environmentName, diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();

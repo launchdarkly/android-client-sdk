@@ -1,19 +1,15 @@
 package com.launchdarkly.sdk.android;
 
-import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
-
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.os.Build;
 
-import androidx.annotation.NonNull;
-
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.http.HeadersTransformer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
@@ -59,6 +55,18 @@ class LDUtil {
                 null, // sslSocketFactory
                 null // trustManager
         );
+    }
+
+    static Long getStoreValueAsLong(PersistentDataStore store, String namespace, String key) {
+        String value = store.getValue(namespace, key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
@@ -114,32 +122,6 @@ class LDUtil {
             LDClient.getSharedLogger().error("Exception caught when getting LDClient: {}", LogValues.exceptionSummary(e));
             LDClient.getSharedLogger().debug(LogValues.exceptionTrace(e));
             return false;
-        }
-    }
-
-    @NonNull
-    static <T> Map<String, T> sharedPrefsGetAllGson(SharedPreferences sharedPreferences, Class<T> typeOf) {
-        Map<String, ?> flags = sharedPreferences.getAll();
-        Map<String, T> deserialized = new HashMap<>();
-        for (Map.Entry<String, ?> entry : flags.entrySet()) {
-            if (entry.getValue() instanceof String) {
-                try {
-                    T obj = gsonInstance().fromJson((String) entry.getValue(), typeOf);
-                    deserialized.put(entry.getKey(), obj);
-                } catch (Exception ignored) {
-                }
-            }
-        }
-        return deserialized;
-    }
-
-    static <T> T sharedPrefsGetGson(SharedPreferences sharedPreferences, Class<T> typeOf, String key) {
-        String data = sharedPreferences.getString(key, null);
-        if (data == null) return null;
-        try {
-            return gsonInstance().fromJson(data, typeOf);
-        } catch (Exception ignored) {
-            return null;
         }
     }
 
