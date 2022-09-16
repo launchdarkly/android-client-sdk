@@ -10,7 +10,6 @@ import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
 import android.os.StrictMode.VmPolicy;
 
-import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -33,37 +32,29 @@ import org.junit.rules.Timeout;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.mockwebserver.MockWebServer;
 
 import static org.easymock.EasyMock.capture;
-import static org.easymock.EasyMock.expect;
+import static org.easymock.EasyMock.eq;
 import static org.easymock.EasyMock.expectLastCall;
+import static org.easymock.EasyMock.reset;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
 public class ConnectivityManagerTest extends EasyMockSupport {
-    
-    // this is a workaround to android being [redacted]
-    // you cant run network tasks on the main thread
-    // even in tests so we need to spin up a thread each time
-    // there is *supposed* to be a way around this with 
-    // `StrictMode#setThreadPolicy` but its bugged and doesnt work
-    // on android emulators. or at least not the ones we run in CI
-    static void doTask(Runnable func) {
-        try {
-            Thread t = new Thread(func);
-            t.start();
-            t.join();
-        } catch (InterruptedException err) {
-            assert false : "failed to run thread";
-        }
-    }
+    private static final LDContext CONTEXT = LDContext.create("test-context");
+    private static final String MOBILE_KEY = "test-mobile-key";
 
     @Rule
     public final ActivityScenarioRule<TestActivity> testScenario =
@@ -80,13 +71,18 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Mock(MockType.STRICT)
     private EventProcessor eventProcessor;
 
+    private AndroidTaskExecutor taskExecutor;
+
     @SuppressWarnings("unused")
     @Mock(MockType.STRICT)
-    private ContextManager contextManager;
+    private FeatureFetcher fetcher;
+
+    private PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
+    private ContextDataManager contextDataManager;
+    private BlockingQueue<List<String>> allFlagsReceived;
 
     private ConnectivityManager connectivityManager;
     private MockWebServer mockStreamServer;
-    private ActivityScenario<TestActivity> scenario;
 
     static {
         StrictMode.setThreadPolicy(ThreadPolicy.LAX);
@@ -95,26 +91,46 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Before
     public void before() {
-        scenario = testScenario.getScenario();
-        scenario.onActivity(act -> {
-            ConnectivityManagerTest.doTask(() -> {
-                NetworkTestController.setup(act);
-                mockStreamServer = new MockWebServer();
-                try {
-                    mockStreamServer.start();
-                } catch (IOException err) { 
-                    // if this throws then we cant do any tests
-                    assert false : "failed to start mock stream server";
-                }
-            });
+        environmentStore = TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData(MOBILE_KEY);
+        taskExecutor = new AndroidTaskExecutor(logging.logger);
+        contextDataManager = new ContextDataManager(
+                environmentStore,
+                CONTEXT,
+                1,
+                taskExecutor,
+                logging.logger
+        );
+        allFlagsReceived = new LinkedBlockingQueue<>();
+        contextDataManager.registerAllFlagsListener(flagsUpdated -> {
+            allFlagsReceived.add(flagsUpdated);
         });
+
+        final Capture<LDUtil.ResultCallback<String>> callbackCapture = Capture.newInstance();
+        fetcher.fetch(eq(CONTEXT), capture(callbackCapture));
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onSuccess("{}");
+            return null;
+        }).anyTimes();
+
+        TestUtil.doSynchronouslyOnMainThreadForTestScenario(testScenario,
+                // Not 100% sure we still need to defer this piece of initialization onto another
+                // thread, but we had problems in the past - see comments in TestUtil
+                act -> {
+                    NetworkTestController.setup(act);
+                    mockStreamServer = new MockWebServer();
+                    try {
+                        mockStreamServer.start();
+                    } catch (IOException err) {
+                        throw new RuntimeException(err);
+                    }
+                });
     }
 
     @After
     public void after() throws InterruptedException, IOException {
         NetworkTestController.enableNetwork();
         mockStreamServer.close();
-        scenario.close();
+        testScenario.getScenario().close();
     }
 
     private void createTestManager(boolean setOffline, boolean streaming, boolean backgroundDisabled) {
@@ -125,16 +141,15 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         Application app = ApplicationProvider.getApplicationContext();
 
         LDConfig config = new LDConfig.Builder()
-                .mobileKey("test-mobile-key")
+                .mobileKey(MOBILE_KEY)
                 .offline(setOffline)
                 .stream(streaming)
                 .disableBackgroundUpdating(backgroundDisabled)
                 .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
-        connectivityManager = new ConnectivityManager(app, config, eventProcessor, contextManager,
-                TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData("test-mobile-key"),
-                "default", null, logging.logger);
+        connectivityManager = new ConnectivityManager(app, config, eventProcessor, contextDataManager, fetcher,
+                environmentStore, taskExecutor, "default", null, logging.logger);
     }
 
     private void awaitStartUp() throws ExecutionException {
@@ -143,10 +158,15 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         awaitableCallback.await();
     }
 
-    private void awaitReloadUser() throws ExecutionException {
-        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
-        connectivityManager.reloadUser(awaitableCallback);
-        awaitableCallback.await();
+    private void awaitDataReceived() {
+        try {
+            List<String> flags = allFlagsReceived.poll(5, TimeUnit.SECONDS);
+            if (flags == null) {
+                fail("timed out waiting for flags to be received");
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void assertNoConnection() {
@@ -222,12 +242,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void initPolling() throws ExecutionException {
-        final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        contextManager.updateCurrentContext(capture(callbackCapture));
-        expectLastCall().andAnswer(() -> {
-            callbackCapture.getValue().onSuccess(null);
-            return null;
-        });
         eventProcessor.setOffline(false);
         replayAll();
 
@@ -248,8 +262,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void initPollingKnownError() throws ExecutionException {
         final Throwable testError = new Throwable();
-        final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        contextManager.updateCurrentContext(capture(callbackCapture));
+        reset(fetcher);
+        final Capture<LDUtil.ResultCallback<String>> callbackCapture = Capture.newInstance();
+        fetcher.fetch(eq(CONTEXT), capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onError(new LDFailure("failure", testError, LDFailure.FailureType.NETWORK_FAILURE));
             return null;
@@ -278,8 +293,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void initPollingUnknownError() throws ExecutionException {
         final Throwable testError = new Throwable();
-        final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
-        contextManager.updateCurrentContext(capture(callbackCapture));
+        reset(fetcher);
+        final Capture<LDUtil.ResultCallback<String>> callbackCapture = Capture.newInstance();
+        fetcher.fetch(eq(CONTEXT), capture(callbackCapture));
         expectLastCall().andAnswer(() -> {
             callbackCapture.getValue().onError(testError);
             return null;
@@ -310,7 +326,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         createTestManager(true, false, false);
 
         awaitStartUp();
-        awaitReloadUser();
 
         assertTrue(connectivityManager.isInitialized());
         assertTrue(connectivityManager.isOffline());
@@ -337,7 +352,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             createTestManager(false, true, false);
 
             awaitStartUp();
-            awaitReloadUser();
 
             assertTrue(connectivityManager.isInitialized());
             assertFalse(connectivityManager.isOffline());
@@ -352,7 +366,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         createTestManager(false, true, true);
 
         awaitStartUp();
-        awaitReloadUser();
 
         assertTrue(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isOffline());
@@ -366,7 +379,10 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         createTestManager(false, true, false);
 
         awaitStartUp();
-        awaitReloadUser();
+        // We don't call awaitDataReceived() here because, if it's in background mode from the start,
+        // it's not going to do a poll until the background polling interval has elapsed. So we'd
+        // be waiting a very long time. This is not a realistic use case because normally the SDK
+        // is started when the application is started, in the foreground.
 
         assertTrue(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isOffline());
@@ -376,7 +392,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void setOfflineDuringInitStreaming() throws ExecutionException {
-        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key"));
         eventProcessor.setOffline(false);
         eventProcessor.setOffline(true);
         replayAll();
@@ -393,13 +408,12 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertTrue(connectivityManager.isOffline());
         assertEquals(ConnectionMode.SET_OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
-//        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
+        //assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());
     }
 
     @Test
     public void shutdownDuringInitStreaming() throws ExecutionException {
-        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key"));
         eventProcessor.setOffline(false); // goes online at startup
         eventProcessor.setOffline(true); // goes offline at shutdown
         replayAll();
@@ -423,7 +437,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void backgroundedDuringInitStreaming() throws ExecutionException {
         ForegroundTestController.setup(true);
-        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
         eventProcessor.setOffline(false); // goes online at startup
         eventProcessor.setInBackground(true); // expect it to be put into the background
         replayAll();
@@ -446,7 +459,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void deviceOfflinedDuringInitStreaming() throws ExecutionException, InterruptedException {
-        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
         eventProcessor.setOffline(false);
         eventProcessor.setOffline(true);
         replayAll();
@@ -471,7 +483,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void reloadCompletesPending() throws ExecutionException {
-        expect(contextManager.getCurrentContext()).andReturn(LDContext.create("test-key")).anyTimes();
         eventProcessor.setOffline(false);
         expectLastCall().anyTimes();
         replayAll();
@@ -482,7 +493,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         AwaitableCallback<Void> awaitableCallbackInit = new AwaitableCallback<>();
         AwaitableCallback<Void> awaitableCallbackReload = new AwaitableCallback<>();
         connectivityManager.startUp(awaitableCallbackInit);
-        connectivityManager.reloadUser(awaitableCallbackReload);
+        connectivityManager.reloadData(awaitableCallbackReload);
         awaitableCallbackInit.await();
         verifyAll();
 

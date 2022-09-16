@@ -34,20 +34,12 @@ public class LDClientEventTest {
     // purpose of these tests is to validate event-related logic, not the store implementation.
 
     private static final String mobileKey = "test-mobile-key";
+    private static final LDContext ldUser = LDContext.create("userKey");
     private Application application;
-    private LDClient ldClient;
-    private Future<LDClient> ldClientFuture;
-    private LDConfig ldConfig;
-    private LDContext ldUser;
 
     @Before
     public void setUp() {
         application = ApplicationProvider.getApplicationContext();
-        ldConfig = new LDConfig.Builder()
-                .offline(true)
-                .build();
-
-        ldUser = LDContext.create("userKey");
     }
 
     @Test
@@ -60,17 +52,17 @@ public class LDClientEventTest {
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
 
             // Don't wait as we are not set offline
-            ldClient = LDClient.init(application, ldConfig, ldUser, 0);
+            try (LDClient ldClient = LDClient.init(application, ldConfig, ldUser, 0)){
+                ldClient.track("test-event");
+                ldClient.blockingFlush();
 
-            ldClient.track("test-event");
-            ldClient.blockingFlush();
-
-            LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
-            LDValue identifyEvent = events[0], customEvent = events[1];
-            assertIdentifyEvent(identifyEvent, ldUser);
-            assertCustomEvent(customEvent, ldUser, "test-event");
-            assertEquals(LDValue.ofNull(), customEvent.get("data"));
-            assertEquals(LDValue.ofNull(), customEvent.get("metricValue"));
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], customEvent = events[1];
+                assertIdentifyEvent(identifyEvent, ldUser);
+                assertCustomEvent(customEvent, ldUser, "test-event");
+                assertEquals(LDValue.ofNull(), customEvent.get("data"));
+                assertEquals(LDValue.ofNull(), customEvent.get("metricValue"));
+            }
         }
     }
 

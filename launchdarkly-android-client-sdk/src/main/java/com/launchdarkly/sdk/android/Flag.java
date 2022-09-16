@@ -5,7 +5,7 @@ import androidx.annotation.NonNull;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 
-class Flag implements FlagUpdate {
+class Flag {
 
     @NonNull
     private final String key;
@@ -82,18 +82,5 @@ class Flag implements FlagUpdate {
 
     boolean isDeleted() {
         return deleted != null && deleted.booleanValue();
-    }
-
-    @Override
-    public Flag updateFlag(Flag before) {
-        if (before == null || this.getVersion() > before.getVersion()) {
-            return this;
-        }
-        return before;
-    }
-
-    @Override
-    public String flagToUpdate() {
-        return key;
     }
 }

@@ -296,22 +296,4 @@ public class FlagTest {
         assertEquals(10, withVersion.getVersionForEvents());
         assertEquals(5, withVersionAndFlagVersion.getVersionForEvents());
     }
-
-    @Test
-    public void flagToUpdateReturnsKey() {
-        final Flag flag = new FlagBuilder("flag").build();
-        assertEquals(flag.getKey(), flag.flagToUpdate());
-    }
-
-    @Test
-    public void testUpdateFlag() {
-        final Flag flagLowVersion = new FlagBuilder("flagLowVersion").version(50).build();
-        final Flag flagSameVersion = new FlagBuilder("flagSameVersion").version(50).build();
-        final Flag flagHighVersion = new FlagBuilder("flagHighVersion").version(100).build();
-
-        assertEquals(flagLowVersion, flagLowVersion.updateFlag(null));
-        assertEquals(flagSameVersion, flagLowVersion.updateFlag(flagSameVersion));
-        assertEquals(flagHighVersion, flagHighVersion.updateFlag(flagLowVersion));
-        assertEquals(flagHighVersion, flagLowVersion.updateFlag(flagHighVersion));
-    }
 }

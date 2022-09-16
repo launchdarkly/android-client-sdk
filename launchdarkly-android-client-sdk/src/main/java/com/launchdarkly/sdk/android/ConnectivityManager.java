@@ -5,18 +5,21 @@ import android.app.Application;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventProcessor;
 
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Iterator;
+import java.util.List;
 import java.util.TimeZone;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import static com.launchdarkly.sdk.android.LDUtil.isInternetConnected;
-import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+import static com.launchdarkly.sdk.android.LDUtil.safeCallbackError;
+import static com.launchdarkly.sdk.android.LDUtil.safeCallbackSuccess;
 
 class ConnectivityManager {
 
@@ -30,13 +33,16 @@ class ConnectivityManager {
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
-    private final ContextManager contextManager;
+    private final ContextDataManager contextDataManager;
+    private final FeatureFetcher fetcher;
     private final EventProcessor eventProcessor;
     private final Throttler throttler;
     private final Foreground.Listener foregroundListener;
+    private final TaskExecutor taskExecutor;
     private final String environmentName;
     private final int pollingInterval;
     private final LDUtil.ResultCallback<Void> monitor;
+    private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
     private final LDLogger logger;
     private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
@@ -45,15 +51,19 @@ class ConnectivityManager {
     ConnectivityManager(@NonNull final Application application,
                         @NonNull final LDConfig ldConfig,
                         @NonNull final EventProcessor eventProcessor,
-                        @NonNull final ContextManager contextManager,
+                        @NonNull final ContextDataManager contextDataManager,
+                        @NonNull final FeatureFetcher fetcher,
                         @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
+                        @NonNull final TaskExecutor taskExecutor,
                         @NonNull final String environmentName,
                         final DiagnosticStore diagnosticStore,
                         final LDLogger logger) {
         this.application = application;
         this.eventProcessor = eventProcessor;
-        this.contextManager = contextManager;
+        this.contextDataManager = contextDataManager;
+        this.fetcher = fetcher;
         this.environmentStore = environmentStore;
+        this.taskExecutor = taskExecutor;
         this.environmentName = environmentName;
         this.logger = logger;
         pollingInterval = ldConfig.getPollingIntervalMillis();
@@ -116,27 +126,46 @@ class ConnectivityManager {
                         connectionInformation.setLastFailure(new LDFailure("Unknown failure", e, LDFailure.FailureType.UNKNOWN_ERROR));
                     }
                     saveConnectionInformation();
-                    try {
-                        LDClient ldClient = LDClient.getForMobileKey(environmentName);
-                        ldClient.updateListenersOnFailure(connectionInformation.getLastFailure());
-                    } catch (LaunchDarklyException ex) {
-                        LDUtil.logExceptionAtErrorLevel(logger, e, "Error getting LDClient for ConnectivityManager");
-                    }
+                    updateListenersOnFailure(connectionInformation.getLastFailure());
                     callInitCallback();
                 }
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, contextManager, environmentName,
-                diagnosticStore, monitor, logger) : null;
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(application, ldConfig,
+                contextDataManager, fetcher, environmentName,  diagnosticStore, monitor, logger) : null;
     }
 
     boolean isInitialized() {
         return initialized;
     }
 
+    void registerStatusListener(LDStatusListener LDStatusListener) {
+        if (LDStatusListener == null) {
+            return;
+        }
+        synchronized (statusListeners) {
+            statusListeners.add(new WeakReference<>(LDStatusListener));
+        }
+    }
+
+    void unregisterStatusListener(LDStatusListener LDStatusListener) {
+        if (LDStatusListener == null) {
+            return;
+        }
+        synchronized (statusListeners) {
+            Iterator<WeakReference<LDStatusListener>> iter = statusListeners.iterator();
+            while (iter.hasNext()) {
+                LDStatusListener mListener = iter.next().get();
+                if (mListener == null || mListener == LDStatusListener) {
+                    iter.remove();
+                }
+            }
+        }
+    }
+
     private void callInitCallback() {
-        voidSuccess(initCallback);
+        LDUtil.safeCallbackSuccess(initCallback, null);
         initCallback = null;
     }
 
@@ -161,13 +190,41 @@ class ConnectivityManager {
         environmentStore.setConnectionInfo(savedConnectionInfo);
     }
 
+    private void updateListenersConnectionModeChanged(final ConnectionInformation connectionInformation) {
+        synchronized (statusListeners) {
+            Iterator<WeakReference<LDStatusListener>> iter = statusListeners.iterator();
+            while (iter.hasNext()) {
+                final LDStatusListener mListener = iter.next().get();
+                if (mListener == null) {
+                    iter.remove();
+                } else {
+                    taskExecutor.scheduleTask(() -> mListener.onConnectionModeChanged(connectionInformation));
+                }
+            }
+        }
+    }
+
+    private void updateListenersOnFailure(final LDFailure ldFailure) {
+        synchronized (statusListeners) {
+            Iterator<WeakReference<LDStatusListener>> iter = statusListeners.iterator();
+            while (iter.hasNext()) {
+                final LDStatusListener mListener = iter.next().get();
+                if (mListener == null) {
+                    iter.remove();
+                } else {
+                    taskExecutor.scheduleTask(() -> mListener.onInternalFailure(ldFailure));
+                }
+            }
+        }
+    }
+
     private void stopPolling() {
-        PollingUpdater.stop(application);
+        PollingUpdater.stop(application, logger);
     }
 
     private void startPolling() {
         triggerPoll();
-        PollingUpdater.startPolling(application, pollingInterval, pollingInterval);
+        PollingUpdater.startPolling(application, pollingInterval, pollingInterval, logger);
     }
 
     private void startBackgroundPolling() {
@@ -175,7 +232,7 @@ class ConnectivityManager {
             initCallback.onSuccess(null);
             initCallback = null;
         }
-        PollingUpdater.startBackgroundPolling(application);
+        PollingUpdater.startBackgroundPolling(application, logger);
     }
 
     private void stopStreaming() {
@@ -188,7 +245,7 @@ class ConnectivityManager {
         if (streamUpdateProcessor != null) {
             streamUpdateProcessor.stop(onCompleteListener);
         } else {
-            voidSuccess(onCompleteListener);
+            safeCallbackSuccess(onCompleteListener, null);
         }
     }
 
@@ -265,27 +322,36 @@ class ConnectivityManager {
         return Foreground.get(application).isForeground();
     }
 
-    private void voidSuccess(LDUtil.ResultCallback<Void> listener) {
-        if (listener != null) {
-            listener.onSuccess(null);
-        }
-    }
-
+    /**
+     * Attempts to start the data source if possible.
+     * <p>
+     * If we are configured to be offline or the network is unavailable, it immediately calls the
+     * completion listener and returns. Otherwise, it continues initialization asynchronously and
+     * the listener will be called when the data source successfully starts up or permanently fails.
+     * <p>
+     * The return value is true if we are online, or false if we are offline (this determines
+     * whether we should try to send an identify event on startup).
+     */
     synchronized boolean startUp(LDUtil.ResultCallback<Void> onCompleteListener) {
         initialized = false;
+
+        final LDContext context = contextDataManager.getCurrentContext();
+        final boolean gotStoredData = contextDataManager.initFromStoredData(context);
+
         if (setOffline) {
+            logger.debug("Initialized in offline mode");
             initialized = true;
             updateConnectionMode(ConnectionMode.SET_OFFLINE);
-            voidSuccess(onCompleteListener);
+            safeCallbackSuccess(onCompleteListener, null);
             return false;
         }
 
-        boolean connected = isInternetConnected(application);
+        final boolean connected = isInternetConnected(application);
 
         if (!connected) {
             initialized = true;
             updateConnectionMode(ConnectionMode.OFFLINE);
-            voidSuccess(onCompleteListener);
+            safeCallbackSuccess(onCompleteListener, null);
             return false;
         }
 
@@ -327,21 +393,25 @@ class ConnectivityManager {
         return setOffline;
     }
 
-    synchronized void reloadUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
+    synchronized void reloadData(final LDUtil.ResultCallback<Void> onCompleteListener) {
         throttler.cancel();
         callInitCallback();
         removeForegroundListener();
         removeNetworkListener();
         stopPolling();
         stopStreaming(new LDUtil.ResultCallback<Void>() {
-            @Override
-            public void onSuccess(Void result) {
+            private void didStopStreaming() {
                 startUp(onCompleteListener);
             }
 
             @Override
+            public void onSuccess(Void result) {
+                didStopStreaming();
+            }
+
+            @Override
             public void onError(Throwable e) {
-                startUp(onCompleteListener);
+                didStopStreaming();
             }
         });
     }
@@ -356,12 +426,7 @@ class ConnectivityManager {
         } catch (Exception ex) {
             LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
         }
-        try {
-            LDClient ldClient = LDClient.getForMobileKey(environmentName);
-            ldClient.updateListenersConnectionModeChanged(connectionInformation);
-        } catch (LaunchDarklyException e) {
-            LDUtil.logExceptionAtErrorLevel(logger, e, "Error getting LDClient for ConnectivityManager: {}");
-        }
+        updateListenersConnectionModeChanged(connectionInformation);
     }
 
     synchronized void onNetworkConnectivityChange(boolean connectedToInternet) {
@@ -392,6 +457,8 @@ class ConnectivityManager {
     }
 
     void triggerPoll() {
-        contextManager.updateCurrentContext(monitor);
+        if (!isOffline()) {
+            PollingUpdater.triggerPoll(application, contextDataManager, fetcher, monitor, logger);
+        }
     }
 }

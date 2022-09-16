@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.AlarmManager;
+import android.app.Application;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -10,7 +11,14 @@ import android.os.SystemClock;
 
 import static android.app.PendingIntent.FLAG_IMMUTABLE;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
+import com.google.gson.JsonObject;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.LDContext;
+
+import java.util.List;
 
 /**
  * Used internally by the SDK.
@@ -28,14 +36,41 @@ public class PollingUpdater extends BroadcastReceiver {
         LDClient.triggerPollInstances();
     }
 
-    synchronized static void startBackgroundPolling(Context context) {
-        LDClient.getSharedLogger().debug("Starting background polling");
-        startPolling(context, backgroundPollingIntervalMillis, backgroundPollingIntervalMillis);
+    static void triggerPoll(
+            Application application,
+            ContextDataManager contextDataManager,
+            FeatureFetcher fetcher,
+            final LDUtil.ResultCallback<Void> onCompleteListener,
+            LDLogger logger
+    ) {
+        LDContext currentContext = contextDataManager.getCurrentContext();
+        fetcher.fetch(currentContext, new LDUtil.ResultCallback<String>() {
+            @Override
+            public void onSuccess(String flagsJson) {
+                contextDataManager.initDataFromJson(currentContext, flagsJson, onCompleteListener);
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                if (LDUtil.isInternetConnected(application)) {
+                    logger.error("Error when attempting to get flag data: [{}] [{}]: {}",
+                            LDUtil.base64Url(currentContext),
+                            currentContext,
+                            LogValues.exceptionSummary(e));
+                }
+                onCompleteListener.onError(e);
+            }
+        });
     }
 
-    synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis) {
-        stop(context);
-        LDClient.getSharedLogger().debug("startPolling with initialDelayMillis: %d and intervalMillis: %d", initialDelayMillis, intervalMillis);
+    synchronized static void startBackgroundPolling(Context context, LDLogger logger) {
+        logger.debug("Starting background polling");
+        startPolling(context, backgroundPollingIntervalMillis, backgroundPollingIntervalMillis, logger);
+    }
+
+    synchronized static void startPolling(Context context, int initialDelayMillis, int intervalMillis, LDLogger logger) {
+        stop(context, logger);
+        logger.debug("startPolling with initialDelayMillis: {} and intervalMillis: {}", initialDelayMillis, intervalMillis);
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 
@@ -46,13 +81,13 @@ public class PollingUpdater extends BroadcastReceiver {
                     intervalMillis,
                     pendingIntent);
         } catch (Exception ex) {
-            LDUtil.logExceptionAtWarnLevel(LDClient.getSharedLogger(), ex,
+            LDUtil.logExceptionAtWarnLevel(logger, ex,
                     "Exception occurred when creating [background] polling alarm, likely due to the host application having too many existing alarms");
         }
     }
 
-    synchronized static void stop(Context context) {
-        LDClient.getSharedLogger().debug("Stopping pollingUpdater");
+    synchronized static void stop(Context context, LDLogger logger) {
+        logger.debug("Stopping pollingUpdater");
         PendingIntent pendingIntent = getPendingIntent(context);
         AlarmManager alarmMgr = getAlarmManager(context);
 

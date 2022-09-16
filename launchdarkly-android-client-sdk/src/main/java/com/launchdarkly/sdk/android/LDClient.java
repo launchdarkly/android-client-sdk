@@ -24,13 +24,11 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -68,13 +66,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private final Application application;
     private final LDConfig config;
-    private final DefaultContextManager contextManager;
+    private final ContextDataManager contextDataManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final DiagnosticStore diagnosticStore;
     private ConnectivityReceiver connectivityReceiver;
-    private final List<WeakReference<LDStatusListener>> connectionFailureListeners =
-            Collections.synchronizedList(new ArrayList<>());
     private final ExecutorService executor = Executors.newFixedThreadPool(1);
     private final LDLogger logger;
 
@@ -138,6 +134,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
             Migration.migrateWhenNeeded(application, config);
 
+            final LDContext actualContext = contextDecorator.decorateContext(context, getSharedLogger());
+
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
             final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
@@ -148,10 +146,10 @@ public class LDClient implements LDClientInterface, Closeable {
                     final LDClient instance = new LDClient(
                             application,
                             persistentData.perEnvironmentData(mobileKey),
+                            actualContext,
                             config,
                             envName
                     );
-                    instance.contextManager.setCurrentContext(context);
                     newInstances.put(envName, instance);
                 } catch (LaunchDarklyException e) {
                     resultFuture.setException(e);
@@ -178,14 +176,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
             PollingUpdater.setBackgroundPollingIntervalMillis(config.getBackgroundPollingIntervalMillis());
 
-            context = contextDecorator.decorateContext(context, getSharedLogger());
-
             // Start up all instances
             for (final LDClient instance : instances.values()) {
                 if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
                     instance.eventProcessor.sendEvent(new Event.Identify(
                             System.currentTimeMillis(),
-                            context
+                            actualContext
                     ));
                 }
             }
@@ -273,15 +269,17 @@ public class LDClient implements LDClientInterface, Closeable {
     protected LDClient(
             final Application application,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
+            @NonNull LDContext initialContext,
             @NonNull final LDConfig config
     ) throws LaunchDarklyException {
-        this(application, environmentStore, config, LDConfig.primaryEnvironmentName);
+        this(application, environmentStore, initialContext, config, LDConfig.primaryEnvironmentName);
     }
 
     @VisibleForTesting
     protected LDClient(
             final Application application,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
+            @NonNull LDContext initialContext,
             @NonNull final LDConfig config,
             final String environmentName
     ) throws LaunchDarklyException {
@@ -300,12 +298,12 @@ public class LDClient implements LDClientInterface, Closeable {
         } else {
             this.diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(config, mobileKey));
         }
-        this.contextManager = DefaultContextManager.newInstance(
-                application,
+        TaskExecutor taskExecutor = new AndroidTaskExecutor(logger);
+        this.contextDataManager = new ContextDataManager(
                 environmentStore,
-                fetcher,
-                environmentName,
+                initialContext,
                 config.getMaxCachedContexts(),
+                taskExecutor,
                 logger
         );
 
@@ -324,8 +322,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 logger
         );
 
-        connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextManager,
-                environmentStore, environmentName, diagnosticStore, logger);
+        connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextDataManager,
+                fetcher, environmentStore, taskExecutor, environmentName, diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();
@@ -361,7 +359,7 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.sendEvent(new Event.Custom(
                 System.currentTimeMillis(),
                 eventName,
-                contextManager.getCurrentContext(),
+                contextDataManager.getCurrentContext(),
                 data,
                 metricValue
         ));
@@ -397,8 +395,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void identifyInternal(@NonNull LDContext context,
                                   LDUtil.ResultCallback<Void> onCompleteListener) {
-        contextManager.setCurrentContext(context);
-        connectivityManager.reloadUser(onCompleteListener);
+        contextDataManager.setCurrentContext(context);
+        connectivityManager.reloadData(onCompleteListener);
         eventProcessor.sendEvent(new Event.Identify(System.currentTimeMillis(), context));
     }
 
@@ -429,12 +427,10 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public Map<String, LDValue> allFlags() {
-        Collection<Flag> allFlags = contextManager.getCurrentContextFlagStore().getAllFlags();
+        EnvironmentData allData = contextDataManager.getAllNonDeleted();
         HashMap<String, LDValue> flagValues = new HashMap<>();
-        for (Flag flag: allFlags) {
-            if (!flag.isDeleted()) {
-                flagValues.put(flag.getKey(), flag.getValue());
-            }
+        for (Flag flag: allData.values()) {
+            flagValues.put(flag.getKey(), flag.getValue());
         }
         return flagValues;
     }
@@ -494,11 +490,11 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
-        Flag flag = contextManager.getCurrentContextFlagStore().getFlag(key);
+        Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
         EvaluationDetail<LDValue> result;
         LDValue value = defaultValue;
 
-        if (flag == null || flag.isDeleted()) {
+        if (flag == null) {
             logger.info("Unknown feature flag \"{}\"; returning default value", key);
             sendFlagRequestEvent(key, null, defaultValue, defaultValue, null);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
@@ -519,7 +515,8 @@ public class LDClient implements LDClientInterface, Closeable {
             sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
         }
 
-        logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, contextManager.getCurrentContext().getKey());
+        logger.debug("returning variation: {} flagKey: {} context key: {}", result, key,
+                contextDataManager.getCurrentContext().getKey());
         return result;
     }
 
@@ -607,12 +604,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
-        contextManager.registerListener(flagKey, listener);
+        contextDataManager.registerListener(flagKey, listener);
     }
 
     @Override
     public void unregisterFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener) {
-        contextManager.unregisterListener(flagKey, listener);
+        contextDataManager.unregisterListener(flagKey, listener);
     }
 
     @Override
@@ -624,68 +621,24 @@ public class LDClient implements LDClientInterface, Closeable {
         return connectivityManager.getConnectionInformation();
     }
 
-    public void registerStatusListener(LDStatusListener LDStatusListener) {
-        if (LDStatusListener == null) {
-            return;
-        }
-        synchronized (connectionFailureListeners) {
-            connectionFailureListeners.add(new WeakReference<>(LDStatusListener));
-        }
+    public void registerStatusListener(LDStatusListener statusListener) {
+        connectivityManager.registerStatusListener(statusListener);
     }
 
-    public void unregisterStatusListener(LDStatusListener LDStatusListener) {
-        if (LDStatusListener == null) {
-            return;
-        }
-        synchronized (connectionFailureListeners) {
-            Iterator<WeakReference<LDStatusListener>> iter = connectionFailureListeners.iterator();
-            while (iter.hasNext()) {
-                LDStatusListener mListener = iter.next().get();
-                if (mListener == null || mListener == LDStatusListener) {
-                    iter.remove();
-                }
-            }
-        }
+    public void unregisterStatusListener(LDStatusListener statusListener) {
+        connectivityManager.unregisterStatusListener(statusListener);
     }
 
     public void registerAllFlagsListener(LDAllFlagsListener allFlagsListener) {
-        contextManager.registerAllFlagsListener(allFlagsListener);
+        contextDataManager.registerAllFlagsListener(allFlagsListener);
     }
 
     public void unregisterAllFlagsListener(LDAllFlagsListener allFlagsListener) {
-        contextManager.unregisterAllFlagsListener(allFlagsListener);
+        contextDataManager.unregisterAllFlagsListener(allFlagsListener);
     }
 
     private void triggerPoll() {
         connectivityManager.triggerPoll();
-    }
-
-    void updateListenersConnectionModeChanged(final ConnectionInformation connectionInformation) {
-        synchronized (connectionFailureListeners) {
-            Iterator<WeakReference<LDStatusListener>> iter = connectionFailureListeners.iterator();
-            while (iter.hasNext()) {
-                final LDStatusListener mListener = iter.next().get();
-                if (mListener == null) {
-                    iter.remove();
-                } else {
-                    executor.submit(() -> mListener.onConnectionModeChanged(connectionInformation));
-                }
-            }
-        }
-    }
-
-    void updateListenersOnFailure(final LDFailure ldFailure) {
-        synchronized (connectionFailureListeners) {
-            Iterator<WeakReference<LDStatusListener>> iter = connectionFailureListeners.iterator();
-            while (iter.hasNext()) {
-                final LDStatusListener mListener = iter.next().get();
-                if (mListener == null) {
-                    iter.remove();
-                } else {
-                    executor.submit(() -> mListener.onInternalFailure(ldFailure));
-                }
-            }
-        }
     }
 
     @Override
@@ -701,7 +654,7 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.sendEvent(new Event.FeatureRequest(
                 System.currentTimeMillis(),
                 flagKey,
-                contextManager.getCurrentContext(),
+                contextDataManager.getCurrentContext(),
                 flag == null ? -1 : flag.getVersionForEvents(),
                 flag == null || flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
                 value,
