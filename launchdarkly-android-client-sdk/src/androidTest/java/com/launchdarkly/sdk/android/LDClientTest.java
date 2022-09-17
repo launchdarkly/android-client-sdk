@@ -181,23 +181,4 @@ public class LDClientTest {
         });
         backgroundComplete.get();
     }
-
-    @Test
-    public void clientStartsOfflineWithStoredFlags() {
-        Flag flag = new FlagBuilder("flag-key").version(1).value(LDValue.of("yes")).build();
-        PersistentDataStore store = new InMemoryPersistentDataStore();
-        TestUtil.writeFlagUpdateToStore(store, mobileKey, ldUser, flag);
-
-        LDConfig config = new LDConfig.Builder()
-                .mobileKey(mobileKey)
-                .offline(true)
-                .persistentDataStore(store)
-                .build();
-        ldClient = LDClient.init(application, config, ldUser, 1);
-
-        assertTrue("client was not initialized", ldClient.isInitialized());
-        assertTrue("client was offline", ldClient.isOffline());
-
-        assertEquals("yes", ldClient.stringVariation(flag.getKey(), "default"));
-    }
 }
