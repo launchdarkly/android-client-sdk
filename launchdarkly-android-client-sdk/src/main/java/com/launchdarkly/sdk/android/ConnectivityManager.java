@@ -336,7 +336,12 @@ class ConnectivityManager {
         initialized = false;
 
         final LDContext context = contextDataManager.getCurrentContext();
-        final boolean gotStoredData = contextDataManager.initFromStoredData(context);
+
+        // Calling initFromStoredData updates the current flag state *if* stored flags exist for
+        // this context. If they don't, it has no effect. Currently we do *not* return early from
+        // initialization just because stored flags exist; we're just making them available in case
+        // initialization times out or otherwise fails.
+        contextDataManager.initFromStoredData(context);
 
         if (setOffline) {
             logger.debug("Initialized in offline mode");

@@ -99,6 +99,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                             }
                             callback.onError(new LDInvalidResponseCodeFailure("Unexpected response when retrieving Feature Flags: " + response + " using url: "
                                     + request.url() + " with body: " + body, response.code(), true));
+                            return;
                         }
                         logger.debug(body);
                         logger.debug("Cache hit count: {} Cache network Count: {}", client.cache().hitCount(), client.cache().networkCount());
