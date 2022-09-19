@@ -22,53 +22,70 @@ import com.launchdarkly.logging.SimpleFormat;
  */
 public abstract class LDAndroidLogging {
     public static LDLogAdapter adapter() {
-        return AdapterImpl.INSTANCE;
+        return new AdapterImpl(false);
     }
 
-    private static final class AdapterImpl implements LDLogAdapter {
-        static final AdapterImpl INSTANCE = new AdapterImpl();
+    static LDLogAdapter adapter(boolean overrideAndroidLogFilter) {
+        // This method is exposed only for testing. Normally, it's important to respect the behavior
+        // of Android's Log.isLoggable(), which allows debug output only if it's enabled by a system
+        // property for that log tag. But in instrumented tests, we always want to see output for
+        // all levels.
+        return new AdapterImpl(overrideAndroidLogFilter);
+    }
+
+    static final class AdapterImpl implements LDLogAdapter {
+        private final boolean overrideAndroidLogFilter;
+
+        AdapterImpl(boolean overrideAndroidLogFilter) {
+            this.overrideAndroidLogFilter = overrideAndroidLogFilter;
+        }
 
         @Override
         public Channel newChannel(String name) {
             return new ChannelImpl(name);
         }
-    }
 
-    private static final class ChannelImpl extends ChannelImplBase {
-        public ChannelImpl(String tag) {
-            super(tag);
-        }
-
-        @Override
-        public boolean isEnabled(LDLogLevel level) {
-            return Log.isLoggable(tag, toAndroidLogLevel(level));
-        }
-
-        private static int toAndroidLogLevel(LDLogLevel level) {
-            switch (level) {
-                case DEBUG: return Log.DEBUG;
-                case INFO: return Log.INFO;
-                case WARN: return Log.WARN;
-                case ERROR: return Log.ERROR;
-                default: return Log.VERBOSE;
+        private final class ChannelImpl extends ChannelImplBase {
+            public ChannelImpl(String tag) {
+                super(tag);
             }
-        }
 
-        @Override
-        protected void logInternal(LDLogLevel level, String text) {
-            switch (level) {
-                case DEBUG:
-                    Log.d(tag, text);
-                    break;
-                case INFO:
-                    Log.i(tag, text);
-                    break;
-                case WARN:
-                    Log.w(tag, text);
-                    break;
-                case ERROR:
-                    Log.e(tag, text);
-                    break;
+            @Override
+            public boolean isEnabled(LDLogLevel level) {
+                return overrideAndroidLogFilter || Log.isLoggable(tag, toAndroidLogLevel(level));
+            }
+
+            private int toAndroidLogLevel(LDLogLevel level) {
+                switch (level) {
+                    case DEBUG:
+                        return Log.DEBUG;
+                    case INFO:
+                        return Log.INFO;
+                    case WARN:
+                        return Log.WARN;
+                    case ERROR:
+                        return Log.ERROR;
+                    default:
+                        return Log.VERBOSE;
+                }
+            }
+
+            @Override
+            protected void logInternal(LDLogLevel level, String text) {
+                switch (level) {
+                    case DEBUG:
+                        Log.d(tag, text);
+                        break;
+                    case INFO:
+                        Log.i(tag, text);
+                        break;
+                    case WARN:
+                        Log.w(tag, text);
+                        break;
+                    case ERROR:
+                        Log.e(tag, text);
+                        break;
+                }
             }
         }
     }
