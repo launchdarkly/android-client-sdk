@@ -400,18 +400,14 @@ class ConnectivityManager {
         removeNetworkListener();
         stopPolling();
         stopStreaming(new LDUtil.ResultCallback<Void>() {
-            private void didStopStreaming() {
+            @Override
+            public void onSuccess(Void result) {
                 startUp(onCompleteListener);
             }
 
             @Override
-            public void onSuccess(Void result) {
-                didStopStreaming();
-            }
-
-            @Override
             public void onError(Throwable e) {
-                didStopStreaming();
+                startUp(onCompleteListener);
             }
         });
     }
