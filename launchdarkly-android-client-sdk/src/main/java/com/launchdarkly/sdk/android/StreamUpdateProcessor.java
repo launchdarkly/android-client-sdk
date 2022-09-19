@@ -12,6 +12,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
+import com.launchdarkly.sdk.json.SerializationException;
 
 import java.net.URI;
 import java.util.concurrent.ExecutorService;
@@ -237,8 +238,8 @@ class StreamUpdateProcessor {
     private void applyPatch(String json, @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
         Flag flag;
         try {
-            flag = gsonInstance().fromJson(json, Flag.class);
-        } catch (Exception e) {
+            flag = Flag.fromJson(json);
+        } catch (SerializationException e) {
             logger.debug("Invalid PATCH payload: {}", json);
             onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
                     LDFailure.FailureType.INVALID_RESPONSE_BODY));

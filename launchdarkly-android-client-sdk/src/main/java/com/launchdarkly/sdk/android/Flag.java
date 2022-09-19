@@ -1,9 +1,12 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.json.SerializationException;
 
 class Flag {
 
@@ -82,5 +85,22 @@ class Flag {
 
     boolean isDeleted() {
         return deleted != null && deleted.booleanValue();
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
+    }
+
+    public static Flag fromJson(String json) throws SerializationException {
+        try {
+            return gsonInstance().fromJson(json, Flag.class);
+        } catch (Exception e) { // Gson throws various kinds of parsing exceptions that have no common base class
+            throw new SerializationException(e);
+        }
+    }
+
+    public String toJson() {
+        return gsonInstance().toJson(this);
     }
 }
