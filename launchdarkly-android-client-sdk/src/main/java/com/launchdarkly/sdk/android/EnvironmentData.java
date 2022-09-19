@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 
 import com.google.gson.reflect.TypeToken;
 import com.launchdarkly.sdk.internal.GsonHelpers;
+import com.launchdarkly.sdk.json.SerializationException;
 
 import java.lang.reflect.Type;
 import java.util.Collection;
@@ -59,9 +60,13 @@ final class EnvironmentData {
         return new EnvironmentData(newFlags);
     }
 
-    public static EnvironmentData fromJson(String json) {
-        return new EnvironmentData(
-                GsonHelpers.gsonInstance().fromJson(json, FLAGS_MAP_TYPE));
+    public static EnvironmentData fromJson(String json) throws SerializationException {
+        try {
+            return new EnvironmentData(
+                    GsonHelpers.gsonInstance().fromJson(json, FLAGS_MAP_TYPE));
+        } catch (Exception e) { // Gson throws various kinds of parsing exceptions that have no common base class
+            throw new SerializationException(e);
+        }
     }
 
     public String toJson() {

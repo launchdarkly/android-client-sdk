@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
+import com.launchdarkly.sdk.json.SerializationException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -129,7 +130,11 @@ final class PersistentDataStoreWrapper {
         public EnvironmentData getContextData(String hashedContextId) {
             String serializedData = tryGetValue(environmentNamespace,
                     keyForContextId(hashedContextId));
-            return serializedData == null ? null : EnvironmentData.fromJson(serializedData);
+            try {
+                return serializedData == null ? null : EnvironmentData.fromJson(serializedData);
+            } catch (SerializationException e) {
+                return null;
+            }
         }
 
         /**
@@ -158,8 +163,12 @@ final class PersistentDataStoreWrapper {
          */
         @NonNull public ContextIndex getIndex() {
             String serializedData = tryGetValue(environmentNamespace, ENVIRONMENT_METADATA_KEY);
-            return serializedData == null ? new ContextIndex() :
-                    ContextIndex.fromJson(serializedData);
+            try {
+                return serializedData == null ? new ContextIndex() :
+                        ContextIndex.fromJson(serializedData);
+            } catch (SerializationException e) {
+                return null;
+            }
         }
 
         /**

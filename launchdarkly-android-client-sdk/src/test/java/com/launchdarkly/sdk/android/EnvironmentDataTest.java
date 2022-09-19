@@ -70,7 +70,7 @@ public class EnvironmentDataTest {
     }
 
     @Test
-    public void fromJson() {
+    public void fromJson() throws Exception {
         String json = "{" +
                 "\"flag1\":{\"key\":\"flag1\",\"version\":100,\"flagVersion\":222,\"value\":true," +
                 "\"variation\":1,\"reason\":{\"kind\":\"OFF\"},\"trackEvents\":true," +
