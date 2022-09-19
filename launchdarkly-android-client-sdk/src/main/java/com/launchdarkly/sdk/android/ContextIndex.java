@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import com.launchdarkly.sdk.internal.GsonHelpers;
+import com.launchdarkly.sdk.json.SerializationException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -102,7 +103,7 @@ final class ContextIndex {
         return new ContextIndex(newData);
     }
 
-    public static ContextIndex fromJson(String json) {
+    public static ContextIndex fromJson(String json) throws SerializationException {
         List<IndexEntry> out = new ArrayList<>();
         JsonReader r = new JsonReader(new StringReader(json));
         try {
@@ -120,8 +121,8 @@ final class ContextIndex {
                 r.endArray();
             }
             r.endArray();
-        } catch (IOException e) {
-            throw new IllegalArgumentException(e);
+        } catch (Exception e) { // Gson throws various kinds of parsing exceptions that have no common base class
+            throw new SerializationException(e);
         }
         return new ContextIndex(out);
     }

@@ -7,6 +7,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
+import com.launchdarkly.sdk.json.SerializationException;
+
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -31,7 +33,7 @@ public class ContextIndexTest {
     }
 
     @Test
-    public void deserialize() {
+    public void deserialize() throws Exception {
         String json = "[[\"user1\",1000],[\"user2\",2000]]";
         ContextIndex ci = ContextIndex.fromJson(json);
 
@@ -53,9 +55,9 @@ public class ContextIndexTest {
 
     private void deserializeMalformedJson(String s) {
         try {
-            ContextIndex.fromJson("}");
+            ContextIndex.fromJson(s);
             fail("expected exception");
-        } catch (IllegalArgumentException e) {}
+        } catch (SerializationException e) {}
     }
 
     @Test
