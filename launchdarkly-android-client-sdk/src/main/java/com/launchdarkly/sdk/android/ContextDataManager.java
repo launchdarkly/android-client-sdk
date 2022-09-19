@@ -356,7 +356,7 @@ final class ContextDataManager {
             return;
         }
         List<String> keysAsList = new ArrayList<>(updatedFlagKeys);
-        LDUtil.onMainThread(() -> {
+        taskExecutor.executeOnMainThread(() -> {
             for (LDAllFlagsListener listener: allFlagsListeners) {
                 listener.onChange(keysAsList);
             }

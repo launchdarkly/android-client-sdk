@@ -37,14 +37,6 @@ class LDUtil {
         }
     }
 
-    static void onMainThread(Runnable action) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            action.run();
-        } else {
-            new Handler(Looper.getMainLooper()).post(action);
-        }
-    }
-
     static String urlSafeBase64Hash(String input) {
         try {
             MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
