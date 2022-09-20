@@ -15,7 +15,7 @@ import java.util.Map;
  * other's state. In the future, we may provide a way for applications to choose a persistence
  * implementation.
  */
-final class InMemoryPersistentDataStore implements PersistentDataStore {
+public final class InMemoryPersistentDataStore implements PersistentDataStore {
     private final Map<String, Map<String, String>> data = new HashMap<>();
 
     @Override

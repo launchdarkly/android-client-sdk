@@ -5,7 +5,7 @@ import com.launchdarkly.sdk.LDValue;
 import java.util.HashMap;
 import java.util.Map;
 
-public class DataSetBuilder {
+public final class DataSetBuilder {
     private final Map<String, Flag> flags = new HashMap<>();
 
     public EnvironmentData build() {

@@ -19,7 +19,7 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
 
     protected final PersistentDataStore store;
     protected final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
-    protected final UnitTestTaskExecutor taskExecutor = new UnitTestTaskExecutor();
+    protected final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
 
     @Rule
     public final LogCaptureRule logging = new LogCaptureRule();

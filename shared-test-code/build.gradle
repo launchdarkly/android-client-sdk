@@ -1,0 +1,52 @@
+// buildscript {
+//     repositories {
+//         mavenCentral()
+//         google()
+//     }
+//     dependencies {
+//         classpath('com.android.tools.build:gradle:7.2.2')
+//         classpath("com.getkeepsafe.dexcount:dexcount-gradle-plugin:3.1.0")
+//     }
+// }
+
+// repositories {
+//     mavenLocal()
+//     maven { url = uri("https://oss.sonatype.org/content/groups/public/") }
+//     google()
+//     mavenCentral()
+// }
+
+plugins {
+    id("com.android.library")
+    id("com.getkeepsafe.dexcount")
+}
+
+group = "com.launchdarkly"
+// Specified in gradle.properties
+version = version
+
+ext {}
+ext.versions = [
+    "androidAnnotation": "1.2.0",
+    "gson": "2.8.9",
+    "junit": "4.13",
+    "launchdarklyLogging": "1.1.1",
+]
+
+android {
+ compileSdkVersion(30)
+    buildToolsVersion = "30.0.3"
+
+    defaultConfig {
+        minSdkVersion(21)
+        targetSdkVersion(30)
+    }
+}
+
+dependencies {
+    implementation(project(":launchdarkly-android-client-sdk"))
+    
+    implementation("androidx.annotation:annotation:${versions.androidAnnotation}")
+    implementation("com.google.code.gson:gson:${versions.gson}")
+    implementation("junit:junit:${versions.junit}")
+}
