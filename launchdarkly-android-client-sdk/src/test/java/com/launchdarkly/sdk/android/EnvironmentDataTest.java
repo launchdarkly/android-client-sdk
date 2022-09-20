@@ -105,4 +105,43 @@ public class EnvironmentDataTest {
         assertNull(flag2.getDebugEventsUntilDate());
         assertFalse(flag2.isDeleted());
     }
+
+    @Test
+    public void fromJsonWithMissingKeys() throws Exception {
+        // This edge case should not be encountered in real LD usage, but can happen in tests and in
+        // any case it's best for us to handle it gracefully.
+        String json = "{" +
+                "\"flag1\":{\"version\":100,\"flagVersion\":222,\"value\":true," +
+                "\"variation\":1,\"reason\":{\"kind\":\"OFF\"},\"trackEvents\":true," +
+                "\"trackReason\":true,\"debugEventsUntilDate\":1000}," +
+                "\"flag2\":{\"version\":200,\"value\":false}" +
+                "}";
+        EnvironmentData data = EnvironmentData.fromJson(json);
+
+        assertEquals(2, data.values().size());
+
+        Flag flag1 = data.getFlag("flag1");
+        assertNotNull(flag1);
+        assertEquals("flag1", flag1.getKey());
+        assertEquals(100, flag1.getVersion());
+        assertEquals(Integer.valueOf(222), flag1.getFlagVersion());
+        assertEquals(LDValue.of(true), flag1.getValue());
+        assertEquals(Integer.valueOf(1), flag1.getVariation());
+        assertTrue(flag1.isTrackEvents());
+        assertTrue(flag1.isTrackReason());
+        assertEquals(Long.valueOf(1000), flag1.getDebugEventsUntilDate());
+        assertFalse(flag1.isDeleted());
+
+        Flag flag2 = data.getFlag("flag2");
+        assertNotNull(flag2);
+        assertEquals("flag2", flag2.getKey());
+        assertEquals(200, flag2.getVersion());
+        assertNull(flag2.getFlagVersion());
+        assertEquals(LDValue.of(false), flag2.getValue());
+        assertNull(flag2.getVariation());
+        assertFalse(flag2.isTrackEvents());
+        assertFalse(flag2.isTrackReason());
+        assertNull(flag2.getDebugEventsUntilDate());
+        assertFalse(flag2.isDeleted());
+    }
 }
