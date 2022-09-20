@@ -61,12 +61,22 @@ final class EnvironmentData {
     }
 
     public static EnvironmentData fromJson(String json) throws SerializationException {
+        Map<String, Flag> dataMap;
         try {
-            return new EnvironmentData(
-                    GsonHelpers.gsonInstance().fromJson(json, FLAGS_MAP_TYPE));
+            dataMap = GsonHelpers.gsonInstance().fromJson(json, FLAGS_MAP_TYPE);
         } catch (Exception e) { // Gson throws various kinds of parsing exceptions that have no common base class
             throw new SerializationException(e);
         }
+        // Normalize the data set to ensure that the flag keys are present not only as map keys,
+        // but also in each Flag object. That is normally the case in data sent by LD, even though
+        // it's redundant, but if for any reason it isn't we can transparently fix it.
+        for (Map.Entry<String, Flag> e: dataMap.entrySet()) {
+            Flag f = e.getValue();
+            if (f.getKey() == null) {
+                dataMap.put(e.getKey(), f.withKey(e.getKey()));
+            }
+        }
+        return new EnvironmentData(dataMap);
     }
 
     public String toJson() {

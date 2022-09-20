@@ -87,6 +87,14 @@ class Flag {
         return deleted != null && deleted.booleanValue();
     }
 
+    Flag withKey(String key) {
+        return new Flag(
+                key, this.value, this.version, this.flagVersion, this.variation,
+                this.trackEvents, this.trackReason, this.debugEventsUntilDate, this.reason,
+                this.isDeleted()
+        );
+    }
+
     @Override
     public String toString() {
         return toJson();
