@@ -1,8 +1,13 @@
 package com.launchdarkly.sdk.android;
 
+import android.app.Application;
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
+
+import androidx.test.core.app.ApplicationProvider;
+
+import com.launchdarkly.logging.LDLogger;
 
 import java.lang.reflect.Method;
 
@@ -14,13 +19,12 @@ import java.lang.reflect.Method;
  * <pre>adb shell svc data disable</pre>
  */
 public class NetworkTestController {
-
-    private static Context context;
+    private static PlatformState platformState;
     private static WifiManager wifiManager;
     private static ConnectivityManager connectivityManager;
 
-    public static void setup(Context context) {
-        NetworkTestController.context = context;
+    public static void setup(Application context) {
+        platformState = new AndroidPlatformState(context, new SimpleTestTaskExecutor(), LDLogger.none());
         wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
         connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
     }
@@ -28,7 +32,7 @@ public class NetworkTestController {
     public static void enableNetwork() throws InterruptedException {
         setNetwork(true);
         // Wait for update to happen
-        while (!LDUtil.isInternetConnected(context)) {
+        while (!platformState.isNetworkAvailable()) {
             Thread.sleep(10);
         }
     }
@@ -36,7 +40,7 @@ public class NetworkTestController {
     public static void disableNetwork() throws InterruptedException {
         setNetwork(false);
         // Wait for update to happen
-        while (LDUtil.isInternetConnected(context)) {
+        while (platformState.isNetworkAvailable()) {
             Thread.sleep(10);
         }
     }

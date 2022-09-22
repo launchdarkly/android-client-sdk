@@ -1,8 +1,7 @@
 package com.launchdarkly.sdk.android;
 
-import android.app.Application;
-
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
@@ -15,10 +14,9 @@ import java.util.Calendar;
 import java.util.Iterator;
 import java.util.List;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
-import static com.launchdarkly.sdk.android.LDUtil.isInternetConnected;
-import static com.launchdarkly.sdk.android.LDUtil.safeCallbackError;
 import static com.launchdarkly.sdk.android.LDUtil.safeCallbackSuccess;
 
 class ConnectivityManager {
@@ -29,7 +27,7 @@ class ConnectivityManager {
     private final ConnectionMode foregroundMode;
     private final ConnectionMode backgroundMode;
 
-    private final Application application;
+    private final PlatformState platformState;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
@@ -37,69 +35,68 @@ class ConnectivityManager {
     private final FeatureFetcher fetcher;
     private final EventProcessor eventProcessor;
     private final Throttler throttler;
-    private final Foreground.Listener foregroundListener;
+    private final PlatformState.ForegroundChangeListener foregroundListener;
     private final TaskExecutor taskExecutor;
-    private final String environmentName;
     private final int pollingInterval;
+    private final int backgroundPollingInterval;
     private final LDUtil.ResultCallback<Void> monitor;
+    private final AtomicBoolean setOfflineState;
     private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
     private final LDLogger logger;
     private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
-    private volatile boolean setOffline;
 
-    ConnectivityManager(@NonNull final Application application,
+    ConnectivityManager(@NonNull final PlatformState platformState,
                         @NonNull final LDConfig ldConfig,
+                        @NonNull final String mobileKey,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextDataManager contextDataManager,
                         @NonNull final FeatureFetcher fetcher,
                         @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
                         @NonNull final TaskExecutor taskExecutor,
-                        @NonNull final String environmentName,
-                        final DiagnosticStore diagnosticStore,
-                        final LDLogger logger) {
-        this.application = application;
+                        @NonNull final AtomicBoolean setOfflineState,
+                        @Nullable final DiagnosticStore diagnosticStore,
+                        @NonNull final LDLogger logger) {
+        this.platformState = platformState;
         this.eventProcessor = eventProcessor;
         this.contextDataManager = contextDataManager;
         this.fetcher = fetcher;
         this.environmentStore = environmentStore;
         this.taskExecutor = taskExecutor;
-        this.environmentName = environmentName;
+        this.setOfflineState = setOfflineState;
         this.logger = logger;
         pollingInterval = ldConfig.getPollingIntervalMillis();
+        backgroundPollingInterval = ldConfig.getBackgroundPollingIntervalMillis();
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
-        setOffline = ldConfig.isOffline();
+        setOfflineState.set(ldConfig.isOffline());
 
         backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
         foregroundMode = ldConfig.isStream() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
 
         throttler = new Throttler(() -> {
             synchronized (ConnectivityManager.this) {
-                attemptTransition(isForeground() ? foregroundMode : backgroundMode);
+                attemptTransition(platformState.isForeground() ? foregroundMode : backgroundMode);
             }
         }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
 
-        foregroundListener = new Foreground.Listener() {
+        foregroundListener = new PlatformState.ForegroundChangeListener() {
             @Override
-            public void onBecameForeground() {
+            public void onForegroundChanged(boolean foreground) {
                 synchronized (ConnectivityManager.this) {
-                    if (isInternetConnected(application) && !setOffline &&
-                            connectionInformation.getConnectionMode() != foregroundMode) {
-                        throttler.attemptRun();
-                        eventProcessor.setInBackground(false);
-                    }
-                }
-            }
-
-            @Override
-            public void onBecameBackground() {
-                synchronized (ConnectivityManager.this) {
-                    if (isInternetConnected(application) && !setOffline &&
-                            connectionInformation.getConnectionMode() != backgroundMode) {
-                        throttler.cancel();
-                        eventProcessor.setInBackground(true);
-                        attemptTransition(backgroundMode);
+                    if (foreground) {
+                        if (platformState.isNetworkAvailable() && !isOffline() &&
+                                connectionInformation.getConnectionMode() != foregroundMode) {
+                            throttler.attemptRun();
+                            eventProcessor.setInBackground(false);
+                        }
+                    } else {
+                        if (platformState.isNetworkAvailable() && !isOffline() &&
+                                connectionInformation.getConnectionMode() != backgroundMode) {
+                            throttler.cancel();
+                            eventProcessor.setInBackground(true);
+                            attemptTransition(backgroundMode);
+                        }
                     }
                 }
             }
@@ -132,8 +129,8 @@ class ConnectivityManager {
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(application, ldConfig,
-                contextDataManager, fetcher, environmentName,  diagnosticStore, monitor, logger) : null;
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(platformState, ldConfig,
+                contextDataManager, fetcher, this, mobileKey, diagnosticStore, monitor, logger) : null;
     }
 
     boolean isInitialized() {
@@ -198,7 +195,7 @@ class ConnectivityManager {
                 if (mListener == null) {
                     iter.remove();
                 } else {
-                    taskExecutor.scheduleTask(() -> mListener.onConnectionModeChanged(connectionInformation));
+                    taskExecutor.scheduleTask(() -> mListener.onConnectionModeChanged(connectionInformation), 0);
                 }
             }
         }
@@ -212,19 +209,19 @@ class ConnectivityManager {
                 if (mListener == null) {
                     iter.remove();
                 } else {
-                    taskExecutor.scheduleTask(() -> mListener.onInternalFailure(ldFailure));
+                    taskExecutor.scheduleTask(() -> mListener.onInternalFailure(ldFailure), 0);
                 }
             }
         }
     }
 
     private void stopPolling() {
-        PollingUpdater.stop(application, logger);
+        PollingUpdater.stop(taskExecutor);
     }
 
     private void startPolling() {
         triggerPoll();
-        PollingUpdater.startPolling(application, pollingInterval, pollingInterval, logger);
+        PollingUpdater.startPolling(taskExecutor, pollingInterval, pollingInterval);
     }
 
     private void startBackgroundPolling() {
@@ -232,7 +229,7 @@ class ConnectivityManager {
             initCallback.onSuccess(null);
             initCallback = null;
         }
-        PollingUpdater.startBackgroundPolling(application, logger);
+        PollingUpdater.startPolling(taskExecutor, backgroundPollingInterval, backgroundPollingInterval);
     }
 
     private void stopStreaming() {
@@ -256,12 +253,12 @@ class ConnectivityManager {
     }
 
     private void removeForegroundListener() {
-        Foreground.get(application).removeListener(foregroundListener);
+        platformState.removeForegroundChangeListener(foregroundListener);
     }
 
     private void addForegroundListener() {
-        Foreground.get(application).removeListener(foregroundListener);
-        Foreground.get(application).addListener(foregroundListener);
+        platformState.removeForegroundChangeListener(foregroundListener);
+        platformState.addForegroundChangeListener(foregroundListener);
     }
 
     private void removeNetworkListener() {
@@ -318,10 +315,6 @@ class ConnectivityManager {
         updateConnectionMode(nextState);
     }
 
-    private boolean isForeground() {
-        return Foreground.get(application).isForeground();
-    }
-
     /**
      * Attempts to start the data source if possible.
      * <p>
@@ -343,7 +336,7 @@ class ConnectivityManager {
         // initialization times out or otherwise fails.
         contextDataManager.initFromStoredData(context);
 
-        if (setOffline) {
+        if (isOffline()) {
             logger.debug("Initialized in offline mode");
             initialized = true;
             updateConnectionMode(ConnectionMode.SET_OFFLINE);
@@ -351,7 +344,7 @@ class ConnectivityManager {
             return false;
         }
 
-        final boolean connected = isInternetConnected(application);
+        final boolean connected = platformState.isNetworkAvailable();
 
         if (!connected) {
             initialized = true;
@@ -373,21 +366,19 @@ class ConnectivityManager {
         removeNetworkListener();
         stopStreaming();
         stopPolling();
-        setOffline = true;
+        setOfflineState.set(true);
         eventProcessor.setOffline(true);
         callInitCallback();
     }
 
     synchronized void setOnline() {
-        if (setOffline) {
-            setOffline = false;
+        if (setOfflineState.getAndSet(false)) {
             startUp(null);
         }
     }
 
     synchronized void setOffline() {
-        if (!setOffline) {
-            setOffline = true;
+        if (!setOfflineState.getAndSet(true)) {
             throttler.cancel();
             attemptTransition(ConnectionMode.SET_OFFLINE);
             eventProcessor.setOffline(true);
@@ -395,7 +386,7 @@ class ConnectivityManager {
     }
 
     boolean isOffline() {
-        return setOffline;
+        return setOfflineState.get();
     }
 
     synchronized void reloadData(final LDUtil.ResultCallback<Void> onCompleteListener) {
@@ -431,7 +422,7 @@ class ConnectivityManager {
     }
 
     synchronized void onNetworkConnectivityChange(boolean connectedToInternet) {
-        if (setOffline) {
+        if (isOffline()) {
             // abort if manually set offline
             return;
         }
@@ -459,7 +450,7 @@ class ConnectivityManager {
 
     void triggerPoll() {
         if (!isOffline()) {
-            PollingUpdater.triggerPoll(application, contextDataManager, fetcher, monitor, logger);
+            PollingUpdater.triggerPoll(platformState, contextDataManager, fetcher, monitor, logger);
         }
     }
 }

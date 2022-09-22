@@ -23,7 +23,6 @@ import okhttp3.RequestBody;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
-import android.app.Application;
 import android.net.Uri;
 
 class StreamUpdateProcessor {
@@ -38,7 +37,7 @@ class StreamUpdateProcessor {
 
     private EventSource es;
     private final HttpProperties httpProperties;
-    private final Application application;
+    private final PlatformState platformState;
     private final LDConfig config;
     private final ContextDataManager contextDataManager;
     private final FeatureFetcher fetcher;
@@ -46,28 +45,29 @@ class StreamUpdateProcessor {
     private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
-    private final String environmentName;
+    private final ConnectivityManager connectivityManager;
     private final LDUtil.ResultCallback<Void> notifier;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
 
     StreamUpdateProcessor(
-            Application application,
+            PlatformState platformState,
             LDConfig config,
             ContextDataManager contextDataManager,
             FeatureFetcher fetcher,
-            String environmentName,
+            ConnectivityManager connectivityManager,
+            String mobileKey,
             DiagnosticStore diagnosticStore,
             LDUtil.ResultCallback<Void> notifier,
             LDLogger logger
     ) {
-        this.application = application;
+        this.platformState = platformState;
         this.config = config;
-        this.httpProperties = LDUtil.makeHttpProperties(config, config.getMobileKeys().get(environmentName));
+        this.httpProperties = LDUtil.makeHttpProperties(config, mobileKey);
         this.contextDataManager = contextDataManager;
         this.fetcher = fetcher;
-        this.environmentName = environmentName;
+        this.connectivityManager = connectivityManager;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
         this.logger = logger;
@@ -121,11 +121,7 @@ class StreamUpdateProcessor {
                             notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
                                 connection401Error = true;
-                                try {
-                                    LDClient.getForMobileKey(environmentName).setOffline();
-                                } catch (LaunchDarklyException e) {
-                                    LDUtil.logExceptionAtErrorLevel(logger, e, "Client unavailable to be set offline");
-                                }
+                                connectivityManager.setOffline();
                             }
                             stop(null);
                         } else {
@@ -204,7 +200,7 @@ class StreamUpdateProcessor {
                 // We debounce ping requests as they trigger a separate asynchronous request for the
                 // flags, overriding all flag values.
                 queue.call(() -> {
-                    PollingUpdater.triggerPoll(application, contextDataManager, fetcher, onCompleteListener, logger);
+                    PollingUpdater.triggerPoll(platformState, contextDataManager, fetcher, onCompleteListener, logger);
                     return null;
                 });
                 break;

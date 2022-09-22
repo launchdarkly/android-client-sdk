@@ -1,8 +1,6 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.content.IntentFilter;
-import android.os.Build;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
@@ -22,19 +20,14 @@ import com.launchdarkly.sdk.internal.http.HttpProperties;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.lang.ref.WeakReference;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.ConnectionPool;
@@ -57,6 +50,8 @@ public class LDClient implements LDClientInterface, Closeable {
     // A map of each LDClient (one per environment), or null if `init` hasn't been called yet.
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
+    private static volatile PlatformState sharedPlatformState;
+    private static volatile TaskExecutor sharedTaskExecutor;
     private static volatile ContextDecorator contextDecorator;
 
     // A lock to ensure calls to `init()` are serialized.
@@ -64,14 +59,14 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private static volatile LDLogger sharedLogger;
 
-    private final Application application;
+    private final PlatformState platformState;
+    private final TaskExecutor taskExecutor;
     private final LDConfig config;
     private final ContextDataManager contextDataManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final DiagnosticStore diagnosticStore;
-    private ConnectivityReceiver connectivityReceiver;
-    private final ExecutorService executor = Executors.newFixedThreadPool(1);
+    private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final LDLogger logger;
 
     /**
@@ -111,83 +106,93 @@ public class LDClient implements LDClientInterface, Closeable {
                 + (context == null ? "was null" : context.getError() + ")")));
         }
 
-        initSharedLogger(config);
+        LDLogger logger = initSharedLogger(config);
+
+        final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
+        LDClient primaryClient;
+        LDContext actualContext;
 
         // Acquire the `initLock` to ensure that if `init()` is called multiple times, we will only
         // initialize the client(s) once.
         synchronized (initLock) {
             if (instances != null) {
-                getSharedLogger().warn("LDClient.init() was called more than once! returning primary instance.");
+                logger.warn("LDClient.init() was called more than once! returning primary instance.");
                 return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
             }
 
+            sharedTaskExecutor = new AndroidTaskExecutor(application, logger);
+            sharedPlatformState = new AndroidPlatformState(application, sharedTaskExecutor, logger);
+
             PersistentDataStore store = config.getPersistentDataStore() == null ?
-                    new SharedPreferencesPersistentDataStore(application, getSharedLogger()) :
+                    new SharedPreferencesPersistentDataStore(application, logger) :
                     config.getPersistentDataStore();
             PersistentDataStoreWrapper persistentData = new PersistentDataStoreWrapper(
                     store,
-                    getSharedLogger()
+                    logger
             );
             contextDecorator = new ContextDecorator(persistentData, config.isGenerateAnonymousKeys());
 
-            Foreground.init(application);
-
             Migration.migrateWhenNeeded(application, config);
 
-            final LDContext actualContext = contextDecorator.decorateContext(context, getSharedLogger());
+            actualContext = contextDecorator.decorateContext(context, logger);
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
-            final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
 
+            LDClient createdPrimaryClient = null;
             for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
                 String envName = mobileKeys.getKey(), mobileKey = mobileKeys.getValue();
                 try {
                     final LDClient instance = new LDClient(
-                            application,
+                            sharedPlatformState,
+                            sharedTaskExecutor,
                             persistentData.perEnvironmentData(mobileKey),
                             actualContext,
                             config,
                             envName
                     );
                     newInstances.put(envName, instance);
+                    if (envName.equals(LDConfig.primaryEnvironmentName)) {
+                        createdPrimaryClient = instance;
+                    }
                 } catch (LaunchDarklyException e) {
                     resultFuture.setException(e);
                     return resultFuture;
                 }
             }
+            primaryClient = createdPrimaryClient;
+            // this indirect way of setting primaryClient is simply to make it easier to reference
+            // it within an inner class below, since it is "effectively final"
 
             instances = newInstances;
+        }
 
-            final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
-            LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
-                @Override
-                public void onSuccess(Void result) {
-                    if (initCounter.decrementAndGet() == 0) {
-                        resultFuture.set(newInstances.get(LDConfig.primaryEnvironmentName));
-                    }
-                }
-
-                @Override
-                public void onError(Throwable e) {
-                    resultFuture.setException(e);
-                }
-            };
-
-            PollingUpdater.setBackgroundPollingIntervalMillis(config.getBackgroundPollingIntervalMillis());
-
-            // Start up all instances
-            for (final LDClient instance : instances.values()) {
-                if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                    instance.eventProcessor.sendEvent(new Event.Identify(
-                            System.currentTimeMillis(),
-                            actualContext
-                    ));
+        final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
+        LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                if (initCounter.decrementAndGet() == 0) {
+                    resultFuture.set(primaryClient);
                 }
             }
 
-            return resultFuture;
+            @Override
+            public void onError(Throwable e) {
+                resultFuture.setException(e);
+            }
+        };
+
+        // Start up all instances
+        for (final LDClient instance : instances.values()) {
+            if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
+                instance.eventProcessor.sendEvent(new Event.Identify(
+                        System.currentTimeMillis(),
+                        actualContext
+                ));
+            }
         }
+
+        return resultFuture;
     }
 
     /**
@@ -267,38 +272,51 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @VisibleForTesting
     protected LDClient(
-            final Application application,
+            @NonNull final PlatformState platformState,
+            @NonNull final TaskExecutor taskExecutor,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull LDContext initialContext,
-            @NonNull final LDConfig config
+            @NonNull final LDConfig config,
+            @NonNull final String mobileKey
     ) throws LaunchDarklyException {
-        this(application, environmentStore, initialContext, config, LDConfig.primaryEnvironmentName);
+        this(platformState, taskExecutor, environmentStore, initialContext, config,
+                mobileKey, LDConfig.primaryEnvironmentName);
     }
 
     @VisibleForTesting
     protected LDClient(
-            final Application application,
+            @NonNull final PlatformState platformState,
+            @NonNull final TaskExecutor taskExecutor,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull LDContext initialContext,
             @NonNull final LDConfig config,
-            final String environmentName
+            @NonNull final String mobileKey,
+            @NonNull final String environmentName
     ) throws LaunchDarklyException {
         this.logger = LDLogger.withAdapter(config.getLogAdapter(), config.getLoggerName());
         logger.info("Creating LaunchDarkly client. Version: {}", BuildConfig.VERSION_NAME);
         this.config = config;
-        this.application = application;
-        String mobileKey = config.getMobileKeys().get(environmentName);
+        this.platformState = platformState;
+        this.taskExecutor = taskExecutor;
         if (mobileKey == null) {
             throw new LaunchDarklyException("Mobile key cannot be null");
         }
-        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName, logger);
-        OkHttpClient sharedEventClient = makeSharedEventClient();
+
+        AtomicBoolean setOfflineState = new AtomicBoolean();
+        // setOfflineState is managed by ConnectivityManager; other components can see it so that
+        // they do not need a direct reference to ConnectivityManager
+        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(
+                platformState,
+                config,
+                mobileKey,
+                setOfflineState,
+                logger
+        );
         if (config.getDiagnosticOptOut()) {
             this.diagnosticStore = null;
         } else {
             this.diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(config, mobileKey));
         }
-        TaskExecutor taskExecutor = new AndroidTaskExecutor(logger);
         this.contextDataManager = new ContextDataManager(
                 environmentStore,
                 initialContext,
@@ -312,7 +330,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 config,
                 httpProperties,
                 diagnosticStore,
-                !Foreground.get().isForeground(),
+                !platformState.isForeground(),
                 logger
         );
         eventProcessor = new DefaultEventProcessor(
@@ -322,14 +340,27 @@ public class LDClient implements LDClientInterface, Closeable {
                 logger
         );
 
-        connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextDataManager,
-                fetcher, environmentStore, taskExecutor, environmentName, diagnosticStore, logger);
+        connectivityManager = new ConnectivityManager(
+                platformState,
+                config,
+                mobileKey,
+                eventProcessor,
+                contextDataManager,
+                fetcher,
+                environmentStore,
+                taskExecutor,
+                setOfflineState,
+                diagnosticStore,
+                logger
+        );
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            connectivityReceiver = new ConnectivityReceiver();
-            IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
-            application.registerReceiver(connectivityReceiver, filter);
-        }
+        connectivityChangeListener = new PlatformState.ConnectivityChangeListener() {
+            @Override
+            public void onConnectivityChanged(boolean networkAvailable) {
+                connectivityManager.onNetworkConnectivityChange(networkAvailable);
+            }
+        };
+        platformState.addConnectivityChangeListener(connectivityChangeListener);
     }
 
     private OkHttpClient makeSharedEventClient() {
@@ -528,18 +559,21 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public void close() throws IOException {
         closeInstances();
+
+        synchronized (initLock) {
+            sharedTaskExecutor.close();
+            sharedTaskExecutor = null;
+            sharedPlatformState.close();
+            sharedPlatformState = null;
+        }
     }
 
     private void closeInternal() {
+        platformState.removeConnectivityChangeListener(connectivityChangeListener);
         connectivityManager.shutdown();
         try {
             eventProcessor.close();
         } catch (Exception e) {}
-
-        if (connectivityReceiver != null) {
-            application.unregisterReceiver(connectivityReceiver);
-            connectivityReceiver = null;
-        }
     }
 
     private void closeInstances() {
@@ -646,10 +680,6 @@ public class LDClient implements LDClientInterface, Closeable {
         return BuildConfig.VERSION_NAME;
     }
 
-    private void onNetworkConnectivityChange(boolean connectedToInternet) {
-        connectivityManager.onNetworkConnectivityChange(connectedToInternet);
-    }
-
     private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue defaultValue, EvaluationReason reason) {
         eventProcessor.sendEvent(new Event.FeatureRequest(
                 System.currentTimeMillis(),
@@ -677,23 +707,14 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    static void onNetworkConnectivityChangeInstances(boolean network) {
-        if (instances == null) {
-            getSharedLogger().error("Tried to update LDClients with network connectivity status, but LDClient has not yet been initialized.");
-            return;
-        }
-        for (LDClient instance : instances.values()) {
-            instance.onNetworkConnectivityChange(network);
-        }
-    }
-
-    private static void initSharedLogger(LDConfig config) {
+    private static LDLogger initSharedLogger(LDConfig config) {
         synchronized (initLock) {
             // We initialize the shared logger lazily because, until the first time init() is called, because
             // we don't know what the log adapter should be until there's a configuration.
             if (sharedLogger == null) {
                 sharedLogger = LDLogger.withAdapter(config.getLogAdapter(), config.getLoggerName());
             }
+            return sharedLogger;
         }
     }
 
