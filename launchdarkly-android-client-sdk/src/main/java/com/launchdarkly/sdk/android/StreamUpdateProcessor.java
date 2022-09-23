@@ -45,32 +45,31 @@ class StreamUpdateProcessor {
     private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
-    private final ConnectivityManager connectivityManager;
+    private final ConnectivityManager.CanShutdownForInvalidMobileKey invalidMobileKeyNotifier;
     private final LDUtil.ResultCallback<Void> notifier;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
 
     StreamUpdateProcessor(
-            PlatformState platformState,
-            LDConfig config,
-            ContextDataManager contextDataManager,
-            FeatureFetcher fetcher,
-            ConnectivityManager connectivityManager,
-            String mobileKey,
-            DiagnosticStore diagnosticStore,
-            LDUtil.ResultCallback<Void> notifier,
-            LDLogger logger
+            @NonNull PlatformState platformState,
+            @NonNull ClientState clientState,
+            @NonNull LDConfig config,
+            @NonNull ContextDataManager contextDataManager,
+            @NonNull FeatureFetcher fetcher,
+            @NonNull ConnectivityManager.CanShutdownForInvalidMobileKey invalidMobileKeyNotifier,
+            @Nullable DiagnosticStore diagnosticStore,
+            @NonNull LDUtil.ResultCallback<Void> notifier
     ) {
         this.platformState = platformState;
         this.config = config;
-        this.httpProperties = LDUtil.makeHttpProperties(config, mobileKey);
+        this.httpProperties = LDUtil.makeHttpProperties(config, clientState.getMobileKey());
         this.contextDataManager = contextDataManager;
         this.fetcher = fetcher;
-        this.connectivityManager = connectivityManager;
+        this.invalidMobileKeyNotifier = invalidMobileKeyNotifier;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
-        this.logger = logger;
+        this.logger = clientState.getLogger();
         queue = new Debounce();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
@@ -121,7 +120,7 @@ class StreamUpdateProcessor {
                             notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
                                 connection401Error = true;
-                                connectivityManager.setOffline();
+                                invalidMobileKeyNotifier.shutdownForInvalidMobileKey();
                             }
                             stop(null);
                         } else {

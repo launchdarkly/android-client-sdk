@@ -1,13 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
-import android.net.NetworkInfo;
-import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Base64;
 
 import com.launchdarkly.logging.LDLogger;
@@ -89,24 +81,6 @@ class LDUtil {
                 null, // sslSocketFactory
                 null // trustManager
         );
-    }
-
-    /**
-     * Looks at both the Android device status and the environment's {@link LDClient} to determine if any network calls should be made.
-     *
-     * @param platformState   Provides device status
-     * @param environmentName Name of the environment to get the LDClient for
-     * @return whether the device is connected to the internet and the LDClient instance is online
-     */
-    static boolean isClientConnected(PlatformState platformState, String environmentName) {
-        boolean deviceConnected = platformState.isNetworkAvailable();
-        try {
-            return deviceConnected && !LDClient.getForMobileKey(environmentName).isOffline();
-        } catch (LaunchDarklyException e) {
-            LDClient.getSharedLogger().error("Exception caught when getting LDClient: {}", LogValues.exceptionSummary(e));
-            LDClient.getSharedLogger().debug(LogValues.exceptionTrace(e));
-            return false;
-        }
     }
 
     interface ResultCallback<T> {

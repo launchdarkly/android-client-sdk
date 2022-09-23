@@ -37,14 +37,11 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.mockwebserver.MockWebServer;
 
-import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.capture;
 import static org.easymock.EasyMock.eq;
-import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
 import static org.easymock.EasyMock.reset;
 import static org.junit.Assert.assertEquals;
@@ -81,7 +78,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private AndroidTaskExecutor taskExecutor;
     private final MockPlatformState mockPlatformState = new MockPlatformState();
     private final Application application = ApplicationProvider.getApplicationContext();
-    private final AtomicBoolean setOfflineState = new AtomicBoolean();
 
     @SuppressWarnings("unused")
     @Mock(MockType.STRICT)
@@ -89,6 +85,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     private PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private ContextDataManager contextDataManager;
+    private ClientStateImpl clientState;
     private BlockingQueue<List<String>> allFlagsReceived;
 
     private ConnectivityManager connectivityManager;
@@ -103,6 +100,13 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void before() {
         environmentStore = TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData(MOBILE_KEY);
         taskExecutor = new AndroidTaskExecutor(application, logging.logger);
+
+        clientState = new ClientStateImpl(
+                MOBILE_KEY,
+                "default",
+                logging.logger,
+                false
+        );
 
         contextDataManager = new ContextDataManager(
                 environmentStore,
@@ -156,19 +160,18 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .disableBackgroundUpdating(backgroundDisabled)
                 .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
+        clientState.setForceOffline(setOffline);
 
         connectivityManager = new ConnectivityManager(
                 mockPlatformState,
+                clientState,
                 config,
-                MOBILE_KEY,
                 eventProcessor,
                 contextDataManager,
                 fetcher,
                 environmentStore,
                 taskExecutor,
-                setOfflineState,
-                null,
-                logging.logger
+                null
         );
     }
 
@@ -205,7 +208,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertTrue(connectivityManager.isOffline());
+        assertTrue(clientState.isForcedOffline());
         assertEquals(ConnectionMode.SET_OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
@@ -221,7 +224,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
@@ -239,7 +242,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.BACKGROUND_DISABLED, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
@@ -257,7 +260,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.BACKGROUND_POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
@@ -273,7 +276,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNull(connectivityManager.getConnectionInformation().getLastFailure());
         assertNull(connectivityManager.getConnectionInformation().getLastFailedConnection());
@@ -300,7 +303,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertFalse(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         LDFailure failure = connectivityManager.getConnectionInformation().getLastFailure();
         assertNotNull(failure);
@@ -331,7 +334,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertFalse(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         LDFailure failure = connectivityManager.getConnectionInformation().getLastFailure();
         assertNotNull(failure);
@@ -350,7 +353,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         awaitStartUp();
 
         assertTrue(connectivityManager.isInitialized());
-        assertTrue(connectivityManager.isOffline());
+        assertTrue(clientState.isForcedOffline());
         assertEquals(ConnectionMode.SET_OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
@@ -376,7 +379,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             awaitStartUp();
 
             assertTrue(connectivityManager.isInitialized());
-            assertFalse(connectivityManager.isOffline());
+            assertFalse(clientState.isForcedOffline());
             assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
             assertNoConnection();
         }
@@ -391,7 +394,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         awaitStartUp();
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.BACKGROUND_DISABLED, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
@@ -409,7 +412,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         // is started when the application is started, in the foreground.
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.BACKGROUND_POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
@@ -430,7 +433,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertTrue(connectivityManager.isOffline());
+        assertTrue(clientState.isForcedOffline());
         assertEquals(ConnectionMode.SET_OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
         //assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());
@@ -452,7 +455,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertFalse(connectivityManager.isInitialized());
-        assertTrue(connectivityManager.isOffline());
+        assertTrue(clientState.isForcedOffline());
         assertEquals(ConnectionMode.SHUTDOWN, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());
@@ -479,7 +482,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.BACKGROUND_DISABLED, connectivityManager.getConnectionInformation().getConnectionMode());
 //        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());
@@ -503,7 +506,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertTrue(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
 //        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());
@@ -526,7 +529,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
 
         assertFalse(connectivityManager.isInitialized());
-        assertFalse(connectivityManager.isOffline());
+        assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.STREAMING, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());

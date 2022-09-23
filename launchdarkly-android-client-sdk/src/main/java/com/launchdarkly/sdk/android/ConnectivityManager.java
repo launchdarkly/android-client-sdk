@@ -14,12 +14,30 @@ import java.util.Calendar;
 import java.util.Iterator;
 import java.util.List;
 import java.util.TimeZone;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import static com.launchdarkly.sdk.android.LDUtil.safeCallbackSuccess;
 
 class ConnectivityManager {
+    // Implementation notes:
+    //
+    // 1. This class has no direct interactions with Android APIs. All logic related to detecting
+    // system state, such as network connectivity and foreground/background, is done through the
+    // PlatformState abstraction; all logic related to task scheduling is done through the
+    // TaskExecutor abstraction.
+    //
+    // 2. Each instance of this class belongs to a single LDClient instance. So in multi-environment
+    // mode, there will be several of these, one for each client.
+    //
+    // 3. This class manages the "are we set to be explicitly offline" state, which is set at
+    // configuration time but can also be changed dynamically. Other components access that state
+    // through the ClientStateProvider so that they do not to access ConnectivityManager directly.
+
+    interface CanShutdownForInvalidMobileKey {
+        // Other components can use this interface to signal that we should go offline because we
+        // got a 401 error for a mobile key.
+        void shutdownForInvalidMobileKey();
+    }
 
     private static final long MAX_RETRY_TIME_MS = 60_000; // 60 seconds
     private static final long RETRY_TIME_MS = 1_000; // 1 second
@@ -28,6 +46,7 @@ class ConnectivityManager {
     private final ConnectionMode backgroundMode;
 
     private final PlatformState platformState;
+    private final ClientStateImpl clientState;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
@@ -40,36 +59,33 @@ class ConnectivityManager {
     private final int pollingInterval;
     private final int backgroundPollingInterval;
     private final LDUtil.ResultCallback<Void> monitor;
-    private final AtomicBoolean setOfflineState;
     private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
     private final LDLogger logger;
     private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
 
     ConnectivityManager(@NonNull final PlatformState platformState,
+                        @NonNull final ClientStateImpl clientState,
                         @NonNull final LDConfig ldConfig,
-                        @NonNull final String mobileKey,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextDataManager contextDataManager,
                         @NonNull final FeatureFetcher fetcher,
                         @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
                         @NonNull final TaskExecutor taskExecutor,
-                        @NonNull final AtomicBoolean setOfflineState,
-                        @Nullable final DiagnosticStore diagnosticStore,
-                        @NonNull final LDLogger logger) {
+                        @Nullable final DiagnosticStore diagnosticStore
+    ) {
         this.platformState = platformState;
+        this.clientState = clientState;
         this.eventProcessor = eventProcessor;
         this.contextDataManager = contextDataManager;
         this.fetcher = fetcher;
         this.environmentStore = environmentStore;
         this.taskExecutor = taskExecutor;
-        this.setOfflineState = setOfflineState;
-        this.logger = logger;
+        this.logger = clientState.getLogger();
         pollingInterval = ldConfig.getPollingIntervalMillis();
         backgroundPollingInterval = ldConfig.getBackgroundPollingIntervalMillis();
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
-        setOfflineState.set(ldConfig.isOffline());
 
         backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
         foregroundMode = ldConfig.isStream() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
@@ -85,13 +101,13 @@ class ConnectivityManager {
             public void onForegroundChanged(boolean foreground) {
                 synchronized (ConnectivityManager.this) {
                     if (foreground) {
-                        if (platformState.isNetworkAvailable() && !isOffline() &&
+                        if (platformState.isNetworkAvailable() && !clientState.isForcedOffline() &&
                                 connectionInformation.getConnectionMode() != foregroundMode) {
                             throttler.attemptRun();
                             eventProcessor.setInBackground(false);
                         }
                     } else {
-                        if (platformState.isNetworkAvailable() && !isOffline() &&
+                        if (platformState.isNetworkAvailable() && !clientState.isForcedOffline() &&
                                 connectionInformation.getConnectionMode() != backgroundMode) {
                             throttler.cancel();
                             eventProcessor.setInBackground(true);
@@ -129,8 +145,15 @@ class ConnectivityManager {
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(platformState, ldConfig,
-                contextDataManager, fetcher, this, mobileKey, diagnosticStore, monitor, logger) : null;
+        final CanShutdownForInvalidMobileKey invalidMobileKeyNotifier = new CanShutdownForInvalidMobileKey() {
+            @Override
+            public void shutdownForInvalidMobileKey() {
+                setOffline();
+            }
+        };
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(platformState,
+                clientState, ldConfig, contextDataManager, fetcher, invalidMobileKeyNotifier,
+                diagnosticStore, monitor) : null;
     }
 
     boolean isInitialized() {
@@ -336,7 +359,7 @@ class ConnectivityManager {
         // initialization times out or otherwise fails.
         contextDataManager.initFromStoredData(context);
 
-        if (isOffline()) {
+        if (clientState.isForcedOffline()) {
             logger.debug("Initialized in offline mode");
             initialized = true;
             updateConnectionMode(ConnectionMode.SET_OFFLINE);
@@ -366,27 +389,25 @@ class ConnectivityManager {
         removeNetworkListener();
         stopStreaming();
         stopPolling();
-        setOfflineState.set(true);
+        clientState.setForceOffline(true);
         eventProcessor.setOffline(true);
         callInitCallback();
     }
 
     synchronized void setOnline() {
-        if (setOfflineState.getAndSet(false)) {
+        boolean wasOffline = clientState.setForceOffline(false);
+        if (wasOffline) {
             startUp(null);
         }
     }
 
     synchronized void setOffline() {
-        if (!setOfflineState.getAndSet(true)) {
+        boolean wasOffline = clientState.setForceOffline(true);
+        if (!wasOffline) {
             throttler.cancel();
             attemptTransition(ConnectionMode.SET_OFFLINE);
             eventProcessor.setOffline(true);
         }
-    }
-
-    boolean isOffline() {
-        return setOfflineState.get();
     }
 
     synchronized void reloadData(final LDUtil.ResultCallback<Void> onCompleteListener) {
@@ -422,7 +443,7 @@ class ConnectivityManager {
     }
 
     synchronized void onNetworkConnectivityChange(boolean connectedToInternet) {
-        if (isOffline()) {
+        if (clientState.isForcedOffline()) {
             // abort if manually set offline
             return;
         }
@@ -449,7 +470,7 @@ class ConnectivityManager {
     }
 
     void triggerPoll() {
-        if (!isOffline()) {
+        if (!clientState.isForcedOffline()) {
             PollingUpdater.triggerPoll(platformState, contextDataManager, fetcher, monitor, logger);
         }
     }

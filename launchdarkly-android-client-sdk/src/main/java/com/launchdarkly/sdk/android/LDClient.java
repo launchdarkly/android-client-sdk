@@ -27,7 +27,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.ConnectionPool;
@@ -65,6 +64,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ContextDataManager contextDataManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
+    private final ClientStateImpl clientState;
     private final DiagnosticStore diagnosticStore;
     private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final LDLogger logger;
@@ -149,10 +149,11 @@ public class LDClient implements LDClientInterface, Closeable {
                             persistentData.perEnvironmentData(mobileKey),
                             actualContext,
                             config,
+                            mobileKey,
                             envName
                     );
                     newInstances.put(envName, instance);
-                    if (envName.equals(LDConfig.primaryEnvironmentName)) {
+                    if (mobileKey.equals(config.getMobileKey())) {
                         createdPrimaryClient = instance;
                     }
                 } catch (LaunchDarklyException e) {
@@ -277,19 +278,6 @@ public class LDClient implements LDClientInterface, Closeable {
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull LDContext initialContext,
             @NonNull final LDConfig config,
-            @NonNull final String mobileKey
-    ) throws LaunchDarklyException {
-        this(platformState, taskExecutor, environmentStore, initialContext, config,
-                mobileKey, LDConfig.primaryEnvironmentName);
-    }
-
-    @VisibleForTesting
-    protected LDClient(
-            @NonNull final PlatformState platformState,
-            @NonNull final TaskExecutor taskExecutor,
-            @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
-            @NonNull LDContext initialContext,
-            @NonNull final LDConfig config,
             @NonNull final String mobileKey,
             @NonNull final String environmentName
     ) throws LaunchDarklyException {
@@ -302,16 +290,15 @@ public class LDClient implements LDClientInterface, Closeable {
             throw new LaunchDarklyException("Mobile key cannot be null");
         }
 
-        AtomicBoolean setOfflineState = new AtomicBoolean();
-        // setOfflineState is managed by ConnectivityManager; other components can see it so that
-        // they do not need a direct reference to ConnectivityManager
-        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(
-                platformState,
-                config,
+        clientState = new ClientStateImpl(
                 mobileKey,
-                setOfflineState,
-                logger
+                environmentName,
+                logger,
+                config.isOffline()
         );
+
+        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(platformState, config,
+                clientState);
         if (config.getDiagnosticOptOut()) {
             this.diagnosticStore = null;
         } else {
@@ -342,16 +329,14 @@ public class LDClient implements LDClientInterface, Closeable {
 
         connectivityManager = new ConnectivityManager(
                 platformState,
+                clientState,
                 config,
-                mobileKey,
                 eventProcessor,
                 contextDataManager,
                 fetcher,
                 environmentStore,
                 taskExecutor,
-                setOfflineState,
-                diagnosticStore,
-                logger
+                diagnosticStore
         );
 
         connectivityChangeListener = new PlatformState.ConnectivityChangeListener() {
@@ -606,12 +591,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean isInitialized() {
-        return connectivityManager.isOffline() || connectivityManager.isInitialized();
+        return clientState.isForcedOffline() || connectivityManager.isInitialized();
     }
 
     @Override
     public boolean isOffline() {
-        return connectivityManager.isOffline();
+        return clientState.isForcedOffline();
     }
 
     @Override

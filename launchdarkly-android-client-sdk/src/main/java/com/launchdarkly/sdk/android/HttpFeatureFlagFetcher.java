@@ -1,12 +1,9 @@
 package com.launchdarkly.sdk.android;
 
-import android.content.Context;
 import android.net.Uri;
 
 import androidx.annotation.NonNull;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
@@ -15,7 +12,6 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Cache;
 import okhttp3.Call;
@@ -26,10 +22,8 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-import okhttp3.internal.platform.Platform;
 
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
-import static com.launchdarkly.sdk.android.LDUtil.isClientConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFetcher {
 
@@ -37,7 +31,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private final LDConfig config;
     private final HttpProperties httpProperties;
-    private final AtomicBoolean setOfflineState;
+    private final ClientState clientStateProvider;
     private final PlatformState platformState;
     private final OkHttpClient client;
     private final LDLogger logger;
@@ -45,25 +39,21 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     static HttpFeatureFlagFetcher newInstance(
             @NonNull PlatformState platformState,
             @NonNull LDConfig config,
-            @NonNull String mobileKey,
-            @NonNull AtomicBoolean setOfflineState,
-            @NonNull LDLogger logger
+            @NonNull ClientState clientStateProvider
     ) {
-        return new HttpFeatureFlagFetcher(platformState, config, mobileKey, setOfflineState, logger);
+        return new HttpFeatureFlagFetcher(platformState, config, clientStateProvider);
     }
 
     private HttpFeatureFlagFetcher(
             @NonNull PlatformState platformState,
             @NonNull LDConfig config,
-            @NonNull String mobileKey,
-            @NonNull AtomicBoolean setOfflineState,
-            @NonNull LDLogger logger
+            @NonNull ClientState clientStateProvider
     ) {
         this.config = config;
-        this.setOfflineState = setOfflineState;
-        this.httpProperties = LDUtil.makeHttpProperties(config, mobileKey);
+        this.clientStateProvider = clientStateProvider;
+        this.httpProperties = LDUtil.makeHttpProperties(config, clientStateProvider.getMobileKey());
         this.platformState = platformState;
-        this.logger = logger;
+        this.logger = clientStateProvider.getLogger();
 
         File cacheDir = new File(platformState.getCacheDir(), "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
@@ -84,7 +74,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     @Override
     public synchronized void fetch(LDContext ldContext, final LDUtil.ResultCallback<String> callback) {
-        if (ldContext != null && !setOfflineState.get() && platformState.isNetworkAvailable()) {
+        if (ldContext != null && !clientStateProvider.isForcedOffline() && platformState.isNetworkAvailable()) {
 
             final Request request = config.isUseReport()
                     ? getReportRequest(ldContext)
