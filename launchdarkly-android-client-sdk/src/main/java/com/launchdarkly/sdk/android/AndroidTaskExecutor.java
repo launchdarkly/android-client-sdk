@@ -65,7 +65,7 @@ final class AndroidTaskExecutor implements TaskExecutor {
 
     @Override
     public ScheduledFuture<?> scheduleTask(Runnable action, long delayMillis) {
-        return executor.schedule(action, delayMillis, TimeUnit.MILLISECONDS);
+        return executor.schedule(wrapActionWithErrorHandling(action), delayMillis, TimeUnit.MILLISECONDS);
     }
 
     @Override
