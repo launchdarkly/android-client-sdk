@@ -209,6 +209,21 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
+    public void initDeviceOffline() throws ExecutionException, InterruptedException {
+        mockPlatformState.setNetworkAvailable(false);
+        replayAll();
+        createTestManager(false, true, false);
+
+        awaitStartUp();
+        verifyAll();
+
+        assertTrue(connectivityManager.isInitialized());
+        assertFalse(clientState.isForcedOffline());
+        assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
+        assertNoConnection();
+    }
+
+    @Test
     public void initBackgroundDisabled() throws ExecutionException {
         eventProcessor.setOffline(false);
         replayAll();
@@ -337,6 +352,20 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertNoConnection();
     }
 
+    // This test requires either Android < API 21 or mobile data to be off on device/emulator.
+    @Test
+    public void reloadDeviceOffline() throws ExecutionException, InterruptedException {
+        mockPlatformState.setNetworkAvailable(false);
+        createTestManager(false, true, false);
+
+        awaitStartUp();
+
+        assertTrue(connectivityManager.isInitialized());
+        assertFalse(clientState.isForcedOffline());
+        assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
+        assertNoConnection();
+    }
+
     @Test
     public void reloadBackgroundDisabled() throws ExecutionException {
         mockPlatformState.setForeground(false);
@@ -436,6 +465,32 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.BACKGROUND_DISABLED, connectivityManager.getConnectionInformation().getConnectionMode());
+//        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
+        Assert.assertEquals(0, mockStreamServer.getRequestCount());
+    }
+
+    @Test
+    public void deviceOfflinedDuringInitStreaming() throws ExecutionException, InterruptedException {
+        eventProcessor.setOffline(false);
+        eventProcessor.setOffline(true);
+        replayAll();
+
+        // 192.0.2.1 is assigned as TEST-NET-1 reserved usage.
+        createTestManager(false, true, false, "http://192.0.2.1");
+
+        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
+        connectivityManager.startUp(awaitableCallback);
+
+        // use MockPlatformState to pretend the network has become unavailable
+        mockPlatformState.setNetworkAvailable(false);
+        mockPlatformState.notifyConnectivityChangeListeners(false);
+
+        awaitableCallback.await();
+        verifyAll();
+
+        assertTrue(connectivityManager.isInitialized());
+        assertFalse(clientState.isForcedOffline());
+        assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
 //        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());
     }

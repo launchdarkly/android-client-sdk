@@ -55,12 +55,12 @@ public class MockPlatformState implements PlatformState {
 
     @Override
     public void addForegroundChangeListener(ForegroundChangeListener listener) {
-
+        foregroundChangeListeners.add(listener);
     }
 
     @Override
     public void removeForegroundChangeListener(ForegroundChangeListener listener) {
-
+        foregroundChangeListeners.remove(listener);
     }
 
     public void notifyForegroundChangeListeners(boolean foreground) {

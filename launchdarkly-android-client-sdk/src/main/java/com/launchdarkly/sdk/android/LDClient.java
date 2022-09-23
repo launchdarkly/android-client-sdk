@@ -66,7 +66,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ConnectivityManager connectivityManager;
     private final ClientStateImpl clientState;
     private final DiagnosticStore diagnosticStore;
-    private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final LDLogger logger;
 
     /**
@@ -338,14 +337,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 taskExecutor,
                 diagnosticStore
         );
-
-        connectivityChangeListener = new PlatformState.ConnectivityChangeListener() {
-            @Override
-            public void onConnectivityChanged(boolean networkAvailable) {
-                connectivityManager.onNetworkConnectivityChange(networkAvailable);
-            }
-        };
-        platformState.addConnectivityChangeListener(connectivityChangeListener);
     }
 
     private OkHttpClient makeSharedEventClient() {
@@ -554,7 +545,6 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void closeInternal() {
-        platformState.removeConnectivityChangeListener(connectivityChangeListener);
         connectivityManager.shutdown();
         try {
             eventProcessor.close();

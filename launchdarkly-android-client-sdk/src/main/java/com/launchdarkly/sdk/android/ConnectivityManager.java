@@ -55,6 +55,7 @@ class ConnectivityManager {
     private final EventProcessor eventProcessor;
     private final Throttler throttler;
     private final PlatformState.ForegroundChangeListener foregroundListener;
+    private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final TaskExecutor taskExecutor;
     private final int pollingInterval;
     private final int backgroundPollingInterval;
@@ -96,6 +97,14 @@ class ConnectivityManager {
             }
         }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
 
+        connectivityChangeListener = new PlatformState.ConnectivityChangeListener() {
+            @Override
+            public void onConnectivityChanged(boolean networkAvailable) {
+                onNetworkConnectivityChange(networkAvailable);
+            }
+        };
+        platformState.addConnectivityChangeListener(connectivityChangeListener);
+
         foregroundListener = new PlatformState.ForegroundChangeListener() {
             @Override
             public void onForegroundChanged(boolean foreground) {
@@ -117,6 +126,7 @@ class ConnectivityManager {
                 }
             }
         };
+        platformState.addForegroundChangeListener(foregroundListener);
 
         monitor = new LDUtil.ResultCallback<Void>() {
             @Override
@@ -275,37 +285,7 @@ class ConnectivityManager {
         }
     }
 
-    private void removeForegroundListener() {
-        platformState.removeForegroundChangeListener(foregroundListener);
-    }
-
-    private void addForegroundListener() {
-        platformState.removeForegroundChangeListener(foregroundListener);
-        platformState.addForegroundChangeListener(foregroundListener);
-    }
-
-    private void removeNetworkListener() {
-        // For now these don't do anything, but will later dynamically register and unregister
-        // the network connectivity receiver
-    }
-
-    private void addNetworkListener() {
-        // For now these don't do anything, but will later dynamically register and unregister
-        // the network connectivity receiver
-    }
-
     private synchronized void attemptTransition(ConnectionMode nextState) {
-        if (nextState.isTransitionOnForeground()) {
-            addForegroundListener();
-        } else {
-            removeForegroundListener();
-        }
-        if (nextState.isTransitionOnNetwork()) {
-            addNetworkListener();
-        } else {
-            removeNetworkListener();
-        }
-
         switch (nextState) {
             case SHUTDOWN:
             case BACKGROUND_DISABLED:
@@ -385,8 +365,8 @@ class ConnectivityManager {
     synchronized void shutdown() {
         throttler.cancel();
         updateConnectionMode(ConnectionMode.SHUTDOWN);
-        removeForegroundListener();
-        removeNetworkListener();
+        platformState.removeConnectivityChangeListener(connectivityChangeListener);
+        platformState.removeForegroundChangeListener(foregroundListener);
         stopStreaming();
         stopPolling();
         clientState.setForceOffline(true);
@@ -413,8 +393,6 @@ class ConnectivityManager {
     synchronized void reloadData(final LDUtil.ResultCallback<Void> onCompleteListener) {
         throttler.cancel();
         callInitCallback();
-        removeForegroundListener();
-        removeNetworkListener();
         stopPolling();
         stopStreaming(new LDUtil.ResultCallback<Void>() {
             @Override
@@ -442,7 +420,7 @@ class ConnectivityManager {
         updateListenersConnectionModeChanged(connectionInformation);
     }
 
-    synchronized void onNetworkConnectivityChange(boolean connectedToInternet) {
+    private synchronized void onNetworkConnectivityChange(boolean connectedToInternet) {
         if (clientState.isForcedOffline()) {
             // abort if manually set offline
             return;
