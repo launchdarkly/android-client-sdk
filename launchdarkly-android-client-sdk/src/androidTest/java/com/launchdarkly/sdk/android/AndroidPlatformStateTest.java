@@ -174,14 +174,6 @@ public class AndroidPlatformStateTest extends EasyMockSupport {
             }
         }
 
-//        @Override
-//        public Object getSystemService(String name) {
-//            if (name.equals(Context.CONNECTIVITY_SERVICE)) {
-//                return new MockConnectivityManager();
-//            }
-//            throw new IllegalArgumentException("unimplemented test service");
-//        }
-
         void moveToForeground() {
             startInForeground = true;
             if (callbacks != null) {

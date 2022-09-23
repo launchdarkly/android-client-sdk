@@ -53,7 +53,6 @@ public class LDClientEndToEndTest {
                 // Not 100% sure we still need to defer this piece of initialization onto another
                 // thread, but we had problems in the past - see comments in TestUtil
                 act -> {
-                    NetworkTestController.setup(act.getApplication());
                     mockPollingServer = new MockWebServer();
                     try {
                         mockPollingServer.start();

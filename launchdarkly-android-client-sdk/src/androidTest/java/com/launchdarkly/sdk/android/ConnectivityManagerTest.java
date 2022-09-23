@@ -1,11 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.content.Context;
-import android.net.Network;
-import android.net.NetworkCapabilities;
 import android.net.Uri;
-import android.os.Build;
 import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
 import android.os.StrictMode.VmPolicy;
@@ -131,7 +127,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 // Not 100% sure we still need to defer this piece of initialization onto another
                 // thread, but we had problems in the past - see comments in TestUtil
                 act -> {
-                    NetworkTestController.setup(act.getApplication());
                     mockStreamServer = new MockWebServer();
                     try {
                         mockStreamServer.start();
@@ -210,22 +205,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertTrue(clientState.isForcedOffline());
         assertEquals(ConnectionMode.SET_OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
-        assertNoConnection();
-    }
-
-    // This test requires either Android < API 21 or mobile data to be off on device/emulator.
-    @Test
-    public void initDeviceOffline() throws ExecutionException, InterruptedException {
-        replayAll();
-        NetworkTestController.disableNetwork();
-        createTestManager(false, true, false);
-
-        awaitStartUp();
-        verifyAll();
-
-        assertTrue(connectivityManager.isInitialized());
-        assertFalse(clientState.isForcedOffline());
-        assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNoConnection();
     }
 
@@ -358,33 +337,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertNoConnection();
     }
 
-    static boolean isRoamingConnected(Context context) {
-        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        Network net = cm.getActiveNetwork();
-        if (net == null)
-            return false;
-
-        NetworkCapabilities nwc = cm.getNetworkCapabilities(net);
-
-        return nwc != null && nwc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
-    }
-
-    // This test requires either Android < API 21 or mobile data to be off on device/emulator.
-    @Test
-    public void reloadDeviceOffline() throws ExecutionException, InterruptedException {
-        if (Build.VERSION.SDK_INT < 21 || !isRoamingConnected(ApplicationProvider.getApplicationContext())) {
-            NetworkTestController.disableNetwork();
-            createTestManager(false, true, false);
-
-            awaitStartUp();
-
-            assertTrue(connectivityManager.isInitialized());
-            assertFalse(clientState.isForcedOffline());
-            assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
-            assertNoConnection();
-        }
-    }
-
     @Test
     public void reloadBackgroundDisabled() throws ExecutionException {
         mockPlatformState.setForeground(false);
@@ -484,30 +436,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertFalse(clientState.isForcedOffline());
         assertEquals(ConnectionMode.BACKGROUND_DISABLED, connectivityManager.getConnectionInformation().getConnectionMode());
-//        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
-        Assert.assertEquals(0, mockStreamServer.getRequestCount());
-    }
-
-    @Test
-    public void deviceOfflinedDuringInitStreaming() throws ExecutionException, InterruptedException {
-        eventProcessor.setOffline(false);
-        eventProcessor.setOffline(true);
-        replayAll();
-
-        // 192.0.2.1 is assigned as TEST-NET-1 reserved usage.
-        createTestManager(false, true, false, "http://192.0.2.1");
-
-        AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
-        connectivityManager.startUp(awaitableCallback);
-        NetworkTestController.disableNetwork();
-        // Connectivity manager is normally notified of change by LDClient
-        connectivityManager.onNetworkConnectivityChange(false);
-        awaitableCallback.await();
-        verifyAll();
-
-        assertTrue(connectivityManager.isInitialized());
-        assertFalse(clientState.isForcedOffline());
-        assertEquals(ConnectionMode.OFFLINE, connectivityManager.getConnectionInformation().getConnectionMode());
 //        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
         Assert.assertEquals(0, mockStreamServer.getRequestCount());
     }
