@@ -70,6 +70,23 @@ final class AndroidTaskExecutor implements TaskExecutor {
 
     @Override
     public void startRepeatingTask(Object identifier, Runnable task, long initialDelayMillis, long intervalMillis) {
+        // The logic here is a bit roundabout because of our use of the AlarmManager API. A
+        // repeating "alarm" is identified by an Intent, which can only contain serializable values
+        // like a class name or an integer-- not a direct reference to an object on the application
+        // heap. This is because an alarm can outlive the application(*). But, for the sake of
+        // encapsulation, we don't want to hard-code things so that the alarm always causes us to
+        // call a specific method like the polling method; we'd like for other SDK components to be
+        // able to just specify an arbitrary Runnable.
+        //
+        // The solution is that when we start a task, we generate a unique-ish number, embed that
+        // number in the Intent, and put the number and the Runnable into our maps. Then when an
+        // alarm fires for our class, we can locate the appropriate Runnable based on that number.
+        // If the number isn't in our map, we assume it's an obsolete alarm and kill it.
+        //
+        // (* We don't actually want the alarm to outlive the application; we cancel it at shutdown
+        // time, so it would only persist if the application has crashed unexpectedly. That might
+        // mean that using AlarmManager at all is overkill and we could just just use the
+        // ScheduledExecutorService.)
         long taskNumber;
         synchronized (tasksLock) {
             taskNumber = System.currentTimeMillis();
