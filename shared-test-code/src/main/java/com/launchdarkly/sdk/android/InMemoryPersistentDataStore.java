@@ -5,6 +5,7 @@ import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 
 /**
@@ -53,7 +54,13 @@ public final class InMemoryPersistentDataStore implements PersistentDataStore {
     @Override
     public synchronized Collection<String> getKeys(String storeNamespace) {
         Map<String, String> namespaceMap = data.get(storeNamespace);
-        return namespaceMap == null ? Collections.emptyList() : namespaceMap.keySet();
+        return namespaceMap == null ? Collections.emptyList() :
+                new HashSet<>(namespaceMap.keySet());
+    }
+
+    @Override
+    public synchronized Collection<String> getAllNamespaces() {
+        return new HashSet<>(data.keySet());
     }
 
     @Override

@@ -29,7 +29,6 @@ public class LDConfig {
     static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
 
-    static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
     static final String AUTH_SCHEME = "api_key ";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");

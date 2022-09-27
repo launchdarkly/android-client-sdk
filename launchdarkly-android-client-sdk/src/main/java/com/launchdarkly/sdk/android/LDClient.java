@@ -131,7 +131,7 @@ public class LDClient implements LDClientInterface, Closeable {
             );
             contextDecorator = new ContextDecorator(persistentData, config.isGenerateAnonymousKeys());
 
-            Migration.migrateWhenNeeded(application, config);
+            Migration.migrateWhenNeeded(store, logger);
 
             actualContext = contextDecorator.decorateContext(context, logger);
 

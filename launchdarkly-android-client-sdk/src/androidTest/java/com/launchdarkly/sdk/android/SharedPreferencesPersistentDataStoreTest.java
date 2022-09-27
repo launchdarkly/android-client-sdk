@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static org.hamcrest.CoreMatchers.hasItems;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
@@ -11,8 +13,11 @@ import androidx.test.core.app.ApplicationProvider;
 
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
+import org.junit.Rule;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -117,6 +122,22 @@ public class SharedPreferencesPersistentDataStoreTest {
         assertEquals(value1, store.getValue(BASE_NAMESPACE + subNamespace, key));
         store.setValue(BASE_NAMESPACE + subNamespace, key, null);
         assertNull(store.getValue(BASE_NAMESPACE + subNamespace, key));
+    }
+
+    @Test
+    public void getAllNamespaces() {
+        String prefix = BASE_NAMESPACE + "-getAllNamespaces";
+        String namespace1 = prefix + "-1", namespace2 = prefix + "-2";
+        // Here we'll write directly to SharedPreferences so that we can use the *synchronous*
+        // update method, SharedPreferences.Editor.commit(). Otherwise, updates won't be visible
+        // immediately in the filesystem.
+        application.getSharedPreferences(namespace1, Context.MODE_PRIVATE)
+            .edit().putString("a", "a").commit();
+        application.getSharedPreferences(namespace2, Context.MODE_PRIVATE)
+                .edit().putString("a", "a").commit();
+        PersistentDataStore store = new SharedPreferencesPersistentDataStore(application);
+        Collection<String> namespaces = store.getAllNamespaces();
+        assertThat(String.join("/", namespaces), namespaces, hasItems(namespace1, namespace2));
     }
 
     @Test

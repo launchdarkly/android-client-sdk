@@ -20,6 +20,10 @@ import java.util.Map;
  *     <li> The value can be any non-null string, including an empty string. </li>
  * </ul>
  * <p>
+ * The store implementation does not need to worry about adding a LaunchDarkly-specific prefix to
+ * namespaces to distinguish them from storage that is used for other purposes; the SDK will take
+ * care of that at a higher level. PersistentDataStore is just a low-level storage mechanism.
+ * <p>
  * The SDK will also provide its own caching layer on top of the persistent data store; the data
  * store implementation should not provide caching, but simply do every query or update that the
  * SDK tells it to do.
@@ -64,6 +68,16 @@ public interface PersistentDataStore {
      * @return the keys
      */
     Collection<String> getKeys(String storeNamespace);
+
+    /**
+     * Returns all namespaces that exist in the data store.
+     * <p>
+     * This may be an inefficient operation, but the SDK will not call this method on a regular
+     * basis. It is used only when migrating data from earlier SDK versions.
+     *
+     * @return the namespaces
+     */
+    Collection<String> getAllNamespaces();
 
     /**
      * Removes any values that currently exist in the given namespace.
