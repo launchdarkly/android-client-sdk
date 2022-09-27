@@ -37,12 +37,9 @@ class StreamUpdateProcessor {
 
     private EventSource es;
     private final HttpProperties httpProperties;
-    private final PlatformState platformState;
     private final LDConfig config;
     private final ContextDataManager contextDataManager;
-    private final FeatureFetcher fetcher;
     private volatile boolean running = false;
-    private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
     private final ConnectivityManager.DataSourceActions dataSourceActions;
@@ -52,25 +49,20 @@ class StreamUpdateProcessor {
     private final LDLogger logger;
 
     StreamUpdateProcessor(
-            @NonNull PlatformState platformState,
             @NonNull ClientState clientState,
             @NonNull LDConfig config,
             @NonNull ContextDataManager contextDataManager,
-            @NonNull FeatureFetcher fetcher,
             @NonNull ConnectivityManager.DataSourceActions dataSourceActions,
             @Nullable DiagnosticStore diagnosticStore,
             @NonNull LDUtil.ResultCallback<Void> notifier
     ) {
-        this.platformState = platformState;
         this.config = config;
         this.httpProperties = LDUtil.makeHttpProperties(config, clientState.getMobileKey());
         this.contextDataManager = contextDataManager;
-        this.fetcher = fetcher;
         this.dataSourceActions = dataSourceActions;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
         this.logger = clientState.getLogger();
-        queue = new Debounce();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 
