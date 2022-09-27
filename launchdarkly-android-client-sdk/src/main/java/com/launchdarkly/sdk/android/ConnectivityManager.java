@@ -177,8 +177,8 @@ class ConnectivityManager {
                 setOffline();
             }
         };
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(platformState,
-                clientState, ldConfig, contextDataManager, fetcher, dataSourceActions,
+        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(
+                clientState, ldConfig, contextDataManager, dataSourceActions,
                 diagnosticStore, monitor) : null;
     }
 
