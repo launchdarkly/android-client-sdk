@@ -45,7 +45,7 @@ class StreamUpdateProcessor {
     private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
-    private final ConnectivityManager.CanShutdownForInvalidMobileKey invalidMobileKeyNotifier;
+    private final ConnectivityManager.DataSourceActions dataSourceActions;
     private final LDUtil.ResultCallback<Void> notifier;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
@@ -57,7 +57,7 @@ class StreamUpdateProcessor {
             @NonNull LDConfig config,
             @NonNull ContextDataManager contextDataManager,
             @NonNull FeatureFetcher fetcher,
-            @NonNull ConnectivityManager.CanShutdownForInvalidMobileKey invalidMobileKeyNotifier,
+            @NonNull ConnectivityManager.DataSourceActions dataSourceActions,
             @Nullable DiagnosticStore diagnosticStore,
             @NonNull LDUtil.ResultCallback<Void> notifier
     ) {
@@ -66,7 +66,7 @@ class StreamUpdateProcessor {
         this.httpProperties = LDUtil.makeHttpProperties(config, clientState.getMobileKey());
         this.contextDataManager = contextDataManager;
         this.fetcher = fetcher;
-        this.invalidMobileKeyNotifier = invalidMobileKeyNotifier;
+        this.dataSourceActions = dataSourceActions;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
         this.logger = clientState.getLogger();
@@ -120,7 +120,7 @@ class StreamUpdateProcessor {
                             notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
                                 connection401Error = true;
-                                invalidMobileKeyNotifier.shutdownForInvalidMobileKey();
+                                dataSourceActions.shutdownForInvalidMobileKey();
                             }
                             stop(null);
                         } else {
@@ -196,12 +196,7 @@ class StreamUpdateProcessor {
                 applyDelete(eventData, onCompleteListener);
                 break;
             case PING:
-                // We debounce ping requests as they trigger a separate asynchronous request for the
-                // flags, overriding all flag values.
-                queue.call(() -> {
-                    PollingUpdater.triggerPoll(platformState, contextDataManager, fetcher, onCompleteListener, logger);
-                    return null;
-                });
+                dataSourceActions.triggerPoll();
                 break;
             default:
                 logger.debug("Found an unknown stream protocol: {}", name);
