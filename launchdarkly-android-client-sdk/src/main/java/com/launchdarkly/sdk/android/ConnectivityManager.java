@@ -15,6 +15,8 @@ import java.util.Calendar;
 import java.util.Iterator;
 import java.util.List;
 import java.util.TimeZone;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import static com.launchdarkly.sdk.android.LDUtil.safeCallbackSuccess;
@@ -72,6 +74,8 @@ class ConnectivityManager {
     private final TaskExecutor taskExecutor;
     private final int pollingInterval;
     private final int backgroundPollingInterval;
+    private final AtomicReference<ScheduledFuture<?>> pollingTaskReference =
+            new AtomicReference<>();
     private final LDUtil.ResultCallback<Void> monitor;
     private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
     private final Debounce pollDebouncer = new Debounce();
@@ -111,9 +115,8 @@ class ConnectivityManager {
             }
         }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
 
-        connectivityChangeListener = networkAvailable -> {
+        connectivityChangeListener = networkAvailable ->
             onNetworkConnectivityChange(networkAvailable);
-        };
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
         foregroundListener = foreground -> {
@@ -262,12 +265,20 @@ class ConnectivityManager {
     }
 
     private void stopPolling() {
-        PollingUpdater.stop(taskExecutor);
+        ScheduledFuture<?> task = pollingTaskReference.getAndSet(null);
+        if (task != null) {
+            task.cancel(false);
+        }
     }
 
     private void startPolling() {
-        PollingUpdater.startPolling(taskExecutor, pollingInterval, pollingInterval);
-        triggerPoll();
+        synchronized (pollingTaskReference) {
+            stopPolling(); // in case a task was active with a different polling interval
+            ScheduledFuture<?> task = taskExecutor.startRepeatingTask(() -> triggerPoll(),
+                    pollingInterval, pollingInterval);
+            pollingTaskReference.set(task);
+        }
+        triggerPoll(); // we want the first poll to happen immediately, not deferred
     }
 
     private void startBackgroundPolling() {
@@ -275,7 +286,12 @@ class ConnectivityManager {
             initCallback.onSuccess(null);
             initCallback = null;
         }
-        PollingUpdater.startPolling(taskExecutor, backgroundPollingInterval, backgroundPollingInterval);
+        synchronized (pollingTaskReference) {
+            stopPolling(); // in case a task was active with a different polling interval
+            ScheduledFuture<?> task = taskExecutor.startRepeatingTask(() -> triggerPoll(),
+                    backgroundPollingInterval, backgroundPollingInterval);
+            pollingTaskReference.set(task);
+        }
     }
 
     private void stopStreaming() {
@@ -460,7 +476,7 @@ class ConnectivityManager {
         return connectionInformation;
     }
 
-    void triggerPoll() {
+    private void triggerPoll() {
         if (!clientState.isForcedOffline()) {
             pollDebouncer.call(() -> {
                 doSinglePoll();

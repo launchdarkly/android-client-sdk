@@ -42,7 +42,6 @@ class StreamUpdateProcessor {
     private final ContextDataManager contextDataManager;
     private final FeatureFetcher fetcher;
     private volatile boolean running = false;
-    private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
     private final ConnectivityManager.DataSourceActions dataSourceActions;
@@ -70,7 +69,6 @@ class StreamUpdateProcessor {
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
         this.logger = clientState.getLogger();
-        queue = new Debounce();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 

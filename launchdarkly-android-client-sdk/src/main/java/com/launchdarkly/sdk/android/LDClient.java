@@ -646,10 +646,6 @@ public class LDClient implements LDClientInterface, Closeable {
         contextDataManager.unregisterAllFlagsListener(allFlagsListener);
     }
 
-    private void triggerPoll() {
-        connectivityManager.triggerPoll();
-    }
-
     @Override
     public String getVersion() {
         return BuildConfig.VERSION_NAME;
@@ -670,16 +666,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 flag == null ? null : flag.getDebugEventsUntilDate(),
                 false
         ));
-    }
-
-    static void triggerPollInstances() {
-        if (instances == null) {
-            getSharedLogger().warn("Cannot perform poll when LDClient has not been initialized!");
-            return;
-        }
-        for (LDClient instance : instances.values()) {
-            instance.triggerPoll();
-        }
     }
 
     private static LDLogger initSharedLogger(LDConfig config) {
