@@ -105,6 +105,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
         initSharedLogger(config);
 
+        // Clear any obsolete polling alarm that might exist; we'll start a new one if appropriate.
+        PollingUpdater.stop(application);
+
         // Acquire the `initLock` to ensure that if `init()` is called multiple times, we will only
         // initialize the client(s) once.
         synchronized (initLock) {
