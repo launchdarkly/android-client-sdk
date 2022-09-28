@@ -1,7 +1,6 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.net.Uri;
 import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
 import android.os.StrictMode.VmPolicy;
@@ -153,7 +152,11 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .offline(setOffline)
                 .stream(streaming)
                 .disableBackgroundUpdating(backgroundDisabled)
-                .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
+                .serviceEndpoints(
+                        Components.serviceEndpoints().streaming(
+                                streamUri != null ? streamUri : mockStreamServer.url("/").toString()
+                        )
+                )
                 .build();
         clientState.setForceOffline(setOffline);
 

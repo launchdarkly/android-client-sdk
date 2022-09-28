@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import android.app.Application;
-import android.net.Uri;
 
 import androidx.test.core.app.ApplicationProvider;
 
@@ -259,7 +258,7 @@ public class LDClientEventTest {
         return new LDConfig.Builder()
                 .mobileKey(mobileKey)
                 .diagnosticOptOut(true)
-                .eventsUri(Uri.parse(baseUrl.toString()));
+                .serviceEndpoints(Components.serviceEndpoints().events(baseUrl.uri()));
     }
 
     private void assertIdentifyEvent(LDValue event, LDContext context) {

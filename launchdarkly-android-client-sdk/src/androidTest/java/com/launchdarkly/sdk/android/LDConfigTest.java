@@ -26,10 +26,6 @@ public class LDConfigTest {
         assertTrue(config.isStream());
         assertFalse(config.isOffline());
 
-        assertEquals(LDConfig.DEFAULT_POLL_URI, config.getPollUri());
-        assertEquals(LDConfig.DEFAULT_EVENTS_URI, config.getEventsUri());
-        assertEquals(LDConfig.DEFAULT_STREAM_URI, config.getStreamUri());
-
         assertEquals(LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS, config.getConnectionTimeoutMillis());
         assertEquals(LDConfig.DEFAULT_EVENTS_CAPACITY, config.getEventsCapacity());
         assertEquals(LDConfig.DEFAULT_FLUSH_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());

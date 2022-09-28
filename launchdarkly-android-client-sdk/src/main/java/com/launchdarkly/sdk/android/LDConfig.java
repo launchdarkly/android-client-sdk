@@ -10,6 +10,8 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.Collections;
@@ -35,10 +37,6 @@ public class LDConfig {
 
     static final String primaryEnvironmentName = "default";
 
-    static final Uri DEFAULT_POLL_URI = Uri.parse("https://clientsdk.launchdarkly.com");
-    static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com");
-    static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
-
     static final int DEFAULT_EVENTS_CAPACITY = 100;
     static final int DEFAULT_MAX_CACHED_CONTEXTS = 5;
     static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
@@ -52,9 +50,7 @@ public class LDConfig {
 
     private final Map<String, String> mobileKeys;
 
-    private final Uri pollUri;
-    private final Uri eventsUri;
-    private final Uri streamUri;
+    final ServiceEndpoints serviceEndpoints;
 
     private final int eventsCapacity;
     private final int eventsFlushIntervalMillis;
@@ -88,9 +84,7 @@ public class LDConfig {
     private final String loggerName;
 
     LDConfig(Map<String, String> mobileKeys,
-             Uri pollUri,
-             Uri eventsUri,
-             Uri streamUri,
+             ServiceEndpoints serviceEndpoints,
              int eventsCapacity,
              int eventsFlushIntervalMillis,
              int connectionTimeoutMillis,
@@ -114,9 +108,7 @@ public class LDConfig {
              LDLogAdapter logAdapter,
              String loggerName) {
         this.mobileKeys = mobileKeys;
-        this.pollUri = pollUri;
-        this.eventsUri = eventsUri;
-        this.streamUri = streamUri;
+        this.serviceEndpoints = serviceEndpoints;
         this.eventsCapacity = eventsCapacity;
         this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
         this.connectionTimeoutMillis = connectionTimeoutMillis;
@@ -149,19 +141,6 @@ public class LDConfig {
         return mobileKeys;
     }
 
-    /**
-     * Get the currently configured base URI for polling requests.
-     *
-     * @return the base URI configured to be used for poll requests.
-     */
-    public Uri getPollUri() {
-        return pollUri;
-    }
-
-    public Uri getEventsUri() {
-        return eventsUri;
-    }
-
     public int getEventsCapacity() {
         return eventsCapacity;
     }
@@ -172,10 +151,6 @@ public class LDConfig {
 
     public int getConnectionTimeoutMillis() {
         return connectionTimeoutMillis;
-    }
-
-    public Uri getStreamUri() {
-        return streamUri;
     }
 
     public boolean isOffline() {
@@ -260,9 +235,7 @@ public class LDConfig {
         private String mobileKey;
         private Map<String, String> secondaryMobileKeys;
 
-        private Uri pollUri = DEFAULT_POLL_URI;
-        private Uri eventsUri = DEFAULT_EVENTS_URI;
-        private Uri streamUri = DEFAULT_STREAM_URI;
+        private ServiceEndpointsBuilder serviceEndpointsBuilder;
 
         private int eventsCapacity = DEFAULT_EVENTS_CAPACITY;
         private int eventsFlushIntervalMillis = 0;
@@ -378,6 +351,27 @@ public class LDConfig {
         }
 
         /**
+         * Sets the base service URIs used by SDK components.
+         * <p>
+         * This object is a configuration builder obtained from {@link Components#serviceEndpoints()},
+         * which has methods for setting each external endpoint to a custom URI.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder().mobileKey("key")
+         *         .serviceEndpoints(
+         *             Components.serviceEndpoints().relayProxy("http://my-relay-proxy-host")
+         *         );
+         * </code></pre>
+         *
+         * @param serviceEndpointsBuilder a configuration builder object returned by {@link Components#serviceEndpoints()}
+         * @return the builder
+         * @since 4.0.0
+         */
+        public Builder serviceEndpoints(ServiceEndpointsBuilder serviceEndpointsBuilder) {
+            this.serviceEndpointsBuilder = serviceEndpointsBuilder;
+            return this;
+        }
+
+        /**
          * Sets the flag for choosing the REPORT api call.  The default is GET.
          * Do not use unless advised by LaunchDarkly.
          *
@@ -386,39 +380,6 @@ public class LDConfig {
          */
         public LDConfig.Builder useReport(boolean useReport) {
             this.useReport = useReport;
-            return this;
-        }
-
-        /**
-         * Set the base URI for polling requests to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
-         *
-         * @param pollUri the URI of the main LaunchDarkly service
-         * @return the builder
-         */
-        public LDConfig.Builder pollUri(Uri pollUri) {
-            this.pollUri = pollUri;
-            return this;
-        }
-
-        /**
-         * Set the events URI for sending analytics to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
-         *
-         * @param eventsUri the URI of the LaunchDarkly analytics event service
-         * @return the builder
-         */
-        public LDConfig.Builder eventsUri(Uri eventsUri) {
-            this.eventsUri = eventsUri;
-            return this;
-        }
-
-        /**
-         * Set the stream URI for connecting to the flag update stream. You probably don't need to set this unless instructed by LaunchDarkly.
-         *
-         * @param streamUri the URI of the LaunchDarkly streaming service
-         * @return the builder
-         */
-        public LDConfig.Builder streamUri(Uri streamUri) {
-            this.streamUri = streamUri;
             return this;
         }
 
@@ -844,11 +805,14 @@ public class LDConfig {
             }
             mobileKeys.put(primaryEnvironmentName, mobileKey);
 
+            ServiceEndpoints serviceEndpoints =
+                    (serviceEndpointsBuilder == null ? Components.serviceEndpoints() :
+                            serviceEndpointsBuilder)
+                            .createServiceEndpoints();
+
             return new LDConfig(
                     mobileKeys,
-                    pollUri,
-                    eventsUri,
-                    streamUri,
+                    serviceEndpoints,
                     eventsCapacity,
                     eventsFlushIntervalMillis,
                     connectionTimeoutMillis,

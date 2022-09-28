@@ -11,7 +11,6 @@ import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
-import java.net.URI;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
@@ -46,7 +45,7 @@ abstract class EventUtil {
                         0, // use default retry delay
                         logger),
                 1, // eventSendingThreadPoolSize
-                URI.create(config.getEventsUri().toString()),
+                config.serviceEndpoints.getEventsBaseUri(),
                 config.getEventsFlushIntervalMillis(),
                 initiallyInBackground, // initiallyInBackground
                 true, // initiallyOffline
@@ -72,9 +71,12 @@ abstract class EventUtil {
 
     static DiagnosticStore.SdkDiagnosticParams makeDiagnosticParams(LDConfig config, String mobileKey) {
         LDValue configProperties = LDValue.buildObject()
-                .put("customBaseURI", !LDConfig.DEFAULT_POLL_URI.equals(config.getPollUri()))
-                .put("customEventsURI", !LDConfig.DEFAULT_EVENTS_URI.equals(config.getEventsUri()))
-                .put("customStreamURI", !LDConfig.DEFAULT_STREAM_URI.equals(config.getStreamUri()))
+                .put("customBaseURI", !StandardEndpoints.DEFAULT_POLLING_BASE_URI.equals(
+                        config.serviceEndpoints.getPollingBaseUri()))
+                .put("customEventsURI", !StandardEndpoints.DEFAULT_EVENTS_BASE_URI.equals(
+                        config.serviceEndpoints.getEventsBaseUri()))
+                .put("customStreamURI", !StandardEndpoints.DEFAULT_STREAMING_BASE_URI.equals(
+                        config.serviceEndpoints.getStreamingBaseUri()))
                 .put("eventsCapacity", config.getEventsCapacity())
                 .put("connectTimeoutMillis", config.getConnectionTimeoutMillis())
                 .put("eventsFlushIntervalMillis", config.getEventsFlushIntervalMillis())
