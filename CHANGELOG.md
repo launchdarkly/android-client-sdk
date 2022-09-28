@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.2.1] - 2022-09-28
+### Fixed:
+- The SDK now detects and cancels any repeating polling task that might have been left over from a previous run of the application. The potential problem was that if an application crashed or otherwise did not shut down cleanly, an "alarm" notification used by the SDK for polling could continue to exist, causing the application to be started again and to keep polling for LaunchDarkly flag data, even though the user intended to shut down the application. With this fix, such an unintended restart could still happen once, but the SDK will detect this condition and stop the notification from continuing to fire. In the future the SDK may be changed more broadly to stop using the AlarmManager API so that such restarts cannot happen at all, but this fix mitigates the problem in the meantime. ([#188](https://github.com/launchdarkly/android-client-sdk/issues/188))
+
 ## [3.2.0] - 2022-08-23
 The purpose of this release is to introduce a new logging facade, [`com.launchdarkly.logging`](https://github.com/launchdarkly/java-logging), to streamline how logging works in LaunchDarkly Java and Android code.
 
