@@ -7,6 +7,7 @@ import static org.hamcrest.CoreMatchers.hasItems;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.MatcherAssert.assertThat;
 
+import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogCapture;
 import com.launchdarkly.logging.Logs;
@@ -21,10 +22,12 @@ import org.junit.runner.Description;
  */
 public final class LogCaptureRule extends TestWatcher {
     public LDLogger logger;
+    public LDLogAdapter logAdapter;
     public LogCapture logCapture;
 
     public LogCaptureRule() {
         logCapture = Logs.capture();
+        logAdapter = logCapture;
         logger = LDLogger.withAdapter(logCapture, "");
     }
 

@@ -1,8 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import android.app.Application;
-import android.net.Uri;
-
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
@@ -606,7 +603,7 @@ public class LDConfig {
          * Set to {@code true} to make the SDK provide unique keys for anonymous contexts.
          * <p>
          * If enabled, this option changes the SDK's behavior whenever the {@link LDContext} (as
-         * given to methods like {@link LDClient#init(Application, LDConfig, LDContext, int)} or
+         * given to methods like {@link LDClient#init(android.app.Application, LDConfig, LDContext, int)} or
          * {@link LDClient#identify(LDContext)}) has an {@link LDContext#isAnonymous()} property of
          * {@code true}, as follows:
          * <ul>
@@ -791,7 +788,7 @@ public class LDConfig {
 
             if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
                 logger.warn(
-                        "diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.",
+                        "diagnosticRecordingIntervalMillis was set to {}, lower than the minimum allowed ({}). Ignoring and using minimum value.",
                         diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
                 diagnosticRecordingIntervalMillis = MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
             }
