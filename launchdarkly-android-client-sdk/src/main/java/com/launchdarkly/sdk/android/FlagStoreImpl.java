@@ -1,15 +1,11 @@
 package com.launchdarkly.sdk.android;
 
-import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
-
-import android.annotation.SuppressLint;
 import android.util.Pair;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -22,45 +18,38 @@ import java.util.Map;
 import java.util.Set;
 
 class FlagStoreImpl implements FlagStore {
-    private static final String BASE_NAMESPACE = "LaunchDarkly-";
-
-    @NonNull private final PersistentDataStore store;
-    private final String storeNamespace;
+    @NonNull private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
+    private final String hashedContextId;
     private WeakReference<StoreUpdatedListener> listenerWeakReference;
     private final LDLogger logger;
 
-    FlagStoreImpl(@NonNull PersistentDataStore store, @NonNull String identifier, LDLogger logger) {
-        this.store = store;
-        this.storeNamespace = BASE_NAMESPACE + identifier + "-flags";
+    FlagStoreImpl(
+            @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
+            @NonNull String hashedContextId,
+            LDLogger logger
+    ) {
+        this.environmentStore = environmentStore;
+        this.hashedContextId = hashedContextId;
         this.listenerWeakReference = new WeakReference<>(null);
         this.logger = logger;
     }
 
-    @SuppressLint("ApplySharedPref")
-    @Override
-    public void delete() {
-        store.clear(storeNamespace, true);
-    }
-
     @Override
     public void clear() {
-        store.clear(storeNamespace, false);
+        environmentStore.removeContextData(hashedContextId);
     }
 
     @Override
     public boolean containsKey(String key) {
-        return store.getValue(storeNamespace, key) != null;
+        EnvironmentData data = environmentStore.getContextData(hashedContextId);
+        return data != null && data.getFlag(key) != null;
     }
 
     @Nullable
     @Override
     public Flag getFlag(String flagKey) {
-        String json = store.getValue(storeNamespace, flagKey);
-        try {
-            return json == null ? null : gsonInstance().fromJson(json, Flag.class);
-        } catch (Exception ignored) {
-            return null;
-        }
+        EnvironmentData data = environmentStore.getContextData(hashedContextId);
+        return data == null ? null : data.getFlag(flagKey);
     }
 
     @Override
@@ -69,7 +58,10 @@ class FlagStoreImpl implements FlagStore {
                 getFlag(flagUpdate.flagToUpdate()));
         if (updated != null) {
             Flag newFlag = updated.first;
-            store.setValue(storeNamespace, newFlag.getKey(), gsonInstance().toJson(newFlag));
+            EnvironmentData oldData = environmentStore.getContextData(hashedContextId);
+            EnvironmentData newData = (oldData == null ? new EnvironmentData() : oldData)
+                    .withFlagUpdatedOrAdded(newFlag);
+            environmentStore.setContextData(hashedContextId, newData);
             informListenerOfUpdateList(Collections.singletonList(
                     new Pair<>(newFlag.getKey(), updated.second)));
         }
@@ -83,54 +75,41 @@ class FlagStoreImpl implements FlagStore {
     }
 
     @Override
-    public void applyFlagUpdates(List<? extends FlagUpdate> flagUpdates) {
-        List<Pair<String, FlagStoreUpdateType>> updates = new ArrayList<>();
-        Map<String, String> updateValues = new HashMap<>();
-
-        for (FlagUpdate flagUpdate: flagUpdates) {
-            String flagKey = flagUpdate.flagToUpdate();
-            Pair<Flag, FlagStoreUpdateType> updated = computeUpdate(flagUpdate,
-                    getFlag(flagKey));
-            if (updated != null) {
-                updates.add(new Pair<>(flagKey, updated.second));
-                updateValues.put(flagKey, gsonInstance().toJson(updated.first));
-            }
-        }
-
-        if (!updateValues.isEmpty()) {
-            store.setValues(storeNamespace, updateValues);
-        }
-        if (!updates.isEmpty()) {
-            informListenerOfUpdateList(updates);
-        }
+    public void applyFlagUpdates(List<? extends FlagUpdate> allUpdates) {
+        applyFlagUpdates(allUpdates, false);
     }
 
     @Override
-    public void clearAndApplyFlagUpdates(List<? extends FlagUpdate> newFlags) {
+    public void clearAndApplyFlagUpdates(List<? extends FlagUpdate> allUpdates) {
+        applyFlagUpdates(allUpdates, true);
+    }
+
+    private void applyFlagUpdates(List<? extends FlagUpdate> allUpdates, boolean replaceAll) {
         Map<String, Flag> oldFlags = getAllMap();
-        Set<String> clearedKeys = new HashSet<>(oldFlags.keySet());
+        Set<String> keysNotUpdated = new HashSet<>(oldFlags.keySet());
 
         List<Pair<String, FlagStoreUpdateType>> updates = new ArrayList<>();
         Map<String, String> updateValues = new HashMap<>();
+        Map<String, Flag> newFlags = new HashMap<>(oldFlags);
 
-        for (FlagUpdate flagUpdate: newFlags) {
+        for (FlagUpdate flagUpdate: allUpdates) {
             String flagKey = flagUpdate.flagToUpdate();
             Flag oldFlag = oldFlags.get(flagKey);
             Pair<Flag, FlagStoreUpdateType> updated = computeUpdate(flagUpdate, oldFlag);
             if (updated != null) {
                 updates.add(new Pair<>(flagKey, updated.second));
-                updateValues.put(flagKey, gsonInstance().toJson(updated.first));
+                newFlags.put(flagKey, updated.first);
             }
-            clearedKeys.remove(flagKey);
+            keysNotUpdated.remove(flagKey);
         }
-        for (String clearedKey: clearedKeys) {
-            updateValues.put(clearedKey, null);
-            updates.add(new Pair<>(clearedKey, FlagStoreUpdateType.FLAG_DELETED));
+        if (replaceAll) {
+            for (String unusedKey : keysNotUpdated) {
+                newFlags.remove(unusedKey);
+                updates.add(new Pair<>(unusedKey, FlagStoreUpdateType.FLAG_DELETED));
+            }
         }
 
-        if (!updateValues.isEmpty()) {
-            store.setValues(storeNamespace, updateValues);
-        }
+        environmentStore.setContextData(hashedContextId, new EnvironmentData(newFlags));
 
         informListenerOfUpdateList(updates);
         // Currently we are calling the listener even if there are zero updates. This may not be
@@ -143,14 +122,8 @@ class FlagStoreImpl implements FlagStore {
     }
 
     private Map<String, Flag> getAllMap() {
-        Map<String, Flag> ret = new HashMap<>();
-        for (String key: store.getKeys(storeNamespace)) {
-            Flag flag = getFlag(key);
-            if (flag != null) {
-                ret.put(key, flag);
-            }
-        }
-        return ret;
+        EnvironmentData data = environmentStore.getContextData(hashedContextId);
+        return data == null ? new HashMap<>() : data.getAll();
     }
 
     @Override

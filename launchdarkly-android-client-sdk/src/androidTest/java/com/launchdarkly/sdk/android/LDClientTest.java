@@ -35,6 +35,7 @@ public class LDClientTest {
     public void setUp() {
         application = ApplicationProvider.getApplicationContext();
         ldConfig = new LDConfig.Builder()
+                .mobileKey(mobileKey)
                 .offline(true)
                 .build();
 

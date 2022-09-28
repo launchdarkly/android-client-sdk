@@ -2,7 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -11,9 +10,6 @@ import static org.junit.Assert.assertNotEquals;
 
 @RunWith(AndroidJUnit4.class)
 public class UserHasherTest {
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void testUserHasherReturnsUniqueResults(){

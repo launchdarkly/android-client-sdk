@@ -125,10 +125,14 @@ public class LDClient implements LDClientInterface, Closeable {
                 return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
             }
 
-            PersistentDataStore persistentDataStore = config.getPersistentDataStore() == null ?
+            PersistentDataStore store = config.getPersistentDataStore() == null ?
                     new SharedPreferencesPersistentDataStore(application, getSharedLogger()) :
                     config.getPersistentDataStore();
-            contextDecorator = new ContextDecorator(persistentDataStore, config.isGenerateAnonymousKeys());
+            PersistentDataStoreWrapper persistentData = new PersistentDataStoreWrapper(
+                    store,
+                    getSharedLogger()
+            );
+            contextDecorator = new ContextDecorator(persistentData, config.isGenerateAnonymousKeys());
 
             Foreground.init(application);
 
@@ -136,17 +140,27 @@ public class LDClient implements LDClientInterface, Closeable {
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
+            final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
 
             for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
-                final LDClient instance = new LDClient(application, persistentDataStore, config, mobileKeys.getKey());
-                instance.contextManager.setCurrentContext(context);
-
-                newInstances.put(mobileKeys.getKey(), instance);
+                String envName = mobileKeys.getKey(), mobileKey = mobileKeys.getValue();
+                try {
+                    final LDClient instance = new LDClient(
+                            application,
+                            persistentData.perEnvironmentData(mobileKey),
+                            config,
+                            envName
+                    );
+                    instance.contextManager.setCurrentContext(context);
+                    newInstances.put(envName, instance);
+                } catch (LaunchDarklyException e) {
+                    resultFuture.setException(e);
+                    return resultFuture;
+                }
             }
 
             instances = newInstances;
 
-            final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
             final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
             LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
                 @Override
@@ -258,42 +272,44 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     protected LDClient(
             final Application application,
-            @NonNull PersistentDataStore persistentDataStore,
+            @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull final LDConfig config
-    ) {
-        this(application, persistentDataStore, config, LDConfig.primaryEnvironmentName);
+    ) throws LaunchDarklyException {
+        this(application, environmentStore, config, LDConfig.primaryEnvironmentName);
     }
 
     @VisibleForTesting
     protected LDClient(
             final Application application,
-            @NonNull PersistentDataStore persistentDataStore,
+            @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull final LDConfig config,
             final String environmentName
-    ) {
+    ) throws LaunchDarklyException {
         this.logger = LDLogger.withAdapter(config.getLogAdapter(), config.getLoggerName());
         logger.info("Creating LaunchDarkly client. Version: {}", BuildConfig.VERSION_NAME);
         this.config = config;
         this.application = application;
-        String sdkKey = config.getMobileKeys().get(environmentName);
+        String mobileKey = config.getMobileKeys().get(environmentName);
+        if (mobileKey == null) {
+            throw new LaunchDarklyException("Mobile key cannot be null");
+        }
         FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName, logger);
         OkHttpClient sharedEventClient = makeSharedEventClient();
         if (config.getDiagnosticOptOut()) {
             this.diagnosticStore = null;
         } else {
-            this.diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(config, sdkKey));
+            this.diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(config, mobileKey));
         }
         this.contextManager = DefaultContextManager.newInstance(
                 application,
-                persistentDataStore,
+                environmentStore,
                 fetcher,
                 environmentName,
-                sdkKey,
                 config.getMaxCachedContexts(),
                 logger
         );
 
-        HttpProperties httpProperties = LDUtil.makeHttpProperties(config, sdkKey);
+        HttpProperties httpProperties = LDUtil.makeHttpProperties(config, mobileKey);
         EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(
                 config,
                 httpProperties,
@@ -309,7 +325,7 @@ public class LDClient implements LDClientInterface, Closeable {
         );
 
         connectivityManager = new ConnectivityManager(application, config, eventProcessor, contextManager,
-                persistentDataStore, environmentName, diagnosticStore, logger);
+                environmentStore, environmentName, diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();

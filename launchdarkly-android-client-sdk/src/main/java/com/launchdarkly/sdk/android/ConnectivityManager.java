@@ -28,8 +28,7 @@ class ConnectivityManager {
 
     private final Application application;
     private final ConnectionInformationState connectionInformation;
-    private final PersistentDataStore store;
-    private final String storeNamespace;
+    private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
     private final ContextManager contextManager;
     private final EventProcessor eventProcessor;
@@ -47,18 +46,17 @@ class ConnectivityManager {
                         @NonNull final LDConfig ldConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextManager contextManager,
-                        @NonNull final PersistentDataStore store,
+                        @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
                         @NonNull final String environmentName,
                         final DiagnosticStore diagnosticStore,
                         final LDLogger logger) {
         this.application = application;
         this.eventProcessor = eventProcessor;
         this.contextManager = contextManager;
-        this.store = store;
+        this.environmentStore = environmentStore;
         this.environmentName = environmentName;
         this.logger = logger;
         pollingInterval = ldConfig.getPollingIntervalMillis();
-        storeNamespace = LDConfig.SHARED_PREFS_BASE_KEY + ldConfig.getMobileKeys().get(environmentName) + "-connectionstatus";
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
         setOffline = ldConfig.isOffline();
@@ -143,41 +141,24 @@ class ConnectivityManager {
     }
 
     private void readStoredConnectionState() {
-        Long lastSuccess = LDUtil.getStoreValueAsLong(store, storeNamespace, "lastSuccessfulConnection");
-        Long lastFailureTime = LDUtil.getStoreValueAsLong(store, storeNamespace, "lastFailedConnection");
-        connectionInformation.setLastSuccessfulConnection(lastSuccess == null || lastSuccess.longValue() == 0 ?
-                null : lastSuccess.longValue());
+        PersistentDataStoreWrapper.SavedConnectionInfo savedConnectionInfo =
+                environmentStore.getConnectionInfo();
+        Long lastSuccessTime = savedConnectionInfo.lastSuccessTime;
+        Long lastFailureTime = savedConnectionInfo.lastFailureTime;
+        connectionInformation.setLastSuccessfulConnection(lastSuccessTime == null || lastSuccessTime.longValue() == 0 ?
+                null : lastSuccessTime.longValue());
         connectionInformation.setLastFailedConnection(lastFailureTime == null || lastFailureTime.longValue() == 0 ?
                 null : lastFailureTime.longValue());
-        String lastFailureString = store.getValue(storeNamespace, "lastFailure");
-        if (lastFailureString != null) {
-            try {
-                LDFailure lastFailure = gsonInstance().fromJson(lastFailureString, LDFailure.class);
-                connectionInformation.setLastFailure(lastFailure);
-            } catch (Exception unused) {
-                store.setValue(storeNamespace, "lastFailure", null);
-                connectionInformation.setLastFailure(null);
-            }
-        }
+        connectionInformation.setLastFailure(savedConnectionInfo.lastFailure);
     }
 
     private synchronized void saveConnectionInformation() {
-        Long lastSuccessfulConnection = connectionInformation.getLastSuccessfulConnection();
-        Long lastFailedConnection = connectionInformation.getLastFailedConnection();
-        Map<String, String> updates = new HashMap<>();
-        if (lastSuccessfulConnection != null) {
-            updates.put("lastSuccessfulConnection", String.valueOf(lastSuccessfulConnection));
-        }
-        if (lastFailedConnection != null) {
-            updates.put("lastFailedConnection", String.valueOf(lastFailedConnection));
-        }
-        if (connectionInformation.getLastFailure() == null) {
-            updates.put("lastFailure", null);
-        } else {
-            String failJson = gsonInstance().toJson(connectionInformation.getLastFailure());
-            updates.put("lastFailure", failJson);
-        }
-        store.setValues(storeNamespace, updates);
+        PersistentDataStoreWrapper.SavedConnectionInfo savedConnectionInfo =
+                new PersistentDataStoreWrapper.SavedConnectionInfo(
+                        connectionInformation.getLastSuccessfulConnection(),
+                        connectionInformation.getLastFailedConnection(),
+                        connectionInformation.getLastFailure());
+        environmentStore.setConnectionInfo(savedConnectionInfo);
     }
 
     private void stopPolling() {

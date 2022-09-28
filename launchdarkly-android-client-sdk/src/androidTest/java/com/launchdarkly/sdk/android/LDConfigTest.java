@@ -2,9 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import com.launchdarkly.sdk.UserAttribute;
-
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -22,9 +19,6 @@ import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
 public class LDConfigTest {
-
-    @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
     public void testBuilderDefaults() {

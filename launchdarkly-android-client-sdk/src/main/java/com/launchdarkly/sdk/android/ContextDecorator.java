@@ -6,7 +6,6 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -15,17 +14,17 @@ import java.util.UUID;
 final class ContextDecorator {
     private static final String GENERATED_KEY_SHARED_PREFS_PREFIX = "anon-key-";
 
+    @NonNull private final PersistentDataStoreWrapper persistentData;
     private final boolean generateAnonymousKeys;
 
     private Map<ContextKind, String> cachedGeneratedKey = new HashMap<>();
-    private PersistentDataStore store = null;
     private Object generatedKeyLock = new Object();
 
     public ContextDecorator(
-            @NonNull PersistentDataStore store,
+            @NonNull PersistentDataStoreWrapper persistentData,
             boolean generateAnonymousKeys
     ) {
-        this.store = store;
+        this.persistentData = persistentData;
         this.generateAnonymousKeys = generateAnonymousKeys;
     }
 
@@ -67,9 +66,7 @@ final class ContextDecorator {
             if (key != null) {
                 return key;
             }
-            final String storeNamespace = LDConfig.SHARED_PREFS_BASE_KEY + "id";
-            final String storeKey = GENERATED_KEY_SHARED_PREFS_PREFIX + contextKind.toString();
-            key = store.getValue(storeNamespace, storeKey);
+            key = persistentData.getGeneratedContextKey(contextKind);
             if (key != null) {
                 cachedGeneratedKey.put(contextKind, key);
                 return key;
@@ -87,7 +84,7 @@ final class ContextDecorator {
             // get that value and not have to hit the persistent store.
             new Thread(new Runnable() {
                 public void run() {
-                    store.setValue(storeNamespace, storeKey, generatedKey);
+                    persistentData.setGeneratedContextKey(contextKind, generatedKey);
                 }
             }).run();
 
