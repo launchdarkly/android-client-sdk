@@ -30,8 +30,8 @@ import java.net.URI;
  * <p>
  * If you are using a private instance and you set some of the base URIs, but not all of them, the SDK
  * will log an error and may not work properly. The only exception is if you have explicitly disabled
- * the SDK's use of one of the services: for instance, if you have disabled analytics events with
- * {@link Components#noEvents()}, you do not have to set {@link #events(URI)}.
+ * the SDK's use of one of the services: for instance, if you have disabled analytics events, you do
+ * not have to set {@link #events(URI)}.
  *
  * <pre><code>
  *     // Example of specifying a Relay Proxy instance
