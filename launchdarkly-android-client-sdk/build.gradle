@@ -51,10 +51,15 @@ configurations {
     }
 }
 
+configurations.all {
+    // allows snapshot dependencies to be updated
+    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
+
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
-    "eventsource": "1.11.3",
+    "eventsource": "3.0.0-SNAPSHOT",
     "gson": "2.8.9",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
