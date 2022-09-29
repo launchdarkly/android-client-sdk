@@ -28,6 +28,7 @@ public class TestService extends NanoHTTPD {
     private static final String[] CAPABILITIES = new String[]{
             "client-side",
             "mobile",
+            "service-endpoints",
             "singleton",
             "strongly-typed",
     };
