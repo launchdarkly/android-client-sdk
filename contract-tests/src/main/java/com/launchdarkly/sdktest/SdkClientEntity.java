@@ -13,6 +13,7 @@ import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.ContextBuildParams;
@@ -250,6 +251,8 @@ public class SdkClientEntity {
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
 
+    ServiceEndpointsBuilder endpoints = Components.serviceEndpoints();
+
     // We don't want to use the default persistent storage mechanism when running contract tests
     // because the state of each test is supposed to be independent from the others. The contract
     // tests may create many SDK client instances with the same context key, but we don't want them
@@ -258,6 +261,7 @@ public class SdkClientEntity {
 
     if (params.streaming != null) {
       builder.stream(true);
+      endpoints.streaming(params.streaming.baseUri);
       // TODO: initialRetryDelayMs?
     }
 
@@ -267,12 +271,14 @@ public class SdkClientEntity {
     }
 
     if (params.polling != null) {
+      endpoints.polling(params.polling.baseUri);
       if (params.polling.pollIntervalMs != null) {
         builder.backgroundPollingIntervalMillis(params.polling.pollIntervalMs.intValue());
       }
     }
 
     if (params.events != null) {
+      endpoints.events(params.events.baseUri);
       builder.diagnosticOptOut(!params.events.enableDiagnostics);
 
       if (params.events.capacity > 0) {
@@ -296,13 +302,18 @@ public class SdkClientEntity {
     builder.useReport(params.clientSide.useReport);
 
     if (params.serviceEndpoints != null) {
-      builder.serviceEndpoints(
-              Components.serviceEndpoints()
-                      .streaming(params.serviceEndpoints.streaming)
-                      .polling(params.serviceEndpoints.polling)
-                      .events(params.serviceEndpoints.events)
-      );
+      if (params.serviceEndpoints.streaming != null) {
+        endpoints.streaming(params.serviceEndpoints.streaming);
+      }
+      if (params.serviceEndpoints.polling != null) {
+        endpoints.polling(params.serviceEndpoints.polling);
+      }
+      if (params.serviceEndpoints.events != null) {
+        endpoints.events(params.serviceEndpoints.events);
+      }
     }
+
+    builder.serviceEndpoints(endpoints);
 
     return builder.build();
   }
