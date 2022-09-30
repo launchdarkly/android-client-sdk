@@ -1,43 +1,15 @@
 package com.launchdarkly.sdk.android;
 
-import com.launchdarkly.logging.LDLogger;
-
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Implementation of {@link ClientState} that also allows the state to be changed.
  */
 final class ClientStateImpl implements ClientState {
-    private final String mobileKey;
-    private final String environmentName;
-    private final LDLogger logger;
     private final AtomicBoolean forcedOffline;
 
-    ClientStateImpl(
-            String mobileKey,
-            String environmentName,
-            LDLogger logger,
-            boolean forcedOffline
-    ) {
-        this.mobileKey = mobileKey;
-        this.environmentName = environmentName;
-        this.logger = logger;
+    ClientStateImpl(boolean forcedOffline) {
         this.forcedOffline = new AtomicBoolean(forcedOffline);
-    }
-
-    @Override
-    public String getMobileKey() {
-        return mobileKey;
-    }
-
-    @Override
-    public String getEnvironmentName() {
-        return environmentName;
-    }
-
-    @Override
-    public LDLogger getLogger() {
-        return logger;
     }
 
     @Override
@@ -52,7 +24,7 @@ final class ClientStateImpl implements ClientState {
      * @param forcedOffline the new value
      * @return the old value
      */
-    public boolean setForceOffline(boolean forcedOffline) {
+    public boolean setForcedOffline(boolean forcedOffline) {
         return this.forcedOffline.getAndSet(forcedOffline);
     }
 }

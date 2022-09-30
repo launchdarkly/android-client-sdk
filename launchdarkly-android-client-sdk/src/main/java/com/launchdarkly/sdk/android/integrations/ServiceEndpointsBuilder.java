@@ -53,7 +53,7 @@ import java.net.URI;
  *         .build();
  * </code></pre>
  *
- * @since 5.9.0
+ * @since 4.0.0
  */
 public abstract class ServiceEndpointsBuilder {
     protected URI streamingBaseUri;

@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.easymock.EasyMockSupport;
@@ -41,12 +42,19 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
     }
 
     protected ContextDataManager createDataManager(int maxCachedContexts) {
-        return new ContextDataManager(
-                environmentStore,
+        ClientContext clientContext = ClientContextImpl.fromConfig(
+                new LDConfig.Builder().build(),
+                "mobile-key",
+                "",
                 INITIAL_CONTEXT,
-                maxCachedContexts,
-                taskExecutor,
-                logging.logger
+                logging.logger,
+                null,
+                taskExecutor
+        );
+        return new ContextDataManager(
+                clientContext,
+                environmentStore,
+                maxCachedContexts
         );
     }
 

@@ -6,6 +6,7 @@ import androidx.annotation.Nullable;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventProcessor;
 
@@ -58,6 +59,7 @@ class ConnectivityManager {
     private final ConnectionMode foregroundMode;
     private final ConnectionMode backgroundMode;
 
+    private final ClientContext clientContext;
     private final PlatformState platformState;
     private final ClientStateImpl clientState;
     private final ConnectionInformationState connectionInformation;
@@ -79,24 +81,24 @@ class ConnectivityManager {
     private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
 
-    ConnectivityManager(@NonNull final PlatformState platformState,
+    ConnectivityManager(@NonNull final ClientContext clientContext,
                         @NonNull final ClientStateImpl clientState,
-                        @NonNull final LDConfig ldConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextDataManager contextDataManager,
                         @NonNull final FeatureFetcher fetcher,
-                        @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
-                        @NonNull final TaskExecutor taskExecutor,
-                        @Nullable final DiagnosticStore diagnosticStore
+                        @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore
     ) {
-        this.platformState = platformState;
+        this.clientContext = clientContext;
+        this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.clientState = clientState;
         this.eventProcessor = eventProcessor;
         this.contextDataManager = contextDataManager;
         this.fetcher = fetcher;
         this.environmentStore = environmentStore;
-        this.taskExecutor = taskExecutor;
-        this.logger = clientState.getLogger();
+        this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
+        this.logger = clientContext.getBaseLogger();
+
+        LDConfig ldConfig = clientContext.getConfig();
         pollingInterval = ldConfig.getPollingIntervalMillis();
         backgroundPollingInterval = ldConfig.getBackgroundPollingIntervalMillis();
         connectionInformation = new ConnectionInformationState();
@@ -175,8 +177,7 @@ class ConnectivityManager {
             }
         };
         streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(
-                clientState, ldConfig, contextDataManager, dataSourceActions,
-                diagnosticStore, monitor) : null;
+                clientContext, contextDataManager, dataSourceActions, monitor) : null;
     }
 
     boolean isInitialized() {
@@ -382,20 +383,20 @@ class ConnectivityManager {
         platformState.removeForegroundChangeListener(foregroundListener);
         stopStreaming();
         stopPolling();
-        clientState.setForceOffline(true);
+        clientState.setForcedOffline(true);
         eventProcessor.setOffline(true);
         callInitCallback();
     }
 
     synchronized void setOnline() {
-        boolean wasOffline = clientState.setForceOffline(false);
+        boolean wasOffline = clientState.setForcedOffline(false);
         if (wasOffline) {
             startUp(null);
         }
     }
 
     synchronized void setOffline() {
-        boolean wasOffline = clientState.setForceOffline(true);
+        boolean wasOffline = clientState.setForcedOffline(true);
         if (!wasOffline) {
             throttler.cancel();
             attemptTransition(ConnectionMode.SET_OFFLINE);

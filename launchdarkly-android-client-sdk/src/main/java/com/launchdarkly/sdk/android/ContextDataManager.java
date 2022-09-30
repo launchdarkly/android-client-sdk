@@ -6,6 +6,7 @@ import androidx.annotation.Nullable;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -54,17 +55,15 @@ final class ContextDataManager {
     private volatile String flagsContextId = null;
 
     ContextDataManager(
+            @NonNull ClientContext clientContext,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
-            @NonNull LDContext initialContext,
-            int maxCachedContexts,
-            @NonNull TaskExecutor taskExecutor,
-            @NonNull LDLogger logger
+            int maxCachedContexts
     ) {
-        this.currentContext = initialContext;
+        this.currentContext = clientContext.getInitialEvaluationContext();
         this.environmentStore = environmentStore;
         this.maxCachedContexts = maxCachedContexts;
-        this.taskExecutor = taskExecutor;
-        this.logger = logger;
+        this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
+        this.logger = clientContext.getBaseLogger();
     }
 
     /**

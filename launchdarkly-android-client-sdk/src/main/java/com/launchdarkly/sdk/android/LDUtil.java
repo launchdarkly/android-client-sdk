@@ -5,6 +5,7 @@ import android.util.Base64;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.http.HeadersTransformer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -44,10 +45,9 @@ class LDUtil {
                 Base64.URL_SAFE + Base64.NO_WRAP);
     }
 
-    static HttpProperties makeHttpProperties(
-            LDConfig config,
-            String mobileKey
-    ) {
+    static HttpProperties makeHttpProperties(ClientContext clientContext) {
+        LDConfig config = clientContext.getConfig();
+        String mobileKey = clientContext.getMobileKey();
         HashMap<String, String> baseHeaders = new HashMap<>();
         baseHeaders.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
         if (mobileKey != null) {

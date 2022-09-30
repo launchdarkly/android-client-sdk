@@ -7,6 +7,8 @@ import java.net.URI;
  * Specifies the base service URIs used by SDK components.
  * <p>
  * See {@link ServiceEndpointsBuilder} for more details on these properties.
+ *
+ * @since 4.0.0
  */
 public final class ServiceEndpoints {
     private final URI streamingBaseUri;

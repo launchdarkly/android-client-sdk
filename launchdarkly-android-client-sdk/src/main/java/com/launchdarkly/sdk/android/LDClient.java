@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
@@ -28,9 +29,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import okhttp3.ConnectionPool;
-import okhttp3.OkHttpClient;
 
 /**
  * Client for accessing LaunchDarkly's Feature Flag system. This class enforces a singleton pattern.
@@ -58,14 +56,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private static volatile LDLogger sharedLogger;
 
-    private final PlatformState platformState;
-    private final TaskExecutor taskExecutor;
     private final LDConfig config;
     private final ContextDataManager contextDataManager;
     private final DefaultEventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final ClientStateImpl clientState;
-    private final DiagnosticStore diagnosticStore;
     private final LDLogger logger;
 
     /**
@@ -283,42 +278,30 @@ public class LDClient implements LDClientInterface, Closeable {
         this.logger = LDLogger.withAdapter(config.getLogAdapter(), config.getLoggerName());
         logger.info("Creating LaunchDarkly client. Version: {}", BuildConfig.VERSION_NAME);
         this.config = config;
-        this.platformState = platformState;
-        this.taskExecutor = taskExecutor;
         if (mobileKey == null) {
             throw new LaunchDarklyException("Mobile key cannot be null");
         }
 
-        clientState = new ClientStateImpl(
+        clientState = new ClientStateImpl(config.isOffline());
+
+        ClientContextImpl clientContext = ClientContextImpl.fromConfig(
+                config,
                 mobileKey,
                 environmentName,
-                logger,
-                config.isOffline()
-        );
-
-        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(platformState, config,
-                clientState);
-        if (config.getDiagnosticOptOut()) {
-            this.diagnosticStore = null;
-        } else {
-            this.diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(config, mobileKey));
-        }
-        this.contextDataManager = new ContextDataManager(
-                environmentStore,
                 initialContext,
-                config.getMaxCachedContexts(),
-                taskExecutor,
-                logger
+                logger,
+                platformState,
+                taskExecutor
         );
 
-        HttpProperties httpProperties = LDUtil.makeHttpProperties(config, mobileKey);
-        EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(
-                config,
-                httpProperties,
-                diagnosticStore,
-                !platformState.isForeground(),
-                logger
+        FeatureFetcher fetcher = new HttpFeatureFlagFetcher(clientContext, clientState);
+        this.contextDataManager = new ContextDataManager(
+                clientContext,
+                environmentStore,
+                config.getMaxCachedContexts()
         );
+
+        EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(clientContext);
         eventProcessor = new DefaultEventProcessor(
                 eventsConfig,
                 EventUtil.makeEventsTaskExecutor(),
@@ -327,24 +310,13 @@ public class LDClient implements LDClientInterface, Closeable {
         );
 
         connectivityManager = new ConnectivityManager(
-                platformState,
+                clientContext,
                 clientState,
-                config,
                 eventProcessor,
                 contextDataManager,
                 fetcher,
-                environmentStore,
-                taskExecutor,
-                diagnosticStore
+                environmentStore
         );
-    }
-
-    private OkHttpClient makeSharedEventClient() {
-        return new OkHttpClient.Builder()
-                .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
-                .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
-                .retryOnConnectionFailure(true)
-                .build();
     }
 
     @Override
