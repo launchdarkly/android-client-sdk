@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android.subsystems;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 
