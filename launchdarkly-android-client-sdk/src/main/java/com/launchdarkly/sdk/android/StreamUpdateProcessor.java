@@ -12,19 +12,18 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
+import com.launchdarkly.sdk.json.SerializationException;
 
-import java.io.Closeable;
 import java.net.URI;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
 
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
+import android.app.Application;
 import android.net.Uri;
 
 class StreamUpdateProcessor {
@@ -39,8 +38,10 @@ class StreamUpdateProcessor {
 
     private EventSource es;
     private final HttpProperties httpProperties;
+    private final Application application;
     private final LDConfig config;
-    private final ContextManager contextManager;
+    private final ContextDataManager contextDataManager;
+    private final FeatureFetcher fetcher;
     private volatile boolean running = false;
     private final Debounce queue;
     private boolean connection401Error = false;
@@ -51,11 +52,21 @@ class StreamUpdateProcessor {
     private long eventSourceStarted;
     private final LDLogger logger;
 
-    StreamUpdateProcessor(LDConfig config, ContextManager contextManager, String environmentName, DiagnosticStore diagnosticStore,
-                          LDUtil.ResultCallback<Void> notifier, LDLogger logger) {
+    StreamUpdateProcessor(
+            Application application,
+            LDConfig config,
+            ContextDataManager contextDataManager,
+            FeatureFetcher fetcher,
+            String environmentName,
+            DiagnosticStore diagnosticStore,
+            LDUtil.ResultCallback<Void> notifier,
+            LDLogger logger
+    ) {
+        this.application = application;
         this.config = config;
         this.httpProperties = LDUtil.makeHttpProperties(config, config.getMobileKeys().get(environmentName));
-        this.contextManager = contextManager;
+        this.contextDataManager = contextDataManager;
+        this.fetcher = fetcher;
         this.environmentName = environmentName;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
@@ -98,7 +109,7 @@ class StreamUpdateProcessor {
                 public void onError(Throwable t) {
                     LDUtil.logExceptionAtErrorLevel(logger, t,
                             "Encountered EventStream error connecting to URI: {}",
-                            getUri(contextManager.getCurrentContext()));
+                            getUri(contextDataManager.getCurrentContext()));
                     if (t instanceof UnsuccessfulResponseException) {
                         if (diagnosticStore != null) {
                             diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
@@ -127,7 +138,7 @@ class StreamUpdateProcessor {
                 }
             };
 
-            EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextManager.getCurrentContext()));
+            EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextDataManager.getCurrentContext()));
             builder.clientBuilderActions(new EventSource.Builder.ClientConfigurer() {
                 public void configure(OkHttpClient.Builder clientBuilder) {
                     httpProperties.applyToHttpClientBuilder(clientBuilder);
@@ -143,7 +154,7 @@ class StreamUpdateProcessor {
 
             if (config.isUseReport()) {
                 builder.method(METHOD_REPORT);
-                builder.body(getRequestBody(contextManager.getCurrentContext()));
+                builder.body(getRequestBody(contextDataManager.getCurrentContext()));
             }
 
             builder.maxReconnectTimeMs(MAX_RECONNECT_TIME_MS);
@@ -166,7 +177,7 @@ class StreamUpdateProcessor {
         String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
 
         if (!config.isUseReport() && context != null) {
-            str += "/" + DefaultContextManager.base64Url(context);
+            str += "/" + LDUtil.base64Url(context);
         }
 
         if (config.isEvaluationReasons()) {
@@ -179,14 +190,21 @@ class StreamUpdateProcessor {
     private void handle(final String name, final String eventData,
                         @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
         switch (name.toLowerCase()) {
-            case PUT: contextManager.putCurrentContextFlags(eventData, onCompleteListener); break;
-            case PATCH: contextManager.patchCurrentContextFlags(eventData, onCompleteListener); break;
-            case DELETE: contextManager.deleteCurrentContextFlag(eventData, onCompleteListener); break;
+            case PUT:
+                contextDataManager.initDataFromJson(contextDataManager.getCurrentContext(),
+                        eventData, onCompleteListener);
+                break;
+            case PATCH:
+                applyPatch(eventData, onCompleteListener);
+                break;
+            case DELETE:
+                applyDelete(eventData, onCompleteListener);
+                break;
             case PING:
                 // We debounce ping requests as they trigger a separate asynchronous request for the
                 // flags, overriding all flag values.
                 queue.call(() -> {
-                    contextManager.updateCurrentContext(onCompleteListener);
+                    PollingUpdater.triggerPoll(application, contextDataManager, fetcher, onCompleteListener, logger);
                     return null;
                 });
                 break;
@@ -215,5 +233,49 @@ class StreamUpdateProcessor {
         running = false;
         es = null;
         logger.debug("Stopped.");
+    }
+
+    private void applyPatch(String json, @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
+        Flag flag;
+        try {
+            flag = Flag.fromJson(json);
+        } catch (SerializationException e) {
+            logger.debug("Invalid PATCH payload: {}", json);
+            onCompleteListener.onError(new LDFailure("Invalid PATCH payload",
+                    LDFailure.FailureType.INVALID_RESPONSE_BODY));
+            return;
+        }
+        if (flag == null) {
+            return;
+        }
+        contextDataManager.upsert(flag);
+        onCompleteListener.onSuccess(null);
+    }
+
+    private void applyDelete(String json, @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
+        DeleteMessage deleteMessage;
+        try {
+            deleteMessage = gsonInstance().fromJson(json, DeleteMessage.class);
+        } catch (Exception e) {
+            logger.debug("Invalid DELETE payload: {}", json);
+            onCompleteListener.onError(new LDFailure("Invalid DELETE payload",
+                    LDFailure.FailureType.INVALID_RESPONSE_BODY));
+            return;
+        }
+        if (deleteMessage == null) {
+            return;
+        }
+        contextDataManager.upsert(Flag.deletedItemPlaceholder(deleteMessage.key, deleteMessage.version));
+        onCompleteListener.onSuccess(null);
+    }
+
+    private static final class DeleteMessage {
+        private final String key;
+        private final int version;
+
+        DeleteMessage(String key, int version) {
+            this.key = key;
+            this.version = version;
+        }
     }
 }

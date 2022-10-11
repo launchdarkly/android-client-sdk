@@ -133,6 +133,6 @@ public class MigrationTest {
     }
 
     private static String oldSharedPrefsKeyForUser(LDUser user) {
-        return DefaultContextManager.HASHER.hash(JsonSerialization.serialize(user));
+        return ContextDataManager.HASHER.hash(JsonSerialization.serialize(user));
     }
 }

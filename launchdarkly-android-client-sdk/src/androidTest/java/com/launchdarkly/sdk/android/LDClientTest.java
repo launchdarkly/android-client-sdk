@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -43,7 +44,7 @@ public class LDClientTest {
     }
 
     @Test
-    public void testOfflineClientReturnsDefaults() {
+    public void testOfflineClientReturnsDefaultsIfThereAreNoStoredFlags() {
         ldClient = LDClient.init(application, ldConfig, ldUser, 1);
 
         assertTrue("client was not initialized", ldClient.isInitialized());
@@ -56,6 +57,27 @@ public class LDClientTest {
 
         LDValue expectedJson = LDValue.of("value");
         assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
+    }
+
+    @Test
+    public void testOfflineClientUsesStoredFlags() {
+        PersistentDataStore store = new InMemoryPersistentDataStore();
+        LDConfig config = new LDConfig.Builder()
+                .mobileKey(mobileKey)
+                .offline(true)
+                .persistentDataStore(store)
+                .build();
+
+        String flagKey = "flag-key", flagValue = "stored-value";
+        Flag flag = new FlagBuilder(flagKey).version(1).value(LDValue.of(flagValue)).build();
+        TestUtil.writeFlagUpdateToStore(store, mobileKey, ldUser, flag);
+
+        ldClient = LDClient.init(application, config, ldUser, 1);
+
+        assertTrue("client was not initialized", ldClient.isInitialized());
+        assertTrue("client was offline", ldClient.isOffline());
+
+        assertEquals(flagValue, ldClient.stringVariation(flagKey, "default"));
     }
 
     @Test

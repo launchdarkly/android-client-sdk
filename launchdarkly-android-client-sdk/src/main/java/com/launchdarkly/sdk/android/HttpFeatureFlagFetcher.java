@@ -69,7 +69,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     @Override
-    public synchronized void fetch(LDContext ldContext, final LDUtil.ResultCallback<JsonObject> callback) {
+    public synchronized void fetch(LDContext ldContext, final LDUtil.ResultCallback<String> callback) {
         if (ldContext != null && isClientConnected(appContext, environmentName)) {
 
             final Request request = config.isUseReport()
@@ -99,14 +99,14 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                             }
                             callback.onError(new LDInvalidResponseCodeFailure("Unexpected response when retrieving Feature Flags: " + response + " using url: "
                                     + request.url() + " with body: " + body, response.code(), true));
+                            return;
                         }
                         logger.debug(body);
                         logger.debug("Cache hit count: {} Cache network Count: {}", client.cache().hitCount(), client.cache().networkCount());
                         logger.debug("Cache response: {}", response.cacheResponse());
                         logger.debug("Network response: {}", response.networkResponse());
 
-                        JsonObject jsonObject = JsonParser.parseString(body).getAsJsonObject();
-                        callback.onSuccess(jsonObject);
+                        callback.onSuccess(body);
                     } catch (Exception e) {
                         LDUtil.logExceptionAtErrorLevel(logger, e,
                                 "Exception when handling response for url: {} with body: {}", request.url(), body);
@@ -123,7 +123,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private Request getDefaultRequest(LDContext ldContext) {
         String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/contexts/").toString() +
-                DefaultContextManager.base64Url(ldContext);
+                LDUtil.base64Url(ldContext);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }

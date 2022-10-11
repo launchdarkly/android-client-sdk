@@ -6,12 +6,16 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Base64;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.internal.http.HeadersTransformer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
+import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
@@ -21,6 +25,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 class LDUtil {
+    static <T> void safeCallbackSuccess(ResultCallback<T> listener, T result) {
+        if (listener != null) {
+            listener.onSuccess(result);
+        }
+    }
+
+    static void safeCallbackError(ResultCallback<?> listener, Throwable e) {
+        if (listener != null) {
+            listener.onError(e);
+        }
+    }
+
     static String urlSafeBase64Hash(String input) {
         try {
             MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
@@ -29,6 +45,11 @@ class LDUtil {
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e); // shouldn't be possible; SHA-256 is built in
         }
+    }
+
+    static String base64Url(final LDContext context) {
+        return Base64.encodeToString(JsonSerialization.serialize(context).getBytes(),
+                Base64.URL_SAFE + Base64.NO_WRAP);
     }
 
     static HttpProperties makeHttpProperties(

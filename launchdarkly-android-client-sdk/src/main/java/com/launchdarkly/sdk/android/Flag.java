@@ -1,11 +1,14 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.json.SerializationException;
 
-class Flag implements FlagUpdate {
+class Flag {
 
     @NonNull
     private final String key;
@@ -84,16 +87,28 @@ class Flag implements FlagUpdate {
         return deleted != null && deleted.booleanValue();
     }
 
-    @Override
-    public Flag updateFlag(Flag before) {
-        if (before == null || this.getVersion() > before.getVersion()) {
-            return this;
-        }
-        return before;
+    Flag withKey(String key) {
+        return new Flag(
+                key, this.value, this.version, this.flagVersion, this.variation,
+                this.trackEvents, this.trackReason, this.debugEventsUntilDate, this.reason,
+                this.isDeleted()
+        );
     }
 
     @Override
-    public String flagToUpdate() {
-        return key;
+    public String toString() {
+        return toJson();
+    }
+
+    public static Flag fromJson(String json) throws SerializationException {
+        try {
+            return gsonInstance().fromJson(json, Flag.class);
+        } catch (Exception e) { // Gson throws various kinds of parsing exceptions that have no common base class
+            throw new SerializationException(e);
+        }
+    }
+
+    public String toJson() {
+        return gsonInstance().toJson(this);
     }
 }
