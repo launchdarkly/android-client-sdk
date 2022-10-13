@@ -9,7 +9,7 @@ import java.util.concurrent.Executors;
  * how threads are managed in Android, verifying only that those components are calling the correct
  * {@link TaskExecutor} methods.
  */
-public class UnitTestTaskExecutor implements TaskExecutor {
+public class SimpleTestTaskExecutor implements TaskExecutor {
     private static final ThreadLocal<Thread> fakeMainThread = new ThreadLocal<>();
 
     private final ExecutorService executor = Executors.newFixedThreadPool(1);

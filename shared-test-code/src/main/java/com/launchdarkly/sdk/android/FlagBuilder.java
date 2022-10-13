@@ -5,8 +5,7 @@ import androidx.annotation.NonNull;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 
-public class FlagBuilder {
-
+public final class FlagBuilder {
     @NonNull
     private String key;
     private LDValue value = null;
@@ -25,6 +24,10 @@ public class FlagBuilder {
     public FlagBuilder value(LDValue value) {
         this.value = value;
         return this;
+    }
+
+    public FlagBuilder value(boolean boolValue) {
+        return value(LDValue.of(boolValue));
     }
 
     public FlagBuilder version(int version) {

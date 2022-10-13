@@ -14,14 +14,12 @@ import com.launchdarkly.logging.Logs;
 import org.junit.rules.TestWatcher;
 import org.junit.runner.Description;
 
-import timber.log.Timber;
-
 /**
  * Using this rule in a test class causes it to create a logger instance that captures output.
  * If the test fails, the output is dumped to the console so it will appear along with the test
  * failure output. If the test passes, the output is discarded.
  */
-public class LogCaptureRule extends TestWatcher {
+public final class LogCaptureRule extends TestWatcher {
     public LDLogger logger;
     public LogCapture logCapture;
 

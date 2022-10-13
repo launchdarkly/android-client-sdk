@@ -1,31 +1,33 @@
 package com.launchdarkly.sdk.android;
 
-import android.os.ConditionVariable;
-
-import com.launchdarkly.sdk.android.LDUtil;
-
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public class AwaitableCallback<T> implements LDUtil.ResultCallback<T> {
     private volatile Throwable errResult = null;
     private volatile T result = null;
-    private ConditionVariable state = new ConditionVariable();
+    private volatile CountDownLatch signal = new CountDownLatch(1);
 
     @Override
     public void onSuccess(T result) {
         this.result = result;
-        state.open();
+        signal.countDown();
     }
 
     @Override
     public void onError(Throwable e) {
         errResult = e;
-        state.open();
+        signal.countDown();
     }
 
     synchronized T await() throws ExecutionException {
-        state.block();
+        try {
+            signal.await();
+        } catch (InterruptedException e) {
+            throw new ExecutionException(e);
+        }
         if (errResult != null) {
             throw new ExecutionException(errResult);
         }
@@ -33,9 +35,13 @@ public class AwaitableCallback<T> implements LDUtil.ResultCallback<T> {
     }
 
     synchronized T await(long timeoutMillis) throws ExecutionException, TimeoutException {
-        boolean opened = state.block(timeoutMillis);
-        if (!opened) {
-            throw new TimeoutException();
+        try {
+            boolean completed = signal.await(timeoutMillis, TimeUnit.MILLISECONDS);
+            if (!completed) {
+                throw new TimeoutException();
+            }
+        } catch (InterruptedException e) {
+            throw new ExecutionException(e);
         }
         if (errResult != null) {
             throw new ExecutionException(errResult);
@@ -44,7 +50,7 @@ public class AwaitableCallback<T> implements LDUtil.ResultCallback<T> {
     }
 
     synchronized void reset() {
-        state.close();
+        signal = new CountDownLatch(1);
         errResult = null;
         result = null;
     }
