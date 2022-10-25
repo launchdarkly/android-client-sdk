@@ -2,36 +2,51 @@ package com.launchdarkly.sdk.android;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import android.app.Application;
 import android.os.Handler;
 import android.os.Looper;
 
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+
 import com.launchdarkly.logging.LDLogLevel;
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogCapture;
-import com.launchdarkly.logging.Logs;
 
-import org.hamcrest.CoreMatchers;
-import org.hamcrest.MatcherAssert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
+import java.util.ArrayList;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@RunWith(AndroidJUnit4.class)
 public class AndroidTaskExecutorTest {
+    private final Application application = ApplicationProvider.getApplicationContext();
+
+    @Rule
+    public final LogCaptureRule logging = new LogCaptureRule();
+
+    private final TaskExecutor taskExecutor;
+
+    public AndroidTaskExecutorTest() {
+        taskExecutor = new AndroidTaskExecutor(application, logging.logger);
+    }
+
     @Test
     public void executeOnMainThread() throws InterruptedException {
         // First, verify that this test is not already running on the main thread
         assertNotSame(Looper.getMainLooper(), Looper.myLooper());
-
-        TaskExecutor taskExecutor = new AndroidTaskExecutor(LDLogger.none());
 
         BlockingQueue<Looper> calls = new LinkedBlockingQueue<>();
         taskExecutor.executeOnMainThread(() -> {
@@ -44,8 +59,6 @@ public class AndroidTaskExecutorTest {
 
     @Test
     public void executeOnMainThreadWhenAlreadyOnMainThread() throws InterruptedException {
-        TaskExecutor taskExecutor = new AndroidTaskExecutor(LDLogger.none());
-
         BlockingQueue<Looper> calls = new LinkedBlockingQueue<>();
         new Handler(Looper.getMainLooper()).post(() -> {
             calls.add(Looper.myLooper());
@@ -65,23 +78,18 @@ public class AndroidTaskExecutorTest {
 
     @Test
     public void executeOnMainThreadCatchesAndLogsExceptions() throws InterruptedException {
-        LogCapture logCapture = Logs.capture();
-
-        TaskExecutor taskExecutor = new AndroidTaskExecutor(LDLogger.withAdapter(logCapture, ""));
-
         taskExecutor.executeOnMainThread(() -> {
             throw new RuntimeException("fake error");
         });
 
-        LogCapture.Message message1 = logCapture.requireMessage(LDLogLevel.ERROR, 5000);
+        LogCapture.Message message1 = logging.logCapture.requireMessage(LDLogLevel.ERROR, 5000);
         assertThat(message1.getText(), containsString("fake error"));
-        LogCapture.Message message2 = logCapture.requireMessage(LDLogLevel.DEBUG, 5000);
+        LogCapture.Message message2 = logging.logCapture.requireMessage(LDLogLevel.DEBUG, 5000);
         assertThat(message2.getText(), containsString(this.getClass().getName())); // stacktrace
     }
 
     @Test
     public void scheduleTask() throws InterruptedException {
-        TaskExecutor taskExecutor = new AndroidTaskExecutor(LDLogger.none());
         CountDownLatch canExecute = new CountDownLatch(1), didExecute = new CountDownLatch(1);
 
         taskExecutor.scheduleTask(() -> {
@@ -89,7 +97,7 @@ public class AndroidTaskExecutorTest {
                 canExecute.await();
             } catch (InterruptedException e) {}
             didExecute.countDown();
-        });
+        }, 0);
 
         canExecute.countDown();
         didExecute.await();
@@ -97,17 +105,57 @@ public class AndroidTaskExecutorTest {
 
     @Test
     public void scheduleTaskCatchesAndLogsExceptions() throws InterruptedException {
-        LogCapture logCapture = Logs.capture();
-
-        TaskExecutor taskExecutor = new AndroidTaskExecutor(LDLogger.withAdapter(logCapture, ""));
-
         taskExecutor.scheduleTask(() -> {
             throw new RuntimeException("fake error");
-        });
+        }, 0);
 
-        LogCapture.Message message1 = logCapture.requireMessage(LDLogLevel.ERROR, 5000);
+        LogCapture.Message message1 = logging.logCapture.requireMessage(LDLogLevel.ERROR, 5000);
         assertThat(message1.getText(), containsString("fake error"));
-        LogCapture.Message message2 = logCapture.requireMessage(LDLogLevel.DEBUG, 5000);
+        LogCapture.Message message2 = logging.logCapture.requireMessage(LDLogLevel.DEBUG, 5000);
         assertThat(message2.getText(), containsString(this.getClass().getName())); // stacktrace
+    }
+
+    @Test
+    public void repeatingTasks() throws InterruptedException {
+        BlockingQueue<Long> executedA = new LinkedBlockingQueue<>(),
+                executedB = new LinkedBlockingQueue<>(),
+                executedC = new LinkedBlockingQueue<>();
+        try {
+            taskExecutor.startRepeatingTask("A",
+                    () -> {
+                        executedA.add(System.currentTimeMillis());
+                    },
+                    10,
+                    10
+            );
+            taskExecutor.startRepeatingTask("B",
+                    () -> {
+                        executedB.add(System.currentTimeMillis());
+                    },
+                    10,
+                    20
+            );
+            taskExecutor.startRepeatingTask("C",
+                    () -> {
+                        executedC.add(System.currentTimeMillis());
+                    },
+                    10000,
+                    20
+            );
+
+            Thread.sleep(100);
+
+            assertEquals("C task should not have executed yet", 0, executedC.size());
+        } finally {
+            taskExecutor.stopRepeatingTask("A");
+            taskExecutor.stopRepeatingTask("B");
+            taskExecutor.stopRepeatingTask("C");
+        }
+        executedA.drainTo(new ArrayList<>());
+        // After stopping the task, let's tolerate it firing one more time, but no more than that.
+        if (executedA.poll(50, TimeUnit.MILLISECONDS) != null) {
+            assertNull("A task should have stopped executing",
+                    executedA.poll(50, TimeUnit.MILLISECONDS));
+        }
     }
 }

@@ -1,13 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
-import android.net.NetworkInfo;
-import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Base64;
 
 import com.launchdarkly.logging.LDLogger;
@@ -89,62 +81,6 @@ class LDUtil {
                 null, // sslSocketFactory
                 null // trustManager
         );
-    }
-
-    /**
-     * Looks at the Android device status to determine if the device is online.
-     *
-     * @param context Context for getting the ConnectivityManager
-     * @return whether device is connected to the internet
-     */
-    static boolean isInternetConnected(Context context) {
-        try {
-            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (Build.VERSION.SDK_INT >= 23) {
-                Network net = cm.getActiveNetwork();
-                if (net == null)
-                    return false;
-
-                NetworkCapabilities nwc = cm.getNetworkCapabilities(net);
-
-                // the older solution was cleaner but android went and
-                // deprecated it :^)
-                // hasTransport(NET_CAPABILITY_INTERNET) always returns false on emulators
-                // so we check these instead
-                return nwc != null && (
-                        nwc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)
-                                || nwc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                );
-            } else {
-                NetworkInfo active = cm.getActiveNetworkInfo();
-                return active != null && active.isConnectedOrConnecting();
-            }
-        } catch (SecurityException ignored) {
-            // See https://issuetracker.google.com/issues/175055271
-            // We should fallback to assuming network is available
-            return true;
-        }
-    }
-
-    /**
-     * Looks at both the Android device status and the environment's {@link LDClient} to determine if any network calls should be made.
-     *
-     * @param context         Context for getting the ConnectivityManager
-     * @param environmentName Name of the environment to get the LDClient for
-     * @return whether the device is connected to the internet and the LDClient instance is online
-     */
-    static boolean isClientConnected(Context context, String environmentName) {
-        boolean deviceConnected = isInternetConnected(context);
-        try {
-            return deviceConnected && !LDClient.getForMobileKey(environmentName).isOffline();
-        } catch (LaunchDarklyException e) {
-            LDClient.getSharedLogger().error("Exception caught when getting LDClient: {}", LogValues.exceptionSummary(e));
-            LDClient.getSharedLogger().debug(LogValues.exceptionTrace(e));
-            return false;
-        }
     }
 
     interface ResultCallback<T> {

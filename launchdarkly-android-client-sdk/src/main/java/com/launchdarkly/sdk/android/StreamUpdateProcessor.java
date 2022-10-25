@@ -23,7 +23,6 @@ import okhttp3.RequestBody;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
-import android.app.Application;
 import android.net.Uri;
 
 class StreamUpdateProcessor {
@@ -38,40 +37,32 @@ class StreamUpdateProcessor {
 
     private EventSource es;
     private final HttpProperties httpProperties;
-    private final Application application;
     private final LDConfig config;
     private final ContextDataManager contextDataManager;
-    private final FeatureFetcher fetcher;
     private volatile boolean running = false;
-    private final Debounce queue;
     private boolean connection401Error = false;
     private final ExecutorService executor;
-    private final String environmentName;
+    private final ConnectivityManager.DataSourceActions dataSourceActions;
     private final LDUtil.ResultCallback<Void> notifier;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
 
     StreamUpdateProcessor(
-            Application application,
-            LDConfig config,
-            ContextDataManager contextDataManager,
-            FeatureFetcher fetcher,
-            String environmentName,
-            DiagnosticStore diagnosticStore,
-            LDUtil.ResultCallback<Void> notifier,
-            LDLogger logger
+            @NonNull ClientState clientState,
+            @NonNull LDConfig config,
+            @NonNull ContextDataManager contextDataManager,
+            @NonNull ConnectivityManager.DataSourceActions dataSourceActions,
+            @Nullable DiagnosticStore diagnosticStore,
+            @NonNull LDUtil.ResultCallback<Void> notifier
     ) {
-        this.application = application;
         this.config = config;
-        this.httpProperties = LDUtil.makeHttpProperties(config, config.getMobileKeys().get(environmentName));
+        this.httpProperties = LDUtil.makeHttpProperties(config, clientState.getMobileKey());
         this.contextDataManager = contextDataManager;
-        this.fetcher = fetcher;
-        this.environmentName = environmentName;
+        this.dataSourceActions = dataSourceActions;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
-        this.logger = logger;
-        queue = new Debounce();
+        this.logger = clientState.getLogger();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 
@@ -121,11 +112,7 @@ class StreamUpdateProcessor {
                             notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
                                 connection401Error = true;
-                                try {
-                                    LDClient.getForMobileKey(environmentName).setOffline();
-                                } catch (LaunchDarklyException e) {
-                                    LDUtil.logExceptionAtErrorLevel(logger, e, "Client unavailable to be set offline");
-                                }
+                                dataSourceActions.shutdownForInvalidMobileKey();
                             }
                             stop(null);
                         } else {
@@ -201,12 +188,7 @@ class StreamUpdateProcessor {
                 applyDelete(eventData, onCompleteListener);
                 break;
             case PING:
-                // We debounce ping requests as they trigger a separate asynchronous request for the
-                // flags, overriding all flag values.
-                queue.call(() -> {
-                    PollingUpdater.triggerPoll(application, contextDataManager, fetcher, onCompleteListener, logger);
-                    return null;
-                });
+                dataSourceActions.triggerPoll();
                 break;
             default:
                 logger.debug("Found an unknown stream protocol: {}", name);
