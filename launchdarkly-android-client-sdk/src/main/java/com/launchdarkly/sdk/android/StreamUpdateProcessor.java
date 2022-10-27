@@ -16,6 +16,7 @@ import com.launchdarkly.sdk.json.SerializationException;
 
 import java.net.URI;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
@@ -34,6 +35,10 @@ class StreamUpdateProcessor {
     private static final String DELETE = "delete";
 
     private static final long MAX_RECONNECT_TIME_MS = 3_600_000; // 1 hour
+
+    private static final long READ_TIMEOUT_MS = 300_000;
+    // 5 minutes is the standard read timeout used for all LaunchDarkly stream connections, based on
+    // an expectation that the server will send heartbeats at a shorter interval than that
 
     private EventSource es;
     private final HttpProperties httpProperties;
@@ -129,6 +134,7 @@ class StreamUpdateProcessor {
             builder.clientBuilderActions(new EventSource.Builder.ClientConfigurer() {
                 public void configure(OkHttpClient.Builder clientBuilder) {
                     httpProperties.applyToHttpClientBuilder(clientBuilder);
+                    clientBuilder.readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
                 }
             });
 
@@ -144,7 +150,7 @@ class StreamUpdateProcessor {
                 builder.body(getRequestBody(contextDataManager.getCurrentContext()));
             }
 
-            builder.maxReconnectTimeMs(MAX_RECONNECT_TIME_MS);
+            builder.maxReconnectTime(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
 
             eventSourceStarted = System.currentTimeMillis();
             es = builder.build();
