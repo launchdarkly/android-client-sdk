@@ -54,7 +54,6 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
         client = new OkHttpClient.Builder()
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
-                .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .retryOnConnectionFailure(true)
                 .build();
     }
