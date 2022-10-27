@@ -24,21 +24,17 @@ interface TaskExecutor extends Closeable {
      *
      * @param action the action to execute
      * @param delayMillis minimum milliseconds to wait before executing
+     * @return a ScheduledFuture that can be used to cancel the task
      */
     ScheduledFuture<?> scheduleTask(Runnable action, long delayMillis);
 
     /**
+     * Schedules an action to be run repeatedly at intervals. It will not be done on the main thread.
      *
-     * @param identifier uniquely represents this task
-     * @param task the action to execute at each interval
+     * @param action the action to execute at each interval
      * @param initialDelayMillis milliseconds to wait before the first execution
      * @param intervalMillis milliseconds between executions
+     * @return a ScheduledFuture that can be used to cancel the task
      */
-    void startRepeatingTask(Object identifier, Runnable task, long initialDelayMillis, long intervalMillis);
-
-    /**
-     *
-     * @param identifier uniquely represents this task
-     */
-    void stopRepeatingTask(Object identifier);
+    ScheduledFuture<?> startRepeatingTask(Runnable action, long initialDelayMillis, long intervalMillis);
 }

@@ -19,6 +19,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LogCapture;
 
+import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -41,6 +43,11 @@ public class AndroidTaskExecutorTest {
 
     public AndroidTaskExecutorTest() {
         taskExecutor = new AndroidTaskExecutor(application, logging.logger);
+    }
+
+    @After
+    public void shutdown() throws Exception {
+        taskExecutor.close();
     }
 
     @Test
@@ -120,36 +127,35 @@ public class AndroidTaskExecutorTest {
         BlockingQueue<Long> executedA = new LinkedBlockingQueue<>(),
                 executedB = new LinkedBlockingQueue<>(),
                 executedC = new LinkedBlockingQueue<>();
+        ScheduledFuture<?> taskA = taskExecutor.startRepeatingTask(
+                () -> {
+                    executedA.add(System.currentTimeMillis());
+                },
+                10,
+                10
+        );
+        ScheduledFuture<?> taskB = taskExecutor.startRepeatingTask(
+                () -> {
+                    executedB.add(System.currentTimeMillis());
+                },
+                10,
+                20
+        );
+        ScheduledFuture<?> taskC = taskExecutor.startRepeatingTask(
+                () -> {
+                    executedC.add(System.currentTimeMillis());
+                },
+                10000,
+                20
+        );
         try {
-            taskExecutor.startRepeatingTask("A",
-                    () -> {
-                        executedA.add(System.currentTimeMillis());
-                    },
-                    10,
-                    10
-            );
-            taskExecutor.startRepeatingTask("B",
-                    () -> {
-                        executedB.add(System.currentTimeMillis());
-                    },
-                    10,
-                    20
-            );
-            taskExecutor.startRepeatingTask("C",
-                    () -> {
-                        executedC.add(System.currentTimeMillis());
-                    },
-                    10000,
-                    20
-            );
-
             Thread.sleep(100);
 
             assertEquals("C task should not have executed yet", 0, executedC.size());
         } finally {
-            taskExecutor.stopRepeatingTask("A");
-            taskExecutor.stopRepeatingTask("B");
-            taskExecutor.stopRepeatingTask("C");
+            taskA.cancel(false);
+            taskB.cancel(false);
+            taskC.cancel(false);
         }
         executedA.drainTo(new ArrayList<>());
         // After stopping the task, let's tolerate it firing one more time, but no more than that.
