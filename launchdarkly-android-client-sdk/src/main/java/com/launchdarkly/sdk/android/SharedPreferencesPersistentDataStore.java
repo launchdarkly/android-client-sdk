@@ -8,7 +8,9 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 final class SharedPreferencesPersistentDataStore implements PersistentDataStore {
@@ -68,6 +70,27 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
     public Collection<String> getKeys(String storeNamespace) {
         SharedPreferences prefs = getSharedPreferences(storeNamespace);
         return prefs.getAll().keySet();
+    }
+
+    @Override
+    public Collection<String> getAllNamespaces() {
+        // Implementation note: we are reading directly from the filesystem, which means that we will
+        // miss any updates that have been saved asynchronously with SharedPreferences.Editor.apply().
+        // Asynchronous updating is desirable for the SDK in general, and getAllNamespaces() should
+        // only be used for data migration logic, so this is an acceptable tradeoff.
+
+        File directory = new File(application.getFilesDir().getParent() + "/shared_prefs/");
+        File[] files = directory.listFiles();
+        List<String> ret = new ArrayList<>();
+        if (files == null) {
+            return ret;
+        }
+        for (File file : files) {
+            if (file.isFile() && file.getName().endsWith(".xml")) {
+                ret.add(file.getName().substring(0, file.getName().length() - 4));
+            }
+        }
+        return ret;
     }
 
     @Override

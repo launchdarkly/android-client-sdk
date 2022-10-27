@@ -24,5 +24,10 @@ public final class NullPersistentDataStore implements PersistentDataStore {
     }
 
     @Override
+    public Collection<String> getAllNamespaces() {
+        return Collections.emptyList();
+    }
+
+    @Override
     public void clear(String storeNamespace, boolean fullyDelete) {}
 }
