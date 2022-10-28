@@ -4,8 +4,8 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.events.DefaultEventSender;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
@@ -25,29 +25,24 @@ abstract class EventUtil {
     private static final String DIAGNOSTIC_EVENTS_REQUEST_PATH = "/mobile/events/diagnostic";
 
     // Constructs the EventsConfiguration parameters used by components in java-sdk-internal.
-    static EventsConfiguration makeEventsConfiguration(
-            LDConfig config,
-            HttpProperties httpProperties,
-            DiagnosticStore diagnosticStore,
-            boolean initiallyInBackground,
-            LDLogger logger
-    ) {
+    static EventsConfiguration makeEventsConfiguration(ClientContextImpl clientContext) {
+        LDConfig config = clientContext.getConfig();
         return new EventsConfiguration(
                 config.allAttributesPrivate(),
                 config.getEventsCapacity(),
                 null, // contextDeduplicator - not needed for client-side use
                 config.getDiagnosticRecordingIntervalMillis(),
-                diagnosticStore,
+                clientContext.getDiagnosticStore(),
                 new DefaultEventSender(
-                        httpProperties,
+                        LDUtil.makeHttpProperties(clientContext),
                         ANALYTICS_EVENTS_REQUEST_PATH,
                         DIAGNOSTIC_EVENTS_REQUEST_PATH,
                         0, // use default retry delay
-                        logger),
+                        clientContext.getBaseLogger()),
                 1, // eventSendingThreadPoolSize
                 config.serviceEndpoints.getEventsBaseUri(),
                 config.getEventsFlushIntervalMillis(),
-                initiallyInBackground, // initiallyInBackground
+                clientContext.isInitiallyInBackground(),
                 true, // initiallyOffline
                 config.getPrivateAttributes()
         );
@@ -69,7 +64,9 @@ abstract class EventUtil {
         });
     }
 
-    static DiagnosticStore.SdkDiagnosticParams makeDiagnosticParams(LDConfig config, String mobileKey) {
+    static DiagnosticStore.SdkDiagnosticParams makeDiagnosticParams(ClientContext clientContext) {
+        LDConfig config = clientContext.getConfig();
+        String mobileKey = clientContext.getMobileKey();
         LDValue configProperties = LDValue.buildObject()
                 .put("customBaseURI", !StandardEndpoints.DEFAULT_POLLING_BASE_URI.equals(
                         config.serviceEndpoints.getPollingBaseUri()))
@@ -92,7 +89,7 @@ abstract class EventUtil {
                 .put("maxCachedUsers", config.getMaxCachedContexts())
                 .build();
         Map<String, String> headers = new HashMap<>();
-        for (Map.Entry<String, String> kv: LDUtil.makeHttpProperties(config, mobileKey).getDefaultHeaders()) {
+        for (Map.Entry<String, String> kv: LDUtil.makeHttpProperties(clientContext).getDefaultHeaders()) {
             headers.put(kv.getKey(), kv.getValue());
         }
         return new DiagnosticStore.SdkDiagnosticParams(

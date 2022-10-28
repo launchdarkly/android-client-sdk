@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.events.EventProcessor;
 
 import org.easymock.Capture;
@@ -80,6 +81,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     private PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private ContextDataManager contextDataManager;
+    private ClientContext clientContext;
     private ClientStateImpl clientState;
     private BlockingQueue<List<String>> allFlagsReceived;
 
@@ -96,24 +98,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         environmentStore = TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData(MOBILE_KEY);
         taskExecutor = new AndroidTaskExecutor(application, logging.logger);
 
-        clientState = new ClientStateImpl(
-                MOBILE_KEY,
-                "default",
-                logging.logger,
-                false
-        );
-
-        contextDataManager = new ContextDataManager(
-                environmentStore,
-                CONTEXT,
-                1,
-                taskExecutor,
-                logging.logger
-        );
         allFlagsReceived = new LinkedBlockingQueue<>();
-        contextDataManager.registerAllFlagsListener(flagsUpdated -> {
-            allFlagsReceived.add(flagsUpdated);
-        });
 
         final Capture<LDUtil.ResultCallback<String>> callbackCapture = Capture.newInstance();
         fetcher.fetch(eq(CONTEXT), capture(callbackCapture));
@@ -158,18 +143,34 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                         )
                 )
                 .build();
-        clientState.setForceOffline(setOffline);
+
+        clientContext = ClientContextImpl.fromConfig(
+                config,
+                MOBILE_KEY,
+                "",
+                CONTEXT,
+                logging.logger,
+                mockPlatformState,
+                taskExecutor
+        );
+        clientState = new ClientStateImpl(setOffline);
+
+        contextDataManager = new ContextDataManager(
+                clientContext,
+                environmentStore,
+                1
+        );
+        contextDataManager.registerAllFlagsListener(flagsUpdated -> {
+            allFlagsReceived.add(flagsUpdated);
+        });
 
         connectivityManager = new ConnectivityManager(
-                mockPlatformState,
+                clientContext,
                 clientState,
-                config,
                 eventProcessor,
                 contextDataManager,
                 fetcher,
-                environmentStore,
-                taskExecutor,
-                null
+                environmentStore
         );
     }
 

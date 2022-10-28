@@ -14,6 +14,8 @@ abstract class StandardEndpoints {
     static final String STREAMING_REQUEST_BASE_PATH = "/meval";
     static final String POLLING_REQUEST_GET_BASE_PATH = "/msdk/evalx/contexts";
     static final String POLLING_REQUEST_REPORT_BASE_PATH = "/msdk/evalx/context";
+    static final String ANALYTICS_EVENTS_REQUEST_PATH = "/mobile/events/bulk";
+    static final String DIAGNOSTIC_EVENTS_REQUEST_PATH = "/mobile/events/diagnostic";
 
     /**
      * Internal method to decide which URI a given component should connect to.

@@ -20,6 +20,7 @@ import static org.junit.Assert.fail;
 
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LogCapture;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 
 public class LDConfigTest {
     @Rule public LogCaptureRule logging = new LogCaptureRule();
@@ -257,8 +258,10 @@ public class LDConfigTest {
     @Test
     public void headersForEnvironment() {
         LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
+        ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
+                null, null, null, null);
         Map<String, String> headers = headersToMap(
-                LDUtil.makeHttpProperties(config, "test-key").toHeadersBuilder().build()
+                LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
         assertEquals(2, headers.size());
         assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
@@ -276,11 +279,13 @@ public class LDConfigTest {
                     headers.put("New", "value");
                 })
                 .build();
+        ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
+                null, null, null, null);
 
         expected.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
         Map<String, String> headers = headersToMap(
-                LDUtil.makeHttpProperties(config, "test-key").toHeadersBuilder().build()
+                LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
         assertEquals(2, headers.size());
         assertEquals("api_key test-key, more", headers.get("authorization"));

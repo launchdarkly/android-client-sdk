@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -29,33 +30,26 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
-    private final LDConfig config;
     private final URI pollUri;
+    private final boolean evaluationReasons;
+    private final boolean useReport;
     private final HttpProperties httpProperties;
     private final ClientState clientStateProvider;
     private final PlatformState platformState;
     private final OkHttpClient client;
     private final LDLogger logger;
 
-    static HttpFeatureFlagFetcher newInstance(
-            @NonNull PlatformState platformState,
-            @NonNull LDConfig config,
+    HttpFeatureFlagFetcher(
+            @NonNull ClientContext clientContext,
             @NonNull ClientState clientStateProvider
     ) {
-        return new HttpFeatureFlagFetcher(platformState, config, clientStateProvider);
-    }
-
-    private HttpFeatureFlagFetcher(
-            @NonNull PlatformState platformState,
-            @NonNull LDConfig config,
-            @NonNull ClientState clientStateProvider
-    ) {
-        this.config = config;
-        this.pollUri = config.serviceEndpoints.getPollingBaseUri();
+        this.pollUri = clientContext.getServiceEndpoints().getPollingBaseUri();
+        this.evaluationReasons = clientContext.isEvaluationReasons();
+        this.useReport = clientContext.isUseReport();
         this.clientStateProvider = clientStateProvider;
-        this.httpProperties = LDUtil.makeHttpProperties(config, clientStateProvider.getMobileKey());
-        this.platformState = platformState;
-        this.logger = clientStateProvider.getLogger();
+        this.httpProperties = LDUtil.makeHttpProperties(clientContext);
+        this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
+        this.logger = clientContext.getBaseLogger();
 
         File cacheDir = new File(platformState.getCacheDir(), "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
@@ -69,7 +63,8 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                 // if there are multiple environments; right now a new HTTP client is being created for
                 // polling for each environment, even though they all have the same configuration.
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
-                .connectionPool(new ConnectionPool(1, config.getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
+                .connectionPool(new ConnectionPool(1,
+                        clientContext.getConfig().getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .retryOnConnectionFailure(true)
                 .build();
     }
@@ -80,7 +75,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
             final Request request;
             try {
-                request = config.isUseReport()
+                request = useReport
                         ? getReportRequest(ldContext)
                         : getDefaultRequest(ldContext);
             } catch (IOException e) {
@@ -140,7 +135,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         // Android-specific APIs so our components are more easily unit-testable.
         URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_GET_BASE_PATH);
         uri = HttpHelpers.concatenateUriPath(uri, LDUtil.base64Url(ldContext));
-        if (config.isEvaluationReasons()) {
+        if (evaluationReasons) {
             uri = URI.create(uri.toString() + "?withReasons=true");
         }
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
@@ -151,7 +146,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private Request getReportRequest(LDContext ldContext) throws IOException {
         URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_REPORT_BASE_PATH);
-        if (config.isEvaluationReasons()) {
+        if (evaluationReasons) {
             uri = URI.create(uri.toString() + "?withReasons=true");
         }
         logger.debug("Attempting to report user using uri: {}", uri);

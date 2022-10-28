@@ -9,6 +9,7 @@ import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
@@ -41,7 +42,8 @@ class StreamUpdateProcessor {
 
     private EventSource es;
     private final HttpProperties httpProperties;
-    private final LDConfig config;
+    private final boolean evaluationReasons;
+    private final boolean useReport;
     private final URI streamUri;
     private final ContextDataManager contextDataManager;
     private volatile boolean running = false;
@@ -54,21 +56,20 @@ class StreamUpdateProcessor {
     private final LDLogger logger;
 
     StreamUpdateProcessor(
-            @NonNull ClientState clientState,
-            @NonNull LDConfig config,
+            @NonNull ClientContext clientContext,
             @NonNull ContextDataManager contextDataManager,
             @NonNull ConnectivityManager.DataSourceActions dataSourceActions,
-            @Nullable DiagnosticStore diagnosticStore,
             @NonNull LDUtil.ResultCallback<Void> notifier
     ) {
-        this.config = config;
-        this.streamUri = config.serviceEndpoints.getStreamingBaseUri();
-        this.httpProperties = LDUtil.makeHttpProperties(config, clientState.getMobileKey());
+        this.streamUri = clientContext.getServiceEndpoints().getStreamingBaseUri();
+        this.httpProperties = LDUtil.makeHttpProperties(clientContext);
+        this.evaluationReasons = clientContext.isEvaluationReasons();
+        this.useReport = clientContext.isUseReport();
         this.contextDataManager = contextDataManager;
         this.dataSourceActions = dataSourceActions;
         this.notifier = notifier;
-        this.diagnosticStore = diagnosticStore;
-        this.logger = clientState.getLogger();
+        this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
+        this.logger = clientContext.getBaseLogger();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 
@@ -146,7 +147,7 @@ class StreamUpdateProcessor {
                         ).build();
             });
 
-            if (config.isUseReport()) {
+            if (useReport) {
                 builder.method(METHOD_REPORT);
                 builder.body(getRequestBody(contextDataManager.getCurrentContext()));
             }
@@ -174,11 +175,11 @@ class StreamUpdateProcessor {
         URI uri = HttpHelpers.concatenateUriPath(streamUri,
                 StandardEndpoints.STREAMING_REQUEST_BASE_PATH);
 
-        if (!config.isUseReport() && context != null) {
+        if (!useReport && context != null) {
             uri = HttpHelpers.concatenateUriPath(uri, LDUtil.base64Url(context));
         }
 
-        if (config.isEvaluationReasons()) {
+        if (evaluationReasons) {
             uri = URI.create(uri.toString() + "?withReasons=true");
         }
 
