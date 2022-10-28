@@ -10,6 +10,7 @@ import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdk.json.SerializationException;
@@ -23,8 +24,6 @@ import okhttp3.RequestBody;
 
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
-
-import android.net.Uri;
 
 class StreamUpdateProcessor {
     private static final String METHOD_REPORT = "REPORT";
@@ -43,6 +42,7 @@ class StreamUpdateProcessor {
     private EventSource es;
     private final HttpProperties httpProperties;
     private final LDConfig config;
+    private final URI streamUri;
     private final ContextDataManager contextDataManager;
     private volatile boolean running = false;
     private boolean connection401Error = false;
@@ -62,6 +62,7 @@ class StreamUpdateProcessor {
             @NonNull LDUtil.ResultCallback<Void> notifier
     ) {
         this.config = config;
+        this.streamUri = config.serviceEndpoints.getStreamingBaseUri();
         this.httpProperties = LDUtil.makeHttpProperties(config, clientState.getMobileKey());
         this.contextDataManager = contextDataManager;
         this.dataSourceActions = dataSourceActions;
@@ -167,17 +168,21 @@ class StreamUpdateProcessor {
     }
 
     private URI getUri(@Nullable LDContext context) {
-        String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
+        // Here we're using java.net.URI and our own URI-building helpers, rather than android.net.Uri
+        // and methods like Uri.withAppendedPath, simply to minimize the amount of code that relies on
+        // Android-specific APIs so our components are more easily unit-testable.
+        URI uri = HttpHelpers.concatenateUriPath(streamUri,
+                StandardEndpoints.STREAMING_REQUEST_BASE_PATH);
 
         if (!config.isUseReport() && context != null) {
-            str += "/" + LDUtil.base64Url(context);
+            uri = HttpHelpers.concatenateUriPath(uri, LDUtil.base64Url(context));
         }
 
         if (config.isEvaluationReasons()) {
-            str += "?withReasons=true";
+            uri = URI.create(uri.toString() + "?withReasons=true");
         }
 
-        return URI.create(str);
+        return uri;
     }
 
     private void handle(final String name, final String eventData,

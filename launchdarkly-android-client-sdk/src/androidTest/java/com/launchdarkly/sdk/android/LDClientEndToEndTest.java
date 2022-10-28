@@ -5,7 +5,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
-import android.net.Uri;
 
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
@@ -23,6 +22,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.mockwebserver.MockResponse;
@@ -35,7 +35,7 @@ public class LDClientEndToEndTest {
 
     private Application application;
     private MockWebServer mockPollingServer;
-    private Uri mockPollingServerUri;
+    private URI mockPollingServerUri;
     private final PersistentDataStore store = new InMemoryPersistentDataStore();
 
     @Rule
@@ -59,12 +59,12 @@ public class LDClientEndToEndTest {
                     } catch (IOException err) {
                         throw new RuntimeException(err);
                     }
-                    mockPollingServerUri = Uri.parse(mockPollingServer.url("/").toString());
+                    mockPollingServerUri = mockPollingServer.url("/").uri();
                 });
     }
 
     @After
-    public void after() throws InterruptedException, IOException {
+    public void after() throws IOException {
         mockPollingServer.close();
         testScenario.getScenario().close();
     }
@@ -88,7 +88,7 @@ public class LDClientEndToEndTest {
 
         LDConfig config = baseConfig()
                 .stream(false)
-                .pollUri(mockPollingServerUri)
+                .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
                 .build();
 
         try (LDClient client = LDClient.init(application, config, CONTEXT, 30)) {
@@ -109,7 +109,7 @@ public class LDClientEndToEndTest {
 
         LDConfig config = baseConfig()
                 .stream(false)
-                .pollUri(mockPollingServerUri)
+                .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
                 .build();
 
         try (LDClient client = LDClient.init(application, config, CONTEXT, 1)) {
@@ -131,7 +131,7 @@ public class LDClientEndToEndTest {
 
         LDConfig config = baseConfig()
                 .stream(false)
-                .pollUri(mockPollingServerUri)
+                .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
                 .build();
 
         try (LDClient client = LDClient.init(application, config, CONTEXT, 0)) {

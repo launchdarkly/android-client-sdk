@@ -1,5 +1,9 @@
-TEST_HARNESS_PARAMS=
+TEST_HARNESS_PARAMS= -skip "events/disabling"
 # can add temporary test skips etc. here
+# Currently we are skipping the "events/disabling" tests because the Android SDK has no way to
+# disable events. That wasn't an issue earlier because the "events/disabling" tests were getting
+# automatically skipped by sdk-test-harness for a different reason: they rely on the
+# ServiceEndpoints API, which the Android SDK didn't previously support.
 
 build-contract-tests:
 	@cd contract-tests && ../gradlew --no-daemon -s assembleDebug -PdisablePreDex

@@ -7,11 +7,13 @@ import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConfigHelper;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.ContextBuildParams;
@@ -33,8 +35,6 @@ import android.net.Uri;
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -251,6 +251,8 @@ public class SdkClientEntity {
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
 
+    ServiceEndpointsBuilder endpoints = Components.serviceEndpoints();
+
     // We don't want to use the default persistent storage mechanism when running contract tests
     // because the state of each test is supposed to be independent from the others. The contract
     // tests may create many SDK client instances with the same context key, but we don't want them
@@ -259,9 +261,7 @@ public class SdkClientEntity {
 
     if (params.streaming != null) {
       builder.stream(true);
-      if (params.streaming.baseUri != null) {
-        builder.streamUri(Uri.parse(params.streaming.baseUri));
-      }
+      endpoints.streaming(params.streaming.baseUri);
       // TODO: initialRetryDelayMs?
     }
 
@@ -271,20 +271,16 @@ public class SdkClientEntity {
     }
 
     if (params.polling != null) {
-      if (params.polling.baseUri != null) {
-        builder.pollUri(Uri.parse(params.polling.baseUri));
-      }
+      endpoints.polling(params.polling.baseUri);
       if (params.polling.pollIntervalMs != null) {
         builder.backgroundPollingIntervalMillis(params.polling.pollIntervalMs.intValue());
       }
     }
 
     if (params.events != null) {
+      endpoints.events(params.events.baseUri);
       builder.diagnosticOptOut(!params.events.enableDiagnostics);
 
-      if (params.events.baseUri != null) {
-        builder.eventsUri(Uri.parse(params.events.baseUri));
-      }
       if (params.events.capacity > 0) {
         builder.eventsCapacity(params.events.capacity);
       }
@@ -304,6 +300,20 @@ public class SdkClientEntity {
     // TODO: disable events if no params.events
     builder.evaluationReasons(params.clientSide.evaluationReasons);
     builder.useReport(params.clientSide.useReport);
+
+    if (params.serviceEndpoints != null) {
+      if (params.serviceEndpoints.streaming != null) {
+        endpoints.streaming(params.serviceEndpoints.streaming);
+      }
+      if (params.serviceEndpoints.polling != null) {
+        endpoints.polling(params.serviceEndpoints.polling);
+      }
+      if (params.serviceEndpoints.events != null) {
+        endpoints.events(params.serviceEndpoints.events);
+      }
+    }
+
+    builder.serviceEndpoints(endpoints);
 
     return builder.build();
   }

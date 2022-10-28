@@ -1,16 +1,16 @@
 package com.launchdarkly.sdk.android;
 
-import android.net.Uri;
-
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cache;
@@ -30,6 +30,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
     private final LDConfig config;
+    private final URI pollUri;
     private final HttpProperties httpProperties;
     private final ClientState clientStateProvider;
     private final PlatformState platformState;
@@ -50,6 +51,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
             @NonNull ClientState clientStateProvider
     ) {
         this.config = config;
+        this.pollUri = config.serviceEndpoints.getPollingBaseUri();
         this.clientStateProvider = clientStateProvider;
         this.httpProperties = LDUtil.makeHttpProperties(config, clientStateProvider.getMobileKey());
         this.platformState = platformState;
@@ -76,9 +78,16 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     public synchronized void fetch(LDContext ldContext, final LDUtil.ResultCallback<String> callback) {
         if (ldContext != null && !clientStateProvider.isForcedOffline() && platformState.isNetworkAvailable()) {
 
-            final Request request = config.isUseReport()
-                    ? getReportRequest(ldContext)
-                    : getDefaultRequest(ldContext);
+            final Request request;
+            try {
+                request = config.isUseReport()
+                        ? getReportRequest(ldContext)
+                        : getDefaultRequest(ldContext);
+            } catch (IOException e) {
+                LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected error in constructing request");
+                callback.onError(new LDFailure("Exception while fetching flags", e, LDFailure.FailureType.UNKNOWN_ERROR));
+                return;
+            }
 
             logger.debug(request.toString());
             Call call = client.newCall(request);
@@ -125,28 +134,31 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         }
     }
 
-    private Request getDefaultRequest(LDContext ldContext) {
-        String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/contexts/").toString() +
-                LDUtil.base64Url(ldContext);
+    private Request getDefaultRequest(LDContext ldContext) throws IOException {
+        // Here we're using java.net.URI and our own URI-building helpers, rather than android.net.Uri
+        // and methods like Uri.withAppendedPath, simply to minimize the amount of code that relies on
+        // Android-specific APIs so our components are more easily unit-testable.
+        URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_GET_BASE_PATH);
+        uri = HttpHelpers.concatenateUriPath(uri, LDUtil.base64Url(ldContext));
         if (config.isEvaluationReasons()) {
-            uri += "?withReasons=true";
+            uri = URI.create(uri.toString() + "?withReasons=true");
         }
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
-        return new Request.Builder().url(uri)
+        return new Request.Builder().url(uri.toURL())
                 .headers(httpProperties.toHeadersBuilder().build())
                 .build();
     }
 
-    private Request getReportRequest(LDContext ldContext) {
-        String reportUri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/context").toString();
+    private Request getReportRequest(LDContext ldContext) throws IOException {
+        URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_REPORT_BASE_PATH);
         if (config.isEvaluationReasons()) {
-            reportUri += "?withReasons=true";
+            uri = URI.create(uri.toString() + "?withReasons=true");
         }
-        logger.debug("Attempting to report user using uri: {}", reportUri);
+        logger.debug("Attempting to report user using uri: {}", uri);
         String contextJson = JsonSerialization.serialize(ldContext);
         RequestBody reportBody = RequestBody.create(contextJson, JSON);
 
-        return new Request.Builder().url(reportUri)
+        return new Request.Builder().url(uri.toURL())
                 .headers(httpProperties.toHeadersBuilder().build())
                 .method("REPORT", reportBody)
                 .build();
