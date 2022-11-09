@@ -12,12 +12,6 @@ import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.UserAttribute;
-import com.launchdarkly.sdk.android.AliasEvent;
-import com.launchdarkly.sdk.android.CustomEvent;
-import com.launchdarkly.sdk.android.Event;
-import com.launchdarkly.sdk.android.FeatureRequestEvent;
-import com.launchdarkly.sdk.android.GenericEvent;
-import com.launchdarkly.sdk.android.LDConfig;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -54,7 +48,7 @@ public class EventTest {
 
         final Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().get("user").getAsJsonObject().getAsJsonArray("privateAttrs");
 
         assertNotNull(jsonElement);
@@ -85,7 +79,7 @@ public class EventTest {
 
         Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonObject userJson = config.filteredEventGson.toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
         JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
         assertEquals(1, privateAttrs.size());
@@ -112,7 +106,7 @@ public class EventTest {
 
         Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonObject userJson = config.filteredEventGson.toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
         JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
         assertEquals(1, privateAttrs.size());
@@ -135,7 +129,7 @@ public class EventTest {
 
         Gson gson = new Gson();
 
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonObject userEval = gson.fromJson(gson.toJson(user), JsonObject.class);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().getAsJsonObject("user").getAsJsonArray("privateAttrs");
 
@@ -166,7 +160,7 @@ public class EventTest {
 
         Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonArray privateAttrs = jsonElement.getAsJsonObject().getAsJsonObject("user").getAsJsonArray("privateAttrs");
 
         assertNotNull(user);
@@ -194,7 +188,7 @@ public class EventTest {
 
         Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonObject userJson = config.filteredEventGson.toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
         JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
         assertEquals(1, privateAttrs.size());
@@ -310,7 +304,7 @@ public class EventTest {
         CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, null, false);
 
         LDConfig config = new LDConfig.Builder().build();
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonObject eventObject = jsonElement.getAsJsonObject();
 
         assertEquals(4, eventObject.size());
@@ -325,7 +319,7 @@ public class EventTest {
         CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.ofNull(), null, false);
 
         LDConfig config = new LDConfig.Builder().build();
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonObject eventObject = jsonElement.getAsJsonObject();
 
         assertEquals(4, eventObject.size());
@@ -340,7 +334,7 @@ public class EventTest {
         CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), LDValue.of("abc"), null, false);
 
         LDConfig config = new LDConfig.Builder().build();
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonObject eventObject = jsonElement.getAsJsonObject();
 
         assertEquals(5, eventObject.size());
@@ -356,7 +350,7 @@ public class EventTest {
         CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), null, 5.5, false);
 
         LDConfig config = new LDConfig.Builder().build();
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonObject eventObject = jsonElement.getAsJsonObject();
 
         assertEquals(5, eventObject.size());
@@ -375,7 +369,7 @@ public class EventTest {
         CustomEvent event = new CustomEvent("key1", new LDUser.Builder("a").build(), objVal, -10.0, false);
 
         LDConfig config = new LDConfig.Builder().build();
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(event);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(event);
         JsonObject eventObject = jsonElement.getAsJsonObject();
 
         assertEquals(6, eventObject.size());
@@ -418,9 +412,9 @@ public class EventTest {
 
         LDConfig config = new LDConfig.Builder()
                 .build();
-        JsonElement jsonElement = config.getFilteredEventGson().toJsonTree(hasReasonEvent);
+        JsonElement jsonElement = config.filteredEventGson.toJsonTree(hasReasonEvent);
 
-        JsonElement expected = config.getFilteredEventGson().fromJson("{\"kind\":\"FALLTHROUGH\"}", JsonElement.class);
+        JsonElement expected = config.filteredEventGson.fromJson("{\"kind\":\"FALLTHROUGH\"}", JsonElement.class);
         assertEquals(expected, jsonElement.getAsJsonObject().get("reason"));
     }
 
@@ -440,7 +434,7 @@ public class EventTest {
 
         Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonObject userJson = config.filteredEventGson.toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
         JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
         assertEquals(3, privateAttrs.size());
@@ -466,7 +460,7 @@ public class EventTest {
 
         Event event = new GenericEvent("kind1", "key1", user);
 
-        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonObject userJson = config.filteredEventGson.toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
         JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
         assertEquals(1, privateAttrs.size());

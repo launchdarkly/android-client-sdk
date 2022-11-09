@@ -325,7 +325,7 @@ public class LDConfigTest {
 
         LDUser user = new LDUser.Builder("myUserKey").email("weShouldNotFindThis@test.com").build();
 
-        JsonElement elem = config.getFilteredEventGson().toJsonTree(user).getAsJsonObject();
+        JsonElement elem = config.filteredEventGson.toJsonTree(user).getAsJsonObject();
 
         assertNotNull(elem);
 
