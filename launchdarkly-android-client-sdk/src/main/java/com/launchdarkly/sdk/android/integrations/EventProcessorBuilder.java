@@ -48,7 +48,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
 
     protected boolean allAttributesPrivate = false;
     protected int capacity = DEFAULT_CAPACITY;
-    protected int diagnosticRecordingIntervalMillis = 0; // currently we use zero to mean "unset, so use the deprecated LDConfig.Builder value instead"
+    protected int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
     protected boolean inlineUsers = false;
     protected Set<String> privateAttributes;

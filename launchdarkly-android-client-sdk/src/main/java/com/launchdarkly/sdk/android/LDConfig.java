@@ -182,12 +182,9 @@ public class LDConfig {
         if (events instanceof ComponentsImpl.EventProcessorBuilderImpl) {
             ComponentsImpl.EventProcessorBuilderImpl eventsBuilder =
                     (ComponentsImpl.EventProcessorBuilderImpl)events;
-            if (eventsBuilder.isAllAttributesPrivate()) {
-                actualAllAttributesPrivate = true;
-            }
-            if (eventsBuilder.getDiagnosticRecordingIntervalMillis() > 0) {
-                actualDiagnosticRecordingIntervalMillis = eventsBuilder.getDiagnosticRecordingIntervalMillis();
-            }
+            actualAllAttributesPrivate = eventsBuilder.isAllAttributesPrivate();
+            actualDiagnosticRecordingIntervalMillis = eventsBuilder.getDiagnosticRecordingIntervalMillis();
+            actualPrivateAttributes = new HashSet<>();
             if (eventsBuilder.getPrivateAttributes() != null) {
                 for (String a: eventsBuilder.getPrivateAttributes()) {
                     actualPrivateAttributes.add(UserAttribute.forName(a));
@@ -1137,6 +1134,7 @@ public class LDConfig {
                 EventProcessorBuilder eventsBuilder = Components.sendEvents()
                         .allAttributesPrivate(allAttributesPrivate)
                         .capacity(eventsCapacity)
+                        .diagnosticRecordingIntervalMillis(diagnosticRecordingIntervalMillis)
                         .flushIntervalMillis(eventsFlushIntervalMillis)
                         .inlineUsers(inlineUsersInEvents);
                 if (privateAttributes != null) {

@@ -106,6 +106,7 @@ abstract class ComponentsImpl {
                     .put("allAttributesPrivate", allAttributesPrivate)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsCapacity", capacity)
+                    .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .put("inlineUsersInEvents", inlineUsers)
                     .build();
