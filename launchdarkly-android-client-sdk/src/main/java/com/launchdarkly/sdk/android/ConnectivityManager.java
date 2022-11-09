@@ -8,6 +8,7 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.util.Calendar;
 import java.util.TimeZone;
@@ -336,6 +337,7 @@ class ConnectivityManager {
     synchronized void setOnline() {
         if (setOffline) {
             setOffline = false;
+            eventProcessor.setOffline(false);
             startUp(null);
         }
     }
@@ -346,6 +348,7 @@ class ConnectivityManager {
             throttler.cancel();
             attemptTransition(ConnectionMode.SET_OFFLINE);
             eventProcessor.stop();
+            eventProcessor.setOffline(true);
             stopDiagnostics();
         }
     }

@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.launchdarkly.sdk.LDValue;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -24,8 +25,7 @@ public class DiagnosticEventTest {
     @Test
     public void testDefaultDiagnosticConfiguration() {
         LDConfig ldConfig = new LDConfig.Builder().build();
-        DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);
-        JsonObject diagnosticJson = GsonCache.getGson().toJsonTree(diagnosticConfiguration).getAsJsonObject();
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
         JsonObject expected = new JsonObject();
         expected.addProperty("allAttributesPrivate", false);
         expected.addProperty("backgroundPollingDisabled", false);
@@ -45,7 +45,7 @@ public class DiagnosticEventTest {
         expected.addProperty("useReport", false);
         expected.addProperty("maxCachedUsers", 5);
         expected.addProperty("autoAliasingOptOut", false);
-        Assert.assertEquals(expected, diagnosticJson);
+        Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }
 
     @Test
@@ -53,7 +53,13 @@ public class DiagnosticEventTest {
         HashMap<String, String> secondaryKeys = new HashMap<>(1);
         secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
-                .allAttributesPrivate()
+                .events(
+                        Components.sendEvents()
+                                .allAttributesPrivate(true)
+                                .capacity(1000)
+                                .flushIntervalMillis(60_000)
+                                .inlineUsers(true)
+                )
                 .disableBackgroundUpdating(true)
                 .backgroundPollingIntervalMillis(900_000)
                 .connectionTimeoutMillis(5_000)
@@ -62,9 +68,6 @@ public class DiagnosticEventTest {
                 .streamUri(Uri.parse("https://1.1.1.1"))
                 .diagnosticRecordingIntervalMillis(1_800_000)
                 .evaluationReasons(true)
-                .eventsCapacity(1000)
-                .eventsFlushIntervalMillis(60_000)
-                .inlineUsersInEvents(true)
                 .secondaryMobileKeys(secondaryKeys)
                 .pollingIntervalMillis(600_000)
                 .stream(false)
@@ -73,8 +76,7 @@ public class DiagnosticEventTest {
                 .autoAliasingOptOut(true)
                 .build();
 
-        DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);
-        JsonObject diagnosticJson = GsonCache.getGson().toJsonTree(diagnosticConfiguration).getAsJsonObject();
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
         JsonObject expected = new JsonObject();
         expected.addProperty("allAttributesPrivate", true);
         expected.addProperty("backgroundPollingDisabled", true);
@@ -94,7 +96,40 @@ public class DiagnosticEventTest {
         expected.addProperty("useReport", true);
         expected.addProperty("maxCachedUsers", -1);
         expected.addProperty("autoAliasingOptOut", true);
-        Assert.assertEquals(expected, diagnosticJson);
+        Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void testCustomDiagnosticConfigurationWithDeprecatedEventSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .allAttributesPrivate()
+                .eventsCapacity(1000)
+                .eventsFlushIntervalMillis(60_000)
+                .inlineUsersInEvents(true)
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        JsonObject expected = new JsonObject();
+        expected.addProperty("allAttributesPrivate", true);
+        expected.addProperty("backgroundPollingDisabled", false);
+        expected.addProperty("backgroundPollingIntervalMillis", 3_600_000);
+        expected.addProperty("connectTimeoutMillis", 10_000);
+        expected.addProperty("customBaseURI", false);
+        expected.addProperty("customEventsURI", false);
+        expected.addProperty("customStreamURI", false);
+        expected.addProperty("diagnosticRecordingIntervalMillis", 900_000);
+        expected.addProperty("evaluationReasonsRequested", false);
+        expected.addProperty("eventsCapacity", 1000);
+        expected.addProperty("eventsFlushIntervalMillis",60_000);
+        expected.addProperty("inlineUsersInEvents", true);
+        expected.addProperty("mobileKeyCount", 1);
+        expected.addProperty("pollingIntervalMillis", 300_000);
+        expected.addProperty("streamingDisabled", false);
+        expected.addProperty("useReport", false);
+        expected.addProperty("maxCachedUsers", 5);
+        expected.addProperty("autoAliasingOptOut", false);
+        Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }
 
     @Test

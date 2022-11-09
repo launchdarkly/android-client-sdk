@@ -35,7 +35,6 @@ public class EventTest {
 
     @Test
     public void testPrivateAttributesAreConcatenated() {
-
         LDUser.Builder builder = new LDUser.Builder("1")
                 .privateAvatar("privateAvatar")
                 .privateFirstName("privateName")
@@ -47,7 +46,10 @@ public class EventTest {
         LDUser user = builder.build();
 
         LDConfig config = new LDConfig.Builder()
-                .privateAttributes(UserAttribute.EMAIL, UserAttribute.forName("Value2"))
+                .events(
+                        Components.sendEvents()
+                                .privateAttributes(UserAttribute.EMAIL, UserAttribute.forName("Value2"))
+                )
                 .build();
 
         final Event event = new GenericEvent("kind1", "key1", user);
@@ -102,7 +104,10 @@ public class EventTest {
         LDUser user = builder.build();
 
         LDConfig config = new LDConfig.Builder()
-                .privateAttributes(UserAttribute.AVATAR)
+                .events(
+                        Components.sendEvents()
+                                .privateAttributes(UserAttribute.AVATAR)
+                )
                 .build();
 
         Event event = new GenericEvent("kind1", "key1", user);
@@ -154,7 +159,9 @@ public class EventTest {
         LDUser user = builder.build();
 
         LDConfig config = new LDConfig.Builder()
-                .allAttributesPrivate()
+                .events(
+                        Components.sendEvents().allAttributesPrivate(true)
+                )
                 .build();
 
         Event event = new GenericEvent("kind1", "key1", user);
@@ -180,7 +187,9 @@ public class EventTest {
                 .build();
 
         LDConfig config = new LDConfig.Builder()
-                .allAttributesPrivate()
+                .events(
+                        Components.sendEvents().allAttributesPrivate(true)
+                )
                 .build();
 
         Event event = new GenericEvent("kind1", "key1", user);
@@ -413,5 +422,53 @@ public class EventTest {
 
         JsonElement expected = config.getFilteredEventGson().fromJson("{\"kind\":\"FALLTHROUGH\"}", JsonElement.class);
         assertEquals(expected, jsonElement.getAsJsonObject().get("reason"));
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void deprecatedAllAttributesPrivateConfigBuilderMethod() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .avatar("avatarValue")
+                .custom("value1", "123")
+                .email("email@server.net");
+
+        LDUser user = builder.build();
+
+        LDConfig config = new LDConfig.Builder()
+                .allAttributesPrivate()
+                .build();
+
+        Event event = new GenericEvent("kind1", "key1", user);
+
+        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
+
+        assertEquals(1, privateAttrs.size());
+        assertEquals("avatar", privateAttrs.get(0).getAsString());
+        assertNull(userJson.getAsJsonPrimitive("avatar"));
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void deprecatedPrivateAttributesConfigBuilderMethod() {
+        LDUser.Builder builder = new LDUser.Builder("1")
+                .avatar("avatarValue")
+                .custom("value1", "123")
+                .email("email@server.net");
+
+        LDUser user = builder.build();
+
+        LDConfig config = new LDConfig.Builder()
+                .privateAttributes(UserAttribute.AVATAR)
+                .build();
+
+        Event event = new GenericEvent("kind1", "key1", user);
+
+        JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
+        JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
+
+        assertEquals(1, privateAttrs.size());
+        assertEquals("avatar", privateAttrs.get(0).getAsString());
+        assertNull(userJson.getAsJsonPrimitive("avatar"));
     }
 }
