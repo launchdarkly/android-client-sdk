@@ -17,6 +17,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.LDUser;
 
@@ -128,12 +130,15 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         LDConfig config = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
                 .offline(setOffline)
-                .stream(streaming)
                 .disableBackgroundUpdating(backgroundDisabled)
                 .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
                 .build();
 
-        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default",
+        ComponentConfigurer<DataSource> dataSourceConfigurer = streaming ?
+                Components.streamingDataSource() : Components.pollingDataSource();
+        DataSource dataSourceConfig = dataSourceConfigurer.build(null);
+        connectivityManager = new ConnectivityManager(app, config, dataSourceConfig,
+                eventProcessor, userManager, "default",
                 null, null, LDLogger.none());
     }
 

@@ -13,7 +13,10 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.util.Arrays;
@@ -31,6 +34,19 @@ import okhttp3.MediaType;
  * must be constructed with {@link LDConfig.Builder}.
  */
 public class LDConfig {
+    /**
+     * The default value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
+     * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
+     * one hour.
+     */
+    public static final int DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS = 3_600_000;
+
+    /**
+     * The minimum value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
+     * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
+     * one hour.
+     */
+    public static final int MIN_BACKGROUND_POLL_INTERVAL_MILLIS = 900_000; // 15 minutes
 
     static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
@@ -52,8 +68,6 @@ public class LDConfig {
     static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
-    static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
     static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
     static final int DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 900_000; // 15 minutes
     static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000; // 5 minutes
@@ -63,6 +77,8 @@ public class LDConfig {
     private final Uri pollUri;
     private final Uri eventsUri;
     private final Uri streamUri;
+
+    final ComponentConfigurer<DataSource> dataSource;
 
     final ComponentConfigurer<EventProcessor> events;
     private final int eventsCapacity;
@@ -102,6 +118,7 @@ public class LDConfig {
              Uri pollUri,
              Uri eventsUri,
              Uri streamUri,
+             ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
              int eventsCapacity,
              int eventsFlushIntervalMillis,
@@ -130,6 +147,7 @@ public class LDConfig {
         this.pollUri = pollUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
+        this.dataSource = dataSource;
         this.events = events;
         this.eventsCapacity = eventsCapacity;
         this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
@@ -285,10 +303,30 @@ public class LDConfig {
         return useReport;
     }
 
+    /**
+     * Returns the setting of {@link Builder#pollingIntervalMillis(int)} ()}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#dataSource(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual data source properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getPollingIntervalMillis() {
         return pollingIntervalMillis;
     }
 
+    /**
+     * Returns the setting of {@link Builder#backgroundPollingIntervalMillis(int)} ()}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#dataSource(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual data source properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getBackgroundPollingIntervalMillis() {
         return backgroundPollingIntervalMillis;
     }
@@ -404,12 +442,14 @@ public class LDConfig {
         private Uri eventsUri = DEFAULT_EVENTS_URI;
         private Uri streamUri = DEFAULT_STREAM_URI;
 
+        private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
+
         private int eventsCapacity = DEFAULT_EVENTS_CAPACITY;
         private int eventsFlushIntervalMillis = 0;
         private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
         private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
-        private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
+        private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
         private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
         private int maxCachedUsers = DEFAULT_MAX_CACHED_USERS;
 
@@ -560,12 +600,53 @@ public class LDConfig {
         }
 
         /**
+         * Sets the configuration of the component that receives feature flag data from LaunchDarkly.
+         * <p>
+         * The default is {@link Components#streamingDataSource()}; you may instead use
+         * {@link Components#pollingDataSource()}. See those methods for details on how to configure
+         * them with options that are specific to streaming or polling mode.
+         * <p>
+         * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+         * and completely disable network requests.
+         * <pre><code>
+         *     // Setting custom options when using streaming mode
+         *     LDConfig config = new LDConfig.Builder()
+         *         .dataSource(
+         *             Components.streamingDataSource()
+         *                 .initialReconnectDelayMillis(100)
+         *         )
+         *         .build();
+         *
+         *     // Using polling mode instead of streaming, and setting custom options for polling
+         *     LDConfig config = new LDConfig.Builder()
+         *         .dataSource(
+         *             Components.pollingDataSource()
+         *                 .pollingIntervalMillis(60_000)
+         *         )
+         *         .build();
+         * </code></pre>
+         *
+         * @param dataSourceConfigurer the data source configuration builder
+         * @return the main configuration builder
+         * @see Components#streamingDataSource()
+         * @see Components#pollingDataSource()
+         * @since 3.3.0
+         */
+        public LDConfig.Builder dataSource(ComponentConfigurer<DataSource> dataSourceConfigurer) {
+            this.dataSource = dataSourceConfigurer;
+            return this;
+        }
+
+        /**
          * Sets the implementation of {@link EventProcessor} to be used for processing analytics events.
          * <p>
          * The default is {@link Components#sendEvents()} with no custom options. You may instead call
          * {@link Components#sendEvents()} and then set custom options for event processing; or, disable
          * events with {@link Components#noEvents()}; or, choose to use a custom implementation (for
          * instance, a test fixture).
+         * <p>
+         * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+         * and completely disable network requests.
          * <pre><code>
          *     // Setting custom event processing options
          *     LDConfig config = new LDConfig.Builder()
@@ -644,42 +725,65 @@ public class LDConfig {
         }
 
         /**
-         * Enables or disables real-time streaming flag updates.  By default, streaming is enabled.
-         * When disabled, an efficient caching polling mechanism is used.
+         * Deprecated method for enabling or disabling real-time streaming flag updates.
+         * <p>
+         * The preferred way to set this option now is with {@link StreamingDataSourceBuilder}. Any
+         * settings there will override this deprecated method. Setting this option to {@code false}
+         * is equivalent to calling {@code builder.dataSource(Components.pollingDataSource())}.
+         * <p>
+         * By default, streaming is enabled.
          *
          * @param enabled true if streaming should be enabled
          * @return the builder
+         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} with either
+         *   {@link Components#streamingDataSource()} or {@link Components#pollingDataSource()}
+         *   instead.
          */
+        @Deprecated
         public LDConfig.Builder stream(boolean enabled) {
             this.stream = enabled;
             return this;
         }
 
         /**
-         * Sets the interval in between feature flag updates, when streaming mode is disabled.
-         * This is ignored unless {@link #stream(boolean)} is set to {@code true}. When set, it
-         * will also change the default value for {@link #eventsFlushIntervalMillis(int)} to the
-         * same value.
+         * Deprecated method for setting the interval in between feature flag updates, when
+         * streaming mode is disabled.
          * <p>
-         * The default value is {@link LDConfig#DEFAULT_POLLING_INTERVAL_MILLIS}.
+         * The preferred way to set this option now is with {@link PollingDataSourceBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
+         * The default value is {@link PollingDataSourceBuilder#DEFAULT_POLL_INTERVAL_MILLIS}.
          *
          * @param pollingIntervalMillis the feature flag polling interval, in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} and
+         *   {@link PollingDataSourceBuilder#pollIntervalMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder pollingIntervalMillis(int pollingIntervalMillis) {
             this.pollingIntervalMillis = pollingIntervalMillis;
             return this;
         }
 
         /**
-         * Sets how often the client will poll for flag updates when your application is in the background.
+         * Deprecated method for setting how often the client will poll for flag updates when your
+         * application is in the background.
          * <p>
-         * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS}.
+         * The preferred way to set this option now is with {@link StreamingDataSourceBuilder} or
+         * {@link PollingDataSourceBuilder} (depending on whether you want the SDK to use streaming
+         * or polling when it is in the foreground). Any settings there will override this
+         * deprecated method.
+         * <p>
+         * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS}.
          *
          * @param backgroundPollingIntervalMillis the feature flag polling interval when in the background,
          *                                        in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} and either
+         *   {@link StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)} or
+         *   {@link PollingDataSourceBuilder#backgroundPollIntervalMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder backgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
             this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
             return this;
@@ -960,36 +1064,6 @@ public class LDConfig {
 
             LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
 
-            if (!stream) {
-                if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    logger.warn(
-                            "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
-                            pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
-                    pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
-                }
-
-                if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                    logger.warn(
-                            "BackgroundPollingIntervalMillis: {} was set below the foreground polling interval: {}. Ignoring and using minimum value for background polling.",
-                            backgroundPollingIntervalMillis, pollingIntervalMillis);
-                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
-                }
-
-                if (eventsFlushIntervalMillis == 0) {
-                    eventsFlushIntervalMillis = pollingIntervalMillis;
-                    // this is a normal occurrence, so don't log a warning about it
-                }
-            }
-
-            if (!disableBackgroundUpdating) {
-                if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
-                    logger.warn(
-                            "BackgroundPollingIntervalMillis: {} was set below the minimum allowed: {}. Ignoring and using minimum value.",
-                            backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
-                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
-                }
-            }
-
             if (eventsFlushIntervalMillis == 0) {
                 eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS; // this is a normal occurrence, so don't log a warning about it
             }
@@ -1010,8 +1084,56 @@ public class LDConfig {
             }
             mobileKeys.put(primaryEnvironmentName, mobileKey);
 
+            ComponentConfigurer<DataSource> dataSourceConfig = this.dataSource;
+            if (dataSourceConfig == null) {
+                // Copy the deprecated properties to the new data source configuration builder.
+                // There is some additional validation logic here that is specific to the
+                // deprecated property setters; the new configuration builder, in keeping with the
+                // standard behavior of other configuration builders in the Java and Android SDKs,
+                // doesn't log such messages.
+
+                if (!disableBackgroundUpdating) {
+                    if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLL_INTERVAL_MILLIS) {
+                        logger.warn(
+                                "BackgroundPollingIntervalMillis: {} was set below the minimum allowed: {}. Ignoring and using minimum value.",
+                                backgroundPollingIntervalMillis, MIN_BACKGROUND_POLL_INTERVAL_MILLIS);
+                        backgroundPollingIntervalMillis = MIN_BACKGROUND_POLL_INTERVAL_MILLIS;
+                    }
+                }
+
+                if (stream) {
+                    dataSourceConfig = Components.streamingDataSource()
+                            .backgroundPollIntervalMillis(backgroundPollingIntervalMillis);
+                } else {
+                    if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
+                        logger.warn(
+                                "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
+                                pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
+                        pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
+                    }
+
+                    if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
+                        logger.warn(
+                                "BackgroundPollingIntervalMillis: {} was set below the foreground polling interval: {}. Ignoring and using minimum value for background polling.",
+                                backgroundPollingIntervalMillis, pollingIntervalMillis);
+                        backgroundPollingIntervalMillis = MIN_BACKGROUND_POLL_INTERVAL_MILLIS;
+                    }
+
+                    if (eventsFlushIntervalMillis == 0) {
+                        // This behavior is retained for historical reasons; the newer configuration
+                        // builder does not modify properties like this that are outside its scope.
+                        eventsFlushIntervalMillis = pollingIntervalMillis;
+                    }
+
+                    dataSourceConfig = Components.pollingDataSource()
+                            .backgroundPollIntervalMillis(backgroundPollingIntervalMillis)
+                            .pollIntervalMillis(pollingIntervalMillis);
+                }
+            }
+
             ComponentConfigurer<EventProcessor> eventsConfig = this.events;
             if (eventsConfig == null) {
+                // Copy the deprecated properties to the new events configuration builder.
                 EventProcessorBuilder eventsBuilder = Components.sendEvents()
                         .allAttributesPrivate(allAttributesPrivate)
                         .capacity(eventsCapacity)
@@ -1022,11 +1144,13 @@ public class LDConfig {
                 }
                 eventsConfig = eventsBuilder;
             }
+
             return new LDConfig(
                     mobileKeys,
                     pollUri,
                     eventsUri,
                     streamUri,
+                    dataSourceConfig,
                     eventsConfig,
                     eventsCapacity,
                     eventsFlushIntervalMillis,

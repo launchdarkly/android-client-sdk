@@ -37,8 +37,6 @@ class DiagnosticEvent {
                 .put("customStreamURI", !LDConfig.DEFAULT_STREAM_URI.equals(config.getStreamUri()))
                 .put("connectTimeoutMillis", config.getConnectionTimeoutMillis())
                 .put("streamingDisabled", !config.isStream())
-                .put("pollingIntervalMillis", config.getPollingIntervalMillis())
-                .put("backgroundPollingIntervalMillis", config.getBackgroundPollingIntervalMillis())
                 .put("useReport", config.isUseReport())
                 .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
                 .put("evaluationReasonsRequested", config.isEvaluationReasons())

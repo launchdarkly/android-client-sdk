@@ -4,8 +4,11 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DiagnosticDescription;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
@@ -31,50 +34,39 @@ abstract class ComponentsImpl {
     static final class NullEventProcessor implements EventProcessor {
         static final NullEventProcessor INSTANCE = new NullEventProcessor();
 
-        private NullEventProcessor() {
-        }
+        private NullEventProcessor() {}
 
         @Override
-        public void flush() {
-        }
+        public void flush() {}
 
         @Override
-        public void blockingFlush() {
-        }
+        public void blockingFlush() {}
 
         @Override
-        public void start() {
-        }
+        public void start() {}
 
         @Override
-        public void stop() {
-        }
+        public void stop() {}
 
         @Override
-        public void close() {
-        }
+        public void close() {}
 
         @Override
         public void recordEvaluationEvent(LDUser user, String flagKey, int flagVersion, int variation, LDValue value,
                                           EvaluationReason reason, LDValue defaultValue, boolean requireFullEvent,
-                                          Long debugEventsUntilDate) {
-        }
+                                          Long debugEventsUntilDate) {}
 
         @Override
-        public void recordIdentifyEvent(LDUser user) {
-        }
+        public void recordIdentifyEvent(LDUser user) {}
 
         @Override
-        public void recordCustomEvent(LDUser user, String eventKey, LDValue data, Double metricValue) {
-        }
+        public void recordCustomEvent(LDUser user, String eventKey, LDValue data, Double metricValue) {}
 
         @Override
-        public void recordAliasEvent(LDUser user, LDUser previousUser) {
-        }
+        public void recordAliasEvent(LDUser user, LDUser previousUser) {}
 
         @Override
-        public void setOffline(boolean offline) {
-        }
+        public void setOffline(boolean offline) {}
     }
 
     static final class EventProcessorBuilderImpl extends EventProcessorBuilder
@@ -116,6 +108,77 @@ abstract class ComponentsImpl {
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .put("inlineUsersInEvents", inlineUsers)
                     .build();
+        }
+    }
+
+    static final class PollingDataSourceBuilderImpl extends PollingDataSourceBuilder
+            implements DiagnosticDescription {
+        @Override
+        public DataSource build(ClientContext clientContext) {
+            return new DataSourceImpl(true, backgroundPollIntervalMillis, 0,
+                    pollIntervalMillis);
+        }
+
+        @Override
+        public LDValue describeConfiguration(ClientContext clientContext) {
+            return LDValue.buildObject()
+                    .put("streamingDisabled", true)
+                    .put("backgroundPollingIntervalMillis", backgroundPollIntervalMillis)
+                    .put("pollingIntervalMillis", pollIntervalMillis)
+                    .build();
+        }
+    }
+
+    static final class StreamingDataSourceBuilderImpl extends StreamingDataSourceBuilder
+            implements DiagnosticDescription {
+        @Override
+        public DataSource build(ClientContext clientContext) {
+            return new DataSourceImpl(false, backgroundPollIntervalMillis,
+                    initialReconnectDelayMillis, 0);
+        }
+
+        @Override
+        public LDValue describeConfiguration(ClientContext clientContext) {
+            return LDValue.buildObject()
+                    .put("streamingDisabled", false)
+                    .put("backgroundPollingIntervalMillis", backgroundPollIntervalMillis)
+                    .put("reconnectTimeMillis", initialReconnectDelayMillis)
+                    .build();
+        }
+    }
+
+    private static final class DataSourceImpl implements DataSource {
+        private final boolean streamingDisabled;
+        private final int backgroundPollIntervalMillis;
+        private final int initialReconnectDelayMillis;
+        private final int pollIntervalMillis;
+
+        DataSourceImpl(
+                boolean streamingDisabled,
+                int backgroundPollIntervalMillis,
+                int initialReconnectDelayMillis,
+                int pollIntervalMillis
+        ) {
+            this.streamingDisabled = streamingDisabled;
+            this.backgroundPollIntervalMillis = backgroundPollIntervalMillis;
+            this.initialReconnectDelayMillis = initialReconnectDelayMillis;
+            this.pollIntervalMillis = pollIntervalMillis;
+        }
+
+        public boolean isStreamingDisabled() {
+            return streamingDisabled;
+        }
+
+        public int getBackgroundPollIntervalMillis() {
+            return backgroundPollIntervalMillis;
+        }
+
+        public int getInitialReconnectDelayMillis() {
+            return initialReconnectDelayMillis;
+        }
+
+        public int getPollIntervalMillis() {
+            return pollIntervalMillis;
         }
     }
 }

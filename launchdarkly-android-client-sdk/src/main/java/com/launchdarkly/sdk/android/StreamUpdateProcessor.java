@@ -10,6 +10,7 @@ import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -35,6 +36,7 @@ class StreamUpdateProcessor {
     private static final long MAX_RECONNECT_TIME_MS = 3_600_000; // 1 hour
 
     private EventSource es;
+    private final DataSource dataSourceConfig;
     private final LDConfig config;
     private final UserManager userManager;
     private volatile boolean running = false;
@@ -47,9 +49,11 @@ class StreamUpdateProcessor {
     private long eventSourceStarted;
     private final LDLogger logger;
 
-    StreamUpdateProcessor(LDConfig config, UserManager userManager, String environmentName, DiagnosticStore diagnosticStore,
+    StreamUpdateProcessor(LDConfig config, DataSource dataSourceConfig, UserManager userManager,
+                          String environmentName, DiagnosticStore diagnosticStore,
                           LDUtil.ResultCallback<Void> notifier, LDLogger logger) {
         this.config = config;
+        this.dataSourceConfig = dataSourceConfig;
         this.userManager = userManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
@@ -123,6 +127,7 @@ class StreamUpdateProcessor {
             };
 
             EventSource.Builder builder = new EventSource.Builder(handler, getUri(userManager.getCurrentUser()));
+            builder.reconnectTimeMs(dataSourceConfig.getInitialReconnectDelayMillis());
 
             builder.requestTransformer(input -> {
                 Map<String, List<String>> esHeaders = input.headers().toMultimap();
