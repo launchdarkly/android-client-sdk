@@ -112,7 +112,7 @@ public class DiagnosticEventTest {
         JsonObject expected = new JsonObject();
         setExpectedDefaults(expected);
 
-        expected.addProperty("backgroundPollingIntervalMillis", 3_600_000);
+        expected.addProperty("backgroundPollingIntervalMillis", 900_000);
         expected.addProperty("reconnectTimeMillis", 500);
 
         Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
@@ -135,7 +135,7 @@ public class DiagnosticEventTest {
         setExpectedDefaults(expected);
 
         expected.addProperty("streamingDisabled", true);
-        expected.addProperty("backgroundPollingIntervalMillis", 3_600_000);
+        expected.addProperty("backgroundPollingIntervalMillis", 900_000);
         expected.addProperty("pollingIntervalMillis", 600_000);
         expected.remove("reconnectTimeMillis");
 
@@ -179,7 +179,7 @@ public class DiagnosticEventTest {
         JsonObject expected = new JsonObject();
         setExpectedDefaults(expected);
 
-        expected.addProperty("backgroundPollingIntervalMillis", 3_600_000);
+        expected.addProperty("backgroundPollingIntervalMillis", 900_000);
 
         Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }
@@ -191,7 +191,7 @@ public class DiagnosticEventTest {
         secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .stream(false)
-                .backgroundPollingIntervalMillis(3_600_000)
+                .backgroundPollingIntervalMillis(900_000)
                 .pollingIntervalMillis(600_000)
                 .build();
 
@@ -200,7 +200,7 @@ public class DiagnosticEventTest {
         setExpectedDefaults(expected);
 
         expected.addProperty("streamingDisabled", true);
-        expected.addProperty("backgroundPollingIntervalMillis", 3_600_000);
+        expected.addProperty("backgroundPollingIntervalMillis", 900_000);
         expected.addProperty("pollingIntervalMillis", 600_000);
         expected.remove("reconnectTimeMillis");
 
