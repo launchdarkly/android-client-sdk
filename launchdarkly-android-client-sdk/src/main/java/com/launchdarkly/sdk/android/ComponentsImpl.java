@@ -113,6 +113,7 @@ abstract class ComponentsImpl {
             return LDValue.buildObject()
                     .put("allAttributesPrivate", allAttributesPrivate)
                     .put("eventsCapacity", capacity)
+                    .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .put("inlineUsersInEvents", inlineUsers)
                     .build();

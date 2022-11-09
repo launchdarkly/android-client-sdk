@@ -43,7 +43,6 @@ class DiagnosticEvent {
                 .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
                 .put("evaluationReasonsRequested", config.isEvaluationReasons())
                 .put("mobileKeyCount", config.getMobileKeys().size())
-                .put("diagnosticRecordingIntervalMillis", config.getDiagnosticRecordingIntervalMillis())
                 .put("maxCachedUsers", config.getMaxCachedUsers())
                 .put("autoAliasingOptOut", config.isAutoAliasingOptOut());
         mergeComponentProperties(builder, config.events);
