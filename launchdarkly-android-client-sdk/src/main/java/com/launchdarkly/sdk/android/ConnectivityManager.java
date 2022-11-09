@@ -348,7 +348,6 @@ class ConnectivityManager {
             throttler.cancel();
             attemptTransition(ConnectionMode.SET_OFFLINE);
             eventProcessor.stop();
-            eventProcessor.setOffline(true);
             stopDiagnostics();
         }
     }

@@ -312,7 +312,7 @@ public class LDConfig {
     }
 
     /**
-     * Returns the setting of {@link Builder#privateAttributes(UserAttribute...).
+     * Returns the setting of {@link Builder#privateAttributes(UserAttribute...)}.
      * <p>
      * This is only applicable if you have used the deprecated builder method rather than
      * {@link Builder#events(ComponentConfigurer)}.
