@@ -17,13 +17,13 @@ import java.util.Set;
  * properties with the methods of this class, and pass it to {@link Builder#events(ComponentConfigurer)}:
  * <pre><code>
  *     LDConfig config = new LDConfig.Builder()
- *         .events(Components.sendEvents().capacity(5000).flushIntervalSeconds(2))
+ *         .events(Components.sendEvents().capacity(500).flushIntervalMillis(2000))
  *         .build();
  * </code></pre>
  * <p>
  * Note that this class is abstract; the actual implementation is created by calling {@link Components#sendEvents()}.
  *
- * @since 4.12.0
+ * @since 3.3.0
  */
 public abstract class EventProcessorBuilder implements ComponentConfigurer<EventProcessor> {
     /**
@@ -147,6 +147,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * @param attributeNames a set of attribute names that will be removed from context data set to LaunchDarkly
      * @return the builder
      * @see #allAttributesPrivate(boolean)
+     * @see com.launchdarkly.sdk.LDUser.Builder
      */
     public EventProcessorBuilder privateAttributes(String... attributeNames) {
         privateAttributes = new HashSet<>();
@@ -165,6 +166,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * @param attributeNames a set of attribute names that will be removed from context data set to LaunchDarkly
      * @return the builder
      * @see #allAttributesPrivate(boolean)
+     * @see com.launchdarkly.sdk.LDUser.Builder
      */
     public EventProcessorBuilder privateAttributes(UserAttribute... attributeNames) {
         privateAttributes = new HashSet<>();

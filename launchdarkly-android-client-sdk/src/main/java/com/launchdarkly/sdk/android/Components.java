@@ -16,7 +16,7 @@ import com.launchdarkly.sdk.android.subsystems.EventProcessor;
  * method returns, and then use the corresponding method in {@link LDConfig.Builder} to use that
  * configured component in the SDK.
  *
- * @since 3.4.0
+ * @since 3.3.0
  */
 public abstract class Components {
     private Components() {}
@@ -32,7 +32,7 @@ public abstract class Components {
      *         .build();
      * </code></pre>
      *
-     * @return a factory object
+     * @return a configuration object
      * @see #sendEvents()
      * @see LDConfig.Builder#events(ComponentConfigurer)
      */
@@ -48,15 +48,15 @@ public abstract class Components {
      * with the {@link EventProcessorBuilder} properties, and pass it to {@link LDConfig.Builder#events(ComponentConfigurer)}:
      * <pre><code>
      *     LDConfig config = new LDConfig.Builder()
-     *         .events(Components.sendEvents().capacity(5000).flushIntervalSeconds(2))
+     *         .events(Components.sendEvents().capacity(500).flushIntervalMillis(2000))
      *         .build();
      * </code></pre>
      * To completely disable sending analytics events, use {@link #noEvents()} instead.
      * <p>
-     * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting and completely
-     * disable network requests.
+     * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+     * and completely disable network requests.
      *
-     * @return a builder for setting streaming connection properties
+     * @return a builder for setting event-related options
      * @see #noEvents()
      * @see LDConfig.Builder#events(ComponentConfigurer)
      */

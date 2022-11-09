@@ -15,7 +15,7 @@ import com.launchdarkly.sdk.LDValue;
  * implementation (e.g. "Redis"). Built-in LaunchDarkly components may instead return a JSON object
  * containing multiple properties specific to the LaunchDarkly diagnostic schema.
  *
- * @since 3.4.0
+ * @since 3.3.0
  */
 public interface DiagnosticDescription {
     /**

@@ -14,7 +14,7 @@ import java.io.Closeable;
  * to allow a custom implementation or test fixture to be substituted for the SDK's normal
  * analytics event logic.
  *
- * @since 3.4.0
+ * @since 3.3.0
  */
 public interface EventProcessor extends Closeable {
     /**

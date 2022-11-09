@@ -435,12 +435,14 @@ public class LDConfig {
         private LDLogLevel logLevel = null;
 
         /**
-         * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
-         * If this is set, all user attribute values will be private, not just the attributes
-         * specified in {@link #privateAttributes(UserAttribute...)}.
-         *
+         * Deprecated method for specifying that all user attributes other than the key should be
+         * hidden from LaunchDarkly.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
          * @return the builder
-         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         * @deprecated Use {@link #events(ComponentConfigurer)} and
          *   {@link EventProcessorBuilder#allAttributesPrivate(boolean)} instead.
          */
         @Deprecated
@@ -450,9 +452,11 @@ public class LDConfig {
         }
 
         /**
-         * Marks a set of attributes private. Any users sent to LaunchDarkly with this configuration
-         * active will have attributes with these names removed.
-         *
+         * Deprecated method for marking a set of attributes as private.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
          * This can also be specified on a per-user basis with {@link LDUser.Builder} methods like
          * {@link LDUser.Builder#privateName(String)}.
          *
@@ -576,7 +580,7 @@ public class LDConfig {
          *
          * @param eventsConfigurer the events configuration builder
          * @return the main configuration builder
-         * @since 3.4.0
+         * @since 3.3.0
          * @see Components#sendEvents()
          * @see Components#noEvents()
          */
@@ -586,9 +590,10 @@ public class LDConfig {
         }
 
         /**
-         * Set the capacity of the event buffer. The client buffers up to this many events in memory before flushing.
-         * If the capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
-         * means that events are less likely to be discarded, at the cost of consuming more memory.
+         * Deprecated method for setting the capacity of the event buffer.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
          * <p>
          * The default value is {@link #DEFAULT_EVENTS_CAPACITY}.
          *
@@ -605,7 +610,11 @@ public class LDConfig {
         }
 
         /**
-         * Sets the maximum amount of time to wait in between sending analytics events to LaunchDarkly.
+         * Deprecated method for setting the maximum amount of time to wait in between sending
+         * analytics events to LaunchDarkly.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
          * <p>
          * The default value is {@link #DEFAULT_FLUSH_INTERVAL_MILLIS}.
          *
@@ -706,11 +715,13 @@ public class LDConfig {
         }
 
         /**
-         * If enabled, events to the server will be created containing the entire User object.
-         * If disabled, events to the server will be created without the entire User object, including only the user key instead;
-         * the rest of the user properties will still be included in Identify events.
+         * Deprecated method for specifying whether events sent to the server will always include
+         * the full user object.
          * <p>
-         * Defaults to false in order to reduce network bandwidth.
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
+         * This defaults to false in order to reduce network bandwidth.
          *
          * @param inlineUsersInEvents true if all user properties should be included in events
          * @return the builder
@@ -757,15 +768,16 @@ public class LDConfig {
         }
 
         /**
-         * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
-         * milliseconds) and the minimum value is 300,000 (5 minutes).
-         *
-         * @see #diagnosticOptOut(boolean) for more information on the diagnostics data being sent.
+         * Deprecatd method for setting the interval at which periodic diagnostic data is sent.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
          * @return the builder
          * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
          *   {@link EventProcessorBuilder#diagnosticRecordingIntervalMillis(int)} instead.
+         * @see #diagnosticOptOut(boolean)
          */
         @Deprecated
         public LDConfig.Builder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {

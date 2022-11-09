@@ -5,7 +5,7 @@ package com.launchdarkly.sdk.android.subsystems;
  * need to implement this interface.
  *
  * @param <T> the type of SDK component or configuration object being constructed
- * @since 3.4.0
+ * @since 3.3.0
  */
 public interface ComponentConfigurer<T> {
     /**
