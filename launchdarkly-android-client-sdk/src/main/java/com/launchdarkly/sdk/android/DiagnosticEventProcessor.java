@@ -22,7 +22,6 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
-import com.launchdarkly.sdk.LDValue;
 
 class DiagnosticEventProcessor {
     private static final HashMap<String, String> baseDiagnosticHeaders = new HashMap<String, String>() {{
@@ -68,8 +67,7 @@ class DiagnosticEventProcessor {
             }
 
             if (diagnosticStore.isNewId()) {
-                sendDiagnosticEventAsync(new DiagnosticEvent.Init(System.currentTimeMillis(), diagnosticStore.getDiagnosticId(),
-                    config));
+                sendDiagnosticEventAsync(new DiagnosticEvent.Init(System.currentTimeMillis(), diagnosticStore.getDiagnosticId(), config));
             }
         }
 
