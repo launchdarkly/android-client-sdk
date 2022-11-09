@@ -67,7 +67,7 @@ class ConnectivityManager {
         setOffline = ldConfig.isOffline();
 
         backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
-        foregroundMode = ldConfig.isStream() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
+        foregroundMode = dataSourceConfig.isStreamingDisabled() ? ConnectionMode.POLLING : ConnectionMode.STREAMING;
 
         // Currently the background polling interval is owned statically by PollingUpdater, even
         // though it is configured in our per-instance DataSource.
