@@ -79,10 +79,12 @@ abstract class ComponentsImpl {
 
     static final class EventProcessorBuilderImpl extends EventProcessorBuilder
             implements DiagnosticDescription {
-        // see comments in LDConfig constructor regarding the purpose of these two getters
+        // see comments in LDConfig constructor regarding the purpose of these package-private getters
         boolean isAllAttributesPrivate() {
             return allAttributesPrivate;
         }
+
+        int getDiagnosticRecordingIntervalMillis() { return diagnosticRecordingIntervalMillis; }
 
         Set<String> getPrivateAttributes() {
             return privateAttributes;

@@ -32,12 +32,23 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public static final int DEFAULT_CAPACITY = 100;
 
     /**
+     * The default value for {@link #diagnosticRecordingIntervalMillis(int)}: 15 minutes.
+     */
+    public static final int DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 900_000;
+
+    /**
      * The default value for {@link #flushIntervalMillis(int)}: 30 seconds.
      */
-    public static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30000;
+    public static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000;
+
+    /**
+     * The minimum value for {@link #diagnosticRecordingIntervalMillis(int)}: 5 minutes.
+     */
+    public static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000;
 
     protected boolean allAttributesPrivate = false;
     protected int capacity = DEFAULT_CAPACITY;
+    protected int diagnosticRecordingIntervalMillis = 0; // currently we use zero to mean "unset, so use the deprecated LDConfig.Builder value instead"
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
     protected boolean inlineUsers = false;
     protected Set<String> privateAttributes;
@@ -73,6 +84,22 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      */
     public EventProcessorBuilder capacity(int capacity) {
         this.capacity = capacity;
+        return this;
+    }
+
+    /**
+     * Sets the interval at which periodic diagnostic data is sent.
+     * <p>
+     * The default value is {@link #DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS}; the minimum value is
+     * {@link #MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS}. This property is ignored if
+     * {@link Builder#diagnosticOptOut(boolean)} is set to {@code true}.
+     *
+     * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
+     * @return the builder
+     */
+    public EventProcessorBuilder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
+        this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS ?
+                MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS : diagnosticRecordingIntervalMillis;
         return this;
     }
 

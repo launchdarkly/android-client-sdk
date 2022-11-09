@@ -57,6 +57,7 @@ public class DiagnosticEventTest {
                         Components.sendEvents()
                                 .allAttributesPrivate(true)
                                 .capacity(1000)
+                                .diagnosticRecordingIntervalMillis(1_800_000)
                                 .flushIntervalMillis(60_000)
                                 .inlineUsers(true)
                 )
@@ -66,7 +67,6 @@ public class DiagnosticEventTest {
                 .pollUri(Uri.parse("https://1.1.1.1"))
                 .eventsUri(Uri.parse("https://1.1.1.1"))
                 .streamUri(Uri.parse("https://1.1.1.1"))
-                .diagnosticRecordingIntervalMillis(1_800_000)
                 .evaluationReasons(true)
                 .secondaryMobileKeys(secondaryKeys)
                 .pollingIntervalMillis(600_000)
@@ -104,6 +104,7 @@ public class DiagnosticEventTest {
     public void testCustomDiagnosticConfigurationWithDeprecatedEventSetters() {
         LDConfig ldConfig = new LDConfig.Builder()
                 .allAttributesPrivate()
+                .diagnosticRecordingIntervalMillis(1_800_000)
                 .eventsCapacity(1000)
                 .eventsFlushIntervalMillis(60_000)
                 .inlineUsersInEvents(true)
@@ -118,7 +119,7 @@ public class DiagnosticEventTest {
         expected.addProperty("customBaseURI", false);
         expected.addProperty("customEventsURI", false);
         expected.addProperty("customStreamURI", false);
-        expected.addProperty("diagnosticRecordingIntervalMillis", 900_000);
+        expected.addProperty("diagnosticRecordingIntervalMillis", 1_800_000);
         expected.addProperty("evaluationReasonsRequested", false);
         expected.addProperty("eventsCapacity", 1000);
         expected.addProperty("eventsFlushIntervalMillis",60_000);

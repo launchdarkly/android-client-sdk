@@ -16,12 +16,10 @@ import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -145,7 +143,6 @@ public class LDConfig {
         this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
-        this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
         this.maxCachedUsers = maxCachedUsers;
@@ -154,20 +151,22 @@ public class LDConfig {
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
 
-        // The following temporary hack combines the private-attribute-related properties, if any,
-        // that were set on the LDConfig.Builder with the ones that were set on the newer
-        // EventProcessorBuilder. This is necessary because, even though the latter passes its
-        // configuration on to the EventProcessor, the EventProcessor does not do its own event user
-        // redaction but delegates it to LDConfig.filteredEventGson. In the future, we will remove
-        // the deprecated allAttributesPrivate and privateAttributes setters in LDConfig.Builder,
-        // and this will become moot.
+        // The following temporary hack is for overriding several deprecated event-related setters
+        // with the corresponding EventProcessorBuilder setters, if those were used. The problem is
+        // that in the current SDK implementation, EventProcessor does not actually own the behavior
+        // that those options are configuring (private attributes, and the diagnostic recording
+        // interval), so we have to extract those values separately out of the config builder.
         boolean actualAllAttributesPrivate = allAttributesPrivate;
+        int actualDiagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         Set<UserAttribute> actualPrivateAttributes = privateAttributes;
         if (events instanceof ComponentsImpl.EventProcessorBuilderImpl) {
             ComponentsImpl.EventProcessorBuilderImpl eventsBuilder =
                     (ComponentsImpl.EventProcessorBuilderImpl)events;
             if (eventsBuilder.isAllAttributesPrivate()) {
                 actualAllAttributesPrivate = true;
+            }
+            if (eventsBuilder.getDiagnosticRecordingIntervalMillis() > 0) {
+                actualDiagnosticRecordingIntervalMillis = eventsBuilder.getDiagnosticRecordingIntervalMillis();
             }
             if (eventsBuilder.getPrivateAttributes() != null) {
                 for (String a: eventsBuilder.getPrivateAttributes()) {
@@ -176,6 +175,7 @@ public class LDConfig {
             }
         }
         this.allAttributesPrivate = actualAllAttributesPrivate;
+        this.diagnosticRecordingIntervalMillis = actualDiagnosticRecordingIntervalMillis;
         this.privateAttributes = actualPrivateAttributes;
 
         this.filteredEventGson = new GsonBuilder()
@@ -743,7 +743,10 @@ public class LDConfig {
          *
          * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#diagnosticRecordingIntervalMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
             this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
             return this;
@@ -982,7 +985,7 @@ public class LDConfig {
                         .flushIntervalMillis(eventsFlushIntervalMillis)
                         .inlineUsers(inlineUsersInEvents);
                 if (privateAttributes != null) {
-                    eventsBuilder.privateAttributes(privateAttributes.toArray(new String[privateAttributes.size()]));
+                    eventsBuilder.privateAttributes(privateAttributes.toArray(new UserAttribute[privateAttributes.size()]));
                 }
                 eventsConfig = eventsBuilder;
             }
