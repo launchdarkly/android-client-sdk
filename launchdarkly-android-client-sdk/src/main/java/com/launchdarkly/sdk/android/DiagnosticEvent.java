@@ -36,15 +36,14 @@ class DiagnosticEvent {
                 .put("customEventsURI", !LDConfig.DEFAULT_EVENTS_URI.equals(config.getEventsUri()))
                 .put("customStreamURI", !LDConfig.DEFAULT_STREAM_URI.equals(config.getStreamUri()))
                 .put("connectTimeoutMillis", config.getConnectionTimeoutMillis())
-                .put("streamingDisabled", !config.isStream())
                 .put("useReport", config.isUseReport())
                 .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
                 .put("evaluationReasonsRequested", config.isEvaluationReasons())
                 .put("mobileKeyCount", config.getMobileKeys().size())
-                .put("diagnosticRecordingIntervalMillis", config.getDiagnosticRecordingIntervalMillis())
                 .put("maxCachedUsers", config.getMaxCachedUsers())
                 .put("autoAliasingOptOut", config.isAutoAliasingOptOut());
         mergeComponentProperties(builder, config.events);
+        mergeComponentProperties(builder, config.dataSource);
         return builder.build();
     }
 

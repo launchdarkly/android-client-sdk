@@ -104,6 +104,7 @@ abstract class ComponentsImpl {
         public LDValue describeConfiguration(ClientContext clientContext) {
             return LDValue.buildObject()
                     .put("allAttributesPrivate", allAttributesPrivate)
+                    .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsCapacity", capacity)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .put("inlineUsersInEvents", inlineUsers)
