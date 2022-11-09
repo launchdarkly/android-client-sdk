@@ -1061,10 +1061,6 @@ public class LDConfig {
 
             LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
 
-            if (eventsFlushIntervalMillis == 0) {
-                eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS; // this is a normal occurrence, so don't log a warning about it
-            }
-
             if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
                 logger.warn(
                         "diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.",
@@ -1126,6 +1122,10 @@ public class LDConfig {
                             .backgroundPollIntervalMillis(backgroundPollingIntervalMillis)
                             .pollIntervalMillis(pollingIntervalMillis);
                 }
+            }
+
+            if (eventsFlushIntervalMillis == 0) {
+                eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS; // this is a normal occurrence, so don't log a warning about it
             }
 
             ComponentConfigurer<EventProcessor> eventsConfig = this.events;
