@@ -443,9 +443,11 @@ public class EventTest {
         JsonObject userJson = config.getFilteredEventGson().toJsonTree(event).getAsJsonObject().getAsJsonObject("user");
         JsonArray privateAttrs = userJson.getAsJsonArray("privateAttrs");
 
-        assertEquals(1, privateAttrs.size());
-        assertEquals("avatar", privateAttrs.get(0).getAsString());
-        assertNull(userJson.getAsJsonPrimitive("avatar"));
+        assertEquals(3, privateAttrs.size());
+
+        assertTrue(privateAttrs.contains(new JsonPrimitive(UserAttribute.AVATAR.getName())));
+        assertTrue(privateAttrs.contains(new JsonPrimitive(UserAttribute.EMAIL.getName())));
+        assertTrue(privateAttrs.contains(new JsonPrimitive("value1")));
     }
 
     @SuppressWarnings("deprecation")

@@ -82,7 +82,7 @@ public class LDConfig {
     private final boolean allAttributesPrivate;
     private final Set<UserAttribute> privateAttributes;
 
-    private final Gson filteredEventGson;
+    final Gson filteredEventGson;
 
     private final boolean inlineUsersInEvents;
 
@@ -140,6 +140,8 @@ public class LDConfig {
         this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
         this.useReport = useReport;
+        this.allAttributesPrivate = allAttributesPrivate;
+        this.privateAttributes = privateAttributes;
         this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
@@ -157,8 +159,8 @@ public class LDConfig {
         // that those options are configuring (private attributes, and the diagnostic recording
         // interval), so we have to extract those values separately out of the config builder.
         boolean actualAllAttributesPrivate = allAttributesPrivate;
-        int actualDiagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         Set<UserAttribute> actualPrivateAttributes = privateAttributes;
+        int actualDiagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         if (events instanceof ComponentsImpl.EventProcessorBuilderImpl) {
             ComponentsImpl.EventProcessorBuilderImpl eventsBuilder =
                     (ComponentsImpl.EventProcessorBuilderImpl)events;
@@ -174,12 +176,14 @@ public class LDConfig {
                 }
             }
         }
-        this.allAttributesPrivate = actualAllAttributesPrivate;
         this.diagnosticRecordingIntervalMillis = actualDiagnosticRecordingIntervalMillis;
-        this.privateAttributes = actualPrivateAttributes;
 
         this.filteredEventGson = new GsonBuilder()
-                .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
+                .registerTypeAdapter(LDUser.class,
+                        new LDUtil.LDUserPrivateAttributesTypeAdapter(
+                                actualAllAttributesPrivate,
+                                actualPrivateAttributes
+                        ))
                 .create();
     }
 
@@ -307,10 +311,27 @@ public class LDConfig {
         return allAttributesPrivate;
     }
 
+    /**
+     * Returns the setting of {@link Builder#privateAttributes(UserAttribute...).
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
     public Set<UserAttribute> getPrivateAttributes() {
         return Collections.unmodifiableSet(privateAttributes);
     }
 
+    /**
+     * Returns a Gson instance that is configured to serialize event data. This is used internally
+     * by the SDK; applications should not need to reference it.
+     *
+     * @return the Gson instance
+     * @deprecated Direct access to this object is deprecated and will be removed in the future.
+     */
+    @Deprecated
     public Gson getFilteredEventGson() {
         return filteredEventGson;
     }

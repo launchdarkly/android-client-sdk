@@ -51,6 +51,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     private final Context context;
     private final LDConfig config;
     private final String environmentName;
+    private final int flushIntervalMillis;
     private final boolean inlineUsers;
     private ScheduledExecutorService scheduler;
     private final SummaryEventStore summaryEventStore;
@@ -64,6 +65,9 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
             LDConfig config,
             SummaryEventStore summaryEventStore,
             String environmentName,
+            boolean initiallyOffline,
+            int capacity,
+            int flushIntervalMillis,
             boolean inlineUsers,
             final DiagnosticStore diagnosticStore,
             final OkHttpClient sharedClient,
@@ -71,10 +75,11 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     ) {
         this.context = context;
         this.config = config;
-        this.offline.set(config.isOffline());
+        this.offline.set(initiallyOffline);
         this.environmentName = environmentName;
+        this.flushIntervalMillis = flushIntervalMillis;
         this.inlineUsers = inlineUsers;
-        this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
+        this.queue = new ArrayBlockingQueue<>(capacity);
         this.consumer = new Consumer(config);
         this.summaryEventStore = summaryEventStore;
         this.client = sharedClient;
@@ -97,7 +102,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                 }
             });
 
-            scheduler.scheduleAtFixedRate(consumer, config.getEventsFlushIntervalMillis(), config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
+            scheduler.scheduleAtFixedRate(consumer, flushIntervalMillis, flushIntervalMillis, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -227,7 +232,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         }
 
         private void postEvents(List<Event> events) {
-            String content = config.getFilteredEventGson().toJson(events);
+            String content = config.filteredEventGson.toJson(events);
             String eventPayloadId = UUID.randomUUID().toString();
             String url = config.getEventsUri().buildUpon().appendPath("mobile").build().toString();
             HashMap<String, String> baseHeadersForRequest = new HashMap<>();

@@ -157,15 +157,20 @@ class LDUtil {
     }
 
     static class LDUserPrivateAttributesTypeAdapter extends TypeAdapter<LDUser> {
-        private final LDConfig config;
+        private final boolean allAttributesPrivate;
+        private final Set<UserAttribute> privateAttributes;
 
-        LDUserPrivateAttributesTypeAdapter(LDConfig cfg) {
-            config = cfg;
+        LDUserPrivateAttributesTypeAdapter(
+                boolean allAttributesPrivate,
+                Set<UserAttribute> privateAttributes
+        ) {
+            this.allAttributesPrivate = allAttributesPrivate;
+            this.privateAttributes = privateAttributes;
         }
 
         private boolean isPrivate(LDUser user, UserAttribute attribute) {
-            return config.allAttributesPrivate() ||
-                    config.getPrivateAttributes().contains(attribute) ||
+            return allAttributesPrivate ||
+                    privateAttributes.contains(attribute) ||
                     user.isAttributePrivate(attribute);
         }
 
