@@ -204,6 +204,10 @@ public class DiagnosticEventTest {
         expected.addProperty("pollingIntervalMillis", 600_000);
         expected.remove("reconnectTimeMillis");
 
+        // When using the deprecated setters only, there is an extra defaulting rule that causes
+        // the event flush interval to match the polling interval if not otherwise specified.
+        expected.addProperty("eventsFlushIntervalMillis", 600_000);
+
         Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }
 
