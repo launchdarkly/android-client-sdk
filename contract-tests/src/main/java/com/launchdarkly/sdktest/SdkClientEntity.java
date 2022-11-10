@@ -305,7 +305,9 @@ public class SdkClientEntity {
     }
 
     builder.evaluationReasons(params.clientSide.evaluationReasons);
-    builder.useReport(params.clientSide.useReport);
+    builder.http(
+            Components.httpConfiguration().useReport(params.clientSide.useReport)
+    );
 
     if (params.serviceEndpoints != null) {
       if (params.serviceEndpoints.streaming != null) {

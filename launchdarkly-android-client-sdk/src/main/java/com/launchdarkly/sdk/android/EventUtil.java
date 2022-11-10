@@ -45,14 +45,13 @@ abstract class EventUtil {
                         config.serviceEndpoints.getEventsBaseUri()))
                 .put("customStreamURI", !StandardEndpoints.DEFAULT_STREAMING_BASE_URI.equals(
                         config.serviceEndpoints.getStreamingBaseUri()))
-                .put("connectTimeoutMillis", config.getConnectionTimeoutMillis())
-                .put("useReport", config.isUseReport())
                 .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
                 .put("evaluationReasonsRequested", config.isEvaluationReasons())
                 .put("mobileKeyCount", config.getMobileKeys().size())
                 .put("maxCachedUsers", config.getMaxCachedContexts());
         mergeComponentProperties(configProperties, config.dataSource);
         mergeComponentProperties(configProperties, config.events);
+        mergeComponentProperties(configProperties, config.http);
         Map<String, String> headers = new HashMap<>();
         for (Map.Entry<String, String> kv: LDUtil.makeHttpProperties(clientContext).getDefaultHeaders()) {
             headers.put(kv.getKey(), kv.getValue());

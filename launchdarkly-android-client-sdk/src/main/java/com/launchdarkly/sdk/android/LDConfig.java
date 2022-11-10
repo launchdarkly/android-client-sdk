@@ -2,9 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
-
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
@@ -12,6 +10,7 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.Collections;
@@ -44,20 +43,12 @@ public class LDConfig {
     static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
 
-    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
-    static final String AUTH_SCHEME = "api_key ";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
     static final String primaryEnvironmentName = "default";
 
-    static final int DEFAULT_EVENTS_CAPACITY = 100;
     static final int DEFAULT_MAX_CACHED_CONTEXTS = 5;
-    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
-    static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 900_000; // 15 minutes
-    static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
     private final Map<String, String> mobileKeys;
 
@@ -65,43 +56,28 @@ public class LDConfig {
 
     final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
+    final ComponentConfigurer<HttpConfiguration> http;
 
-    private final int connectionTimeoutMillis;
-    private final int maxCachedContexts;
-
-    private final boolean offline;
-    private final boolean disableBackgroundUpdating;
-    private final boolean useReport;
     private final boolean diagnosticOptOut;
-
+    private final boolean disableBackgroundUpdating;
     private final boolean evaluationReasons;
-
-    private final String wrapperName;
-    private final String wrapperVersion;
-
-    private final LDHeaderUpdater headerTransform;
-
     private final boolean generateAnonymousKeys;
-
-    private final PersistentDataStore persistentDataStore; // configurable for testing only
-
     private final LDLogAdapter logAdapter;
     private final String loggerName;
+    private final int maxCachedContexts;
+    private final boolean offline;
+    private final PersistentDataStore persistentDataStore; // configurable for testing only
 
     LDConfig(Map<String, String> mobileKeys,
              ServiceEndpoints serviceEndpoints,
              ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
-             int connectionTimeoutMillis,
+             ComponentConfigurer<HttpConfiguration> http,
              boolean offline,
              boolean disableBackgroundUpdating,
-             boolean useReport,
              boolean evaluationReasons,
              boolean diagnosticOptOut,
-             String wrapperName,
-             String wrapperVersion,
              int maxCachedContexts,
-             LDHeaderUpdater headerTransform,
              boolean generateAnonymousKeys,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
@@ -110,16 +86,12 @@ public class LDConfig {
         this.serviceEndpoints = serviceEndpoints;
         this.dataSource = dataSource;
         this.events = events;
-        this.connectionTimeoutMillis = connectionTimeoutMillis;
+        this.http = http;
         this.offline = offline;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
-        this.useReport = useReport;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
-        this.wrapperName = wrapperName;
-        this.wrapperVersion = wrapperVersion;
         this.maxCachedContexts = maxCachedContexts;
-        this.headerTransform = headerTransform;
         this.generateAnonymousKeys = generateAnonymousKeys;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
@@ -134,16 +106,8 @@ public class LDConfig {
         return mobileKeys;
     }
 
-    public int getConnectionTimeoutMillis() {
-        return connectionTimeoutMillis;
-    }
-
     public boolean isOffline() {
         return offline;
-    }
-
-    public boolean isUseReport() {
-        return useReport;
     }
 
     public boolean isDisableBackgroundPolling() {
@@ -158,20 +122,8 @@ public class LDConfig {
         return diagnosticOptOut;
     }
 
-    String getWrapperName() {
-        return wrapperName;
-    }
-
-    String getWrapperVersion() {
-        return wrapperVersion;
-    }
-
     int getMaxCachedContexts() {
         return maxCachedContexts;
-    }
-
-    public LDHeaderUpdater getHeaderTransform() {
-        return headerTransform;
     }
 
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
@@ -200,20 +152,16 @@ public class LDConfig {
 
         private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
+        private ComponentConfigurer<HttpConfiguration> http = null;
 
-        private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
         private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
 
         private boolean offline = false;
         private boolean disableBackgroundUpdating = false;
-        private boolean useReport = false;
         private boolean diagnosticOptOut = false;
 
         private boolean evaluationReasons = false;
 
-        private String wrapperName;
-        private String wrapperVersion;
-        private LDHeaderUpdater headerTransform;
         private boolean generateAnonymousKeys;
 
         private PersistentDataStore persistentDataStore;
@@ -283,18 +231,6 @@ public class LDConfig {
          */
         public Builder serviceEndpoints(ServiceEndpointsBuilder serviceEndpointsBuilder) {
             this.serviceEndpointsBuilder = serviceEndpointsBuilder;
-            return this;
-        }
-
-        /**
-         * Sets the flag for choosing the REPORT api call.  The default is GET.
-         * Do not use unless advised by LaunchDarkly.
-         *
-         * @param useReport true if HTTP requests should use the REPORT verb
-         * @return the builder
-         */
-        public LDConfig.Builder useReport(boolean useReport) {
-            this.useReport = useReport;
             return this;
         }
 
@@ -370,15 +306,22 @@ public class LDConfig {
         }
 
         /**
-         * Sets the timeout when connecting to LaunchDarkly.
-         * <p>
-         * The default value is {@link #DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
+         * Sets the SDK's networking configuration, using a configuration builder. This builder is
+         * obtained from {@link Components#httpConfiguration()}, and has methods for setting individual
+         * HTTP-related properties.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder()
+         *         .http(Components.httpConfiguration().connectTimeoutMillis(5000))
+         *         .build();
+         * </code></pre>
          *
-         * @param connectionTimeoutMillis the connection timeout, in milliseconds
-         * @return the builder
+         * @param httpConfigurer the HTTP configuration builder
+         * @return the main configuration builder
+         * @since 3.3.0
+         * @see Components#httpConfiguration()
          */
-        public LDConfig.Builder connectionTimeoutMillis(int connectionTimeoutMillis) {
-            this.connectionTimeoutMillis = connectionTimeoutMillis;
+        public Builder http(ComponentConfigurer<HttpConfiguration> httpConfigurer) {
+            this.http = httpConfigurer;
             return this;
         }
 
@@ -445,33 +388,6 @@ public class LDConfig {
         }
 
         /**
-         * For use by wrapper libraries to set an identifying name for the wrapper being used. This will be sent in
-         * User-Agent headers during requests to the LaunchDarkly servers to allow recording metrics on the usage of
-         * these wrapper libraries.
-         *
-         * @param wrapperName An identifying name for the wrapper library
-         * @return the builder
-         */
-        public LDConfig.Builder wrapperName(String wrapperName) {
-            this.wrapperName = wrapperName;
-            return this;
-        }
-
-        /**
-         * For use by wrapper libraries to report the version of the library in use. If the wrapper
-         * name has not been set with {@link #wrapperName(String)} this field will be ignored.
-         * Otherwise the version string will be included in the User-Agent headers along with the
-         * wrapperName during requests to the LaunchDarkly servers.
-         *
-         * @param wrapperVersion Version string for the wrapper library
-         * @return the builder
-         */
-        public LDConfig.Builder wrapperVersion(String wrapperVersion) {
-            this.wrapperVersion = wrapperVersion;
-            return this;
-        }
-
-        /**
          * Sets the maximum number of evaluation contexts to cache the flag values for locally in
          * the device's SharedPreferences.
          * <p>
@@ -486,17 +402,6 @@ public class LDConfig {
          */
         public LDConfig.Builder maxCachedContexts(int maxCachedContexts) {
             this.maxCachedContexts = maxCachedContexts;
-            return this;
-        }
-
-        /**
-         * Provides a callback for dynamically modifying headers used on requests to the LaunchDarkly service.
-         *
-         * @param headerTransform the transformation to apply to requests
-         * @return the builder
-         */
-        public LDConfig.Builder headerTransform(LDHeaderUpdater headerTransform) {
-            this.headerTransform = headerTransform;
             return this;
         }
 
@@ -651,8 +556,6 @@ public class LDConfig {
             // debug logging. But if it is LDAndroidLogging or anything else, Logs.level ensures that no
             // output at a lower level than logLevel will be sent anywhere.
 
-            LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
-
             HashMap<String, String> mobileKeys;
             if (secondaryMobileKeys == null) {
                 mobileKeys = new HashMap<>();
@@ -672,16 +575,12 @@ public class LDConfig {
                     serviceEndpoints,
                     this.dataSource == null ? Components.streamingDataSource() : this.dataSource,
                     this.events == null ? Components.sendEvents() : this.events,
-                    connectionTimeoutMillis,
+                    this.http == null ? Components.httpConfiguration() : this.http,
                     offline,
                     disableBackgroundUpdating,
-                    useReport,
                     evaluationReasons,
                     diagnosticOptOut,
-                    wrapperName,
-                    wrapperVersion,
                     maxCachedContexts,
-                    headerTransform,
                     generateAnonymousKeys,
                     persistentDataStore,
                     actualLogAdapter,

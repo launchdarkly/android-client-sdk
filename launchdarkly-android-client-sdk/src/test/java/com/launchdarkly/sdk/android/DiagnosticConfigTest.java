@@ -16,7 +16,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -48,23 +48,19 @@ public class DiagnosticConfigTest {
                         .polling("https://1.1.1.1")
                         .streaming("https://1.1.1.1"))
                 .disableBackgroundUpdating(true)
-                .connectionTimeoutMillis(5_000)
                 .evaluationReasons(true)
                 .secondaryMobileKeys(secondaryKeys)
-                .useReport(true)
                 .maxCachedContexts(-1)
                 .build();
 
         LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
         ObjectBuilder expected = makeExpectedDefaults();
         expected.put("backgroundPollingDisabled", true);
-        expected.put("connectTimeoutMillis", 5_000);
         expected.put("customBaseURI", true);
         expected.put("customEventsURI", true);
         expected.put("customStreamURI", true);
         expected.put("evaluationReasonsRequested", true);
         expected.put("mobileKeyCount", 2);
-        expected.put("useReport", true);
         expected.put("maxCachedUsers", -1);
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
@@ -125,6 +121,23 @@ public class DiagnosticConfigTest {
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
+    @Test
+    public void customDiagnosticConfigurationHttp() throws Exception {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .http(
+                        Components.httpConfiguration()
+                                .connectTimeoutMillis(5_000)
+                                .useReport(true)
+                )
+                .build();
+
+        LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("connectTimeoutMillis", 5_000);
+        expected.put("useReport", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
     private static LDValue makeDiagnosticJson(LDConfig config) throws Exception {
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "", "",
                 null, LDLogger.none(), null, null);
@@ -179,7 +192,7 @@ public class DiagnosticConfigTest {
 
         @Override
         public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
-            events.add(LDValue.parse(new String(data, Charset.forName("UTF-8"))));
+            events.add(LDValue.parse(new String(data, StandardCharsets.UTF_8)));
             return new Result(true, false, null);
         }
 

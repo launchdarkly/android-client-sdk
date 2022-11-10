@@ -66,7 +66,7 @@ class StreamUpdateProcessor {
         this.streamUri = clientContext.getServiceEndpoints().getStreamingBaseUri();
         this.httpProperties = LDUtil.makeHttpProperties(clientContext);
         this.evaluationReasons = clientContext.isEvaluationReasons();
-        this.useReport = clientContext.isUseReport();
+        this.useReport = clientContext.getHttp().isUseReport();
         this.contextDataManager = contextDataManager;
         this.dataSourceActions = dataSourceActions;
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;

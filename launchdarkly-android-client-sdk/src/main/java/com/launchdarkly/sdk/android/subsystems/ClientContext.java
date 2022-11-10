@@ -29,12 +29,12 @@ public class ClientContext {
     private final LDConfig config;
     private final boolean evaluationReasons;
     private final String environmentName;
+    private final HttpConfiguration http;
     private final LDContext initialEvaluationContext;
     private final boolean initiallyInBackground;
     private final boolean initiallySetOffline;
     private final String mobileKey;
     private final ServiceEndpoints serviceEndpoints;
-    private final boolean useReport;
 
     public ClientContext(
             String mobileKey,
@@ -42,22 +42,22 @@ public class ClientContext {
             LDConfig config,
             String environmentName,
             boolean evaluationReasons,
+            HttpConfiguration http,
             LDContext initialEvaluationContext,
             boolean initiallyInBackground,
             boolean initiallySetOffline,
-            ServiceEndpoints serviceEndpoints,
-            boolean useReport
+            ServiceEndpoints serviceEndpoints
     ) {
         this.mobileKey = mobileKey;
         this.baseLogger = baseLogger;
         this.config = config;
         this.environmentName = environmentName;
         this.evaluationReasons = evaluationReasons;
+        this.http = http;
         this.initialEvaluationContext = initialEvaluationContext;
         this.initiallyInBackground = initiallyInBackground;
         this.initiallySetOffline = initiallySetOffline;
         this.serviceEndpoints = serviceEndpoints;
-        this.useReport = useReport;
     }
 
     protected ClientContext(ClientContext copyFrom) {
@@ -67,12 +67,12 @@ public class ClientContext {
                 copyFrom.config,
                 copyFrom.environmentName,
                 copyFrom.evaluationReasons,
+                copyFrom.http,
                 copyFrom.initialEvaluationContext,
                 copyFrom.initiallyInBackground,
                 copyFrom.initiallySetOffline,
-                copyFrom.serviceEndpoints,
-                copyFrom.useReport
-        );
+                copyFrom.serviceEndpoints
+                );
     }
 
     /**
@@ -107,6 +107,14 @@ public class ClientContext {
      */
     public boolean isEvaluationReasons() {
         return evaluationReasons;
+    }
+
+    /**
+     * Returns the HTTP configuration.
+     * @return the HTTP configuration
+     */
+    public HttpConfiguration getHttp() {
+        return http;
     }
 
     /**
@@ -151,13 +159,5 @@ public class ClientContext {
      */
     public ServiceEndpoints getServiceEndpoints() {
         return serviceEndpoints;
-    }
-
-    /**
-     * Returns true if the SDK is configured to use HTTP REPORT mode.
-     * @return true if report mode is enabled
-     */
-    public boolean isUseReport() {
-        return useReport;
     }
 }

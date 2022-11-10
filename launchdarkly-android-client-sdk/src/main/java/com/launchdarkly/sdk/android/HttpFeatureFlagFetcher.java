@@ -12,12 +12,10 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
-import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -45,7 +43,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     ) {
         this.pollUri = clientContext.getServiceEndpoints().getPollingBaseUri();
         this.evaluationReasons = clientContext.isEvaluationReasons();
-        this.useReport = clientContext.isUseReport();
+        this.useReport = clientContext.getHttp().isUseReport();
         this.clientStateProvider = clientStateProvider;
         this.httpProperties = LDUtil.makeHttpProperties(clientContext);
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();

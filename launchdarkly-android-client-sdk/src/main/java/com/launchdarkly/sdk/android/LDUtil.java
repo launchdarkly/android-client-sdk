@@ -2,10 +2,13 @@ package com.launchdarkly.sdk.android;
 
 import android.util.Base64;
 
+import androidx.annotation.NonNull;
+
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.http.HeadersTransformer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -13,11 +16,37 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+import okhttp3.Headers;
+
 class LDUtil {
+    static final String AUTH_SCHEME = "api_key ";
+    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
+
+    static Headers makeRequestHeaders(
+            @NonNull HttpConfiguration httpConfig,
+            Map<String, String> additionalHeaders
+    ) {
+        HashMap<String, String> baseHeaders = new HashMap<>();
+        for (Map.Entry<String, String> kv: httpConfig.getDefaultHeaders()) {
+            baseHeaders.put(kv.getKey(), kv.getValue());
+        }
+
+        if (additionalHeaders != null) {
+            baseHeaders.putAll(additionalHeaders);
+        }
+
+        if (httpConfig.getHeaderTransform() != null) {
+            httpConfig.getHeaderTransform().updateHeaders(baseHeaders);
+        }
+
+        return Headers.of(baseHeaders);
+    }
+
     static <T> void safeCallbackSuccess(ResultCallback<T> listener, T result) {
         if (listener != null) {
             listener.onSuccess(result);
@@ -46,38 +75,29 @@ class LDUtil {
     }
 
     static HttpProperties makeHttpProperties(ClientContext clientContext) {
-        LDConfig config = clientContext.getConfig();
-        String mobileKey = clientContext.getMobileKey();
+        HttpConfiguration httpConfig = clientContext.getHttp();
         HashMap<String, String> baseHeaders = new HashMap<>();
-        baseHeaders.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
-        if (mobileKey != null) {
-            baseHeaders.put("Authorization", LDConfig.AUTH_SCHEME + mobileKey);
-        }
-        if (config.getWrapperName() != null) {
-            String wrapperVersion = "";
-            if (config.getWrapperVersion() != null) {
-                wrapperVersion = "/" + config.getWrapperVersion();
-            }
-            baseHeaders.put("X-LaunchDarkly-Wrapper", config.getWrapperName() + wrapperVersion);
+        for (Map.Entry<String, String> kv: httpConfig.getDefaultHeaders()) {
+            baseHeaders.put(kv.getKey(), kv.getValue());
         }
         HeadersTransformer headersTransformer = null;
-        if (config.getHeaderTransform() != null) {
+        if (httpConfig.getHeaderTransform() != null) {
             headersTransformer = new HeadersTransformer() {
                 @Override
                 public void updateHeaders(Map<String, String> headers) {
-                    config.getHeaderTransform().updateHeaders(headers);
+                    httpConfig.getHeaderTransform().updateHeaders(headers);
                 }
             };
         }
 
         return new HttpProperties(
-                config.getConnectionTimeoutMillis(),
+                httpConfig.getConnectTimeoutMillis(),
                 baseHeaders,
                 headersTransformer,
                 null, // proxy
                 null, // proxyAuth
                 null, // socketFactory
-                config.getConnectionTimeoutMillis(),
+                httpConfig.getConnectTimeoutMillis(),
                 null, // sslSocketFactory
                 null // trustManager
         );
