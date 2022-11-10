@@ -12,7 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
-import com.launchdarkly.sdk.internal.events.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockRule;

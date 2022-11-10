@@ -3,6 +3,14 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.2.2] - 2022-10-27
+### Fixed:
+- The SDK was using a connection pool with a keep-alive interval of at least 10 minutes for polling requests. This has been removed and each request now uses a new connection. The keep-alive behavior was not desirable for foreground polling: foreground polling is only done if streaming was explicitly disabled, which would likely be because the application does _not_ want to leave a connection open. And it was of no use for background polling, since the interval for that is at least an hour. One undesirable consequence was that if the 10-minute interval expired after the device had gone to sleep, the small amount of network traffic involved in shutting down the connection could wake the device up again.
+
+## [3.2.1] - 2022-09-28
+### Fixed:
+- The SDK now detects and cancels any repeating polling task that might have been left over from a previous run of the application. The potential problem was that if an application crashed or otherwise did not shut down cleanly, an "alarm" notification used by the SDK for polling could continue to exist, causing the application to be started again and to keep polling for LaunchDarkly flag data, even though the user intended to shut down the application. With this fix, such an unintended restart could still happen once, but the SDK will detect this condition and stop the notification from continuing to fire. In the future the SDK may be changed more broadly to stop using the AlarmManager API so that such restarts cannot happen at all, but this fix mitigates the problem in the meantime. ([#188](https://github.com/launchdarkly/android-client-sdk/issues/188))
+
 ## [3.2.0] - 2022-08-23
 The purpose of this release is to introduce a new logging facade, [`com.launchdarkly.logging`](https://github.com/launchdarkly/java-logging), to streamline how logging works in LaunchDarkly Java and Android code.
 

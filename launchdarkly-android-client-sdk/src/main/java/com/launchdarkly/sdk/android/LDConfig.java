@@ -4,11 +4,13 @@ import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
-import com.launchdarkly.sdk.AttributeRef;
+
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.util.Collections;
@@ -49,12 +51,10 @@ public class LDConfig {
 
     final ServiceEndpoints serviceEndpoints;
 
-    private final int eventsCapacity;
-    private final int eventsFlushIntervalMillis;
+    final ComponentConfigurer<EventProcessor> events;
     private final int connectionTimeoutMillis;
     private final int pollingIntervalMillis;
     private final int backgroundPollingIntervalMillis;
-    private final int diagnosticRecordingIntervalMillis;
     private final int maxCachedContexts;
 
     private final boolean stream;
@@ -62,9 +62,6 @@ public class LDConfig {
     private final boolean disableBackgroundUpdating;
     private final boolean useReport;
     private final boolean diagnosticOptOut;
-
-    private final boolean allAttributesPrivate;
-    private final Set<AttributeRef> privateAttributes;
 
     private final boolean evaluationReasons;
 
@@ -82,8 +79,7 @@ public class LDConfig {
 
     LDConfig(Map<String, String> mobileKeys,
              ServiceEndpoints serviceEndpoints,
-             int eventsCapacity,
-             int eventsFlushIntervalMillis,
+             ComponentConfigurer<EventProcessor> events,
              int connectionTimeoutMillis,
              boolean offline,
              boolean stream,
@@ -91,11 +87,8 @@ public class LDConfig {
              int backgroundPollingIntervalMillis,
              boolean disableBackgroundUpdating,
              boolean useReport,
-             boolean allAttributesPrivate,
-             Set<AttributeRef> privateAttributes,
              boolean evaluationReasons,
              boolean diagnosticOptOut,
-             int diagnosticRecordingIntervalMillis,
              String wrapperName,
              String wrapperVersion,
              int maxCachedContexts,
@@ -106,8 +99,7 @@ public class LDConfig {
              String loggerName) {
         this.mobileKeys = mobileKeys;
         this.serviceEndpoints = serviceEndpoints;
-        this.eventsCapacity = eventsCapacity;
-        this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
+        this.events = events;
         this.connectionTimeoutMillis = connectionTimeoutMillis;
         this.offline = offline;
         this.stream = stream;
@@ -115,11 +107,8 @@ public class LDConfig {
         this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
         this.useReport = useReport;
-        this.allAttributesPrivate = allAttributesPrivate;
-        this.privateAttributes = privateAttributes;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
-        this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
         this.maxCachedContexts = maxCachedContexts;
@@ -136,14 +125,6 @@ public class LDConfig {
 
     public Map<String, String> getMobileKeys() {
         return mobileKeys;
-    }
-
-    public int getEventsCapacity() {
-        return eventsCapacity;
-    }
-
-    public int getEventsFlushIntervalMillis() {
-        return eventsFlushIntervalMillis;
     }
 
     public int getConnectionTimeoutMillis() {
@@ -174,24 +155,12 @@ public class LDConfig {
         return disableBackgroundUpdating;
     }
 
-    public boolean allAttributesPrivate() {
-        return allAttributesPrivate;
-    }
-
-    public Set<AttributeRef> getPrivateAttributes() {
-        return Collections.unmodifiableSet(privateAttributes);
-    }
-
     public boolean isEvaluationReasons() {
         return evaluationReasons;
     }
 
     boolean getDiagnosticOptOut() {
         return diagnosticOptOut;
-    }
-
-    int getDiagnosticRecordingIntervalMillis() {
-        return diagnosticRecordingIntervalMillis;
     }
 
     String getWrapperName() {
@@ -234,12 +203,10 @@ public class LDConfig {
 
         private ServiceEndpointsBuilder serviceEndpointsBuilder;
 
-        private int eventsCapacity = DEFAULT_EVENTS_CAPACITY;
-        private int eventsFlushIntervalMillis = 0;
+        private ComponentConfigurer<EventProcessor> events = null;
         private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
         private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
         private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
-        private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
         private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
 
         private boolean offline = false;
@@ -247,9 +214,6 @@ public class LDConfig {
         private boolean disableBackgroundUpdating = false;
         private boolean useReport = false;
         private boolean diagnosticOptOut = false;
-
-        private boolean allAttributesPrivate = false;
-        private Set<AttributeRef> privateAttributes = new HashSet<>();
 
         private boolean evaluationReasons = false;
 
@@ -263,46 +227,6 @@ public class LDConfig {
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = DEFAULT_LOGGER_NAME;
         private LDLogLevel logLevel = null;
-
-        /**
-         * Specifies that context attributes (other than the key) should be hidden from LaunchDarkly.
-         * If this is set, all context attribute values will be private, not just the attributes
-         * specified in {@link #privateAttributes(String...)}.
-         *
-         * @return the builder
-         */
-        public Builder allAttributesPrivate() {
-            this.allAttributesPrivate = true;
-            return this;
-        }
-
-        /**
-         * Marks a set of attribute names or subproperties as private.
-         * <p>
-         * Any contexts sent to LaunchDarkly with this configuration active will have attributes with these
-         * names removed. This is in addition to any attributes that were marked as private for an
-         * individual context with {@link com.launchdarkly.sdk.ContextBuilder} methods.
-         * <p>
-         * If and only if a parameter starts with a slash, it is interpreted as a slash-delimited path that
-         * can denote a nested property within a JSON object. For instance, "/address/street" means that if
-         * there is an attribute called "address" that is a JSON object, and one of the object's properties
-         * is "street", the "street" property will be redacted from the analytics data but other properties
-         * within "address" will still be sent. This syntax also uses the JSON Pointer convention of escaping
-         * a literal slash character as "~1" and a tilde as "~0".
-         * <p>
-         * This method replaces any previous private attributes that were set on the same builder, rather
-         * than adding to them.
-         *
-         * @param privateAttributes a set of names or paths that will be removed from context data set to LaunchDarkly
-         * @return the builder
-         */
-        public Builder privateAttributes(String... privateAttributes) {
-            this.privateAttributes = new HashSet<>();
-            for (String a: privateAttributes) {
-                this.privateAttributes.add(AttributeRef.fromPath(a));
-            }
-            return this;
-        }
 
         /**
          * Sets the key for authenticating with LaunchDarkly. This is required unless you're using the client in offline mode.
@@ -381,35 +305,34 @@ public class LDConfig {
         }
 
         /**
-         * Set the capacity of the event buffer. The client buffers up to this many events in memory before flushing.
-         * If the capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
-         * means that events are less likely to be discarded, at the cost of consuming more memory.
+         * Sets the implementation of {@link EventProcessor} to be used for processing analytics events.
          * <p>
-         * The default value is {@link #DEFAULT_EVENTS_CAPACITY}.
+         * The default is {@link Components#sendEvents()} with no custom options. You may instead call
+         * {@link Components#sendEvents()} and then set custom options for event processing; or, disable
+         * events with {@link Components#noEvents()}; or, choose to use a custom implementation (for
+         * instance, a test fixture).
+         * <pre><code>
+         *     // Setting custom event processing options
+         *     LDConfig config = new LDConfig.Builder()
+         *         .events(Components.sendEvents().capacity(100))
+         *         .build();
          *
-         * @param eventsCapacity the capacity of the event buffer
-         * @return the builder
-         * @see #eventsFlushIntervalMillis(int)
+         *     // Disabling events
+         *     LDConfig config = new LDConfig.Builder()
+         *         .events(Components.noEvents())
+         *         .build();
+         * </code></pre>
+         *
+         * @param eventsConfigurer the events configuration builder
+         * @return the main configuration builder
+         * @since 3.3.0
+         * @see Components#sendEvents()
+         * @see Components#noEvents()
          */
-        public LDConfig.Builder eventsCapacity(int eventsCapacity) {
-            this.eventsCapacity = eventsCapacity;
+        public LDConfig.Builder events(ComponentConfigurer<EventProcessor> eventsConfigurer) {
+            this.events = eventsConfigurer;
             return this;
         }
-
-        /**
-         * Sets the maximum amount of time to wait in between sending analytics events to LaunchDarkly.
-         * <p>
-         * The default value is {@link #DEFAULT_FLUSH_INTERVAL_MILLIS}.
-         *
-         * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
-         * @return the builder
-         * @see #eventsCapacity(int)
-         */
-        public LDConfig.Builder eventsFlushIntervalMillis(int eventsFlushIntervalMillis) {
-            this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
-            return this;
-        }
-
 
         /**
          * Sets the timeout when connecting to LaunchDarkly.
@@ -423,7 +346,6 @@ public class LDConfig {
             this.connectionTimeoutMillis = connectionTimeoutMillis;
             return this;
         }
-
 
         /**
          * Enables or disables real-time streaming flag updates.  By default, streaming is enabled.
@@ -439,9 +361,7 @@ public class LDConfig {
 
         /**
          * Sets the interval in between feature flag updates, when streaming mode is disabled.
-         * This is ignored unless {@link #stream(boolean)} is set to {@code true}. When set, it
-         * will also change the default value for {@link #eventsFlushIntervalMillis(int)} to the
-         * same value.
+         * This is ignored unless {@link #stream(boolean)} is set to {@code true}.
          * <p>
          * The default value is {@link LDConfig#DEFAULT_POLLING_INTERVAL_MILLIS}.
          *
@@ -526,20 +446,6 @@ public class LDConfig {
          */
         public LDConfig.Builder diagnosticOptOut(boolean diagnosticOptOut) {
             this.diagnosticOptOut = diagnosticOptOut;
-            return this;
-        }
-
-        /**
-         * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
-         * milliseconds) and the minimum value is 300,000 (5 minutes).
-         *
-         * @see #diagnosticOptOut(boolean) for more information on the diagnostics data being sent.
-         *
-         * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
-         * @return the builder
-         */
-        public LDConfig.Builder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
-            this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
             return this;
         }
 
@@ -766,11 +672,6 @@ public class LDConfig {
                             backgroundPollingIntervalMillis, pollingIntervalMillis);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
-
-                if (eventsFlushIntervalMillis == 0) {
-                    eventsFlushIntervalMillis = pollingIntervalMillis;
-                    // this is a normal occurrence, so don't log a warning about it
-                }
             }
 
             if (!disableBackgroundUpdating) {
@@ -780,17 +681,6 @@ public class LDConfig {
                             backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
                     backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
                 }
-            }
-
-            if (eventsFlushIntervalMillis == 0) {
-                eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS; // this is a normal occurrence, so don't log a warning about it
-            }
-
-            if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
-                logger.warn(
-                        "diagnosticRecordingIntervalMillis was set to {}, lower than the minimum allowed ({}). Ignoring and using minimum value.",
-                        diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
-                diagnosticRecordingIntervalMillis = MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
             }
 
             HashMap<String, String> mobileKeys;
@@ -810,8 +700,7 @@ public class LDConfig {
             return new LDConfig(
                     mobileKeys,
                     serviceEndpoints,
-                    eventsCapacity,
-                    eventsFlushIntervalMillis,
+                    this.events == null ? Components.sendEvents() : this.events,
                     connectionTimeoutMillis,
                     offline,
                     stream,
@@ -819,11 +708,8 @@ public class LDConfig {
                     backgroundPollingIntervalMillis,
                     disableBackgroundUpdating,
                     useReport,
-                    allAttributesPrivate,
-                    privateAttributes,
                     evaluationReasons,
                     diagnosticOptOut,
-                    diagnosticRecordingIntervalMillis,
                     wrapperName,
                     wrapperVersion,
                     maxCachedContexts,

@@ -22,7 +22,7 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
  * All properties of this object are immutable; they are set at initialization time and do not
  * reflect any later state changes in the client.
  *
- * @since 4.0.0
+ * @since 3.3.0
  */
 public class ClientContext {
     private final LDLogger baseLogger;
@@ -110,6 +110,7 @@ public class ClientContext {
     }
 
     /**
+<<<<<<< HEAD
      * Returns the evaluation context that the SDK was initialized with.
      * @return the initial evaluation context
      */
@@ -126,6 +127,8 @@ public class ClientContext {
     }
 
     /**
+=======
+>>>>>>> eb/sc-176169/events-config-builder
      * Returns true if the initial configuration specified that the SDK should be offline.
      * @return true if initially set to be offline
      */
