@@ -110,7 +110,6 @@ public class ClientContext {
     }
 
     /**
-<<<<<<< HEAD
      * Returns the evaluation context that the SDK was initialized with.
      * @return the initial evaluation context
      */
@@ -127,8 +126,6 @@ public class ClientContext {
     }
 
     /**
-=======
->>>>>>> eb/sc-176169/events-config-builder
      * Returns true if the initial configuration specified that the SDK should be offline.
      * @return true if initially set to be offline
      */
