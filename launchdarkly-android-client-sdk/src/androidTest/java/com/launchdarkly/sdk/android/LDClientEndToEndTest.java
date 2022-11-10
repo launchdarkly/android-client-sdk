@@ -87,7 +87,7 @@ public class LDClientEndToEndTest {
         mockPollingServer.enqueue(new MockResponse().setResponseCode(200).setBody(data.toJson()));
 
         LDConfig config = baseConfig()
-                .stream(false)
+                .dataSource(Components.pollingDataSource())
                 .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
                 .build();
 
@@ -108,7 +108,7 @@ public class LDClientEndToEndTest {
         mockPollingServer.enqueue(new MockResponse().setResponseCode(401));
 
         LDConfig config = baseConfig()
-                .stream(false)
+                .dataSource(Components.pollingDataSource())
                 .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
                 .build();
 
@@ -130,7 +130,7 @@ public class LDClientEndToEndTest {
                 .setBodyDelay(1, TimeUnit.SECONDS));
 
         LDConfig config = baseConfig()
-                .stream(false)
+                .dataSource(Components.pollingDataSource())
                 .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
                 .build();
 
