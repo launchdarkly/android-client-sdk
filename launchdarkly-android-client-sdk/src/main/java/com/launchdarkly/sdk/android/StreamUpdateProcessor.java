@@ -8,9 +8,9 @@ import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -37,6 +37,7 @@ class StreamUpdateProcessor {
 
     private EventSource es;
     private final DataSource dataSourceConfig;
+    private final HttpConfiguration httpConfig;
     private final LDConfig config;
     private final UserManager userManager;
     private volatile boolean running = false;
@@ -49,11 +50,19 @@ class StreamUpdateProcessor {
     private long eventSourceStarted;
     private final LDLogger logger;
 
-    StreamUpdateProcessor(LDConfig config, DataSource dataSourceConfig, UserManager userManager,
-                          String environmentName, DiagnosticStore diagnosticStore,
-                          LDUtil.ResultCallback<Void> notifier, LDLogger logger) {
+    StreamUpdateProcessor(
+            LDConfig config,
+            DataSource dataSourceConfig,
+            HttpConfiguration httpConfig,
+            UserManager userManager,
+            String environmentName,
+            DiagnosticStore diagnosticStore,
+            LDUtil.ResultCallback<Void> notifier,
+            LDLogger logger
+    ) {
         this.config = config;
         this.dataSourceConfig = dataSourceConfig;
+        this.httpConfig = httpConfig;
         this.userManager = userManager;
         this.environmentName = environmentName;
         this.notifier = notifier;
@@ -127,6 +136,7 @@ class StreamUpdateProcessor {
             };
 
             EventSource.Builder builder = new EventSource.Builder(handler, getUri(userManager.getCurrentUser()));
+            builder.connectTimeoutMs(httpConfig.getConnectTimeoutMillis());
             builder.reconnectTimeMs(dataSourceConfig.getInitialReconnectDelayMillis());
 
             builder.requestTransformer(input -> {
@@ -140,10 +150,12 @@ class StreamUpdateProcessor {
                         break;
                     }
                 }
-                return input.newBuilder().headers(config.headersForEnvironment(environmentName, collapsed)).build();
+                return input.newBuilder().headers(
+                        LDUtil.makeRequestHeaders(httpConfig, collapsed)
+                ).build();
             });
 
-            if (config.isUseReport()) {
+            if (httpConfig.isUseReport()) {
                 builder.method(METHOD_REPORT);
                 builder.body(getRequestBody(userManager.getCurrentUser()));
             }
@@ -167,7 +179,7 @@ class StreamUpdateProcessor {
     private URI getUri(@Nullable LDUser user) {
         String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
 
-        if (!config.isUseReport() && user != null) {
+        if (!httpConfig.isUseReport() && user != null) {
             str += "/" + DefaultUserManager.base64Url(user);
         }
 

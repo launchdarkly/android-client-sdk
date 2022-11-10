@@ -4,6 +4,7 @@ import android.app.Application;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import okhttp3.OkHttpClient;
 
@@ -53,6 +54,9 @@ final class ClientContextImpl extends ClientContext {
             SummaryEventStore summaryEventStore,
             LDLogger logger
     ) {
+        ClientContext minimalContext = new ClientContext(null, mobileKey, logger, config,
+                environmentName, config.isEvaluationReasons(), null, config.isOffline());
+        HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 application,
                 mobileKey,
@@ -60,8 +64,8 @@ final class ClientContextImpl extends ClientContext {
                 config,
                 environmentName,
                 config.isEvaluationReasons(),
-                config.isOffline(),
-                config.isUseReport()
+                httpConfig,
+                config.isOffline()
         );
         return new ClientContextImpl(baseClientContext, diagnosticStore, sharedEventClient, summaryEventStore);
     }

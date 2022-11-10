@@ -10,6 +10,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.util.Calendar;
 import java.util.TimeZone;
@@ -46,6 +47,7 @@ class ConnectivityManager {
     ConnectivityManager(@NonNull final Application application,
                         @NonNull final LDConfig ldConfig,
                         @NonNull final DataSource dataSourceConfig,
+                        @NonNull final HttpConfiguration httpConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final UserManager userManager,
                         @NonNull final String environmentName,
@@ -135,8 +137,8 @@ class ConnectivityManager {
         };
 
         streamUpdateProcessor = dataSourceConfig.isStreamingDisabled() ? null :
-                new StreamUpdateProcessor(ldConfig, dataSourceConfig, userManager, environmentName,
-                    diagnosticStore, monitor, logger);
+                new StreamUpdateProcessor(ldConfig, dataSourceConfig, httpConfig, userManager,
+                        environmentName, diagnosticStore, monitor, logger);
     }
 
     boolean isInitialized() {

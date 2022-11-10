@@ -1,10 +1,14 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.android.TestUtil.simpleClientContext;
+
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonElement;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -255,9 +259,10 @@ public class LDConfigTest {
     }
 
     @Test
-    public void headersForEnvironment() {
+    public void makeRequestHeaders() {
         LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
-        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        HttpConfiguration httpConfig = simpleClientContext(config).getHttp();
+        Map<String, String> headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, null));
         assertEquals(2, headers.size());
         assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("api_key test-key", headers.get("authorization"));
@@ -265,7 +270,7 @@ public class LDConfigTest {
         HashMap<String, String> additional = new HashMap<>();
         additional.put("Authorization", "other-key");
         additional.put("Proxy-Authorization", "token");
-        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
+        headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, additional));
         assertEquals(3, headers.size());
         assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("other-key", headers.get("authorization"));
@@ -287,10 +292,11 @@ public class LDConfigTest {
                     headers.put("New", "value");
                 })
                 .build();
+        HttpConfiguration httpConfig = simpleClientContext(config).getHttp();
 
         expected.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
-        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        Map<String, String> headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, null));
         assertEquals(2, headers.size());
         assertEquals("api_key test-key, more", headers.get("authorization"));
         assertEquals("value", headers.get("new"));
@@ -299,7 +305,7 @@ public class LDConfigTest {
         additional.put("Authorization", "other-key");
         additional.put("Proxy-Authorization", "token");
         expected.putAll(additional);
-        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
+        headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, additional));
         assertEquals(3, headers.size());
         assertEquals("other-key, more", headers.get("authorization"));
         assertEquals("token", headers.get("proxy-authorization"));

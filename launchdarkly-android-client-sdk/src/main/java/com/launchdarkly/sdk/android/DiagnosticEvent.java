@@ -35,8 +35,6 @@ class DiagnosticEvent {
                 .put("customBaseURI", !LDConfig.DEFAULT_POLL_URI.equals(config.getPollUri()))
                 .put("customEventsURI", !LDConfig.DEFAULT_EVENTS_URI.equals(config.getEventsUri()))
                 .put("customStreamURI", !LDConfig.DEFAULT_STREAM_URI.equals(config.getStreamUri()))
-                .put("connectTimeoutMillis", config.getConnectionTimeoutMillis())
-                .put("useReport", config.isUseReport())
                 .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
                 .put("evaluationReasonsRequested", config.isEvaluationReasons())
                 .put("mobileKeyCount", config.getMobileKeys().size())
@@ -44,6 +42,7 @@ class DiagnosticEvent {
                 .put("autoAliasingOptOut", config.isAutoAliasingOptOut());
         mergeComponentProperties(builder, config.events);
         mergeComponentProperties(builder, config.dataSource);
+        mergeComponentProperties(builder, config.http);
         return builder.build();
     }
 

@@ -39,13 +39,11 @@ public class DiagnosticEventTest {
         secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .disableBackgroundUpdating(true)
-                .connectionTimeoutMillis(5_000)
                 .pollUri(Uri.parse("https://1.1.1.1"))
                 .eventsUri(Uri.parse("https://1.1.1.1"))
                 .streamUri(Uri.parse("https://1.1.1.1"))
                 .evaluationReasons(true)
                 .secondaryMobileKeys(secondaryKeys)
-                .useReport(true)
                 .maxCachedUsers(-1)
                 .autoAliasingOptOut(true)
                 .build();
@@ -55,13 +53,11 @@ public class DiagnosticEventTest {
         setExpectedDefaults(expected);
 
         expected.addProperty("backgroundPollingDisabled", true);
-        expected.addProperty("connectTimeoutMillis", 5_000);
         expected.addProperty("customBaseURI", true);
         expected.addProperty("customEventsURI", true);
         expected.addProperty("customStreamURI", true);
         expected.addProperty("evaluationReasonsRequested", true);
         expected.addProperty("mobileKeyCount", 2);
-        expected.addProperty("useReport", true);
         expected.addProperty("maxCachedUsers", -1);
         expected.addProperty("autoAliasingOptOut", true);
 
@@ -70,8 +66,6 @@ public class DiagnosticEventTest {
 
     @Test
     public void testCustomDiagnosticConfigurationEvents() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .events(
                         Components.sendEvents()
@@ -98,8 +92,6 @@ public class DiagnosticEventTest {
 
     @Test
     public void testCustomDiagnosticConfigurationStreaming() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .dataSource(
                         Components.streamingDataSource()
@@ -120,8 +112,6 @@ public class DiagnosticEventTest {
 
     @Test
     public void testCustomDiagnosticConfigurationPolling() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .dataSource(
                         Components.pollingDataSource()
@@ -138,6 +128,26 @@ public class DiagnosticEventTest {
         expected.addProperty("backgroundPollingIntervalMillis", 900_000);
         expected.addProperty("pollingIntervalMillis", 600_000);
         expected.remove("reconnectTimeMillis");
+
+        Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
+    }
+
+    @Test
+    public void testCustomDiagnosticConfigurationHttp() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .http(
+                        Components.httpConfiguration()
+                                .connectTimeoutMillis(5_000)
+                                .useReport(true)
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        JsonObject expected = new JsonObject();
+        setExpectedDefaults(expected);
+
+        expected.addProperty("connectTimeoutMillis", 5_000);
+        expected.addProperty("useReport", true);
 
         Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }
@@ -166,11 +176,9 @@ public class DiagnosticEventTest {
         Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }
 
-    @Deprecated
+    @SuppressWarnings("deprecation")
     @Test
     public void testCustomDiagnosticConfigurationStreamingWithDeprecatedSetters() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .backgroundPollingIntervalMillis(900_000)
                 .build();
@@ -184,11 +192,9 @@ public class DiagnosticEventTest {
         Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }
 
-    @Deprecated
+    @SuppressWarnings("deprecation")
     @Test
     public void testCustomDiagnosticConfigurationPollingWithDeprecatedSetters() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .stream(false)
                 .backgroundPollingIntervalMillis(900_000)
@@ -207,6 +213,24 @@ public class DiagnosticEventTest {
         // When using the deprecated setters only, there is an extra defaulting rule that causes
         // the event flush interval to match the polling interval if not otherwise specified.
         expected.addProperty("eventsFlushIntervalMillis", 600_000);
+
+        Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void testCustomDiagnosticConfigurationHttpWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .connectionTimeoutMillis(5_000)
+                .useReport(true)
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        JsonObject expected = new JsonObject();
+        setExpectedDefaults(expected);
+
+        expected.addProperty("connectTimeoutMillis", 5_000);
+        expected.addProperty("useReport", true);
 
         Assert.assertEquals(LDValue.parse(expected.toString()), diagnosticJson);
     }

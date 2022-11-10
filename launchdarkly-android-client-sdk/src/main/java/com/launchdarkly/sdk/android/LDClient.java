@@ -19,6 +19,7 @@ import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -268,14 +269,24 @@ public class LDClient implements LDClientInterface, Closeable {
         this.config = config;
         this.application = application;
         String sdkKey = config.getMobileKeys().get(environmentName);
-        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName, logger);
-        OkHttpClient sharedEventClient = makeSharedEventClient();
+
+        // This extra creation of a ClientContext is a temporary workaround for a circular dependency
+        // in our components: we want the real context to include the SummaryEventStore, but currently
+        // we can only get that once we have a UserManager, which requires a FeatureFetcher. This will
+        // be moot in the next major version where the components are better encapsulated.
+        ClientContext incompleteClientContext = ClientContextImpl.fromConfig(application, config,
+                sdkKey, environmentName, null, null, null, logger);
+        HttpConfiguration httpConfig = incompleteClientContext.getHttp();
+
+        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, httpConfig,
+                environmentName, logger);
+        OkHttpClient sharedEventClient = makeSharedEventClient(httpConfig);
         if (config.getDiagnosticOptOut()) {
             this.diagnosticStore = null;
             this.diagnosticEventProcessor = null;
         } else {
             this.diagnosticStore = new DiagnosticStore(application, sdkKey);
-            this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, environmentName, diagnosticStore, application,
+            this.diagnosticEventProcessor = new DiagnosticEventProcessor(config, httpConfig, diagnosticStore, application,
                     sharedEventClient, logger);
         }
         this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedUsers(),
@@ -293,8 +304,9 @@ public class LDClient implements LDClientInterface, Closeable {
         );
         DataSource dataSource = config.dataSource.build(clientContext);
         eventProcessor = config.events.build(clientContext);
-        connectivityManager = new ConnectivityManager(application, config, dataSource, eventProcessor,
-                userManager, environmentName, diagnosticEventProcessor, diagnosticStore, logger);
+        connectivityManager = new ConnectivityManager(application, config, dataSource,
+                clientContext.getHttp(), eventProcessor,  userManager, environmentName,
+                diagnosticEventProcessor, diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();
@@ -303,10 +315,10 @@ public class LDClient implements LDClientInterface, Closeable {
         }
     }
 
-    private OkHttpClient makeSharedEventClient() {
+    private OkHttpClient makeSharedEventClient(HttpConfiguration httpConfig) {
         return new OkHttpClient.Builder()
                 .connectionPool(new ConnectionPool(1, config.getEventsFlushIntervalMillis() * 2, TimeUnit.MILLISECONDS))
-                .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+                .connectTimeout(httpConfig.getConnectTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(true)
                 .build();
     }

@@ -2,8 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import android.net.Uri;
 
-import androidx.annotation.NonNull;
-
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.launchdarkly.logging.LDLogAdapter;
@@ -13,11 +11,13 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -26,7 +26,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import okhttp3.Headers;
 import okhttp3.MediaType;
 
 /**
@@ -79,40 +78,35 @@ public class LDConfig {
     private final Uri streamUri;
 
     final ComponentConfigurer<DataSource> dataSource;
-
     final ComponentConfigurer<EventProcessor> events;
-    private final int eventsCapacity;
-    private final int eventsFlushIntervalMillis;
-    private final int connectionTimeoutMillis;
-    private final int pollingIntervalMillis;
-    private final int backgroundPollingIntervalMillis;
-    private final int diagnosticRecordingIntervalMillis;
-    private final int maxCachedUsers;
+    final ComponentConfigurer<HttpConfiguration> http;
 
-    private final boolean stream;
-    private final boolean offline;
-    private final boolean disableBackgroundUpdating;
-    private final boolean useReport;
+    private final boolean autoAliasingOptOut;
     private final boolean diagnosticOptOut;
-
-    private final boolean allAttributesPrivate;
-    private final Set<UserAttribute> privateAttributes;
+    private final boolean disableBackgroundUpdating;
+    private final boolean evaluationReasons;
+    private final LDLogAdapter logAdapter;
+    private final String loggerName;
+    private final int maxCachedUsers;
+    private final boolean offline;
 
     final Gson filteredEventGson;
 
+    // deprecated properties that are now in sub-configuration builders
+    private final boolean allAttributesPrivate;
+    private final int backgroundPollingIntervalMillis;
+    private final int connectionTimeoutMillis;
+    private final int diagnosticRecordingIntervalMillis;
+    private final int eventsCapacity;
+    private final int eventsFlushIntervalMillis;
+    private final LDHeaderUpdater headerTransform;
     private final boolean inlineUsersInEvents;
-
-    private final boolean evaluationReasons;
-
+    private final int pollingIntervalMillis;
+    private final Set<UserAttribute> privateAttributes;
+    private final boolean stream;
+    private final boolean useReport;
     private final String wrapperName;
     private final String wrapperVersion;
-
-    private final LDHeaderUpdater headerTransform;
-
-    private final boolean autoAliasingOptOut;
-
-    private final LDLogAdapter logAdapter;
-    private final String loggerName;
 
     LDConfig(Map<String, String> mobileKeys,
              Uri pollUri,
@@ -120,6 +114,7 @@ public class LDConfig {
              Uri streamUri,
              ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
+             ComponentConfigurer<HttpConfiguration> http,
              int eventsCapacity,
              int eventsFlushIntervalMillis,
              int connectionTimeoutMillis,
@@ -149,6 +144,7 @@ public class LDConfig {
         this.streamUri = streamUri;
         this.dataSource = dataSource;
         this.events = events;
+        this.http = http;
         this.eventsCapacity = eventsCapacity;
         this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
         this.connectionTimeoutMillis = connectionTimeoutMillis;
@@ -202,35 +198,6 @@ public class LDConfig {
                 .create();
     }
 
-    Headers headersForEnvironment(@NonNull String environmentName,
-                                  Map<String, String> additionalHeaders) {
-        String sdkKey = mobileKeys.get(environmentName);
-
-        HashMap<String, String> baseHeaders = new HashMap<>();
-        baseHeaders.put("User-Agent", USER_AGENT_HEADER_VALUE);
-        if (sdkKey != null) {
-            baseHeaders.put("Authorization", LDConfig.AUTH_SCHEME + sdkKey);
-        }
-
-        if (getWrapperName() != null) {
-            String wrapperVersion = "";
-            if (getWrapperVersion() != null) {
-                wrapperVersion = "/" + getWrapperVersion();
-            }
-            baseHeaders.put("X-LaunchDarkly-Wrapper", wrapperName + wrapperVersion);
-        }
-
-        if (additionalHeaders != null) {
-            baseHeaders.putAll(additionalHeaders);
-        }
-
-        if (headerTransform != null) {
-            headerTransform.updateHeaders(baseHeaders);
-        }
-
-        return Headers.of(baseHeaders);
-    }
-
     public String getMobileKey() {
         return mobileKeys.get(primaryEnvironmentName);
     }
@@ -280,6 +247,16 @@ public class LDConfig {
         return eventsFlushIntervalMillis;
     }
 
+    /**
+     * Returns the setting of {@link Builder#connectionTimeoutMillis(int)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#http(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual HTTP-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getConnectionTimeoutMillis() {
         return connectionTimeoutMillis;
     }
@@ -296,6 +273,16 @@ public class LDConfig {
         return stream;
     }
 
+    /**
+     * Returns the setting of {@link Builder#useReport(boolean)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#http(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual HTTP-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean isUseReport() {
         return useReport;
     }
@@ -355,6 +342,7 @@ public class LDConfig {
      * @deprecated This method will be removed in the future when individual event-related properties
      *   are removed from the top-level configuration.
      */
+    @Deprecated
     public Set<UserAttribute> getPrivateAttributes() {
         return Collections.unmodifiableSet(privateAttributes);
     }
@@ -409,6 +397,16 @@ public class LDConfig {
         return maxCachedUsers;
     }
 
+    /**
+     * Returns the setting of {@link Builder#headerTransform(LDHeaderUpdater)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#http(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual HTTP-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public LDHeaderUpdater getHeaderTransform() {
         return headerTransform;
     }
@@ -441,6 +439,7 @@ public class LDConfig {
 
         private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
+        private ComponentConfigurer<HttpConfiguration> http = null;
 
         private int eventsCapacity = DEFAULT_EVENTS_CAPACITY;
         private int eventsFlushIntervalMillis = 0;
@@ -552,12 +551,17 @@ public class LDConfig {
         }
 
         /**
-         * Sets the flag for choosing the REPORT api call.  The default is GET.
-         * Do not use unless advised by LaunchDarkly.
+         * Deprecated method for specifying whether to use the HTTP REPORT method.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param useReport true if HTTP requests should use the REPORT verb
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#useReport(boolean)} instead.
          */
+        @Deprecated
         public LDConfig.Builder useReport(boolean useReport) {
             this.useReport = useReport;
             return this;
@@ -668,6 +672,26 @@ public class LDConfig {
         }
 
         /**
+         * Sets the SDK's networking configuration, using a configuration builder. This builder is
+         * obtained from {@link Components#httpConfiguration()}, and has methods for setting individual
+         * HTTP-related properties.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder()
+         *         .http(Components.httpConfiguration().connectTimeoutMillis(5000))
+         *         .build();
+         * </code></pre>
+         *
+         * @param httpConfigurer the HTTP configuration builder
+         * @return the main configuration builder
+         * @since 3.3.0
+         * @see Components#httpConfiguration()
+         */
+        public Builder http(ComponentConfigurer<HttpConfiguration> httpConfigurer) {
+            this.http = httpConfigurer;
+            return this;
+        }
+
+        /**
          * Deprecated method for setting the capacity of the event buffer.
          * <p>
          * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
@@ -709,13 +733,17 @@ public class LDConfig {
         }
 
         /**
-         * Sets the timeout when connecting to LaunchDarkly.
+         * Deprecated method for setting the connection timeout.
          * <p>
-         * The default value is {@link #DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param connectionTimeoutMillis the connection timeout, in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#connectTimeoutMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder connectionTimeoutMillis(int connectionTimeoutMillis) {
             this.connectionTimeoutMillis = connectionTimeoutMillis;
             return this;
@@ -887,27 +915,34 @@ public class LDConfig {
         }
 
         /**
-         * For use by wrapper libraries to set an identifying name for the wrapper being used. This will be sent in
-         * User-Agent headers during requests to the LaunchDarkly servers to allow recording metrics on the usage of
-         * these wrapper libraries.
+         * Deprecated method for setting a wrapper library name to include in User-Agent headers.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param wrapperName An identifying name for the wrapper library
+         * @param wrapperName an identifying name for the wrapper library
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#wrapper(String, String)} instead.
          */
+        @Deprecated
         public LDConfig.Builder wrapperName(String wrapperName) {
             this.wrapperName = wrapperName;
             return this;
         }
 
         /**
-         * For use by wrapper libraries to report the version of the library in use. If the wrapper
-         * name has not been set with {@link #wrapperName(String)} this field will be ignored.
-         * Otherwise the version string will be included in the User-Agent headers along with the
-         * wrapperName during requests to the LaunchDarkly servers.
+         * Deprecated method for setting a wrapper library version to include in User-Agent headers.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param wrapperVersion Version string for the wrapper library
+         * @param wrapperVersion a version string for the wrapper library
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#wrapper(String, String)} instead.
          */
+        @Deprecated
         public LDConfig.Builder wrapperVersion(String wrapperVersion) {
             this.wrapperVersion = wrapperVersion;
             return this;
@@ -942,11 +977,17 @@ public class LDConfig {
         }
 
         /**
-         * Provides a callback for dynamically modifying headers used on requests to the LaunchDarkly service.
+         * Deprecated method for dynamically modifying request headers.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param headerTransform the transformation to apply to requests
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#headerTransform(LDHeaderUpdater)} instead.
          */
+        @Deprecated
         public LDConfig.Builder headerTransform(LDHeaderUpdater headerTransform) {
             this.headerTransform = headerTransform;
             return this;
@@ -1143,6 +1184,17 @@ public class LDConfig {
                 eventsConfig = eventsBuilder;
             }
 
+            ComponentConfigurer<HttpConfiguration> httpConfig = this.http;
+            if (httpConfig == null) {
+                // Copy the deprecated properties to the new HTTP configuration builder.
+                HttpConfigurationBuilder httpBuilder = Components.httpConfiguration()
+                        .connectTimeoutMillis(connectionTimeoutMillis)
+                        .headerTransform(headerTransform)
+                        .useReport(useReport)
+                        .wrapper(wrapperName, wrapperVersion);
+                httpConfig = httpBuilder;
+            }
+
             return new LDConfig(
                     mobileKeys,
                     pollUri,
@@ -1150,6 +1202,7 @@ public class LDConfig {
                     streamUri,
                     dataSourceConfig,
                     eventsConfig,
+                    httpConfig,
                     eventsCapacity,
                     eventsFlushIntervalMillis,
                     connectionTimeoutMillis,

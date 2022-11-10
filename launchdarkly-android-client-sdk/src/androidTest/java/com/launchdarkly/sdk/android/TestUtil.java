@@ -11,6 +11,7 @@ import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.AliasEvent;
 import com.launchdarkly.sdk.android.CustomEvent;
 import com.launchdarkly.sdk.android.Event;
@@ -18,10 +19,16 @@ import com.launchdarkly.sdk.android.FeatureRequestEvent;
 import com.launchdarkly.sdk.android.IdentifyEvent;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.SummaryEvent;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.lang.reflect.Type;
 
 public class TestUtil {
+    public static ClientContext simpleClientContext(LDConfig config) {
+        return ClientContextImpl.fromConfig(null, config, config.getMobileKey(),
+                        "", null, null, null, LDLogger.none());
+    }
 
     private static class EventDeserializer implements JsonDeserializer<Event> {
         @Override

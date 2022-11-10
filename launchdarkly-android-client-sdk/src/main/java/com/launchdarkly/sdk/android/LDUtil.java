@@ -19,6 +19,7 @@ import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -27,7 +28,28 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import okhttp3.Headers;
+
 class LDUtil {
+    static Headers makeRequestHeaders(
+            @NonNull HttpConfiguration httpConfig,
+            Map<String, String> additionalHeaders
+    ) {
+        HashMap<String, String> baseHeaders = new HashMap<>();
+        for (Map.Entry<String, String> kv: httpConfig.getDefaultHeaders()) {
+            baseHeaders.put(kv.getKey(), kv.getValue());
+        }
+
+        if (additionalHeaders != null) {
+            baseHeaders.putAll(additionalHeaders);
+        }
+
+        if (httpConfig.getHeaderTransform() != null) {
+            httpConfig.getHeaderTransform().updateHeaders(baseHeaders);
+        }
+
+        return Headers.of(baseHeaders);
+    }
 
     /**
      * Looks at the Android device status to determine if the device is online.
