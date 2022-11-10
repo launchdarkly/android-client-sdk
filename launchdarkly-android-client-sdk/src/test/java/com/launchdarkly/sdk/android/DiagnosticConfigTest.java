@@ -1,6 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import com.google.gson.JsonObject;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
@@ -34,9 +33,7 @@ public class DiagnosticConfigTest {
     public void defaultDiagnosticConfiguration() throws Exception {
         LDConfig ldConfig = new LDConfig.Builder().build();
         LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
-        ObjectBuilder expected = LDValue.buildObject();
-        setExpectedDefaults(expected);
-
+        ObjectBuilder expected = makeExpectedDefaults();
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
@@ -61,9 +58,7 @@ public class DiagnosticConfigTest {
                 .build();
 
         LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
-        ObjectBuilder expected = LDValue.buildObject();
-        setExpectedDefaults(expected);
-
+        ObjectBuilder expected = makeExpectedDefaults();
         expected.put("backgroundPollingDisabled", true);
         expected.put("backgroundPollingIntervalMillis", 900_000);
         expected.put("connectTimeoutMillis", 5_000);
@@ -76,14 +71,11 @@ public class DiagnosticConfigTest {
         expected.put("streamingDisabled", true);
         expected.put("useReport", true);
         expected.put("maxCachedUsers", -1);
-
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
     @Test
     public void customDiagnosticConfigurationEvents() throws Exception {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .events(
                         Components.sendEvents()
@@ -95,18 +87,31 @@ public class DiagnosticConfigTest {
                 .build();
 
         LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
-        ObjectBuilder expected = LDValue.buildObject();
-        setExpectedDefaults(expected);
-
+        ObjectBuilder expected = makeExpectedDefaults();
         expected.put("allAttributesPrivate", true);
         expected.put("diagnosticRecordingIntervalMillis", 1_800_000);
         expected.put("eventsCapacity", 1000);
         expected.put("eventsFlushIntervalMillis",60_000);
-
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
-    private static void setExpectedDefaults(ObjectBuilder expected) {
+    private static LDValue makeDiagnosticJson(LDConfig config) throws Exception {
+        ClientContext clientContext = ClientContextImpl.fromConfig(config, "", "",
+                null, LDLogger.none(), null, null);
+        DiagnosticStore.SdkDiagnosticParams params = EventUtil.makeDiagnosticParams(clientContext);
+        DiagnosticStore diagnosticStore = new DiagnosticStore(params);
+        MockDiagnosticEventSender mockSender = new MockDiagnosticEventSender();
+        EventsConfiguration eventsConfig = new EventsConfiguration(false, 100, null, 100000,
+                diagnosticStore, mockSender, 1, null, 100000,
+                false, false, null);
+        try (DefaultEventProcessor eventProcessor = new DefaultEventProcessor(
+                eventsConfig, EXECUTOR, Thread.MIN_PRIORITY, LDLogger.none())) {
+            return mockSender.requireEvent();
+        }
+    }
+
+    private static ObjectBuilder makeExpectedDefaults() {
+        ObjectBuilder expected = LDValue.buildObject();
         expected.put("allAttributesPrivate", false);
         expected.put("backgroundPollingDisabled", false);
         expected.put("backgroundPollingIntervalMillis",
@@ -127,21 +132,7 @@ public class DiagnosticConfigTest {
         expected.put("pollingIntervalMillis", LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS);
         expected.put("streamingDisabled", false);
         expected.put("useReport", false);
-    }
-
-    private static LDValue makeDiagnosticJson(LDConfig config) throws Exception {
-        ClientContext clientContext = ClientContextImpl.fromConfig(config, "", "",
-                null, LDLogger.none(), null, null);
-        DiagnosticStore.SdkDiagnosticParams params = EventUtil.makeDiagnosticParams(clientContext);
-        DiagnosticStore diagnosticStore = new DiagnosticStore(params);
-        MockDiagnosticEventSender mockSender = new MockDiagnosticEventSender();
-        EventsConfiguration eventsConfig = new EventsConfiguration(false, 100, null, 100000,
-                diagnosticStore, mockSender, 1, null, 100000,
-                false, false, null);
-        try (DefaultEventProcessor eventProcessor = new DefaultEventProcessor(
-                eventsConfig, EXECUTOR, Thread.MIN_PRIORITY, LDLogger.none())) {
-            return mockSender.requireEvent();
-        }
+        return expected;
     }
 
     private static class MockDiagnosticEventSender implements EventSender {
