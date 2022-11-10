@@ -2,13 +2,15 @@ package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DiagnosticDescription;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
@@ -16,7 +18,6 @@ import com.launchdarkly.sdk.internal.events.DefaultEventSender;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 
-import java.io.Closeable;
 import java.io.IOException;
 
 /**
@@ -122,6 +123,7 @@ abstract class ComponentsImpl {
         public LDValue describeConfiguration(ClientContext clientContext) {
             return LDValue.buildObject()
                     .put("allAttributesPrivate", allAttributesPrivate)
+                    .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsCapacity", capacity)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
@@ -192,6 +194,77 @@ abstract class ComponentsImpl {
             public void close() throws IOException {
                 eventProcessor.close();
             }
+        }
+    }
+
+    static final class PollingDataSourceBuilderImpl extends PollingDataSourceBuilder
+            implements DiagnosticDescription {
+        @Override
+        public DataSource build(ClientContext clientContext) {
+            return new DataSourceImpl(true, backgroundPollIntervalMillis, 0,
+                    pollIntervalMillis);
+        }
+
+        @Override
+        public LDValue describeConfiguration(ClientContext clientContext) {
+            return LDValue.buildObject()
+                    .put("streamingDisabled", true)
+                    .put("backgroundPollingIntervalMillis", backgroundPollIntervalMillis)
+                    .put("pollingIntervalMillis", pollIntervalMillis)
+                    .build();
+        }
+    }
+
+    static final class StreamingDataSourceBuilderImpl extends StreamingDataSourceBuilder
+            implements DiagnosticDescription {
+        @Override
+        public DataSource build(ClientContext clientContext) {
+            return new DataSourceImpl(false, backgroundPollIntervalMillis,
+                    initialReconnectDelayMillis, 0);
+        }
+
+        @Override
+        public LDValue describeConfiguration(ClientContext clientContext) {
+            return LDValue.buildObject()
+                    .put("streamingDisabled", false)
+                    .put("backgroundPollingIntervalMillis", backgroundPollIntervalMillis)
+                    .put("reconnectTimeMillis", initialReconnectDelayMillis)
+                    .build();
+        }
+    }
+
+    private static final class DataSourceImpl implements DataSource {
+        private final boolean streamingDisabled;
+        private final int backgroundPollIntervalMillis;
+        private final int initialReconnectDelayMillis;
+        private final int pollIntervalMillis;
+
+        DataSourceImpl(
+                boolean streamingDisabled,
+                int backgroundPollIntervalMillis,
+                int initialReconnectDelayMillis,
+                int pollIntervalMillis
+        ) {
+            this.streamingDisabled = streamingDisabled;
+            this.backgroundPollIntervalMillis = backgroundPollIntervalMillis;
+            this.initialReconnectDelayMillis = initialReconnectDelayMillis;
+            this.pollIntervalMillis = pollIntervalMillis;
+        }
+
+        public boolean isStreamingDisabled() {
+            return streamingDisabled;
+        }
+
+        public int getBackgroundPollIntervalMillis() {
+            return backgroundPollIntervalMillis;
+        }
+
+        public int getInitialReconnectDelayMillis() {
+            return initialReconnectDelayMillis;
+        }
+
+        public int getPollIntervalMillis() {
+            return pollIntervalMillis;
         }
     }
 }

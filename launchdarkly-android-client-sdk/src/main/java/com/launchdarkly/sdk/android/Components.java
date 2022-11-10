@@ -1,7 +1,9 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
@@ -39,6 +41,29 @@ public abstract class Components {
      */
     public static ComponentConfigurer<EventProcessor> noEvents() {
         return NULL_EVENT_PROCESSOR_FACTORY;
+    }
+
+    /**
+     * Returns a configuration builder for using polling mode to get feature flag data.
+     * <p>
+     * By default, the SDK uses a streaming connection to receive feature flag data from LaunchDarkly. To use the
+     * default behavior, you do not need to call this method. However, if you want to customize the behavior of
+     * the connection, call this method to obtain a builder, change its properties with the
+     * {@link PollingDataSourceBuilder} methods, and pass it to {@link LDConfig.Builder#dataSource(ComponentConfigurer)}:
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder()
+     *         .dataSource(Components.pollingDataSource().initialReconnectDelayMillis(500))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+     * and completely disable network requests.
+     *
+     * @return a builder for setting streaming connection properties
+     * @see LDConfig.Builder#dataSource(ComponentConfigurer)
+     */
+    public static PollingDataSourceBuilder pollingDataSource() {
+        return new ComponentsImpl.PollingDataSourceBuilderImpl();
     }
 
     /**
@@ -84,5 +109,28 @@ public abstract class Components {
      */
     public static ServiceEndpointsBuilder serviceEndpoints() {
         return new ComponentsImpl.ServiceEndpointsBuilderImpl();
+    }
+
+    /**
+     * Returns a configuration builder for using streaming mode to get feature flag data.
+     * <p>
+     * By default, the SDK uses a streaming connection to receive feature flag data from LaunchDarkly. To use the
+     * default behavior, you do not need to call this method. However, if you want to customize the behavior of
+     * the connection, call this method to obtain a builder, change its properties with the
+     * {@link StreamingDataSourceBuilder} methods, and pass it to {@link LDConfig.Builder#dataSource(ComponentConfigurer)}:
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder()
+     *         .dataSource(Components.streamingDataSource().initialReconnectDelayMillis(500))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+     * and completely disable network requests.
+     *
+     * @return a builder for setting streaming connection properties
+     * @see LDConfig.Builder#dataSource(ComponentConfigurer)
+     */
+    public static StreamingDataSourceBuilder streamingDataSource() {
+        return new ComponentsImpl.StreamingDataSourceBuilderImpl();
     }
 }

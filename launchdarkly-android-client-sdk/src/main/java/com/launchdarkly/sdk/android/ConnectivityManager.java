@@ -1,12 +1,12 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.lang.ref.WeakReference;
@@ -67,6 +67,7 @@ class ConnectivityManager {
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
     private final ContextDataManager contextDataManager;
+    private final DataSource dataSourceConfig;
     private final FeatureFetcher fetcher;
     private final EventProcessor eventProcessor;
     private final Throttler throttler;
@@ -86,12 +87,14 @@ class ConnectivityManager {
 
     ConnectivityManager(@NonNull final ClientContext clientContext,
                         @NonNull final ClientStateImpl clientState,
+                        @NonNull final DataSource dataSourceConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextDataManager contextDataManager,
                         @NonNull final FeatureFetcher fetcher,
                         @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore
     ) {
         this.clientContext = clientContext;
+        this.dataSourceConfig = dataSourceConfig;
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.clientState = clientState;
         this.eventProcessor = eventProcessor;
@@ -102,13 +105,13 @@ class ConnectivityManager {
         this.logger = clientContext.getBaseLogger();
 
         LDConfig ldConfig = clientContext.getConfig();
-        pollingInterval = ldConfig.getPollingIntervalMillis();
-        backgroundPollingInterval = ldConfig.getBackgroundPollingIntervalMillis();
+        pollingInterval = dataSourceConfig.getPollIntervalMillis();
+        backgroundPollingInterval = dataSourceConfig.getBackgroundPollIntervalMillis();
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
 
         backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
-        foregroundMode = ldConfig.isStream() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
+        foregroundMode = dataSourceConfig.isStreamingDisabled() ? ConnectionMode.POLLING : ConnectionMode.STREAMING;
 
         throttler = new Throttler(() -> {
             synchronized (ConnectivityManager.this) {
@@ -178,8 +181,9 @@ class ConnectivityManager {
                 setOffline();
             }
         };
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(
-                clientContext, contextDataManager, dataSourceActions, monitor) : null;
+        streamUpdateProcessor = dataSourceConfig.isStreamingDisabled() ? null :
+                new StreamUpdateProcessor(clientContext, contextDataManager, dataSourceActions,
+                        dataSourceConfig.getInitialReconnectDelayMillis(), monitor);
     }
 
     boolean isInitialized() {

@@ -10,16 +10,12 @@ import java.util.Map;
 
 import okhttp3.Headers;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.launchdarkly.logging.LDLogLevel;
-import com.launchdarkly.logging.LogCapture;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 
 public class LDConfigTest {
@@ -28,13 +24,10 @@ public class LDConfigTest {
     @Test
     public void testBuilderDefaults() {
         LDConfig config = new LDConfig.Builder().build();
-        assertTrue(config.isStream());
         assertFalse(config.isOffline());
 
         assertEquals(LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS, config.getConnectionTimeoutMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
 
-        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
         assertFalse(config.isDisableBackgroundPolling());
 
         assertNull(config.getMobileKey());
@@ -43,82 +36,6 @@ public class LDConfigTest {
 
         assertNull(config.getWrapperName());
         assertNull(config.getWrapperVersion());
-    }
-
-
-    @Test
-    public void testBuilderStreamDisabled() {
-        LDConfig config = new LDConfig.Builder()
-                .stream(false)
-                .build();
-
-        assertFalse(config.isStream());
-        assertFalse(config.isOffline());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-    }
-
-    @Test
-    public void testBuilderStreamDisabledCustomIntervals() {
-        LDConfig config = new LDConfig.Builder()
-                .stream(false)
-                .pollingIntervalMillis(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1)
-                .backgroundPollingIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS + 2)
-                .build();
-
-        assertFalse(config.isStream());
-        assertFalse(config.isOffline());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS + 2, config.getBackgroundPollingIntervalMillis());
-    }
-
-    @Test
-    public void testBuilderStreamDisabledBackgroundUpdatingDisabled() {
-        LDConfig config = new LDConfig.Builder()
-                .stream(false)
-                .disableBackgroundUpdating(true)
-                .build();
-
-        assertFalse(config.isStream());
-        assertFalse(config.isOffline());
-        assertTrue(config.isDisableBackgroundPolling());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-    }
-
-    @Test
-    public void testBuilderStreamDisabledPollingIntervalBelowMinimum() {
-        LDConfig config = new LDConfig.Builder()
-                .logAdapter(logging.logAdapter)
-                .stream(false)
-                .pollingIntervalMillis(LDConfig.MIN_POLLING_INTERVAL_MILLIS - 1)
-                .build();
-
-        assertFalse(config.isStream());
-        assertFalse(config.isOffline());
-        assertFalse(config.isDisableBackgroundPolling());
-        assertEquals(LDConfig.MIN_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-
-        LogCapture.Message m = logging.logCapture.requireMessage(LDLogLevel.WARN, 1000);
-        assertThat(m.getText(), containsString("below the allowed minimum"));
-    }
-
-    @Test
-    public void testBuilderStreamDisabledBackgroundPollingIntervalBelowMinimum() {
-        LDConfig config = new LDConfig.Builder()
-                .logAdapter(logging.logAdapter)
-                .stream(false)
-                .backgroundPollingIntervalMillis(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS - 1)
-                .build();
-
-        assertFalse(config.isStream());
-        assertFalse(config.isOffline());
-        assertFalse(config.isDisableBackgroundPolling());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-
-        LogCapture.Message m = logging.logCapture.requireMessage(LDLogLevel.WARN, 1000);
-        assertThat(m.getText(), containsString("below the minimum"));
     }
 
     @Test

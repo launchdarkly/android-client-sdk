@@ -5,6 +5,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
@@ -50,12 +51,9 @@ public class DiagnosticConfigTest {
                         .polling("https://1.1.1.1")
                         .streaming("https://1.1.1.1"))
                 .disableBackgroundUpdating(true)
-                .backgroundPollingIntervalMillis(900_000)
                 .connectionTimeoutMillis(5_000)
                 .evaluationReasons(true)
                 .secondaryMobileKeys(secondaryKeys)
-                .pollingIntervalMillis(600_000)
-                .stream(false)
                 .useReport(true)
                 .maxCachedContexts(-1)
                 .build();
@@ -65,15 +63,12 @@ public class DiagnosticConfigTest {
         setExpectedDefaults(expected);
 
         expected.put("backgroundPollingDisabled", true);
-        expected.put("backgroundPollingIntervalMillis", 900_000);
         expected.put("connectTimeoutMillis", 5_000);
         expected.put("customBaseURI", true);
         expected.put("customEventsURI", true);
         expected.put("customStreamURI", true);
         expected.put("evaluationReasonsRequested", true);
         expected.put("mobileKeyCount", 2);
-        expected.put("pollingIntervalMillis", 600_000);
-        expected.put("streamingDisabled", true);
         expected.put("useReport", true);
         expected.put("maxCachedUsers", -1);
 
@@ -106,11 +101,54 @@ public class DiagnosticConfigTest {
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
-    private static void setExpectedDefaults(ObjectBuilder expected) {
+    @Test
+    public void customDiagnosticConfigurationStreaming() throws Exception {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .dataSource(
+                        Components.streamingDataSource()
+                                .backgroundPollIntervalMillis(900_000)
+                                .initialReconnectDelayMillis(500)
+                )
+                .build();
+
+        LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
+        ObjectBuilder expected = LDValue.buildObject();
+        setExpectedDefaults(expected);
+
+        expected.put("backgroundPollingIntervalMillis", 900_000);
+        expected.put("reconnectTimeMillis", 500);
+
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @Test
+    public void customDiagnosticConfigurationPolling() throws Exception {
+        HashMap<String, String> secondaryKeys = new HashMap<>(1);
+        secondaryKeys.put("secondary", "key");
+        LDConfig ldConfig = new LDConfig.Builder()
+                .dataSource(
+                        Components.pollingDataSource()
+                                .backgroundPollIntervalMillis(900_000)
+                                .pollIntervalMillis(600_000)
+                )
+                .build();
+
+        LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
+        ObjectBuilder expected = LDValue.buildObject();
+        setExpectedDefaultsWithoutStreaming(expected);
+
+        expected.put("streamingDisabled", true);
+        expected.put("backgroundPollingIntervalMillis", 900_000);
+        expected.put("pollingIntervalMillis", 600_000);
+
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    private static void setExpectedDefaultsWithoutStreaming(ObjectBuilder expected) {
         expected.put("allAttributesPrivate", false);
         expected.put("backgroundPollingDisabled", false);
         expected.put("backgroundPollingIntervalMillis",
-                LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS);
+                LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
         expected.put("connectTimeoutMillis",
                 LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS);
         expected.put("customBaseURI", false);
@@ -124,9 +162,14 @@ public class DiagnosticConfigTest {
                 EventProcessorBuilder.DEFAULT_FLUSH_INTERVAL_MILLIS);
         expected.put("maxCachedUsers", 5);
         expected.put("mobileKeyCount", 1);
-        expected.put("pollingIntervalMillis", LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS);
         expected.put("streamingDisabled", false);
         expected.put("useReport", false);
+    }
+
+    private static void setExpectedDefaults(ObjectBuilder expected) {
+        setExpectedDefaultsWithoutStreaming(expected);
+        expected.put("reconnectTimeMillis",
+                StreamingDataSourceBuilder.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS);
     }
 
     private static LDValue makeDiagnosticJson(LDConfig config) throws Exception {

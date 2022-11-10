@@ -43,6 +43,7 @@ class StreamUpdateProcessor {
     private EventSource es;
     private final HttpProperties httpProperties;
     private final boolean evaluationReasons;
+    private final int initialReconnectDelayMillis;
     private final boolean useReport;
     private final URI streamUri;
     private final ContextDataManager contextDataManager;
@@ -59,6 +60,7 @@ class StreamUpdateProcessor {
             @NonNull ClientContext clientContext,
             @NonNull ContextDataManager contextDataManager,
             @NonNull ConnectivityManager.DataSourceActions dataSourceActions,
+            int initialReconnectDelayMillis,
             @NonNull LDUtil.ResultCallback<Void> notifier
     ) {
         this.streamUri = clientContext.getServiceEndpoints().getStreamingBaseUri();
@@ -67,6 +69,7 @@ class StreamUpdateProcessor {
         this.useReport = clientContext.isUseReport();
         this.contextDataManager = contextDataManager;
         this.dataSourceActions = dataSourceActions;
+        this.initialReconnectDelayMillis = initialReconnectDelayMillis;
         this.notifier = notifier;
         this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
         this.logger = clientContext.getBaseLogger();
@@ -133,6 +136,7 @@ class StreamUpdateProcessor {
             };
 
             EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextDataManager.getCurrentContext()));
+            builder.reconnectTime(initialReconnectDelayMillis, TimeUnit.MILLISECONDS);
             builder.clientBuilderActions(new EventSource.Builder.ClientConfigurer() {
                 public void configure(OkHttpClient.Builder clientBuilder) {
                     httpProperties.applyToHttpClientBuilder(clientBuilder);
