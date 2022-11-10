@@ -91,8 +91,6 @@ public class DiagnosticEventTest {
 
     @Test
     public void customDiagnosticConfigurationStreaming() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .dataSource(
                         Components.streamingDataSource()
@@ -110,8 +108,6 @@ public class DiagnosticEventTest {
 
     @Test
     public void customDiagnosticConfigurationPolling() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .dataSource(
                         Components.pollingDataSource()
@@ -152,8 +148,6 @@ public class DiagnosticEventTest {
     @SuppressWarnings("deprecation")
     @Test
     public void customDiagnosticConfigurationStreamingWithDeprecatedSetters() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .backgroundPollingIntervalMillis(900_000)
                 .build();
@@ -167,8 +161,6 @@ public class DiagnosticEventTest {
     @SuppressWarnings("deprecation")
     @Test
     public void customDiagnosticConfigurationPollingWithDeprecatedSetters() {
-        HashMap<String, String> secondaryKeys = new HashMap<>(1);
-        secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .stream(false)
                 .backgroundPollingIntervalMillis(900_000)
