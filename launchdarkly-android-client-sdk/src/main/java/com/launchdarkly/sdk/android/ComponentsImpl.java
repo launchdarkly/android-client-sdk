@@ -126,8 +126,8 @@ abstract class ComponentsImpl {
             LDLogger logger = clientContext.getBaseLogger();
             // Build the default headers
             Map<String, String> headers = new HashMap<>();
-            headers.put("Authorization", LDConfig.AUTH_SCHEME + clientContext.getMobileKey());
-            headers.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
+            headers.put("Authorization", LDUtil.AUTH_SCHEME + clientContext.getMobileKey());
+            headers.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
             if (wrapperName != null) {
                 String wrapperId = wrapperVersion == null ? wrapperName : (wrapperName + "/" + wrapperVersion);
                 headers.put("X-LaunchDarkly-Wrapper", wrapperId);

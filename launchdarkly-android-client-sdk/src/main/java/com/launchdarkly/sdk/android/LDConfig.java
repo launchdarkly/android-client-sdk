@@ -51,8 +51,6 @@ public class LDConfig {
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
 
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
-    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
-    static final String AUTH_SCHEME = "api_key ";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
@@ -62,14 +60,7 @@ public class LDConfig {
     static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com");
     static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
 
-    static final int DEFAULT_EVENTS_CAPACITY = 100;
     static final int DEFAULT_MAX_CACHED_USERS = 5;
-    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
-    static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
-    static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 900_000; // 15 minutes
-    static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
     private final Map<String, String> mobileKeys;
 
@@ -441,12 +432,13 @@ public class LDConfig {
         private ComponentConfigurer<EventProcessor> events = null;
         private ComponentConfigurer<HttpConfiguration> http = null;
 
-        private int eventsCapacity = DEFAULT_EVENTS_CAPACITY;
+        private int eventsCapacity = EventProcessorBuilder.DEFAULT_CAPACITY;
         private int eventsFlushIntervalMillis = 0;
-        private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
-        private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
+        private int connectionTimeoutMillis = HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS;
+        private int pollingIntervalMillis = PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS;
         private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
-        private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+        private int diagnosticRecordingIntervalMillis =
+                EventProcessorBuilder.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
         private int maxCachedUsers = DEFAULT_MAX_CACHED_USERS;
 
         private boolean offline = false;
@@ -697,7 +689,7 @@ public class LDConfig {
          * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
          * settings there will override this deprecated method.
          * <p>
-         * The default value is {@link #DEFAULT_EVENTS_CAPACITY}.
+         * The default value is {@link EventProcessorBuilder#DEFAULT_CAPACITY}.
          *
          * @param eventsCapacity the capacity of the event buffer
          * @return the builder
@@ -718,7 +710,7 @@ public class LDConfig {
          * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
          * settings there will override this deprecated method.
          * <p>
-         * The default value is {@link #DEFAULT_FLUSH_INTERVAL_MILLIS}.
+         * The default value is {@link EventProcessorBuilder#DEFAULT_FLUSH_INTERVAL_MILLIS}.
          *
          * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
          * @return the builder
@@ -1102,11 +1094,11 @@ public class LDConfig {
 
             LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
 
-            if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
+            if (diagnosticRecordingIntervalMillis < EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
                 logger.warn(
                         "diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.",
-                        diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
-                diagnosticRecordingIntervalMillis = MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+                        diagnosticRecordingIntervalMillis, EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
+                diagnosticRecordingIntervalMillis = EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
             }
 
             HashMap<String, String> mobileKeys;
@@ -1139,11 +1131,12 @@ public class LDConfig {
                     dataSourceConfig = Components.streamingDataSource()
                             .backgroundPollIntervalMillis(backgroundPollingIntervalMillis);
                 } else {
-                    if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
+                    if (pollingIntervalMillis < PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS) {
+                        // the default is also the minimum
                         logger.warn(
                                 "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
-                                pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
-                        pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
+                                pollingIntervalMillis, PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS);
+                        pollingIntervalMillis = PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS;
                     }
 
                     if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
@@ -1166,7 +1159,8 @@ public class LDConfig {
             }
 
             if (eventsFlushIntervalMillis == 0) {
-                eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS; // this is a normal occurrence, so don't log a warning about it
+                eventsFlushIntervalMillis = EventProcessorBuilder.DEFAULT_FLUSH_INTERVAL_MILLIS;
+                // this is a normal occurrence, so don't log a warning about it
             }
 
             ComponentConfigurer<EventProcessor> eventsConfig = this.events;

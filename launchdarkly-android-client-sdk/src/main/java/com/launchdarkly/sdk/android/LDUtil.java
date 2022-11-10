@@ -31,6 +31,9 @@ import java.util.Set;
 import okhttp3.Headers;
 
 class LDUtil {
+    static final String AUTH_SCHEME = "api_key ";
+    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
+
     static Headers makeRequestHeaders(
             @NonNull HttpConfiguration httpConfig,
             Map<String, String> additionalHeaders

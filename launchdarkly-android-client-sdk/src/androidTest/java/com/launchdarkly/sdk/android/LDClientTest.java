@@ -632,10 +632,12 @@ public class LDClientTest {
             // Enqueue a successful empty response
             mockEventsServer.enqueue(new MockResponse());
 
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).headerTransform(headers -> {
-                headers.put("Proxy-Authorization", "token");
-                headers.put("Authorization", "foo");
-            }).build();
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .http(Components.httpConfiguration().headerTransform(headers -> {
+                        headers.put("Proxy-Authorization", "token");
+                        headers.put("Authorization", "foo");
+                    }))
+                    .build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.blockingFlush();
             }
@@ -675,7 +677,7 @@ public class LDClientTest {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());
         assertEquals("/mobile", r.getPath());
-        assertEquals(LDConfig.AUTH_SCHEME + mobileKey, r.getHeader("Authorization"));
+        assertEquals(LDUtil.AUTH_SCHEME + mobileKey, r.getHeader("Authorization"));
         String body = r.getBody().readUtf8();
         System.out.println(body);
         Event[] events = TestUtil.getEventDeserializerGson().fromJson(body, Event[].class);

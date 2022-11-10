@@ -27,9 +27,9 @@ import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
  */
 public abstract class HttpConfigurationBuilder implements ComponentConfigurer<HttpConfiguration> {
     /**
-     * The default value for {@link #connectTimeoutMillis(int)}: two seconds.
+     * The default value for {@link #connectTimeoutMillis(int)}: ten seconds.
      */
-    public static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 2000;
+    public static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 10000;
 
     protected int connectTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
     protected LDHeaderUpdater headerTransform;
