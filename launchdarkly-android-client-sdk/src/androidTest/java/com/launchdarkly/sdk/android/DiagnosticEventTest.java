@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 
 import org.junit.Assert;
@@ -241,7 +242,7 @@ public class DiagnosticEventTest {
         expected.put("backgroundPollingIntervalMillis",
                 LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
         expected.put("connectTimeoutMillis",
-                LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS);
+                HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS);
         expected.put("customBaseURI", false);
         expected.put("customEventsURI", false);
         expected.put("customStreamURI", false);
