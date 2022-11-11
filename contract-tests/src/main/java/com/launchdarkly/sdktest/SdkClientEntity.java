@@ -201,7 +201,7 @@ public class SdkClientEntity {
 
     ServiceEndpointsBuilder endpoints = Components.serviceEndpoints();
 
-    if (params.polling != null && params.polling.baseUri != null) {
+    if (params.polling != null) {
       // Note that this property can be set even if streaming is enabled
       endpoints.polling(params.polling.baseUri);
     }
@@ -213,9 +213,7 @@ public class SdkClientEntity {
       }
       builder.dataSource(pollingBuilder);
     } else if (params.streaming != null) {
-      if (params.streaming.baseUri != null) {
-        endpoints.streaming(params.streaming.baseUri);
-      }
+      endpoints.streaming(params.streaming.baseUri);
       StreamingDataSourceBuilder streamingBuilder = Components.streamingDataSource();
       if (params.streaming.initialRetryDelayMs != null) {
         streamingBuilder.initialReconnectDelayMillis(params.streaming.initialRetryDelayMs.intValue());
@@ -227,9 +225,7 @@ public class SdkClientEntity {
       builder.events(Components.noEvents());
     } else {
       builder.diagnosticOptOut(!params.events.enableDiagnostics);
-      if (params.events.baseUri != null) {
-        endpoints.events(params.events.baseUri);
-      }
+      endpoints.events(params.events.baseUri);
       EventProcessorBuilder eventsBuilder = Components.sendEvents()
               .allAttributesPrivate(params.events.allAttributesPrivate)
               .inlineUsers(params.events.inlineUsers);

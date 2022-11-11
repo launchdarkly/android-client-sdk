@@ -7,6 +7,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSyntaxException;
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
 import com.launchdarkly.sdktest.Representations.Status;
@@ -85,6 +86,7 @@ public class TestService extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, NanoHTTPD.MIME_PLAINTEXT, "Invalid JSON Format\n");
         } catch (Exception e) {
             logger.error("Exception when handling request: {} {} - {}", method.name(), session.getUri(), e);
+            logger.error(LogValues.exceptionTrace(e));
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, e.toString());
         }
     }
