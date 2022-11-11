@@ -270,7 +270,7 @@ public class LDClient implements LDClientInterface, Closeable {
         String sdkKey = config.getMobileKeys().get(environmentName);
         FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName, logger);
         OkHttpClient sharedEventClient = makeSharedEventClient();
-        if (config.getDiagnosticOptOut()) {
+        if (config.getDiagnosticOptOut() || (config.events == ComponentsImpl.NULL_EVENT_PROCESSOR_FACTORY)) {
             this.diagnosticStore = null;
             this.diagnosticEventProcessor = null;
         } else {
