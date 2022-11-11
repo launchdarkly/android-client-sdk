@@ -31,6 +31,7 @@ public abstract class Representations {
         SdkConfigEventParams events;
         SdkConfigTagParams tags;
         SdkConfigClientSideParams clientSide;
+        SdkConfigServiceEndpointParams serviceEndpoints;
     }
 
     public static class SdkConfigStreamParams {
@@ -56,6 +57,12 @@ public abstract class Representations {
     public static class SdkConfigTagParams {
         String applicationId;
         String applicationVersion;
+    }
+
+    public static class SdkConfigServiceEndpointParams {
+        String streaming;
+        String polling;
+        String events;
     }
 
     public static class SdkConfigClientSideParams {

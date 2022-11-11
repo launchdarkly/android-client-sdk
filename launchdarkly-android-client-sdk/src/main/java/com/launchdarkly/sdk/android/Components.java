@@ -5,6 +5,7 @@ import static com.launchdarkly.sdk.android.ComponentsImpl.NULL_EVENT_PROCESSOR_F
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -110,6 +111,28 @@ public abstract class Components {
      */
     public static EventProcessorBuilder sendEvents() {
         return new ComponentsImpl.EventProcessorBuilderImpl();
+    }
+
+    /**
+     * Returns a builder for configuring custom service URIs.
+     * <p>
+     * Passing this to {@link LDConfig.Builder#serviceEndpoints(com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder)},
+     * after setting any desired properties on the builder, applies this configuration to the SDK.
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder()
+     *         .serviceEndpoints(
+     *             Components.serviceEndpoints()
+     *                 .relayProxy("http://my-relay-hostname:80")
+     *         )
+     *         .build();
+     * </code></pre>
+     *
+     * @return a builder object
+     * @see LDConfig.Builder#serviceEndpoints(com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder)
+     * @since 3.3.0
+     */
+    public static ServiceEndpointsBuilder serviceEndpoints() {
+        return new ComponentsImpl.ServiceEndpointsBuilderImpl();
     }
 
     /**

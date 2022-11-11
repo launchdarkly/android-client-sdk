@@ -40,9 +40,6 @@ public class DiagnosticEventTest {
         secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .disableBackgroundUpdating(true)
-                .pollUri(Uri.parse("https://1.1.1.1"))
-                .eventsUri(Uri.parse("https://1.1.1.1"))
-                .streamUri(Uri.parse("https://1.1.1.1"))
                 .evaluationReasons(true)
                 .secondaryMobileKeys(secondaryKeys)
                 .maxCachedUsers(-1)
@@ -52,9 +49,6 @@ public class DiagnosticEventTest {
         LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
         ObjectBuilder expected = makeExpectedDefaults();
         expected.put("backgroundPollingDisabled", true);
-        expected.put("customBaseURI", true);
-        expected.put("customEventsURI", true);
-        expected.put("customStreamURI", true);
         expected.put("evaluationReasonsRequested", true);
         expected.put("mobileKeyCount", 2);
         expected.put("maxCachedUsers", -1);
@@ -137,6 +131,25 @@ public class DiagnosticEventTest {
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
+    @Test
+    public void customDiagnosticConfigurationServiceEndpoints() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .serviceEndpoints(
+                        Components.serviceEndpoints()
+                                .streaming("https://1.1.1.1")
+                                .polling("https://1.1.1.1")
+                                .events("https://1.1.1.1")
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("customBaseURI", true);
+        expected.put("customEventsURI", true);
+        expected.put("customStreamURI", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
     @SuppressWarnings("deprecation")
     @Test
     public void customDiagnosticConfigurationEventsWithDeprecatedSetters() {
@@ -205,6 +218,23 @@ public class DiagnosticEventTest {
         ObjectBuilder expected = makeExpectedDefaults();
         expected.put("connectTimeoutMillis", 5_000);
         expected.put("useReport", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void customDiagnosticConfigurationServiceEndpointsWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .streamUri(Uri.parse("https://1.1.1.1"))
+                .pollUri(Uri.parse("https://1.1.1.1"))
+                .eventsUri(Uri.parse("https://1.1.1.1"))
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("customBaseURI", true);
+        expected.put("customEventsURI", true);
+        expected.put("customStreamURI", true);
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 

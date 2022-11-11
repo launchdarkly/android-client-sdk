@@ -33,6 +33,7 @@ public class ClientContext {
     private final HttpConfiguration http;
     private final boolean initiallySetOffline;
     private final String mobileKey;
+    private final ServiceEndpoints serviceEndpoints;
 
     public ClientContext(
             Application application,
@@ -42,7 +43,8 @@ public class ClientContext {
             String environmentName,
             boolean evaluationReasons,
             HttpConfiguration http,
-            boolean initiallySetOffline
+            boolean initiallySetOffline,
+            ServiceEndpoints serviceEndpoints
     ) {
         this.application = application;
         this.mobileKey = mobileKey;
@@ -52,6 +54,7 @@ public class ClientContext {
         this.evaluationReasons = evaluationReasons;
         this.http = http;
         this.initiallySetOffline = initiallySetOffline;
+        this.serviceEndpoints = serviceEndpoints;
     }
 
     protected ClientContext(ClientContext copyFrom) {
@@ -63,7 +66,8 @@ public class ClientContext {
                 copyFrom.environmentName,
                 copyFrom.evaluationReasons,
                 copyFrom.http,
-                copyFrom.initiallySetOffline
+                copyFrom.initiallySetOffline,
+                copyFrom.serviceEndpoints
         );
     }
 
@@ -135,5 +139,13 @@ public class ClientContext {
      */
     public String getMobileKey() {
         return mobileKey;
+    }
+
+    /**
+     * Returns the base service URIs used by SDK components.
+     * @return the service endpoint URIs
+     */
+    public ServiceEndpoints getServiceEndpoints() {
+        return serviceEndpoints;
     }
 }

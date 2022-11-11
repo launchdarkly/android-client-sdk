@@ -2,8 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import static com.launchdarkly.sdk.android.TestUtil.simpleClientContext;
 
-import android.net.Uri;
-
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
@@ -49,7 +47,7 @@ public class DiagnosticEventProcessorTest {
         OkHttpClient okHttpClient = new OkHttpClient.Builder().build();
         LDConfig ldConfig = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
-                .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
+                .serviceEndpoints(Components.serviceEndpoints().events(mockEventsServer.url("").toString()))
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
         HttpConfiguration httpConfig = simpleClientContext(ldConfig).getHttp();
@@ -76,7 +74,7 @@ public class DiagnosticEventProcessorTest {
         OkHttpClient okHttpClient = new OkHttpClient.Builder().build();
         LDConfig ldConfig = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
-                .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
+                .serviceEndpoints(Components.serviceEndpoints().events(mockEventsServer.url("").toString()))
                 .http(Components.httpConfiguration().wrapper("ReactNative", "1.0.0"))
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
@@ -103,7 +101,7 @@ public class DiagnosticEventProcessorTest {
 
         LDConfig ldConfig = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
-                .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
+                .serviceEndpoints(Components.serviceEndpoints().events(mockEventsServer.url("").toString()))
                 .http(Components.httpConfiguration().headerTransform(headers -> {
                     headers.put("Proxy-Authorization", "token"); 
                     headers.put("Authorization", "foo"); 

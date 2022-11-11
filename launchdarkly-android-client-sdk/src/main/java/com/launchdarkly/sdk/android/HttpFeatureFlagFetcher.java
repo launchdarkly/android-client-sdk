@@ -8,18 +8,16 @@ import androidx.annotation.NonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
+import java.net.URI;
 
 import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
-import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -36,22 +34,13 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private final LDConfig config;
     private final HttpConfiguration httpConfig;
+    private final Uri pollUri;
     private final String environmentName;
     private final Context context;
     private final OkHttpClient client;
     private final LDLogger logger;
 
-    static HttpFeatureFlagFetcher newInstance(
-            Context context,
-            LDConfig config,
-            HttpConfiguration httpConfig,
-            String environmentName,
-            LDLogger logger
-    ) {
-        return new HttpFeatureFlagFetcher(context, config, httpConfig, environmentName, logger);
-    }
-
-    private HttpFeatureFlagFetcher(
+    HttpFeatureFlagFetcher(
             Context context,
             LDConfig config,
             HttpConfiguration httpConfig,
@@ -63,6 +52,10 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         this.environmentName = environmentName;
         this.context = context;
         this.logger = logger;
+
+        URI pollUri = StandardEndpoints.selectBaseUri(config.serviceEndpoints.getPollingBaseUri(),
+                StandardEndpoints.DEFAULT_POLLING_BASE_URI, "polling", logger);
+        this.pollUri = Uri.parse(pollUri.toString());
 
         File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
@@ -127,7 +120,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getDefaultRequest(LDUser user) {
-        String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/users/").toString() +
+        String uri = Uri.withAppendedPath(pollUri, "msdk/evalx/users/").toString() +
                 DefaultUserManager.base64Url(user);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
@@ -139,7 +132,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getReportRequest(LDUser user) {
-        String reportUri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/user").toString();
+        String reportUri = Uri.withAppendedPath(pollUri, "msdk/evalx/user").toString();
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }

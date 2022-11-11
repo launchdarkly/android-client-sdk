@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import android.net.Uri;
+
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
@@ -7,6 +9,7 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
@@ -14,7 +17,9 @@ import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DiagnosticDescription;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.android.subsystems.ServiceEndpoints;
 
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -90,10 +95,13 @@ abstract class ComponentsImpl {
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
+            URI eventsUri = StandardEndpoints.selectBaseUri(clientContext.getServiceEndpoints().getEventsBaseUri(),
+                    StandardEndpoints.DEFAULT_EVENTS_BASE_URI, "events", clientContext.getBaseLogger());
             return new DefaultEventProcessor(
                     clientContext.getApplication(),
                     clientContext.getConfig(),
                     clientContext.getHttp(),
+                    eventsUri,
                     clientContextImpl.getSummaryEventStore(),
                     clientContext.getEnvironmentName(),
                     clientContext.isInitiallySetOffline(),
@@ -165,6 +173,25 @@ abstract class ComponentsImpl {
                     .put("backgroundPollingIntervalMillis", backgroundPollIntervalMillis)
                     .put("pollingIntervalMillis", pollIntervalMillis)
                     .build();
+        }
+    }
+
+    static final class ServiceEndpointsBuilderImpl extends ServiceEndpointsBuilder {
+        @Override
+        public ServiceEndpoints build() {
+            // If *any* custom URIs have been set, then we do not want to use default values for any that were not set,
+            // so we will leave those null. That way, if we decide later on (in other component factories, such as
+            // EventProcessorBuilder) that we are actually interested in one of these values, and we
+            // see that it is null, we can assume that there was a configuration mistake and log an
+            // error.
+            if (streamingBaseUri == null && pollingBaseUri == null && eventsBaseUri == null) {
+                return new ServiceEndpoints(
+                        StandardEndpoints.DEFAULT_STREAMING_BASE_URI,
+                        StandardEndpoints.DEFAULT_POLLING_BASE_URI,
+                        StandardEndpoints.DEFAULT_EVENTS_BASE_URI
+                );
+            }
+            return new ServiceEndpoints(streamingBaseUri, pollingBaseUri, eventsBaseUri);
         }
     }
 
