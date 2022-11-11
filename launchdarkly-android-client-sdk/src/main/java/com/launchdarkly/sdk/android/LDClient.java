@@ -281,7 +281,7 @@ public class LDClient implements LDClientInterface, Closeable {
         FeatureFetcher fetcher = new HttpFeatureFlagFetcher(application, config, httpConfig,
                 environmentName, logger);
         OkHttpClient sharedEventClient = makeSharedEventClient(httpConfig);
-        if (config.getDiagnosticOptOut()) {
+        if (config.getDiagnosticOptOut() || (config.events == ComponentsImpl.NULL_EVENT_PROCESSOR_FACTORY)) {
             this.diagnosticStore = null;
             this.diagnosticEventProcessor = null;
         } else {
