@@ -260,6 +260,16 @@ public class LDConfig {
         return offline;
     }
 
+    /**
+     * Returns the setting of {@link Builder#stream(boolean)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#dataSource(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual data source properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean isStream() {
         return stream;
     }
