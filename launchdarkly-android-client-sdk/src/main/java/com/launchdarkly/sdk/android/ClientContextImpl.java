@@ -2,8 +2,10 @@ package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 
 /**
@@ -27,17 +29,20 @@ import com.launchdarkly.sdk.internal.events.DiagnosticStore;
  */
 final class ClientContextImpl extends ClientContext {
     private final DiagnosticStore diagnosticStore;
+    private final FeatureFetcher fetcher;
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
 
     ClientContextImpl(
             ClientContext base,
             DiagnosticStore diagnosticStore,
+            FeatureFetcher fetcher,
             PlatformState platformState,
             TaskExecutor taskExecutor
     ) {
         super(base);
         this.diagnosticStore = diagnosticStore;
+        this.fetcher = fetcher;
         this.platformState = platformState;
         this.taskExecutor = taskExecutor;
     }
@@ -46,6 +51,7 @@ final class ClientContextImpl extends ClientContext {
             LDConfig config,
             String mobileKey,
             String environmentName,
+            FeatureFetcher fetcher,
             LDContext initialContext,
             LDLogger logger,
             PlatformState platformState,
@@ -53,50 +59,81 @@ final class ClientContextImpl extends ClientContext {
     ) {
         boolean initiallyInBackground = platformState != null && !platformState.isForeground();
         ClientContext minimalContext = new ClientContext(mobileKey, logger, config,
-                environmentName, config.isEvaluationReasons(), null, null,
-                initiallyInBackground, config.isOffline(), null);
+                null, environmentName, config.isEvaluationReasons(), initialContext, null,
+                initiallyInBackground, config.serviceEndpoints, config.isOffline());
         HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 mobileKey,
                 logger,
                 config,
+                null,
                 environmentName,
                 config.isEvaluationReasons(),
-                httpConfig,
                 initialContext,
+                httpConfig,
                 initiallyInBackground,
-                config.isOffline(),
-                config.serviceEndpoints
+                config.serviceEndpoints,
+                config.isOffline()
         );
         DiagnosticStore diagnosticStore = null;
         if (!config.getDiagnosticOptOut()) {
             diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(baseClientContext));
         }
-        return new ClientContextImpl(baseClientContext, diagnosticStore, platformState, taskExecutor);
+        return new ClientContextImpl(baseClientContext, diagnosticStore, fetcher, platformState, taskExecutor);
     }
 
     public static ClientContextImpl get(ClientContext context) {
         if (context instanceof ClientContextImpl) {
             return (ClientContextImpl)context;
         }
-        return new ClientContextImpl(context, null, null, null);
+        return new ClientContextImpl(context, null, null, null, null);
+    }
+
+    public static ClientContextImpl forDataSource(
+            ClientContext baseClientContext,
+            DataSourceUpdateSink dataSourceUpdateSink,
+            LDContext newEvaluationContext,
+            boolean newInBackground
+    ) {
+        ClientContextImpl baseContextImpl = ClientContextImpl.get(baseClientContext);
+        return new ClientContextImpl(
+                new ClientContext(
+                        baseClientContext.getMobileKey(),
+                        baseClientContext.getBaseLogger(),
+                        baseClientContext.getConfig(),
+                        dataSourceUpdateSink,
+                        baseClientContext.getEnvironmentName(),
+                        baseClientContext.isEvaluationReasons(),
+                        newEvaluationContext,
+                        baseClientContext.getHttp(),
+                        newInBackground,
+                        baseClientContext.getServiceEndpoints(),
+                        false // setOffline is always false if we are creating a data source
+                ),
+                baseContextImpl.getDiagnosticStore(),
+                baseContextImpl.getFetcher(),
+                baseContextImpl.getPlatformState(),
+                baseContextImpl.getTaskExecutor()
+        );
     }
 
     public DiagnosticStore getDiagnosticStore() {
         return diagnosticStore;
     }
 
+    public FeatureFetcher getFetcher() {
+        return fetcher;
+    }
+
     public PlatformState getPlatformState() {
-        throwExceptionIfNull(platformState);
-        return platformState;
+        return throwExceptionIfNull(platformState);
     }
 
     public TaskExecutor getTaskExecutor() {
-        throwExceptionIfNull(taskExecutor);
-        return taskExecutor;
+        return throwExceptionIfNull(taskExecutor);
     }
 
-    private static void throwExceptionIfNull(Object o) {
+    private static <T> T throwExceptionIfNull(T o) {
         if (o == null) {
             throw new IllegalStateException(
                     "Attempted to use an SDK component without the necessary dependencies from LDClient; "
@@ -104,5 +141,6 @@ final class ClientContextImpl extends ClientContext {
                     + " component directly outside of normal SDK usage"
             );
         }
+        return o;
     }
 }

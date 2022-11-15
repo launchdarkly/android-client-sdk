@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import com.launchdarkly.sdk.android.DataModel.Flag;
+
 import static com.launchdarkly.sdk.android.AssertHelpers.assertDataSetsEqual;
 import static com.launchdarkly.sdk.android.AssertHelpers.assertFlagsEqual;
 import static org.junit.Assert.assertEquals;

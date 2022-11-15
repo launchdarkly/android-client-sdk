@@ -112,7 +112,7 @@ abstract class ComponentsImpl {
                     1, // eventSendingThreadPoolSize
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     flushIntervalMillis,
-                    clientContext.isInitiallyInBackground(),
+                    clientContext.isInBackground(),
                     true, // initiallyOffline
                     privateAttributes
             );
@@ -234,11 +234,29 @@ abstract class ComponentsImpl {
     }
 
     static final class PollingDataSourceBuilderImpl extends PollingDataSourceBuilder
-            implements DiagnosticDescription {
+            implements DiagnosticDescription, DataSourceRequiresFeatureFetcher {
         @Override
         public DataSource build(ClientContext clientContext) {
-            return new DataSourceImpl(true, backgroundPollIntervalMillis, 0,
-                    pollIntervalMillis);
+            clientContext.getDataSourceUpdateSink().setStatus(
+                    clientContext.isInBackground() ? ConnectionInformation.ConnectionMode.BACKGROUND_POLLING :
+                            ConnectionInformation.ConnectionMode.POLLING,
+                    null
+            );
+            int actualPollIntervalMillis = clientContext.isInBackground() ? backgroundPollIntervalMillis :
+                    pollIntervalMillis;
+            int initialDelayMillis = clientContext.isInBackground() ? backgroundPollIntervalMillis :
+                    0; // when in the foreground, we want to start the first poll right away
+            ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
+            return new PollingDataSource(
+                    clientContext.getEvaluationContext(),
+                    clientContext.getDataSourceUpdateSink(),
+                    initialDelayMillis,
+                    actualPollIntervalMillis,
+                    clientContextImpl.getFetcher(),
+                    clientContextImpl.getPlatformState(),
+                    clientContextImpl.getTaskExecutor(),
+                    clientContext.getBaseLogger()
+            );
         }
 
         @Override
@@ -252,11 +270,24 @@ abstract class ComponentsImpl {
     }
 
     static final class StreamingDataSourceBuilderImpl extends StreamingDataSourceBuilder
-            implements DiagnosticDescription {
+            implements DiagnosticDescription, DataSourceRequiresFeatureFetcher {
         @Override
         public DataSource build(ClientContext clientContext) {
-            return new DataSourceImpl(false, backgroundPollIntervalMillis,
-                    initialReconnectDelayMillis, 0);
+            if (clientContext.isInBackground()) {
+                return Components.pollingDataSource()
+                        .backgroundPollIntervalMillis(backgroundPollIntervalMillis)
+                        .pollIntervalMillis(backgroundPollIntervalMillis)
+                        .build(clientContext);
+            }
+            clientContext.getDataSourceUpdateSink().setStatus(ConnectionInformation.ConnectionMode.STREAMING, null);
+            ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
+            return new StreamUpdateProcessor(
+                    clientContext,
+                    clientContext.getEvaluationContext(),
+                    clientContext.getDataSourceUpdateSink(),
+                    clientContextImpl.getFetcher(),
+                    initialReconnectDelayMillis
+            );
         }
 
         @Override
@@ -269,38 +300,6 @@ abstract class ComponentsImpl {
         }
     }
 
-    private static final class DataSourceImpl implements DataSource {
-        private final boolean streamingDisabled;
-        private final int backgroundPollIntervalMillis;
-        private final int initialReconnectDelayMillis;
-        private final int pollIntervalMillis;
-
-        DataSourceImpl(
-                boolean streamingDisabled,
-                int backgroundPollIntervalMillis,
-                int initialReconnectDelayMillis,
-                int pollIntervalMillis
-        ) {
-            this.streamingDisabled = streamingDisabled;
-            this.backgroundPollIntervalMillis = backgroundPollIntervalMillis;
-            this.initialReconnectDelayMillis = initialReconnectDelayMillis;
-            this.pollIntervalMillis = pollIntervalMillis;
-        }
-
-        public boolean isStreamingDisabled() {
-            return streamingDisabled;
-        }
-
-        public int getBackgroundPollIntervalMillis() {
-            return backgroundPollIntervalMillis;
-        }
-
-        public int getInitialReconnectDelayMillis() {
-            return initialReconnectDelayMillis;
-        }
-
-        public int getPollIntervalMillis() {
-            return pollIntervalMillis;
-        }
-    }
+    // Marker interface for data source implementations that will require a FeatureFetcher
+    interface DataSourceRequiresFeatureFetcher {}
 }

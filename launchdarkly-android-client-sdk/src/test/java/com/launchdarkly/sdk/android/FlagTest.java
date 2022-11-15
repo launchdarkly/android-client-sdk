@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.ArrayBuilder;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -117,7 +118,6 @@ public class FlagTest {
     public void versionIsDeserialized() {
         final String jsonStr = "{\"version\": 99}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertNotNull(r.getVersion());
         assertEquals(99, (int) r.getVersion());
     }
 
@@ -273,10 +273,10 @@ public class FlagTest {
 
     @Test
     public void emptyPropertiesAreNotSerialized() {
-        final Flag r = new FlagBuilder("flag").value(LDValue.of("yes")).version(99).flagVersion(100).trackEvents(false).build();
+        final Flag r = new FlagBuilder("flag").value(LDValue.of("yes")).version(99).flagVersion(100).build();
         final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
-        assertEquals(5, json.keySet().size());
-        assertTrue(json.keySet().containsAll(Arrays.asList("key", "trackEvents", "value", "version", "flagVersion")));
+        assertEquals(4, json.keySet().size());
+        assertTrue(json.keySet().containsAll(Arrays.asList("key", "value", "version", "flagVersion")));
     }
 
     @Test

@@ -1,14 +1,38 @@
 package com.launchdarkly.sdk.android;
 
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class TestUtil {
+    public static <T> T requireValue(BlockingQueue<T> queue, long timeout, TimeUnit timeoutUnit, String description) {
+        try {
+            T value = queue.poll(timeout, timeoutUnit);
+            assertNotNull("timed out waiting for " + description, value);
+            return value;
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static <T> void requireNoMoreValues(BlockingQueue<T> queue, long timeout, TimeUnit timeoutUnit, String description) {
+        try {
+            T value = queue.poll(timeout, timeoutUnit);
+            assertNull("received unexpected " + description, value);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static PersistentDataStoreWrapper makeSimplePersistentDataStoreWrapper() {
         return new PersistentDataStoreWrapper(
                 new InMemoryPersistentDataStore(),

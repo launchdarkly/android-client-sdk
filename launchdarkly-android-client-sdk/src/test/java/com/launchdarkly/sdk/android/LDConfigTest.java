@@ -73,7 +73,7 @@ public class LDConfigTest {
     public void headersForEnvironment() {
         LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
-                null, null, null, null);
+                null, null, null, null, null);
         Map<String, String> headers = headersToMap(
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
@@ -94,7 +94,7 @@ public class LDConfigTest {
                 }))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
-                null, null, null, null);
+                null, null, null, null, null);
 
         expected.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");

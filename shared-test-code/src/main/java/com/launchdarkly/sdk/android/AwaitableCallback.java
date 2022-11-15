@@ -1,11 +1,13 @@
 package com.launchdarkly.sdk.android;
 
+import com.launchdarkly.sdk.android.subsystems.Callback;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class AwaitableCallback<T> implements LDUtil.ResultCallback<T> {
+public class AwaitableCallback<T> implements Callback<T> {
     private volatile Throwable errResult = null;
     private volatile T result = null;
     private volatile CountDownLatch signal = new CountDownLatch(1);

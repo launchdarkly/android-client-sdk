@@ -9,7 +9,11 @@ import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.UnsuccessfulResponseException;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
@@ -26,7 +30,13 @@ import okhttp3.RequestBody;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
 import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
-class StreamUpdateProcessor {
+/**
+ * Data source implementation for streaming mode.
+ * <p>
+ * The SDK uses this implementation if streaming is enabled (as it is by default) and the
+ * application is the foreground. The logic for this is in ComponentsImpl.StreamingDataSourceBuilderImpl.
+ */
+final class StreamUpdateProcessor implements DataSource {
     private static final String METHOD_REPORT = "REPORT";
 
     private static final String PING = "ping";
@@ -41,42 +51,42 @@ class StreamUpdateProcessor {
     // an expectation that the server will send heartbeats at a shorter interval than that
 
     private EventSource es;
+    private final LDContext currentContext;
     private final HttpProperties httpProperties;
     private final boolean evaluationReasons;
     private final int initialReconnectDelayMillis;
     private final boolean useReport;
     private final URI streamUri;
-    private final ContextDataManager contextDataManager;
+    private final DataSourceUpdateSink dataSourceUpdateSink;
+    private final FeatureFetcher fetcher;
     private volatile boolean running = false;
     private boolean connection401Error = false;
     private final ExecutorService executor;
-    private final ConnectivityManager.DataSourceActions dataSourceActions;
-    private final LDUtil.ResultCallback<Void> notifier;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
 
     StreamUpdateProcessor(
             @NonNull ClientContext clientContext,
-            @NonNull ContextDataManager contextDataManager,
-            @NonNull ConnectivityManager.DataSourceActions dataSourceActions,
-            int initialReconnectDelayMillis,
-            @NonNull LDUtil.ResultCallback<Void> notifier
+            @NonNull LDContext currentContext,
+            @NonNull DataSourceUpdateSink dataSourceUpdateSink,
+            @NonNull FeatureFetcher fetcher,
+            int initialReconnectDelayMillis
     ) {
+        this.currentContext = currentContext;
+        this.dataSourceUpdateSink = dataSourceUpdateSink;
+        this.fetcher = fetcher;
         this.streamUri = clientContext.getServiceEndpoints().getStreamingBaseUri();
         this.httpProperties = LDUtil.makeHttpProperties(clientContext);
         this.evaluationReasons = clientContext.isEvaluationReasons();
         this.useReport = clientContext.getHttp().isUseReport();
-        this.contextDataManager = contextDataManager;
-        this.dataSourceActions = dataSourceActions;
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
-        this.notifier = notifier;
         this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
         this.logger = clientContext.getBaseLogger();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 
-    synchronized void start() {
+    public void start(@NonNull Callback<Boolean> resultCallback) {
         if (!running && !connection401Error) {
             logger.debug("Starting.");
 
@@ -98,7 +108,7 @@ class StreamUpdateProcessor {
                 public void onMessage(final String name, MessageEvent event) {
                     final String eventData = event.getData();
                     logger.debug("onMessage: {}: {}", name, eventData);
-                    handle(name, eventData, notifier);
+                    handle(name, eventData, resultCallback);
                 }
 
                 @Override
@@ -110,7 +120,7 @@ class StreamUpdateProcessor {
                 public void onError(Throwable t) {
                     LDUtil.logExceptionAtErrorLevel(logger, t,
                             "Encountered EventStream error connecting to URI: {}",
-                            getUri(contextDataManager.getCurrentContext()));
+                            getUri(currentContext));
                     if (t instanceof UnsuccessfulResponseException) {
                         if (diagnosticStore != null) {
                             diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
@@ -119,23 +129,23 @@ class StreamUpdateProcessor {
                         if (code >= 400 && code < 500) {
                             logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
-                            notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
+                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
                                 connection401Error = true;
-                                dataSourceActions.shutdownForInvalidMobileKey();
+                                dataSourceUpdateSink.shutDown();
                             }
                             stop(null);
                         } else {
                             eventSourceStarted = System.currentTimeMillis();
-                            notifier.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, true));
+                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, true));
                         }
                     } else {
-                        notifier.onError(new LDFailure("Network error in stream connection", t, LDFailure.FailureType.NETWORK_FAILURE));
+                        resultCallback.onError(new LDFailure("Network error in stream connection", t, LDFailure.FailureType.NETWORK_FAILURE));
                     }
                 }
             };
 
-            EventSource.Builder builder = new EventSource.Builder(handler, getUri(contextDataManager.getCurrentContext()));
+            EventSource.Builder builder = new EventSource.Builder(handler, getUri(currentContext));
             builder.reconnectTime(initialReconnectDelayMillis, TimeUnit.MILLISECONDS);
             builder.clientBuilderActions(new EventSource.Builder.ClientConfigurer() {
                 public void configure(OkHttpClient.Builder clientBuilder) {
@@ -144,16 +154,15 @@ class StreamUpdateProcessor {
                 }
             });
 
-            builder.requestTransformer(input -> {
-                return input.newBuilder()
+            builder.requestTransformer(input ->
+                input.newBuilder()
                         .headers(
                                 input.headers().newBuilder().addAll(httpProperties.toHeadersBuilder().build()).build()
-                        ).build();
-            });
+                        ).build());
 
             if (useReport) {
                 builder.method(METHOD_REPORT);
-                builder.body(getRequestBody(contextDataManager.getCurrentContext()));
+                builder.body(getRequestBody(currentContext));
             }
 
             builder.maxReconnectTime(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
@@ -191,28 +200,39 @@ class StreamUpdateProcessor {
     }
 
     private void handle(final String name, final String eventData,
-                        @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
+                        @NonNull final Callback<Boolean> resultCallback) {
         switch (name.toLowerCase()) {
             case PUT:
-                contextDataManager.initDataFromJson(contextDataManager.getCurrentContext(),
-                        eventData, onCompleteListener);
+                EnvironmentData data;
+                try {
+                    data = EnvironmentData.fromJson(eventData);
+                } catch (Exception e) {
+                    logger.debug("Received invalid JSON flag data: {}", eventData);
+                    resultCallback.onError(new LDFailure("Invalid JSON received from flags endpoint",
+                            e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
+                    return;
+                }
+                dataSourceUpdateSink.init(data.getAll());
+                resultCallback.onSuccess(true);
                 break;
             case PATCH:
-                applyPatch(eventData, onCompleteListener);
+                applyPatch(eventData, resultCallback);
                 break;
             case DELETE:
-                applyDelete(eventData, onCompleteListener);
+                applyDelete(eventData, resultCallback);
                 break;
             case PING:
-                dataSourceActions.triggerPoll();
+                ConnectivityManager.fetchAndSetData(fetcher, currentContext, dataSourceUpdateSink,
+                        LDUtil.noOpCallback(), logger);
                 break;
             default:
                 logger.debug("Found an unknown stream protocol: {}", name);
-                onCompleteListener.onError(new LDFailure("Unknown Stream Element Type", null, LDFailure.FailureType.UNEXPECTED_STREAM_ELEMENT_TYPE));
+                resultCallback.onError(new LDFailure("Unknown Stream Element Type", null, LDFailure.FailureType.UNEXPECTED_STREAM_ELEMENT_TYPE));
         }
     }
 
-    void stop(final LDUtil.ResultCallback<Void> onCompleteListener) {
+    @Override
+    public void stop(final @NonNull Callback<Void> onCompleteListener) {
         logger.debug("Stopping.");
         // We do this in a separate thread because closing the stream involves a network
         // operation and we don't want to do a network operation on the main thread.
@@ -233,7 +253,7 @@ class StreamUpdateProcessor {
         logger.debug("Stopped.");
     }
 
-    private void applyPatch(String json, @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
+    private void applyPatch(String json, @NonNull final Callback<Boolean> onCompleteListener) {
         Flag flag;
         try {
             flag = Flag.fromJson(json);
@@ -246,11 +266,11 @@ class StreamUpdateProcessor {
         if (flag == null) {
             return;
         }
-        contextDataManager.upsert(flag);
+        dataSourceUpdateSink.upsert(flag.getKey(), flag.getVersion(), flag);
         onCompleteListener.onSuccess(null);
     }
 
-    private void applyDelete(String json, @NonNull final LDUtil.ResultCallback<Void> onCompleteListener) {
+    private void applyDelete(String json, @NonNull final Callback<Boolean> onCompleteListener) {
         DeleteMessage deleteMessage;
         try {
             deleteMessage = gsonInstance().fromJson(json, DeleteMessage.class);
@@ -263,7 +283,7 @@ class StreamUpdateProcessor {
         if (deleteMessage == null) {
             return;
         }
-        contextDataManager.upsert(Flag.deletedItemPlaceholder(deleteMessage.key, deleteMessage.version));
+        dataSourceUpdateSink.upsert(deleteMessage.key, deleteMessage.version, null);
         onCompleteListener.onSuccess(null);
     }
 

@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.launchdarkly.sdk.android.DataModel.Flag;
+
 import org.junit.Test;
 
 import java.util.concurrent.BlockingQueue;

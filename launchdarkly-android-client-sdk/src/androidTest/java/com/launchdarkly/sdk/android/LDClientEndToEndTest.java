@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.junit.After;
@@ -74,6 +75,7 @@ public class LDClientEndToEndTest {
                 .mobileKey(MOBILE_KEY)
                 .persistentDataStore(store)
                 .diagnosticOptOut(true)
+                .events(Components.noEvents())
                 .logAdapter(logging.logAdapter)
                 .loggerName(logging.loggerName)
                 .logLevel(LDLogLevel.DEBUG);

@@ -6,28 +6,22 @@ public interface ConnectionInformation {
      * Enumerated type defining the possible values of {@link ConnectionInformation#getConnectionMode()}.
      */
     enum ConnectionMode {
-        STREAMING(true, true),
-        POLLING(true, true),
-        BACKGROUND_POLLING(true, true),
-        BACKGROUND_DISABLED(true, true),
-        OFFLINE(true, false),
-        SET_OFFLINE(false, false),
-        SHUTDOWN(false, false);
+        STREAMING(true),
+        POLLING(true),
+        BACKGROUND_POLLING(true),
+        BACKGROUND_DISABLED(false),
+        OFFLINE(false),
+        SET_OFFLINE(false),
+        SHUTDOWN(false);
 
-        private boolean transitionOnNetwork;
-        private boolean transitionOnForeground;
+        private boolean connectionActive;
 
-        ConnectionMode(boolean transitionOnNetwork, boolean transitionOnForeground) {
-            this.transitionOnNetwork = transitionOnNetwork;
-            this.transitionOnForeground = transitionOnForeground;
+        ConnectionMode(boolean connectionActive) {
+            this.connectionActive = connectionActive;
         }
 
-        boolean isTransitionOnNetwork() {
-            return transitionOnNetwork;
-        }
-
-        boolean isTransitionOnForeground() {
-            return transitionOnForeground;
+        boolean isConnectionActive() {
+            return connectionActive;
         }
     }
 

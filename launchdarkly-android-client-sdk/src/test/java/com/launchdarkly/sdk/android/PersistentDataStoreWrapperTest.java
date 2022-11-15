@@ -5,6 +5,7 @@ import static com.launchdarkly.sdk.android.AssertHelpers.assertJsonEqual;
 
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.easymock.EasyMockRule;
@@ -32,7 +33,7 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     private static final String EXPECTED_INDEX_KEY = "index";
     private static final String EXPECTED_GENERATED_CONTEXT_KEY_PREFIX = "anonKey_";
     private static final Flag FLAG = new Flag("flagkey", LDValue.of(true), 1,
-            null, 0, null, null, null, null);
+            null, 0, false, false, null, null);
 
     private final PersistentDataStore mockPersistentStore;
     private final PersistentDataStoreWrapper wrapper;
