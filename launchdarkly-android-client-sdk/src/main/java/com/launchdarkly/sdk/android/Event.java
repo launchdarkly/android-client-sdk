@@ -117,11 +117,11 @@ class FeatureRequestEvent extends GenericEvent {
 }
 
 class SummaryEvent extends Event {
-    @Expose Long startDate;
-    @Expose Long endDate;
-    @Expose Map<String, SummaryEventStore.FlagCounters> features;
+    @Expose final long startDate;
+    @Expose final long endDate;
+    @Expose final Map<String, SummaryEventStore.FlagCounters> features;
 
-    SummaryEvent(Long startDate, Long endDate, Map<String, SummaryEventStore.FlagCounters> features) {
+    SummaryEvent(long startDate, long endDate, Map<String, SummaryEventStore.FlagCounters> features) {
         super("summary");
         this.startDate = startDate;
         this.endDate = endDate;
