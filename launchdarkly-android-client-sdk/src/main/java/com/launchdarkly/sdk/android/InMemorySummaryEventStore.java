@@ -82,6 +82,9 @@ final class InMemorySummaryEventStore implements SummaryEventStore {
 
     @Override
     public synchronized SummaryEvent getSummaryEvent() {
+        if (data.size() == 0) {
+            return null;
+        }
         Map<String, SummaryEventStore.FlagCounters> countersOut = new HashMap<>();
         for (Map.Entry<CounterKey, CounterValue> kv: data.entrySet()) {
             CounterKey counterKey = kv.getKey();
