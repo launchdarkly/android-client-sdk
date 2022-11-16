@@ -69,6 +69,10 @@ class ConnectivityManager {
     private final LDLogger logger;
     private volatile boolean initialized = false;
 
+    // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
+    // This has two purposes: 1. to decouple the data source implementation from the details of how
+    // data is stored; 2. to implement additional logic that does not depend on what kind of data
+    // source we're using, like "if there was an error, update the ConnectionInformation."
     private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink {
         private final AtomicReference<ConnectionMode> connectionMode = new AtomicReference<>(null);
         private final AtomicReference<LDFailure> lastFailure = new AtomicReference<>(null);
@@ -77,12 +81,13 @@ class ConnectivityManager {
         public void init(Map<String, DataModel.Flag> items) {
             contextDataManager.initData(contextDataManager.getCurrentContext(),
                     EnvironmentData.usingExistingFlagsMap(items));
+            // Currently, contextDataManager is responsible for firing any necessary flag change events.
         }
 
         @Override
-        public void upsert(String key, int version, DataModel.Flag item) {
-            contextDataManager.upsert(item == null ? DataModel.Flag.deletedItemPlaceholder(key, version) :
-                    item);
+        public void upsert(DataModel.Flag item) {
+            contextDataManager.upsert(item);
+            // Currently, contextDataManager is responsible for firing any necessary flag change events.
         }
 
         @Override
@@ -126,6 +131,8 @@ class ConnectivityManager {
 
         @Override
         public void shutDown() {
+            // The DataSource will call this method if it receives an error such as HTTP 401 that
+            // indicates the mobile key is invalid.
             ConnectivityManager.this.shutDown();
             setStatus(ConnectionMode.SHUTDOWN, null);
         }

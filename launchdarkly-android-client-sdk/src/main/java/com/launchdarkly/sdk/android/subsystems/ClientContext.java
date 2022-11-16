@@ -115,7 +115,6 @@ public class ClientContext {
     }
 
     /**
-<<<<<<< Updated upstream
      * Returns the HTTP configuration.
      * @return the HTTP configuration
      */

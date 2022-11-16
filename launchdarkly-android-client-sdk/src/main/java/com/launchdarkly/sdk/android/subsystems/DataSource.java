@@ -14,9 +14,9 @@ import java.util.concurrent.Future;
  * Interface for an object that receives updates to feature flags from LaunchDarkly.
  * <p>
  * This component uses a push model. When it is created, the SDK will provide a reference to a
- * {@link DataSourceUpdateSink} component, which is a write-only abstraction of the SDK state.
- * The SDK never requests feature flag data from the {@link DataSource}, it only looks at the last
- * known data that was pushed into the state.
+ * {@link DataSourceUpdateSink} component (as part of {@link ClientContext}, which is a write-only
+ * abstraction of the SDK state. The SDK never requests feature flag data from the
+ * {@link DataSource}-- it only looks at the last known data that was pushed into the state.
  * <p>
  * Each {@code LDClient} instance maintains exactly one active data source instance. It stops and
  * discards the active data source whenever it needs to create a new one due to a significant state
@@ -31,9 +31,16 @@ import java.util.concurrent.Future;
 public interface DataSource {
     /**
      * Initializes the data source. This is called only once per instance.
-     * @param resultCallback
+     * @param resultCallback called when the data source has successfully acquired the initial data,
+     *                       or if an error has occurred
      */
     void start(@NonNull Callback<Boolean> resultCallback);
 
+    /**
+     * Tells the data source to stop.
+     * @param completionCallback called once it has completely stopped (this is allowed to be
+     *                           asynchronous because it might involve network operations that can't
+     *                           be done on the main thread)
+     */
     void stop(@NonNull Callback<Void> completionCallback);
 }

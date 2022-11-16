@@ -24,12 +24,13 @@ public interface DataSourceUpdateSink {
     /**
      * Updates or inserts an item. If an item already exists with the same key, the operation will
      * only succeed if the existing version is less than the new version.
+     * <p>
+     * If a flag has been deleted, the data source should pass a versioned placeholder created with
+     * {@link DataModel.Flag#deletedItemPlaceholder(String, int)}.
      *
-     * @param key the feature flag key
-     * @param version the new version number
      * @param item the new evaluation result data (or a deleted item placeholder)
      */
-    void upsert(@NonNull String key, int version, @NonNull DataModel.Flag item);
+    void upsert(@NonNull DataModel.Flag item);
 
     /**
      * Informs the SDK of a change in the data source's status or the connection mode.

@@ -266,7 +266,7 @@ final class StreamUpdateProcessor implements DataSource {
         if (flag == null) {
             return;
         }
-        dataSourceUpdateSink.upsert(flag.getKey(), flag.getVersion(), flag);
+        dataSourceUpdateSink.upsert(flag);
         onCompleteListener.onSuccess(null);
     }
 
@@ -283,7 +283,7 @@ final class StreamUpdateProcessor implements DataSource {
         if (deleteMessage == null) {
             return;
         }
-        dataSourceUpdateSink.upsert(deleteMessage.key, deleteMessage.version, null);
+        dataSourceUpdateSink.upsert(Flag.deletedItemPlaceholder(deleteMessage.key, deleteMessage.version));
         onCompleteListener.onSuccess(null);
     }
 
