@@ -7,6 +7,7 @@ import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.LDValueType;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -21,9 +22,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-
 @RunWith(AndroidJUnit4.class)
-public class SharedPrefsSummaryEventStoreTest {
+public class InMemorySummaryEventStoreTest {
     @Rule
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
@@ -42,6 +42,11 @@ public class SharedPrefsSummaryEventStoreTest {
 
         ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldUser, 1);
         summaryEventStore = ldClient.getSummaryEventStore();
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        ldClient.close();
     }
 
     @Test
@@ -102,7 +107,7 @@ public class SharedPrefsSummaryEventStoreTest {
         assertEquals(LDValueType.STRING, features.get("stringFlag").defaultValue.getType());
         assertEquals("string", features.get("stringFlag").defaultValue.stringValue());
 
-        assertNull(features.get("jsonFlag").defaultValue);
+        assertEquals(LDValue.ofNull(), features.get("jsonFlag").defaultValue);
     }
 
     @Test
