@@ -12,13 +12,14 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -63,6 +64,7 @@ public class LDConfig {
     private final Uri eventsUri;
     private final Uri streamUri;
 
+    final ComponentConfigurer<EventProcessor> events;
     private final int eventsCapacity;
     private final int eventsFlushIntervalMillis;
     private final int connectionTimeoutMillis;
@@ -80,7 +82,7 @@ public class LDConfig {
     private final boolean allAttributesPrivate;
     private final Set<UserAttribute> privateAttributes;
 
-    private final Gson filteredEventGson;
+    final Gson filteredEventGson;
 
     private final boolean inlineUsersInEvents;
 
@@ -100,6 +102,7 @@ public class LDConfig {
              Uri pollUri,
              Uri eventsUri,
              Uri streamUri,
+             ComponentConfigurer<EventProcessor> events,
              int eventsCapacity,
              int eventsFlushIntervalMillis,
              int connectionTimeoutMillis,
@@ -127,6 +130,7 @@ public class LDConfig {
         this.pollUri = pollUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
+        this.events = events;
         this.eventsCapacity = eventsCapacity;
         this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
         this.connectionTimeoutMillis = connectionTimeoutMillis;
@@ -141,7 +145,6 @@ public class LDConfig {
         this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
-        this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
         this.maxCachedUsers = maxCachedUsers;
@@ -150,8 +153,34 @@ public class LDConfig {
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
 
+        // The following temporary hack is for overriding several deprecated event-related setters
+        // with the corresponding EventProcessorBuilder setters, if those were used. The problem is
+        // that in the current SDK implementation, EventProcessor does not actually own the behavior
+        // that those options are configuring (private attributes, and the diagnostic recording
+        // interval), so we have to extract those values separately out of the config builder.
+        boolean actualAllAttributesPrivate = allAttributesPrivate;
+        Set<UserAttribute> actualPrivateAttributes = privateAttributes;
+        int actualDiagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
+        if (events instanceof ComponentsImpl.EventProcessorBuilderImpl) {
+            ComponentsImpl.EventProcessorBuilderImpl eventsBuilder =
+                    (ComponentsImpl.EventProcessorBuilderImpl)events;
+            actualAllAttributesPrivate = eventsBuilder.isAllAttributesPrivate();
+            actualDiagnosticRecordingIntervalMillis = eventsBuilder.getDiagnosticRecordingIntervalMillis();
+            actualPrivateAttributes = new HashSet<>();
+            if (eventsBuilder.getPrivateAttributes() != null) {
+                for (String a: eventsBuilder.getPrivateAttributes()) {
+                    actualPrivateAttributes.add(UserAttribute.forName(a));
+                }
+            }
+        }
+        this.diagnosticRecordingIntervalMillis = actualDiagnosticRecordingIntervalMillis;
+
         this.filteredEventGson = new GsonBuilder()
-                .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
+                .registerTypeAdapter(LDUser.class,
+                        new LDUtil.LDUserPrivateAttributesTypeAdapter(
+                                actualAllAttributesPrivate,
+                                actualPrivateAttributes
+                        ))
                 .create();
     }
 
@@ -205,10 +234,30 @@ public class LDConfig {
         return eventsUri;
     }
 
+    /**
+     * Returns the setting of {@link Builder#eventsCapacity(int)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getEventsCapacity() {
         return eventsCapacity;
     }
 
+    /**
+     * Returns the setting of {@link Builder#eventsFlushIntervalMillis(int)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getEventsFlushIntervalMillis() {
         return eventsFlushIntervalMillis;
     }
@@ -245,18 +294,55 @@ public class LDConfig {
         return disableBackgroundUpdating;
     }
 
+    /**
+     * Returns the setting of {@link Builder#allAttributesPrivate()}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean allAttributesPrivate() {
         return allAttributesPrivate;
     }
 
+    /**
+     * Returns the setting of {@link Builder#privateAttributes(UserAttribute...)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
     public Set<UserAttribute> getPrivateAttributes() {
         return Collections.unmodifiableSet(privateAttributes);
     }
 
+    /**
+     * Returns a Gson instance that is configured to serialize event data. This is used internally
+     * by the SDK; applications should not need to reference it.
+     *
+     * @return the Gson instance
+     * @deprecated Direct access to this object is deprecated and will be removed in the future.
+     */
+    @Deprecated
     public Gson getFilteredEventGson() {
         return filteredEventGson;
     }
 
+    /**
+     * Returns the setting of {@link Builder#inlineUsersInEvents(boolean)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean inlineUsersInEvents() {
         return inlineUsersInEvents;
     }
@@ -315,6 +401,7 @@ public class LDConfig {
         private Uri eventsUri = DEFAULT_EVENTS_URI;
         private Uri streamUri = DEFAULT_STREAM_URI;
 
+        private ComponentConfigurer<EventProcessor> events = null;
         private int eventsCapacity = DEFAULT_EVENTS_CAPACITY;
         private int eventsFlushIntervalMillis = 0;
         private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
@@ -345,27 +432,37 @@ public class LDConfig {
         private LDLogLevel logLevel = null;
 
         /**
-         * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
-         * If this is set, all user attribute values will be private, not just the attributes
-         * specified in {@link #privateAttributes(UserAttribute...)}.
-         *
+         * Deprecated method for specifying that all user attributes other than the key should be
+         * hidden from LaunchDarkly.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
          * @return the builder
+         * @deprecated Use {@link #events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#allAttributesPrivate(boolean)} instead.
          */
+        @Deprecated
         public Builder allAttributesPrivate() {
             this.allAttributesPrivate = true;
             return this;
         }
 
         /**
-         * Marks a set of attributes private. Any users sent to LaunchDarkly with this configuration
-         * active will have attributes with these names removed.
-         *
+         * Deprecated method for marking a set of attributes as private.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
          * This can also be specified on a per-user basis with {@link LDUser.Builder} methods like
          * {@link LDUser.Builder#privateName(String)}.
          *
          * @param privateAttributes a set of names that will be removed from user data sent to LaunchDarkly
          * @return the builder
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#privateAttributes(String...)} instead.
          */
+        @Deprecated
         public Builder privateAttributes(UserAttribute... privateAttributes) {
             this.privateAttributes = new HashSet<>(Arrays.asList(privateAttributes));
             return this;
@@ -460,35 +557,75 @@ public class LDConfig {
         }
 
         /**
-         * Set the capacity of the event buffer. The client buffers up to this many events in memory before flushing.
-         * If the capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
-         * means that events are less likely to be discarded, at the cost of consuming more memory.
+         * Sets the implementation of {@link EventProcessor} to be used for processing analytics events.
+         * <p>
+         * The default is {@link Components#sendEvents()} with no custom options. You may instead call
+         * {@link Components#sendEvents()} and then set custom options for event processing; or, disable
+         * events with {@link Components#noEvents()}; or, choose to use a custom implementation (for
+         * instance, a test fixture).
+         * <pre><code>
+         *     // Setting custom event processing options
+         *     LDConfig config = new LDConfig.Builder()
+         *         .events(Components.sendEvents().capacity(100))
+         *         .build();
+         *
+         *     // Disabling events
+         *     LDConfig config = new LDConfig.Builder()
+         *         .events(Components.noEvents())
+         *         .build();
+         * </code></pre>
+         *
+         * @param eventsConfigurer the events configuration builder
+         * @return the main configuration builder
+         * @since 3.3.0
+         * @see Components#sendEvents()
+         * @see Components#noEvents()
+         */
+        public LDConfig.Builder events(ComponentConfigurer<EventProcessor> eventsConfigurer) {
+            this.events = eventsConfigurer;
+            return this;
+        }
+
+        /**
+         * Deprecated method for setting the capacity of the event buffer.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
          * <p>
          * The default value is {@link #DEFAULT_EVENTS_CAPACITY}.
          *
          * @param eventsCapacity the capacity of the event buffer
          * @return the builder
          * @see #eventsFlushIntervalMillis(int)
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#capacity(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder eventsCapacity(int eventsCapacity) {
             this.eventsCapacity = eventsCapacity;
             return this;
         }
 
         /**
-         * Sets the maximum amount of time to wait in between sending analytics events to LaunchDarkly.
+         * Deprecated method for setting the maximum amount of time to wait in between sending
+         * analytics events to LaunchDarkly.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
          * <p>
          * The default value is {@link #DEFAULT_FLUSH_INTERVAL_MILLIS}.
          *
          * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
          * @return the builder
          * @see #eventsCapacity(int)
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#flushIntervalMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder eventsFlushIntervalMillis(int eventsFlushIntervalMillis) {
             this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
             return this;
         }
-
 
         /**
          * Sets the timeout when connecting to LaunchDarkly.
@@ -502,7 +639,6 @@ public class LDConfig {
             this.connectionTimeoutMillis = connectionTimeoutMillis;
             return this;
         }
-
 
         /**
          * Enables or disables real-time streaming flag updates.  By default, streaming is enabled.
@@ -576,15 +712,20 @@ public class LDConfig {
         }
 
         /**
-         * If enabled, events to the server will be created containing the entire User object.
-         * If disabled, events to the server will be created without the entire User object, including only the user key instead;
-         * the rest of the user properties will still be included in Identify events.
+         * Deprecated method for specifying whether events sent to the server will always include
+         * the full user object.
          * <p>
-         * Defaults to false in order to reduce network bandwidth.
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
+         * This defaults to false in order to reduce network bandwidth.
          *
          * @param inlineUsersInEvents true if all user properties should be included in events
          * @return the builder
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#inlineUsers(boolean)} instead.
          */
+        @Deprecated
         public LDConfig.Builder inlineUsersInEvents(boolean inlineUsersInEvents) {
             this.inlineUsersInEvents = inlineUsersInEvents;
             return this;
@@ -624,14 +765,18 @@ public class LDConfig {
         }
 
         /**
-         * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
-         * milliseconds) and the minimum value is 300,000 (5 minutes).
-         *
-         * @see #diagnosticOptOut(boolean) for more information on the diagnostics data being sent.
+         * Deprecatd method for setting the interval at which periodic diagnostic data is sent.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#diagnosticRecordingIntervalMillis(int)} instead.
+         * @see #diagnosticOptOut(boolean)
          */
+        @Deprecated
         public LDConfig.Builder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
             this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
             return this;
@@ -862,11 +1007,25 @@ public class LDConfig {
             }
             mobileKeys.put(primaryEnvironmentName, mobileKey);
 
+            ComponentConfigurer<EventProcessor> eventsConfig = this.events;
+            if (eventsConfig == null) {
+                EventProcessorBuilder eventsBuilder = Components.sendEvents()
+                        .allAttributesPrivate(allAttributesPrivate)
+                        .capacity(eventsCapacity)
+                        .diagnosticRecordingIntervalMillis(diagnosticRecordingIntervalMillis)
+                        .flushIntervalMillis(eventsFlushIntervalMillis)
+                        .inlineUsers(inlineUsersInEvents);
+                if (privateAttributes != null) {
+                    eventsBuilder.privateAttributes(privateAttributes.toArray(new UserAttribute[privateAttributes.size()]));
+                }
+                eventsConfig = eventsBuilder;
+            }
             return new LDConfig(
                     mobileKeys,
                     pollUri,
                     eventsUri,
                     streamUri,
+                    eventsConfig,
                     eventsCapacity,
                     eventsFlushIntervalMillis,
                     connectionTimeoutMillis,

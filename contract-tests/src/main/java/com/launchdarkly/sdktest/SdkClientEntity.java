@@ -4,11 +4,12 @@ import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdktest.Representations.AliasEventParams;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
@@ -26,8 +27,6 @@ import android.net.Uri;
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -219,35 +218,28 @@ public class SdkClientEntity {
       }
     }
 
-    if (params.events != null) {
+    if (params.events == null) {
+      builder.events(Components.noEvents());
+    } else {
       builder.diagnosticOptOut(!params.events.enableDiagnostics);
-      builder.inlineUsersInEvents(params.events.inlineUsers);
-
       if (params.events.baseUri != null) {
         builder.eventsUri(Uri.parse(params.events.baseUri));
       }
+      EventProcessorBuilder eventsBuilder = Components.sendEvents()
+              .allAttributesPrivate(params.events.allAttributesPrivate)
+              .inlineUsers(params.events.inlineUsers);
       if (params.events.capacity > 0) {
-        builder.eventsCapacity(params.events.capacity);
+        eventsBuilder.capacity(params.events.capacity);
       }
       if (params.events.flushIntervalMs != null) {
-        builder.eventsFlushIntervalMillis(params.events.flushIntervalMs.intValue());
-      }
-      if (params.events.allAttributesPrivate) {
-        builder.allAttributesPrivate();
-      }
-      if (params.events.flushIntervalMs != null) {
-        builder.eventsFlushIntervalMillis(params.events.flushIntervalMs.intValue());
+        eventsBuilder.flushIntervalMillis(params.events.flushIntervalMs.intValue());
       }
       if (params.events.globalPrivateAttributes != null) {
-        String[] attrNames = params.events.globalPrivateAttributes;
-        List<UserAttribute> privateAttributes = new ArrayList<>();
-        for (String a : attrNames) {
-          privateAttributes.add(UserAttribute.forName(a));
-        }
-        builder.privateAttributes((UserAttribute[]) privateAttributes.toArray(new UserAttribute[]{}));
+        eventsBuilder.privateAttributes(params.events.globalPrivateAttributes);
       }
+      builder.events(eventsBuilder);
     }
-    // TODO: disable events if no params.events
+
     builder.autoAliasingOptOut(params.clientSide.autoAliasingOptOut);
     builder.evaluationReasons(params.clientSide.evaluationReasons);
     builder.useReport(params.clientSide.useReport);

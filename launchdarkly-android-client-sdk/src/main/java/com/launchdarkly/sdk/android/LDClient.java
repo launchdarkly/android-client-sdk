@@ -16,6 +16,8 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -59,7 +61,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final Application application;
     private final LDConfig config;
     private final DefaultUserManager userManager;
-    private final DefaultEventProcessor eventProcessor;
+    private final EventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final DiagnosticEventProcessor diagnosticEventProcessor;
     private final DiagnosticStore diagnosticStore;
@@ -169,7 +171,7 @@ public class LDClient implements LDClientInterface, Closeable {
             // Start up all instances
             for (final LDClient instance : instances.values()) {
                 if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                    instance.sendEvent(new IdentifyEvent(user));
+                    instance.eventProcessor.recordIdentifyEvent(user);
                 }
             }
 
@@ -269,7 +271,7 @@ public class LDClient implements LDClientInterface, Closeable {
         String sdkKey = config.getMobileKeys().get(environmentName);
         FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, environmentName, logger);
         OkHttpClient sharedEventClient = makeSharedEventClient();
-        if (config.getDiagnosticOptOut()) {
+        if (config.getDiagnosticOptOut() || (config.events == ComponentsImpl.NULL_EVENT_PROCESSOR_FACTORY)) {
             this.diagnosticStore = null;
             this.diagnosticEventProcessor = null;
         } else {
@@ -280,8 +282,17 @@ public class LDClient implements LDClientInterface, Closeable {
         this.userManager = DefaultUserManager.newInstance(application, fetcher, environmentName, sdkKey, config.getMaxCachedUsers(),
                 logger);
 
-        eventProcessor = new DefaultEventProcessor(application, config, userManager.getSummaryEventStore(), environmentName,
-                diagnosticStore, sharedEventClient, logger);
+        ClientContext clientContext = ClientContextImpl.fromConfig(
+                application,
+                config,
+                sdkKey,
+                environmentName,
+                diagnosticStore,
+                sharedEventClient,
+                userManager.getSummaryEventStore(),
+                logger
+        );
+        eventProcessor = config.events.build(clientContext);
         connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName,
                 diagnosticEventProcessor, diagnosticStore, logger);
 
@@ -316,7 +327,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
-        sendEvent(new CustomEvent(eventName, userManager.getCurrentUser(), data, metricValue, config.inlineUsersInEvents()));
+        eventProcessor.recordCustomEvent(userManager.getCurrentUser(), eventName, data, metricValue);
     }
 
     @Override
@@ -351,12 +362,12 @@ public class LDClient implements LDClientInterface, Closeable {
         if (!config.isAutoAliasingOptOut()) {
             LDUser previousUser = userManager.getCurrentUser();
             if (Event.userContextKind(previousUser).equals("anonymousUser") && Event.userContextKind(user).equals("user")) {
-                sendEvent(new AliasEvent(user, previousUser));
+                eventProcessor.recordAliasEvent(user, previousUser);
             }
         }
         userManager.setCurrentUser(user);
         connectivityManager.reloadUser(onCompleteListener);
-        sendEvent(new IdentifyEvent(user));
+        eventProcessor.recordIdentifyEvent(user);
     }
 
     private Future<Void> identifyInstances(@NonNull LDUser user) {
@@ -472,7 +483,17 @@ public class LDClient implements LDClientInterface, Closeable {
             } else {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
-            sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
+            eventProcessor.recordEvaluationEvent(
+                    userManager.getCurrentUser(),
+                    key,
+                    flag.getVersionForEvents(),
+                    flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
+                    value,
+                    flag.isTrackReason() | needsReason ? result.getReason() : null,
+                    defaultValue,
+                    flag.isTrackEvents(),
+                    flag.getDebugEventsUntilDate()
+            );
         }
 
         logger.debug("returning variation: {} flagKey: {} user key: {}", result, key, userManager.getCurrentUser().getKey());
@@ -492,7 +513,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void closeInternal() {
         connectivityManager.shutdown();
-        eventProcessor.close();
+        try {
+            eventProcessor.close();
+        } catch (IOException e) {
+            LDUtil.logExceptionAtWarnLevel(logger, e, "Unexpected exception from closing event processor");
+        }
         
         if (connectivityReceiver != null) {
             application.unregisterReceiver(connectivityReceiver);
@@ -618,7 +643,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param previousUser The second user
      */
     public void alias(LDUser user, LDUser previousUser) {
-        sendEvent(new AliasEvent(customizeUser(user), customizeUser(previousUser)));
+        eventProcessor.recordAliasEvent(customizeUser(user), customizeUser(previousUser));
     }
 
     private void triggerPoll() {
@@ -664,36 +689,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void onNetworkConnectivityChange(boolean connectedToInternet) {
         connectivityManager.onNetworkConnectivityChange(connectedToInternet);
-    }
-
-    private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue defaultValue, EvaluationReason reason) {
-        int version = flag.getVersionForEvents();
-        Integer variation = flag.getVariation();
-        if (flag.isTrackEvents()) {
-            sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
-                    variation, reason, config.inlineUsersInEvents(), false));
-        } else {
-            Long debugEventsUntilDate = flag.getDebugEventsUntilDate();
-            if (debugEventsUntilDate != null) {
-                long serverTimeMs = eventProcessor.getCurrentTimeMs();
-                if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
-                    sendEvent(new FeatureRequestEvent(flagKey, userManager.getCurrentUser(), value, defaultValue, version,
-                            variation, reason, false, true));
-                }
-            }
-        }
-    }
-
-    private void sendEvent(Event event) {
-        if (!connectivityManager.isOffline()) {
-            boolean processed = eventProcessor.sendEvent(event);
-            if (!processed) {
-                logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
-                if (diagnosticStore != null) {
-                    diagnosticStore.incrementDroppedEventCount();
-                }
-            }
-        }
     }
 
     /**

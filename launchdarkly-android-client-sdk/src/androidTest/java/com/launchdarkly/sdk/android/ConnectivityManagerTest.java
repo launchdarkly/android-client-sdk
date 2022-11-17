@@ -17,6 +17,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.LDUser;
 
 import org.easymock.Capture;

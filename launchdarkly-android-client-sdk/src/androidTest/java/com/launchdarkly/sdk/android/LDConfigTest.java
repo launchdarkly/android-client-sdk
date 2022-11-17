@@ -23,6 +23,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+@SuppressWarnings("deprecation")
 @RunWith(AndroidJUnit4.class)
 public class LDConfigTest {
 
@@ -324,7 +325,7 @@ public class LDConfigTest {
 
         LDUser user = new LDUser.Builder("myUserKey").email("weShouldNotFindThis@test.com").build();
 
-        JsonElement elem = config.getFilteredEventGson().toJsonTree(user).getAsJsonObject();
+        JsonElement elem = config.filteredEventGson.toJsonTree(user).getAsJsonObject();
 
         assertNotNull(elem);
 

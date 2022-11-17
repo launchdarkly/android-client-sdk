@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import okhttp3.OkHttpClient;
@@ -33,7 +34,10 @@ import static com.launchdarkly.sdk.android.LDUtil.isClientConnected;
 import static com.launchdarkly.sdk.android.LDUtil.isHttpErrorRecoverable;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 class DefaultEventProcessor implements EventProcessor, Closeable {
     private static final HashMap<String, String> baseEventHeaders = new HashMap<String, String>() {{
@@ -47,18 +51,35 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     private final Context context;
     private final LDConfig config;
     private final String environmentName;
+    private final int flushIntervalMillis;
+    private final boolean inlineUsers;
     private ScheduledExecutorService scheduler;
     private final SummaryEventStore summaryEventStore;
+    private final AtomicBoolean offline = new AtomicBoolean();
     private long currentTimeMs = System.currentTimeMillis();
     private DiagnosticStore diagnosticStore;
     private final LDLogger logger;
 
-    DefaultEventProcessor(Context context, LDConfig config, SummaryEventStore summaryEventStore, String environmentName,
-                          final DiagnosticStore diagnosticStore, final OkHttpClient sharedClient, LDLogger logger) {
+    DefaultEventProcessor(
+            Context context,
+            LDConfig config,
+            SummaryEventStore summaryEventStore,
+            String environmentName,
+            boolean initiallyOffline,
+            int capacity,
+            int flushIntervalMillis,
+            boolean inlineUsers,
+            final DiagnosticStore diagnosticStore,
+            final OkHttpClient sharedClient,
+            LDLogger logger
+    ) {
         this.context = context;
         this.config = config;
+        this.offline.set(initiallyOffline);
         this.environmentName = environmentName;
-        this.queue = new ArrayBlockingQueue<>(config.getEventsCapacity());
+        this.flushIntervalMillis = flushIntervalMillis;
+        this.inlineUsers = inlineUsers;
+        this.queue = new ArrayBlockingQueue<>(capacity);
         this.consumer = new Consumer(config);
         this.summaryEventStore = summaryEventStore;
         this.client = sharedClient;
@@ -81,7 +102,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                 }
             });
 
-            scheduler.scheduleAtFixedRate(consumer, config.getEventsFlushIntervalMillis(), config.getEventsFlushIntervalMillis(), TimeUnit.MILLISECONDS);
+            scheduler.scheduleAtFixedRate(consumer, flushIntervalMillis, flushIntervalMillis, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -92,8 +113,71 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         }
     }
 
-    public boolean sendEvent(Event e) {
-        return queue.offer(e);
+    public void recordEvaluationEvent(
+            LDUser user,
+            String flagKey,
+            int flagVersion,
+            int variation,
+            LDValue value,
+            EvaluationReason reason,
+            LDValue defaultValue,
+            boolean requireFullEvent,
+            Long debugEventsUntilDate
+    ) {
+        boolean needEvent = false, isDebug = false;
+        if (requireFullEvent) {
+            needEvent = true;
+        } else if (debugEventsUntilDate != null) {
+            long serverTimeMs = getCurrentTimeMs();
+            if (debugEventsUntilDate > System.currentTimeMillis() && debugEventsUntilDate > serverTimeMs) {
+                needEvent = isDebug = true;
+            }
+        }
+        if (needEvent) {
+            sendEvent(new FeatureRequestEvent(flagKey, user, value, defaultValue,
+                    flagVersion < 0 ? null : Integer.valueOf(flagVersion),
+                    variation < 0 ? null : Integer.valueOf(variation),
+                    reason, isDebug || inlineUsers, isDebug));
+        }
+    }
+
+    public void recordIdentifyEvent(
+            LDUser user
+    ) {
+        sendEvent(new IdentifyEvent(user));
+    }
+
+    public void recordCustomEvent(
+            LDUser user,
+            String eventKey,
+            LDValue data,
+            Double metricValue
+    ) {
+        sendEvent(new CustomEvent(eventKey, user, data, metricValue, inlineUsers));
+    }
+
+    public void recordAliasEvent(
+            LDUser user,
+            LDUser previousUser
+    ) {
+        sendEvent(new AliasEvent(user, previousUser));
+    }
+
+    public void setOffline(boolean offline) {
+        this.offline.set(offline);
+    }
+
+    private void sendEvent(Event e) {
+        if (offline.get()) {
+            return;
+        }
+        boolean processed = queue.offer(e);
+        if (!processed) {
+            logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+            if (diagnosticStore != null) {
+                diagnosticStore.incrementDroppedEventCount();
+            }
+        }
     }
 
     @Override
@@ -108,8 +192,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         }
     }
 
-    @VisibleForTesting
-    void blockingFlush() {
+    public void blockingFlush() {
         consumer.run();
     }
 
@@ -149,7 +232,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         }
 
         private void postEvents(List<Event> events) {
-            String content = config.getFilteredEventGson().toJson(events);
+            String content = config.filteredEventGson.toJson(events);
             String eventPayloadId = UUID.randomUUID().toString();
             String url = config.getEventsUri().buildUpon().appendPath("mobile").build().toString();
             HashMap<String, String> baseHeadersForRequest = new HashMap<>();
