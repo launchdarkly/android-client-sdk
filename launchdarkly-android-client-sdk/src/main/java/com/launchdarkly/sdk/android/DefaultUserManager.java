@@ -46,8 +46,7 @@ class DefaultUserManager implements UserManager {
         this.fetcher = fetcher;
         this.flagStoreManager = new SharedPrefsFlagStoreManager(application, mobileKey,
                 new SharedPrefsFlagStoreFactory(application, logger), maxCachedUsers, logger);
-        this.summaryEventStore = new SharedPrefsSummaryEventStore(application,
-                LDConfig.SHARED_PREFS_BASE_KEY + mobileKey + "-summaryevents", logger);
+        this.summaryEventStore = new InMemorySummaryEventStore();
         this.environmentName = environmentName;
         this.logger = logger;
 

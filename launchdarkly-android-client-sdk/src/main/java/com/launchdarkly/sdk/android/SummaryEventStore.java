@@ -17,33 +17,18 @@ interface SummaryEventStore {
     SummaryEvent getSummaryEventAndClear();
 
     class FlagCounter {
-        @Expose Integer version;
-        @Expose Integer variation;
-        @Expose Boolean unknown;
-        @Expose LDValue value;
-        @Expose int count;
+        @Expose final Integer version;
+        @Expose final Integer variation;
+        @Expose final Boolean unknown;
+        @Expose final LDValue value;
+        @Expose final int count;
 
-        FlagCounter(LDValue value, Integer version, Integer variation) {
+        FlagCounter(LDValue value, Integer version, Integer variation, int count) {
             this.version = version;
             this.variation = variation;
-            if (version == null) {
-                unknown = true;
-            }
+            unknown = version == null ? Boolean.TRUE : null;
             this.value = value;
-            this.count = 1;
-        }
-
-        boolean isUnknown() {
-            return unknown != null && unknown;
-        }
-
-        boolean matches(Integer version, Integer variation) {
-            if (isUnknown()) {
-                return version == null;
-            }
-
-            return Objects.equals(this.version, version) &&
-                    Objects.equals(this.variation, variation);
+            this.count = count;
         }
     }
 
