@@ -234,9 +234,6 @@ public class SdkClientEntity {
       if (params.events.flushIntervalMs != null) {
         eventsBuilder.flushIntervalMillis(params.events.flushIntervalMs.intValue());
       }
-      if (params.events.flushIntervalMs != null) {
-        eventsBuilder.flushIntervalMillis(params.events.flushIntervalMs.intValue());
-      }
       if (params.events.globalPrivateAttributes != null) {
         eventsBuilder.privateAttributes(params.events.globalPrivateAttributes);
       }
