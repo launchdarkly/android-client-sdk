@@ -8,6 +8,7 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.util.Calendar;
@@ -29,6 +30,7 @@ class ConnectivityManager {
     private final SharedPreferences stateStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
     private final UserManager userManager;
+    private final DataSource dataSourceConfig;
     private final EventProcessor eventProcessor;
     private final DiagnosticEventProcessor diagnosticEventProcessor;
     private final Throttler throttler;
@@ -43,6 +45,7 @@ class ConnectivityManager {
 
     ConnectivityManager(@NonNull final Application application,
                         @NonNull final LDConfig ldConfig,
+                        @NonNull final DataSource dataSourceConfig,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final UserManager userManager,
                         @NonNull final String environmentName,
@@ -50,12 +53,13 @@ class ConnectivityManager {
                         final DiagnosticStore diagnosticStore,
                         final LDLogger logger) {
         this.application = application;
+        this.dataSourceConfig = dataSourceConfig;
         this.eventProcessor = eventProcessor;
         this.diagnosticEventProcessor = diagnosticEventProcessor;
         this.userManager = userManager;
         this.environmentName = environmentName;
         this.logger = logger;
-        pollingInterval = ldConfig.getPollingIntervalMillis();
+        pollingInterval = dataSourceConfig.getPollIntervalMillis();
         String prefsKey = LDConfig.SHARED_PREFS_BASE_KEY + ldConfig.getMobileKeys().get(environmentName) + "-connectionstatus";
         stateStore = application.getSharedPreferences(prefsKey, Context.MODE_PRIVATE);
         connectionInformation = new ConnectionInformationState();
@@ -63,7 +67,11 @@ class ConnectivityManager {
         setOffline = ldConfig.isOffline();
 
         backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
-        foregroundMode = ldConfig.isStream() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
+        foregroundMode = dataSourceConfig.isStreamingDisabled() ? ConnectionMode.POLLING : ConnectionMode.STREAMING;
+
+        // Currently the background polling interval is owned statically by PollingUpdater, even
+        // though it is configured in our per-instance DataSource.
+        PollingUpdater.setBackgroundPollingIntervalMillis(dataSourceConfig.getBackgroundPollIntervalMillis());
 
         throttler = new Throttler(() -> {
             synchronized (ConnectivityManager.this) {
@@ -126,8 +134,9 @@ class ConnectivityManager {
             }
         };
 
-        streamUpdateProcessor = ldConfig.isStream() ? new StreamUpdateProcessor(ldConfig, userManager, environmentName,
-                diagnosticStore, monitor, logger) : null;
+        streamUpdateProcessor = dataSourceConfig.isStreamingDisabled() ? null :
+                new StreamUpdateProcessor(ldConfig, dataSourceConfig, userManager, environmentName,
+                    diagnosticStore, monitor, logger);
     }
 
     boolean isInitialized() {

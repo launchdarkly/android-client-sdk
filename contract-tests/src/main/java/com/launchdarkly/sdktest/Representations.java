@@ -35,7 +35,7 @@ public abstract class Representations {
 
     public static class SdkConfigStreamParams {
         String baseUri;
-        long initialRetryDelayMs;
+        Long initialRetryDelayMs;
     }
 
     public static class SdkConfigPollParams {

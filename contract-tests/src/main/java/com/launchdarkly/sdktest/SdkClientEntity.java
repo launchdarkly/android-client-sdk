@@ -10,6 +10,8 @@ import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdktest.Representations.AliasEventParams;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
@@ -196,26 +198,26 @@ public class SdkClientEntity {
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
 
-    if (params.streaming != null) {
-      builder.stream(true);
+    if (params.polling != null && params.polling.baseUri != null) {
+      // Note that this property can be set even if streaming is enabled
+      builder.pollUri(Uri.parse(params.polling.baseUri));
+    }
+
+    if (params.polling != null && params.streaming == null) {
+      PollingDataSourceBuilder pollingBuilder = Components.pollingDataSource();
+      if (params.polling.pollIntervalMs != null) {
+        pollingBuilder.pollIntervalMillis(params.polling.pollIntervalMs.intValue());
+      }
+      builder.dataSource(pollingBuilder);
+    } else if (params.streaming != null) {
       if (params.streaming.baseUri != null) {
         builder.streamUri(Uri.parse(params.streaming.baseUri));
       }
-      // TODO: initialRetryDelayMs?
-    }
-
-    // The only time we should turn _off_ streaming is if polling is configured but NOT streaming
-    if (params.streaming == null && params.polling != null) {
-      builder.stream(false);
-    }
-
-    if (params.polling != null) {
-      if (params.polling.baseUri != null) {
-        builder.pollUri(Uri.parse(params.polling.baseUri));
+      StreamingDataSourceBuilder streamingBuilder = Components.streamingDataSource();
+      if (params.streaming.initialRetryDelayMs != null) {
+        streamingBuilder.initialReconnectDelayMillis(params.streaming.initialRetryDelayMs.intValue());
       }
-      if (params.polling.pollIntervalMs != null) {
-        builder.backgroundPollingIntervalMillis(params.polling.pollIntervalMs.intValue());
-      }
+      builder.dataSource(streamingBuilder);
     }
 
     if (params.events == null) {

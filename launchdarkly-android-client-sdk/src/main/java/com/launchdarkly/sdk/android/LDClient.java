@@ -17,6 +17,7 @@ import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.io.Closeable;
@@ -164,8 +165,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 }
             };
 
-            PollingUpdater.setBackgroundPollingIntervalMillis(config.getBackgroundPollingIntervalMillis());
-
             user = customizeUser(user);
 
             // Start up all instances
@@ -292,9 +291,10 @@ public class LDClient implements LDClientInterface, Closeable {
                 userManager.getSummaryEventStore(),
                 logger
         );
+        DataSource dataSource = config.dataSource.build(clientContext);
         eventProcessor = config.events.build(clientContext);
-        connectivityManager = new ConnectivityManager(application, config, eventProcessor, userManager, environmentName,
-                diagnosticEventProcessor, diagnosticStore, logger);
+        connectivityManager = new ConnectivityManager(application, config, dataSource, eventProcessor,
+                userManager, environmentName, diagnosticEventProcessor, diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();
