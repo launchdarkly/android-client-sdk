@@ -44,9 +44,9 @@ public class LDConfig {
     /**
      * The minimum value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
      * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
-     * one hour.
+     * 15 minutes.
      */
-    public static final int MIN_BACKGROUND_POLL_INTERVAL_MILLIS = 900_000; // 15 minutes
+    public static final int MIN_BACKGROUND_POLL_INTERVAL_MILLIS = 900_000;
 
     static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
