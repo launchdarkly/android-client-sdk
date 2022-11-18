@@ -133,11 +133,11 @@ public class LDClientTest {
     }
 
     @Test
-    public void testInitMissingUser() {
+    public void testInitMissingContext() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        ldClientFuture = LDClient.init(application, ldConfig, null);
+        ldClientFuture = LDClient.init(application, ldConfig, (LDContext)null);
 
         try {
             ldClientFuture.get();
