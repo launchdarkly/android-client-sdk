@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.2.3] - 2022-11-16
+### Fixed:
+- The SDK no longer updates SharedPreferences data during every flag evaluation. It was using this to store summary counters for analytics events; however, the small chance that a subset of summary data could be lost, if the application terminated before events were delivered, was outweighed by the performance cost (and other types of analytics data were not being stored like this anyway). It now uses a simpler in-memory data structure. ([#194](https://github.com/launchdarkly/android-client-sdk/issues/194))
+
 ## [3.2.2] - 2022-10-27
 ### Fixed:
 - The SDK was using a connection pool with a keep-alive interval of at least 10 minutes for polling requests. This has been removed and each request now uses a new connection. The keep-alive behavior was not desirable for foreground polling: foreground polling is only done if streaming was explicitly disabled, which would likely be because the application does _not_ want to leave a connection open. And it was of no use for background polling, since the interval for that is at least an hour. One undesirable consequence was that if the 10-minute interval expired after the device had gone to sleep, the small amount of network traffic involved in shutting down the connection could wake the device up again.
