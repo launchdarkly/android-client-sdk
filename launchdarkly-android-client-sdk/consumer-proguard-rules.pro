@@ -22,16 +22,11 @@
 
 -keep enum com.launchdarkly.sdk.android.ConnectionInformation$ConnectionMode { *; }
 -keep class com.launchdarkly.sdk.android.ConnectionInformationState { <fields>; }
+-keep class com.launchdarkly.sdk.android.DataModel$Flag { <fields>; }
 -keep class com.launchdarkly.sdk.android.EnvironmentData { <fields>; }
--keep class com.launchdarkly.sdk.android.Failure { <fields>; }
--keep class com.launchdarkly.sdk.android.Flag { <fields>; }
+-keep class com.launchdarkly.sdk.android.LDFailure { <fields>; }
 -keep class com.launchdarkly.sdk.android.LDInvalidResponseCodeFailure { <fields>; }
 -keep class com.launchdarkly.sdk.android.StreamUpdateProcessor$DeleteMessage { <fields>; }
-
--keep class com.launchdarkly.sdk.android.DiagnosticEvent { <fields>; }
--keep class com.launchdarkly.sdk.android.DiagnosticEvent$* { <fields>; }
--keep class com.launchdarkly.sdk.android.DiagnosticId { <fields>; }
--keep class com.launchdarkly.sdk.android.DiagnosticSdk { <fields>; }
 
 -keep class * extends com.google.gson.TypeAdapter
 -keep class * implements com.google.gson.TypeAdapterFactory
