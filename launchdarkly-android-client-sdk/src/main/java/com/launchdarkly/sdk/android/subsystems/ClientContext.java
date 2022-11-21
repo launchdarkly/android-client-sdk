@@ -22,7 +22,7 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
  * All properties of this object are immutable; they are set at initialization time and do not
  * reflect any later state changes in the client.
  *
- * @since 4.0.0
+ * @since 3.3.0
  */
 public class ClientContext {
     private final LDLogger baseLogger;

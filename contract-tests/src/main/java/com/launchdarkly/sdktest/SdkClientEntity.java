@@ -12,8 +12,9 @@ import com.launchdarkly.sdk.android.ConfigHelper;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
-
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+
 import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.ContextBuildParams;
@@ -30,7 +31,6 @@ import com.launchdarkly.sdktest.Representations.IdentifyEventParams;
 import com.launchdarkly.sdktest.Representations.SdkConfigParams;
 
 import android.app.Application;
-import android.net.Uri;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
@@ -219,8 +219,7 @@ public class SdkClientEntity {
   private LDContext doContextBuildSingle(ContextBuildSingleParams params) {
     ContextBuilder b = LDContext.builder(params.key)
             .kind(params.kind)
-            .name(params.name)
-            .secondary(params.secondary);
+            .name(params.name);
     if (params.anonymous != null) {
       b.anonymous(params.anonymous.booleanValue());
     }
@@ -277,27 +276,25 @@ public class SdkClientEntity {
       }
     }
 
-    if (params.events != null) {
+    if (params.events == null) {
+      builder.events(Components.noEvents());
+    } else {
       endpoints.events(params.events.baseUri);
       builder.diagnosticOptOut(!params.events.enableDiagnostics);
-
+      EventProcessorBuilder eventsBuilder = Components.sendEvents()
+              .allAttributesPrivate(params.events.allAttributesPrivate);
       if (params.events.capacity > 0) {
-        builder.eventsCapacity(params.events.capacity);
+        eventsBuilder.capacity(params.events.capacity);
       }
       if (params.events.flushIntervalMs != null) {
-        builder.eventsFlushIntervalMillis(params.events.flushIntervalMs.intValue());
-      }
-      if (params.events.allAttributesPrivate) {
-        builder.allAttributesPrivate();
-      }
-      if (params.events.flushIntervalMs != null) {
-        builder.eventsFlushIntervalMillis(params.events.flushIntervalMs.intValue());
+        eventsBuilder.flushIntervalMillis(params.events.flushIntervalMs.intValue());
       }
       if (params.events.globalPrivateAttributes != null) {
-        builder.privateAttributes(params.events.globalPrivateAttributes);
+        eventsBuilder.privateAttributes(params.events.globalPrivateAttributes);
       }
+      builder.events(eventsBuilder);
     }
-    // TODO: disable events if no params.events
+
     builder.evaluationReasons(params.clientSide.evaluationReasons);
     builder.useReport(params.clientSide.useReport);
 

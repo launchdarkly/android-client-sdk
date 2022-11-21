@@ -7,8 +7,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
-import com.launchdarkly.sdk.internal.events.DiagnosticStore;
-import com.launchdarkly.sdk.internal.events.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;

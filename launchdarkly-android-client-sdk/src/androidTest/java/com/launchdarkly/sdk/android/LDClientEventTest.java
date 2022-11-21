@@ -221,7 +221,7 @@ public class LDClientEventTest {
             mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
-                    .eventsCapacity(1)
+                    .events(Components.sendEvents().capacity(1))
                     .build();
 
             // Don't wait as we are not set offline

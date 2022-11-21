@@ -11,13 +11,8 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
-import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
-import com.launchdarkly.sdk.internal.events.DiagnosticStore;
-import com.launchdarkly.sdk.internal.events.Event;
-import com.launchdarkly.sdk.internal.events.EventsConfiguration;
-import com.launchdarkly.sdk.internal.http.HttpProperties;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -58,7 +53,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private final LDConfig config;
     private final ContextDataManager contextDataManager;
-    private final DefaultEventProcessor eventProcessor;
+    private final EventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final ClientStateImpl clientState;
     private final LDLogger logger;
@@ -154,7 +149,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     resultFuture.setException(e);
                     return resultFuture;
                 }
-            }
+            };
             primaryClient = createdPrimaryClient;
             // this indirect way of setting primaryClient is simply to make it easier to reference
             // it within an inner class below, since it is "effectively final"
@@ -180,10 +175,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // Start up all instances
         for (final LDClient instance : instances.values()) {
             if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                instance.eventProcessor.sendEvent(new Event.Identify(
-                        System.currentTimeMillis(),
-                        actualContext
-                ));
+                instance.eventProcessor.recordIdentifyEvent(actualContext);
             }
         }
 
@@ -301,13 +293,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 config.getMaxCachedContexts()
         );
 
-        EventsConfiguration eventsConfig = EventUtil.makeEventsConfiguration(clientContext);
-        eventProcessor = new DefaultEventProcessor(
-                eventsConfig,
-                EventUtil.makeEventsTaskExecutor(),
-                Thread.NORM_PRIORITY, // note, we may want to make this configurable as it is in java-server-sdk
-                logger
-        );
+        eventProcessor = config.events.build(clientContext);
 
         connectivityManager = new ConnectivityManager(
                 clientContext,
@@ -335,13 +321,8 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
-        eventProcessor.sendEvent(new Event.Custom(
-                System.currentTimeMillis(),
-                eventName,
-                contextDataManager.getCurrentContext(),
-                data,
-                metricValue
-        ));
+        eventProcessor.recordCustomEvent(contextDataManager.getCurrentContext(), eventName,
+                data, metricValue);
     }
 
     @Override
@@ -376,7 +357,7 @@ public class LDClient implements LDClientInterface, Closeable {
                                   LDUtil.ResultCallback<Void> onCompleteListener) {
         contextDataManager.setCurrentContext(context);
         connectivityManager.reloadData(onCompleteListener);
-        eventProcessor.sendEvent(new Event.Identify(System.currentTimeMillis(), context));
+        eventProcessor.recordIdentifyEvent(context);
     }
 
     private Future<Void> identifyInstances(@NonNull LDContext context) {
@@ -475,7 +456,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (flag == null) {
             logger.info("Unknown feature flag \"{}\"; returning default value", key);
-            sendFlagRequestEvent(key, null, defaultValue, defaultValue, null);
+            eventProcessor.recordEvaluationEvent(contextDataManager.getCurrentContext(), key,
+                    EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
+                    null, defaultValue, false, null);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             value = flag.getValue();
@@ -491,7 +474,17 @@ public class LDClient implements LDClientInterface, Closeable {
             } else {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
-            sendFlagRequestEvent(key, flag, value, defaultValue, flag.isTrackReason() | needsReason ? result.getReason() : null);
+            eventProcessor.recordEvaluationEvent(
+                    contextDataManager.getCurrentContext(),
+                    key,
+                    flag.getVersionForEvents(),
+                    flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
+                    value,
+                    flag.isTrackReason() | needsReason ? result.getReason() : null,
+                    defaultValue,
+                    flag.isTrackEvents(),
+                    flag.getDebugEventsUntilDate()
+            );
         }
 
         logger.debug("returning variation: {} flagKey: {} context key: {}", result, key,
@@ -520,7 +513,9 @@ public class LDClient implements LDClientInterface, Closeable {
         connectivityManager.shutdown();
         try {
             eventProcessor.close();
-        } catch (Exception e) {}
+        } catch (IOException e) {
+            LDUtil.logExceptionAtWarnLevel(logger, e, "Unexpected exception from closing event processor");
+        }
     }
 
     private void closeInstances() {
@@ -543,12 +538,12 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void flushInternal() {
-        eventProcessor.flushAsync();
+        eventProcessor.flush();
     }
 
     @VisibleForTesting
     void blockingFlush() {
-        eventProcessor.flushBlocking();
+        eventProcessor.blockingFlush();
     }
 
     @Override
@@ -621,23 +616,6 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public String getVersion() {
         return BuildConfig.VERSION_NAME;
-    }
-
-    private void sendFlagRequestEvent(String flagKey, Flag flag, LDValue value, LDValue defaultValue, EvaluationReason reason) {
-        eventProcessor.sendEvent(new Event.FeatureRequest(
-                System.currentTimeMillis(),
-                flagKey,
-                contextDataManager.getCurrentContext(),
-                flag == null ? -1 : flag.getVersionForEvents(),
-                flag == null || flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
-                value,
-                defaultValue,
-                reason, // TODO
-                null,
-                flag != null && flag.isTrackEvents(),
-                flag == null ? null : flag.getDebugEventsUntilDate(),
-                false
-        ));
     }
 
     private static LDLogger initSharedLogger(LDConfig config) {

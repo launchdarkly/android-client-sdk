@@ -32,10 +32,7 @@ public class LDConfigTest {
         assertFalse(config.isOffline());
 
         assertEquals(LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS, config.getConnectionTimeoutMillis());
-        assertEquals(LDConfig.DEFAULT_EVENTS_CAPACITY, config.getEventsCapacity());
-        assertEquals(LDConfig.DEFAULT_FLUSH_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
 
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
         assertFalse(config.isDisableBackgroundPolling());
@@ -59,7 +56,6 @@ public class LDConfigTest {
         assertFalse(config.isOffline());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
     @Test
@@ -74,7 +70,6 @@ public class LDConfigTest {
         assertFalse(config.isOffline());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1, config.getPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS + 2, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1, config.getEventsFlushIntervalMillis());
     }
 
     @Test
@@ -88,7 +83,6 @@ public class LDConfigTest {
         assertFalse(config.isOffline());
         assertTrue(config.isDisableBackgroundPolling());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
     @Test
@@ -104,7 +98,6 @@ public class LDConfigTest {
         assertFalse(config.isDisableBackgroundPolling());
         assertEquals(LDConfig.MIN_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.MIN_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
 
         LogCapture.Message m = logging.logCapture.requireMessage(LDLogLevel.WARN, 1000);
         assertThat(m.getText(), containsString("below the allowed minimum"));
@@ -123,34 +116,9 @@ public class LDConfigTest {
         assertFalse(config.isDisableBackgroundPolling());
         assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
         assertEquals(LDConfig.MIN_BACKGROUND_POLLING_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
 
         LogCapture.Message m = logging.logCapture.requireMessage(LDLogLevel.WARN, 1000);
         assertThat(m.getText(), containsString("below the minimum"));
-    }
-
-    @Test
-    public void testBuilderDiagnosticRecordingInterval() {
-        LDConfig config = new LDConfig.Builder()
-                .diagnosticRecordingIntervalMillis(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1)
-                .build();
-
-        assertFalse(config.getDiagnosticOptOut());
-        assertEquals(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1, config.getDiagnosticRecordingIntervalMillis());
-    }
-
-    @Test
-    public void testBuilderDiagnosticRecordingIntervalBelowMinimum() {
-        LDConfig config = new LDConfig.Builder()
-                .logAdapter(logging.logAdapter)
-                .diagnosticRecordingIntervalMillis(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS - 1)
-                .build();
-
-        assertFalse(config.getDiagnosticOptOut());
-        assertEquals(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
-
-        LogCapture.Message m = logging.logCapture.requireMessage(LDLogLevel.WARN, 1000);
-        assertThat(m.getText(), containsString("lower than the minimum"));
     }
 
     @Test
@@ -177,34 +145,6 @@ public class LDConfigTest {
                 .build();
 
         assertTrue(config.isUseReport());
-    }
-
-    @Test
-    public void testBuilderAllAttributesPrivate() {
-        LDConfig config = new LDConfig.Builder()
-                .build();
-
-        assertFalse(config.allAttributesPrivate());
-
-        config = new LDConfig.Builder()
-                .allAttributesPrivate()
-                .build();
-
-        assertTrue(config.allAttributesPrivate());
-    }
-
-    @Test
-    public void testBuilderPrivateAttributesList() {
-        LDConfig config = new LDConfig.Builder()
-                .build();
-
-        assertEquals(config.getPrivateAttributes().size(), 0);
-
-        config = new LDConfig.Builder()
-                .privateAttributes("email", "name")
-                .build();
-
-        assertEquals(config.getPrivateAttributes().size(), 2);
     }
 
     @Test

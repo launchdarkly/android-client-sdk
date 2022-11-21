@@ -63,8 +63,6 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                 // if there are multiple environments; right now a new HTTP client is being created for
                 // polling for each environment, even though they all have the same configuration.
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
-                .connectionPool(new ConnectionPool(1,
-                        clientContext.getConfig().getBackgroundPollingIntervalMillis() * 2, TimeUnit.MILLISECONDS))
                 .retryOnConnectionFailure(true)
                 .build();
     }
