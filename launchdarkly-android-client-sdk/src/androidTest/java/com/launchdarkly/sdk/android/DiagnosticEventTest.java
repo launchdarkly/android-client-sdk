@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 
 import org.junit.Assert;
@@ -39,13 +40,11 @@ public class DiagnosticEventTest {
         secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
                 .disableBackgroundUpdating(true)
-                .connectionTimeoutMillis(5_000)
                 .pollUri(Uri.parse("https://1.1.1.1"))
                 .eventsUri(Uri.parse("https://1.1.1.1"))
                 .streamUri(Uri.parse("https://1.1.1.1"))
                 .evaluationReasons(true)
                 .secondaryMobileKeys(secondaryKeys)
-                .useReport(true)
                 .maxCachedUsers(-1)
                 .autoAliasingOptOut(true)
                 .build();
@@ -53,16 +52,13 @@ public class DiagnosticEventTest {
         LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
         ObjectBuilder expected = makeExpectedDefaults();
         expected.put("backgroundPollingDisabled", true);
-        expected.put("connectTimeoutMillis", 5_000);
         expected.put("customBaseURI", true);
         expected.put("customEventsURI", true);
         expected.put("customStreamURI", true);
         expected.put("evaluationReasonsRequested", true);
         expected.put("mobileKeyCount", 2);
-        expected.put("useReport", true);
         expected.put("maxCachedUsers", -1);
         expected.put("autoAliasingOptOut", true);
-
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
@@ -124,6 +120,23 @@ public class DiagnosticEventTest {
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
+    @Test
+    public void customDiagnosticConfigurationHttp() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .http(
+                        Components.httpConfiguration()
+                                .connectTimeoutMillis(5_000)
+                                .useReport(true)
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("connectTimeoutMillis", 5_000);
+        expected.put("useReport", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
     @SuppressWarnings("deprecation")
     @Test
     public void customDiagnosticConfigurationEventsWithDeprecatedSetters() {
@@ -180,6 +193,21 @@ public class DiagnosticEventTest {
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
+    @SuppressWarnings("deprecation")
+    @Test
+    public void customDiagnosticConfigurationHttpWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .connectionTimeoutMillis(5_000)
+                .useReport(true)
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("connectTimeoutMillis", 5_000);
+        expected.put("useReport", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
     @Test
     public void statisticsEventSerialization() {
         DiagnosticEvent.Statistics statisticsEvent = new DiagnosticEvent.Statistics(2_000,
@@ -214,7 +242,7 @@ public class DiagnosticEventTest {
         expected.put("backgroundPollingIntervalMillis",
                 LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
         expected.put("connectTimeoutMillis",
-                LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS);
+                HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS);
         expected.put("customBaseURI", false);
         expected.put("customEventsURI", false);
         expected.put("customStreamURI", false);

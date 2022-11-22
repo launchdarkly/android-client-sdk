@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.android.ComponentsImpl.NULL_EVENT_PROCESSOR_FACTORY;
 
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
@@ -22,6 +23,28 @@ import com.launchdarkly.sdk.android.subsystems.EventProcessor;
  */
 public abstract class Components {
     private Components() {}
+
+    /**
+     * Returns a configuration builder for the SDK's networking configuration.
+     * <p>
+     * Passing this to {@link LDConfig.Builder#http(ComponentConfigurer)} applies this configuration
+     * to all HTTP/HTTPS requests made by the SDK.
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder()
+     *         .http(
+     *              Components.httpConfiguration()
+     *                  .connectTimeoutMillis(3000)
+     *                  .proxyHostAndPort("my-proxy", 8080)
+     *         )
+     *         .build();
+     * </code></pre>
+     *
+     * @return a factory object
+     * @see LDConfig.Builder#http(ComponentConfigurer)
+     */
+    public static HttpConfigurationBuilder httpConfiguration() {
+        return new ComponentsImpl.HttpConfigurationBuilderImpl();
+    }
 
     /**
      * Returns a configuration object that disables analytics events.

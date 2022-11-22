@@ -10,6 +10,7 @@ import com.google.gson.JsonParser;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,17 +35,31 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
     private final LDConfig config;
+    private final HttpConfiguration httpConfig;
     private final String environmentName;
     private final Context context;
     private final OkHttpClient client;
     private final LDLogger logger;
 
-    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environmentName, LDLogger logger) {
-        return new HttpFeatureFlagFetcher(context, config, environmentName, logger);
+    static HttpFeatureFlagFetcher newInstance(
+            Context context,
+            LDConfig config,
+            HttpConfiguration httpConfig,
+            String environmentName,
+            LDLogger logger
+    ) {
+        return new HttpFeatureFlagFetcher(context, config, httpConfig, environmentName, logger);
     }
 
-    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environmentName, LDLogger logger) {
+    private HttpFeatureFlagFetcher(
+            Context context,
+            LDConfig config,
+            HttpConfiguration httpConfig,
+            String environmentName,
+            LDLogger logger
+    ) {
         this.config = config;
+        this.httpConfig = httpConfig;
         this.environmentName = environmentName;
         this.context = context;
         this.logger = logger;
@@ -62,7 +77,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     public synchronized void fetch(LDUser user, final LDUtil.ResultCallback<JsonObject> callback) {
         if (user != null && isClientConnected(context, environmentName)) {
 
-            final Request request = config.isUseReport()
+            final Request request = httpConfig.isUseReport()
                     ? getReportRequest(user)
                     : getDefaultRequest(user);
 
@@ -119,7 +134,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         }
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
         return new Request.Builder().url(uri)
-                .headers(config.headersForEnvironment(environmentName, null))
+                .headers(LDUtil.makeRequestHeaders(httpConfig, null))
                 .build();
     }
 
@@ -133,7 +148,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         RequestBody reportBody = RequestBody.create(userJson, JSON);
 
         return new Request.Builder().url(reportUri)
-                .headers(config.headersForEnvironment(environmentName, null))
+                .headers(LDUtil.makeRequestHeaders(httpConfig, null))
                 .method("REPORT", reportBody)
                 .build();
     }

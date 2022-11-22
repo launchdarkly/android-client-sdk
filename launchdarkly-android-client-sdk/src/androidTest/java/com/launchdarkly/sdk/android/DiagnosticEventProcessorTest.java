@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.android.TestUtil.simpleClientContext;
+
 import android.net.Uri;
 
 import androidx.test.core.app.ApplicationProvider;
@@ -20,6 +22,7 @@ import okhttp3.mockwebserver.RecordedRequest;
 import static junit.framework.Assert.assertEquals;
 
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 @RunWith(AndroidJUnit4.class)
 public class DiagnosticEventProcessorTest {
@@ -49,8 +52,9 @@ public class DiagnosticEventProcessorTest {
                 .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
-        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore,
-                ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
+        HttpConfiguration httpConfig = simpleClientContext(ldConfig).getHttp();
+        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, httpConfig,
+                diagnosticStore, ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
 
         DiagnosticEvent testEvent = new DiagnosticEvent("test-kind", System.currentTimeMillis(), diagnosticStore.getDiagnosticId());
 
@@ -73,12 +77,12 @@ public class DiagnosticEventProcessorTest {
         LDConfig ldConfig = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
                 .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
-                .wrapperName("ReactNative")
-                .wrapperVersion("1.0.0")
+                .http(Components.httpConfiguration().wrapper("ReactNative", "1.0.0"))
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
-        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore,
-                ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
+        HttpConfiguration httpConfig = simpleClientContext(ldConfig).getHttp();
+        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, httpConfig,
+                diagnosticStore, ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
 
         DiagnosticEvent testEvent = new DiagnosticEvent("test-kind", System.currentTimeMillis(), diagnosticStore.getDiagnosticId());
 
@@ -100,14 +104,15 @@ public class DiagnosticEventProcessorTest {
         LDConfig ldConfig = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
                 .eventsUri(Uri.parse(mockEventsServer.url("").toString()))
-                .headerTransform(headers -> { 
+                .http(Components.httpConfiguration().headerTransform(headers -> {
                     headers.put("Proxy-Authorization", "token"); 
                     headers.put("Authorization", "foo"); 
-                })
+                }))
                 .build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
-        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore,
-                ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
+        HttpConfiguration httpConfig = simpleClientContext(ldConfig).getHttp();
+        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, httpConfig,
+                diagnosticStore, ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
 
         DiagnosticEvent testEvent = new DiagnosticEvent("test-kind", System.currentTimeMillis(), diagnosticStore.getDiagnosticId());
 
@@ -128,8 +133,9 @@ public class DiagnosticEventProcessorTest {
 
         LDConfig ldConfig = new LDConfig.Builder().mobileKey("test-mobile-key").build();
         DiagnosticStore diagnosticStore = new DiagnosticStore(ApplicationProvider.getApplicationContext(), "test-mobile-key");
-        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, "default", diagnosticStore,
-                ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
+        HttpConfiguration httpConfig = simpleClientContext(ldConfig).getHttp();
+        DiagnosticEventProcessor diagnosticEventProcessor = new DiagnosticEventProcessor(ldConfig, httpConfig,
+                diagnosticStore, ApplicationProvider.getApplicationContext(), okHttpClient, LDLogger.none());
         diagnosticEventProcessor.close();
     }
 }

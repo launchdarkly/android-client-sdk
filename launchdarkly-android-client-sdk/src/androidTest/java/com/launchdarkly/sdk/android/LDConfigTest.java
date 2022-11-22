@@ -1,10 +1,16 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.android.TestUtil.simpleClientContext;
+
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonElement;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -40,11 +46,11 @@ public class LDConfigTest {
         assertEquals(LDConfig.DEFAULT_EVENTS_URI, config.getEventsUri());
         assertEquals(LDConfig.DEFAULT_STREAM_URI, config.getStreamUri());
 
-        assertEquals(LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS, config.getConnectionTimeoutMillis());
-        assertEquals(LDConfig.DEFAULT_EVENTS_CAPACITY, config.getEventsCapacity());
-        assertEquals(LDConfig.DEFAULT_FLUSH_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
+        assertEquals(HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS, config.getConnectionTimeoutMillis());
+        assertEquals(EventProcessorBuilder.DEFAULT_CAPACITY, config.getEventsCapacity());
+        assertEquals(EventProcessorBuilder.DEFAULT_FLUSH_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getPollingIntervalMillis());
+        assertEquals(EventProcessorBuilder.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
 
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
         assertFalse(config.isDisableBackgroundPolling());
@@ -68,24 +74,24 @@ public class LDConfigTest {
 
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
     @Test
     public void testBuilderStreamDisabledCustomIntervals() {
         LDConfig config = new LDConfig.Builder()
                 .stream(false)
-                .pollingIntervalMillis(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1)
+                .pollingIntervalMillis(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS + 1)
                 .backgroundPollingIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS + 2)
                 .build();
 
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1, config.getPollingIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS + 1, config.getPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS + 2, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS + 1, config.getEventsFlushIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS + 1, config.getEventsFlushIntervalMillis());
     }
 
     @Test
@@ -98,23 +104,23 @@ public class LDConfigTest {
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
         assertTrue(config.isDisableBackgroundPolling());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getPollingIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
     @Test
     public void testBuilderStreamDisabledPollingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
                 .stream(false)
-                .pollingIntervalMillis(LDConfig.MIN_POLLING_INTERVAL_MILLIS - 1)
+                .pollingIntervalMillis(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS - 1)
                 .build();
 
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
         assertFalse(config.isDisableBackgroundPolling());
-        assertEquals(LDConfig.MIN_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getPollingIntervalMillis());
         assertEquals(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.MIN_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
     @Test
@@ -127,29 +133,29 @@ public class LDConfigTest {
         assertFalse(config.isStream());
         assertFalse(config.isOffline());
         assertFalse(config.isDisableBackgroundPolling());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getPollingIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getPollingIntervalMillis());
         assertEquals(LDConfig.MIN_BACKGROUND_POLL_INTERVAL_MILLIS, config.getBackgroundPollingIntervalMillis());
-        assertEquals(LDConfig.DEFAULT_POLLING_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
+        assertEquals(PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, config.getEventsFlushIntervalMillis());
     }
 
     @Test
     public void testBuilderDiagnosticRecordingInterval() {
         LDConfig config = new LDConfig.Builder()
-                .diagnosticRecordingIntervalMillis(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1)
+                .diagnosticRecordingIntervalMillis(EventProcessorBuilder.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1)
                 .build();
 
         assertFalse(config.getDiagnosticOptOut());
-        assertEquals(LDConfig.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1, config.getDiagnosticRecordingIntervalMillis());
+        assertEquals(EventProcessorBuilder.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS + 1, config.getDiagnosticRecordingIntervalMillis());
     }
 
     @Test
     public void testBuilderDiagnosticRecordingIntervalBelowMinimum() {
         LDConfig config = new LDConfig.Builder()
-                .diagnosticRecordingIntervalMillis(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS - 1)
+                .diagnosticRecordingIntervalMillis(EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS - 1)
                 .build();
 
         assertFalse(config.getDiagnosticOptOut());
-        assertEquals(LDConfig.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
+        assertEquals(EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS, config.getDiagnosticRecordingIntervalMillis());
     }
 
     @Test
@@ -255,19 +261,20 @@ public class LDConfigTest {
     }
 
     @Test
-    public void headersForEnvironment() {
+    public void makeRequestHeaders() {
         LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
-        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        HttpConfiguration httpConfig = simpleClientContext(config).getHttp();
+        Map<String, String> headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, null));
         assertEquals(2, headers.size());
-        assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
+        assertEquals(LDUtil.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("api_key test-key", headers.get("authorization"));
         // Additional headers extend/replace defaults
         HashMap<String, String> additional = new HashMap<>();
         additional.put("Authorization", "other-key");
         additional.put("Proxy-Authorization", "token");
-        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
+        headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, additional));
         assertEquals(3, headers.size());
-        assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
+        assertEquals(LDUtil.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("other-key", headers.get("authorization"));
         assertEquals("token", headers.get("proxy-authorization"));
         // Also should not modify the given additional headers
@@ -287,10 +294,11 @@ public class LDConfigTest {
                     headers.put("New", "value");
                 })
                 .build();
+        HttpConfiguration httpConfig = simpleClientContext(config).getHttp();
 
-        expected.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
+        expected.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
-        Map<String, String> headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, null));
+        Map<String, String> headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, null));
         assertEquals(2, headers.size());
         assertEquals("api_key test-key, more", headers.get("authorization"));
         assertEquals("value", headers.get("new"));
@@ -299,7 +307,7 @@ public class LDConfigTest {
         additional.put("Authorization", "other-key");
         additional.put("Proxy-Authorization", "token");
         expected.putAll(additional);
-        headers = headersToMap(config.headersForEnvironment(LDConfig.primaryEnvironmentName, additional));
+        headers = headersToMap(LDUtil.makeRequestHeaders(httpConfig, additional));
         assertEquals(3, headers.size());
         assertEquals("other-key, more", headers.get("authorization"));
         assertEquals("token", headers.get("proxy-authorization"));

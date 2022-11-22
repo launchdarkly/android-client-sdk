@@ -244,7 +244,9 @@ public class SdkClientEntity {
 
     builder.autoAliasingOptOut(params.clientSide.autoAliasingOptOut);
     builder.evaluationReasons(params.clientSide.evaluationReasons);
-    builder.useReport(params.clientSide.useReport);
+    builder.http(
+            Components.httpConfiguration().useReport(params.clientSide.useReport)
+    );
 
     return builder.build();
   }

@@ -22,6 +22,7 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 class DiagnosticEventProcessor {
     private static final HashMap<String, String> baseDiagnosticHeaders = new HashMap<String, String>() {{
@@ -30,17 +31,18 @@ class DiagnosticEventProcessor {
 
     private final OkHttpClient client;
     private final LDConfig config;
-    private final String environment;
+    private final HttpConfiguration httpConfig;
     private final DiagnosticStore diagnosticStore;
     private final ThreadFactory diagnosticThreadFactory;
     private final Context context;
     private final LDLogger logger;
     private ScheduledExecutorService executorService;
 
-    DiagnosticEventProcessor(LDConfig config, String environment, final DiagnosticStore diagnosticStore, Context context,
+    DiagnosticEventProcessor(LDConfig config, HttpConfiguration httpConfig,
+                             final DiagnosticStore diagnosticStore, Context context,
                              OkHttpClient sharedClient, LDLogger logger) {
         this.config = config;
-        this.environment = environment;
+        this.httpConfig = httpConfig;
         this.diagnosticStore = diagnosticStore;
         this.client = sharedClient;
         this.context = context;
@@ -128,7 +130,7 @@ class DiagnosticEventProcessor {
 
         Request request = new Request.Builder()
                 .url(config.getEventsUri().buildUpon().appendEncodedPath("mobile/events/diagnostic").build().toString())
-                .headers(config.headersForEnvironment(environment, baseDiagnosticHeaders))
+                .headers(LDUtil.makeRequestHeaders(httpConfig, baseDiagnosticHeaders))
                 .post(RequestBody.create(content, JSON)).build();
 
         logger.debug("Posting diagnostic event to {} with body {}", request.url(), content);

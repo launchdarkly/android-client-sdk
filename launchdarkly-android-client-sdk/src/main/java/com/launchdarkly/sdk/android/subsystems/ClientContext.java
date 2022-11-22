@@ -30,9 +30,9 @@ public class ClientContext {
     private final LDConfig config;
     private final boolean evaluationReasons;
     private final String environmentName;
+    private final HttpConfiguration http;
     private final boolean initiallySetOffline;
     private final String mobileKey;
-    private final boolean useReport;
 
     public ClientContext(
             Application application,
@@ -41,8 +41,8 @@ public class ClientContext {
             LDConfig config,
             String environmentName,
             boolean evaluationReasons,
-            boolean initiallySetOffline,
-            boolean useReport
+            HttpConfiguration http,
+            boolean initiallySetOffline
     ) {
         this.application = application;
         this.mobileKey = mobileKey;
@@ -50,8 +50,8 @@ public class ClientContext {
         this.config = config;
         this.environmentName = environmentName;
         this.evaluationReasons = evaluationReasons;
+        this.http = http;
         this.initiallySetOffline = initiallySetOffline;
-        this.useReport = useReport;
     }
 
     protected ClientContext(ClientContext copyFrom) {
@@ -62,8 +62,8 @@ public class ClientContext {
                 copyFrom.config,
                 copyFrom.environmentName,
                 copyFrom.evaluationReasons,
-                copyFrom.initiallySetOffline,
-                copyFrom.useReport
+                copyFrom.http,
+                copyFrom.initiallySetOffline
         );
     }
 
@@ -110,6 +110,14 @@ public class ClientContext {
     }
 
     /**
+     * Returns the HTTP configuration.
+     * @return the HTTP configuration
+     */
+    public HttpConfiguration getHttp() {
+        return http;
+    }
+
+    /**
      * Returns true if the initial configuration specified that the SDK should be offline.
      * @return true if initially set to be offline
      */
@@ -127,13 +135,5 @@ public class ClientContext {
      */
     public String getMobileKey() {
         return mobileKey;
-    }
-
-    /**
-     * Returns true if the SDK is configured to use HTTP REPORT mode.
-     * @return true if report mode is enabled
-     */
-    public boolean isUseReport() {
-        return useReport;
     }
 }

@@ -1,9 +1,11 @@
 package com.launchdarkly.sdk.android;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
@@ -11,7 +13,10 @@ import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DiagnosticDescription;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -88,6 +93,7 @@ abstract class ComponentsImpl {
             return new DefaultEventProcessor(
                     clientContext.getApplication(),
                     clientContext.getConfig(),
+                    clientContext.getHttp(),
                     clientContextImpl.getSummaryEventStore(),
                     clientContext.getEnvironmentName(),
                     clientContext.isInitiallySetOffline(),
@@ -109,6 +115,37 @@ abstract class ComponentsImpl {
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .put("inlineUsersInEvents", inlineUsers)
+                    .build();
+        }
+    }
+
+    static final class HttpConfigurationBuilderImpl extends HttpConfigurationBuilder
+            implements DiagnosticDescription {
+        @Override
+        public HttpConfiguration build(ClientContext clientContext) {
+            LDLogger logger = clientContext.getBaseLogger();
+            // Build the default headers
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Authorization", LDUtil.AUTH_SCHEME + clientContext.getMobileKey());
+            headers.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
+            if (wrapperName != null) {
+                String wrapperId = wrapperVersion == null ? wrapperName : (wrapperName + "/" + wrapperVersion);
+                headers.put("X-LaunchDarkly-Wrapper", wrapperId);
+            }
+
+            return new HttpConfiguration(
+                    connectTimeoutMillis,
+                    headers,
+                    headerTransform,
+                    useReport
+            );
+        }
+
+        @Override
+        public LDValue describeConfiguration(ClientContext clientContext) {
+            return LDValue.buildObject()
+                    .put("connectTimeoutMillis", connectTimeoutMillis)
+                    .put("useReport", useReport)
                     .build();
         }
     }

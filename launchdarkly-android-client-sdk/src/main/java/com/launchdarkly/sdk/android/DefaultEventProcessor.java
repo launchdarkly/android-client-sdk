@@ -3,7 +3,6 @@ package com.launchdarkly.sdk.android;
 import android.content.Context;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.VisibleForTesting;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -38,6 +37,7 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 class DefaultEventProcessor implements EventProcessor, Closeable {
     private static final HashMap<String, String> baseEventHeaders = new HashMap<String, String>() {{
@@ -50,6 +50,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     private final OkHttpClient client;
     private final Context context;
     private final LDConfig config;
+    private final HttpConfiguration httpConfig;
     private final String environmentName;
     private final int flushIntervalMillis;
     private final boolean inlineUsers;
@@ -63,6 +64,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     DefaultEventProcessor(
             Context context,
             LDConfig config,
+            HttpConfiguration httpConfig,
             SummaryEventStore summaryEventStore,
             String environmentName,
             boolean initiallyOffline,
@@ -75,6 +77,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     ) {
         this.context = context;
         this.config = config;
+        this.httpConfig = httpConfig;
         this.offline.set(initiallyOffline);
         this.environmentName = environmentName;
         this.flushIntervalMillis = flushIntervalMillis;
@@ -251,7 +254,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
                 }
 
                 Request request = new Request.Builder().url(url)
-                        .headers(config.headersForEnvironment(environmentName, baseHeadersForRequest))
+                        .headers(LDUtil.makeRequestHeaders(httpConfig, baseHeadersForRequest))
                         .post(RequestBody.create(content, JSON))
                         .build();
 
