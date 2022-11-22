@@ -13,9 +13,11 @@ import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
-
 import com.launchdarkly.sdk.json.JsonSerialization;
+
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.ContextBuildParams;
 import com.launchdarkly.sdktest.Representations.ContextBuildResponse;
@@ -258,22 +260,26 @@ public class SdkClientEntity {
     // to be affected by each other's cached flag values.
     ConfigHelper.configureIsolatedInMemoryPersistence(builder);
 
-    if (params.streaming != null) {
-      builder.stream(true);
-      endpoints.streaming(params.streaming.baseUri);
-      // TODO: initialRetryDelayMs?
-    }
-
-    // The only time we should turn _off_ streaming is if polling is configured but NOT streaming
-    if (params.streaming == null && params.polling != null) {
-      builder.stream(false);
-    }
-
-    if (params.polling != null) {
+    if (params.polling != null && params.polling.baseUri != null) {
+      // Note that this property can be set even if streaming is enabled
       endpoints.polling(params.polling.baseUri);
+    }
+
+    if (params.polling != null && params.streaming == null) {
+      PollingDataSourceBuilder pollingBuilder = Components.pollingDataSource();
       if (params.polling.pollIntervalMs != null) {
-        builder.backgroundPollingIntervalMillis(params.polling.pollIntervalMs.intValue());
+        pollingBuilder.pollIntervalMillis(params.polling.pollIntervalMs.intValue());
       }
+      builder.dataSource(pollingBuilder);
+    } else if (params.streaming != null) {
+      if (params.streaming.baseUri != null) {
+        endpoints.streaming(params.streaming.baseUri);
+      }
+      StreamingDataSourceBuilder streamingBuilder = Components.streamingDataSource();
+      if (params.streaming.initialRetryDelayMs != null) {
+        streamingBuilder.initialReconnectDelayMillis(params.streaming.initialRetryDelayMs.intValue());
+      }
+      builder.dataSource(streamingBuilder);
     }
 
     if (params.events == null) {

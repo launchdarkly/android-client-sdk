@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
@@ -293,11 +294,14 @@ public class LDClient implements LDClientInterface, Closeable {
                 config.getMaxCachedContexts()
         );
 
+        DataSource dataSource = config.dataSource.build(clientContext);
+
         eventProcessor = config.events.build(clientContext);
 
         connectivityManager = new ConnectivityManager(
                 clientContext,
                 clientState,
+                dataSource,
                 eventProcessor,
                 contextDataManager,
                 fetcher,

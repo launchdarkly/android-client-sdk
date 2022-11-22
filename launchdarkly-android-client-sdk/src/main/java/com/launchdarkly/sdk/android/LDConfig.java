@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
@@ -26,6 +27,19 @@ import okhttp3.MediaType;
  * must be constructed with {@link LDConfig.Builder}.
  */
 public class LDConfig {
+    /**
+     * The default value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
+     * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
+     * one hour.
+     */
+    public static final int DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS = 3_600_000;
+
+    /**
+     * The minimum value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
+     * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
+     * 15 minutes.
+     */
+    public static final int MIN_BACKGROUND_POLL_INTERVAL_MILLIS = 900_000;
 
     static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
@@ -41,8 +55,6 @@ public class LDConfig {
     static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
     static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
-    static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
     static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
     static final int DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 900_000; // 15 minutes
     static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000; // 5 minutes
@@ -51,13 +63,12 @@ public class LDConfig {
 
     final ServiceEndpoints serviceEndpoints;
 
+    final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
+
     private final int connectionTimeoutMillis;
-    private final int pollingIntervalMillis;
-    private final int backgroundPollingIntervalMillis;
     private final int maxCachedContexts;
 
-    private final boolean stream;
     private final boolean offline;
     private final boolean disableBackgroundUpdating;
     private final boolean useReport;
@@ -79,12 +90,10 @@ public class LDConfig {
 
     LDConfig(Map<String, String> mobileKeys,
              ServiceEndpoints serviceEndpoints,
+             ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
              int connectionTimeoutMillis,
              boolean offline,
-             boolean stream,
-             int pollingIntervalMillis,
-             int backgroundPollingIntervalMillis,
              boolean disableBackgroundUpdating,
              boolean useReport,
              boolean evaluationReasons,
@@ -99,12 +108,10 @@ public class LDConfig {
              String loggerName) {
         this.mobileKeys = mobileKeys;
         this.serviceEndpoints = serviceEndpoints;
+        this.dataSource = dataSource;
         this.events = events;
         this.connectionTimeoutMillis = connectionTimeoutMillis;
         this.offline = offline;
-        this.stream = stream;
-        this.pollingIntervalMillis = pollingIntervalMillis;
-        this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
         this.useReport = useReport;
         this.evaluationReasons = evaluationReasons;
@@ -135,20 +142,8 @@ public class LDConfig {
         return offline;
     }
 
-    public boolean isStream() {
-        return stream;
-    }
-
     public boolean isUseReport() {
         return useReport;
-    }
-
-    public int getPollingIntervalMillis() {
-        return pollingIntervalMillis;
-    }
-
-    public int getBackgroundPollingIntervalMillis() {
-        return backgroundPollingIntervalMillis;
     }
 
     public boolean isDisableBackgroundPolling() {
@@ -203,14 +198,13 @@ public class LDConfig {
 
         private ServiceEndpointsBuilder serviceEndpointsBuilder;
 
+        private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
+
         private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
-        private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
-        private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
         private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
 
         private boolean offline = false;
-        private boolean stream = true;
         private boolean disableBackgroundUpdating = false;
         private boolean useReport = false;
         private boolean diagnosticOptOut = false;
@@ -305,12 +299,53 @@ public class LDConfig {
         }
 
         /**
+         * Sets the configuration of the component that receives feature flag data from LaunchDarkly.
+         * <p>
+         * The default is {@link Components#streamingDataSource()}; you may instead use
+         * {@link Components#pollingDataSource()}. See those methods for details on how to configure
+         * them with options that are specific to streaming or polling mode.
+         * <p>
+         * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+         * and completely disable network requests.
+         * <pre><code>
+         *     // Setting custom options when using streaming mode
+         *     LDConfig config = new LDConfig.Builder()
+         *         .dataSource(
+         *             Components.streamingDataSource()
+         *                 .initialReconnectDelayMillis(100)
+         *         )
+         *         .build();
+         *
+         *     // Using polling mode instead of streaming, and setting custom options for polling
+         *     LDConfig config = new LDConfig.Builder()
+         *         .dataSource(
+         *             Components.pollingDataSource()
+         *                 .pollingIntervalMillis(60_000)
+         *         )
+         *         .build();
+         * </code></pre>
+         *
+         * @param dataSourceConfigurer the data source configuration builder
+         * @return the main configuration builder
+         * @see Components#streamingDataSource()
+         * @see Components#pollingDataSource()
+         * @since 3.3.0
+         */
+        public LDConfig.Builder dataSource(ComponentConfigurer<DataSource> dataSourceConfigurer) {
+            this.dataSource = dataSourceConfigurer;
+            return this;
+        }
+
+        /**
          * Sets the implementation of {@link EventProcessor} to be used for processing analytics events.
          * <p>
          * The default is {@link Components#sendEvents()} with no custom options. You may instead call
          * {@link Components#sendEvents()} and then set custom options for event processing; or, disable
          * events with {@link Components#noEvents()}; or, choose to use a custom implementation (for
          * instance, a test fixture).
+         * <p>
+         * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+         * and completely disable network requests.
          * <pre><code>
          *     // Setting custom event processing options
          *     LDConfig config = new LDConfig.Builder()
@@ -344,46 +379,6 @@ public class LDConfig {
          */
         public LDConfig.Builder connectionTimeoutMillis(int connectionTimeoutMillis) {
             this.connectionTimeoutMillis = connectionTimeoutMillis;
-            return this;
-        }
-
-        /**
-         * Enables or disables real-time streaming flag updates.  By default, streaming is enabled.
-         * When disabled, an efficient caching polling mechanism is used.
-         *
-         * @param enabled true if streaming should be enabled
-         * @return the builder
-         */
-        public LDConfig.Builder stream(boolean enabled) {
-            this.stream = enabled;
-            return this;
-        }
-
-        /**
-         * Sets the interval in between feature flag updates, when streaming mode is disabled.
-         * This is ignored unless {@link #stream(boolean)} is set to {@code true}.
-         * <p>
-         * The default value is {@link LDConfig#DEFAULT_POLLING_INTERVAL_MILLIS}.
-         *
-         * @param pollingIntervalMillis the feature flag polling interval, in milliseconds
-         * @return the builder
-         */
-        public LDConfig.Builder pollingIntervalMillis(int pollingIntervalMillis) {
-            this.pollingIntervalMillis = pollingIntervalMillis;
-            return this;
-        }
-
-        /**
-         * Sets how often the client will poll for flag updates when your application is in the background.
-         * <p>
-         * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS}.
-         *
-         * @param backgroundPollingIntervalMillis the feature flag polling interval when in the background,
-         *                                        in milliseconds
-         * @return the builder
-         */
-        public LDConfig.Builder backgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
-            this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
             return this;
         }
 
@@ -658,31 +653,6 @@ public class LDConfig {
 
             LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
 
-            if (!stream) {
-                if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    logger.warn(
-                            "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
-                            pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
-                    pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
-                }
-
-                if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                    logger.warn(
-                            "BackgroundPollingIntervalMillis: {} was set below the foreground polling interval: {}. Ignoring and using minimum value for background polling.",
-                            backgroundPollingIntervalMillis, pollingIntervalMillis);
-                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
-                }
-            }
-
-            if (!disableBackgroundUpdating) {
-                if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
-                    logger.warn(
-                            "BackgroundPollingIntervalMillis: {} was set below the minimum allowed: {}. Ignoring and using minimum value.",
-                            backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
-                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
-                }
-            }
-
             HashMap<String, String> mobileKeys;
             if (secondaryMobileKeys == null) {
                 mobileKeys = new HashMap<>();
@@ -700,12 +670,10 @@ public class LDConfig {
             return new LDConfig(
                     mobileKeys,
                     serviceEndpoints,
+                    this.dataSource == null ? Components.streamingDataSource() : this.dataSource,
                     this.events == null ? Components.sendEvents() : this.events,
                     connectionTimeoutMillis,
                     offline,
-                    stream,
-                    pollingIntervalMillis,
-                    backgroundPollingIntervalMillis,
                     disableBackgroundUpdating,
                     useReport,
                     evaluationReasons,

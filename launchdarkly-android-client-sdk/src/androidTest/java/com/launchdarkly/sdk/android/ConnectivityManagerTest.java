@@ -12,6 +12,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import org.easymock.Capture;
@@ -135,7 +137,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         LDConfig config = new LDConfig.Builder()
                 .mobileKey(MOBILE_KEY)
                 .offline(setOffline)
-                .stream(streaming)
                 .disableBackgroundUpdating(backgroundDisabled)
                 .serviceEndpoints(
                         Components.serviceEndpoints().streaming(
@@ -164,9 +165,13 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             allFlagsReceived.add(flagsUpdated);
         });
 
+        ComponentConfigurer<DataSource> dataSourceConfigurer = streaming ?
+                Components.streamingDataSource() : Components.pollingDataSource();
+        DataSource dataSourceConfig = dataSourceConfigurer.build(null);
         connectivityManager = new ConnectivityManager(
                 clientContext,
                 clientState,
+                dataSourceConfig,
                 eventProcessor,
                 contextDataManager,
                 fetcher,
