@@ -23,7 +23,7 @@ import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
  * <p>
  * Note that this class is abstract; the actual implementation is created by calling {@link Components#httpConfiguration()}.
  *
- * @since 4.13.0
+ * @since 3.3.0
  */
 public abstract class HttpConfigurationBuilder implements ComponentConfigurer<HttpConfiguration> {
     /**
