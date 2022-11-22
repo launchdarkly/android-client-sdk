@@ -32,9 +32,12 @@ class DiagnosticEvent {
 
     static LDValue makeConfigurationInfo(LDConfig config) {
         ObjectBuilder builder = LDValue.buildObject()
-                .put("customBaseURI", !LDConfig.DEFAULT_POLL_URI.equals(config.getPollUri()))
-                .put("customEventsURI", !LDConfig.DEFAULT_EVENTS_URI.equals(config.getEventsUri()))
-                .put("customStreamURI", !LDConfig.DEFAULT_STREAM_URI.equals(config.getStreamUri()))
+                .put("customBaseURI",
+                        !StandardEndpoints.DEFAULT_POLLING_BASE_URI.equals(config.serviceEndpoints.getPollingBaseUri()))
+                .put("customEventsURI",
+                        !StandardEndpoints.DEFAULT_EVENTS_BASE_URI.equals(config.serviceEndpoints.getEventsBaseUri()))
+                .put("customStreamURI",
+                        !StandardEndpoints.DEFAULT_STREAMING_BASE_URI.equals(config.serviceEndpoints.getStreamingBaseUri()))
                 .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
                 .put("evaluationReasonsRequested", config.isEvaluationReasons())
                 .put("mobileKeyCount", config.getMobileKeys().size())

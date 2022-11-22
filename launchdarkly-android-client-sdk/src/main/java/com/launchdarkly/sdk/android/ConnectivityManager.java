@@ -7,11 +7,11 @@ import android.content.SharedPreferences;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
+import java.net.URI;
 import java.util.Calendar;
 import java.util.TimeZone;
 
@@ -31,7 +31,6 @@ class ConnectivityManager {
     private final SharedPreferences stateStore;
     private final StreamUpdateProcessor streamUpdateProcessor;
     private final UserManager userManager;
-    private final DataSource dataSourceConfig;
     private final EventProcessor eventProcessor;
     private final DiagnosticEventProcessor diagnosticEventProcessor;
     private final Throttler throttler;
@@ -55,7 +54,6 @@ class ConnectivityManager {
                         final DiagnosticStore diagnosticStore,
                         final LDLogger logger) {
         this.application = application;
-        this.dataSourceConfig = dataSourceConfig;
         this.eventProcessor = eventProcessor;
         this.diagnosticEventProcessor = diagnosticEventProcessor;
         this.userManager = userManager;
@@ -67,6 +65,10 @@ class ConnectivityManager {
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
         setOffline = ldConfig.isOffline();
+
+        final URI streamUri = dataSourceConfig.isStreamingDisabled() ? null :
+                StandardEndpoints.selectBaseUri(ldConfig.serviceEndpoints.getStreamingBaseUri(),
+                        StandardEndpoints.DEFAULT_STREAMING_BASE_URI, "streaming", logger);
 
         backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
         foregroundMode = dataSourceConfig.isStreamingDisabled() ? ConnectionMode.POLLING : ConnectionMode.STREAMING;
@@ -137,8 +139,8 @@ class ConnectivityManager {
         };
 
         streamUpdateProcessor = dataSourceConfig.isStreamingDisabled() ? null :
-                new StreamUpdateProcessor(ldConfig, dataSourceConfig, httpConfig, userManager,
-                        environmentName, diagnosticStore, monitor, logger);
+                new StreamUpdateProcessor(ldConfig, dataSourceConfig, httpConfig, streamUri,
+                        userManager, environmentName, diagnosticStore, monitor, logger);
     }
 
     boolean isInitialized() {

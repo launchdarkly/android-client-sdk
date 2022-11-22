@@ -1,11 +1,13 @@
 package com.launchdarkly.sdk.android;
 
 import android.content.Context;
+import android.net.Uri;
 
 import androidx.annotation.NonNull;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.net.URI;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -52,6 +54,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
     private final LDConfig config;
     private final HttpConfiguration httpConfig;
     private final String environmentName;
+    private final Uri eventsUri;
     private final int flushIntervalMillis;
     private final boolean inlineUsers;
     private ScheduledExecutorService scheduler;
@@ -65,6 +68,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
             Context context,
             LDConfig config,
             HttpConfiguration httpConfig,
+            URI eventsUri,
             SummaryEventStore summaryEventStore,
             String environmentName,
             boolean initiallyOffline,
@@ -78,6 +82,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         this.context = context;
         this.config = config;
         this.httpConfig = httpConfig;
+        this.eventsUri = Uri.parse(eventsUri.toString());
         this.offline.set(initiallyOffline);
         this.environmentName = environmentName;
         this.flushIntervalMillis = flushIntervalMillis;
@@ -237,7 +242,7 @@ class DefaultEventProcessor implements EventProcessor, Closeable {
         private void postEvents(List<Event> events) {
             String content = config.filteredEventGson.toJson(events);
             String eventPayloadId = UUID.randomUUID().toString();
-            String url = config.getEventsUri().buildUpon().appendPath("mobile").build().toString();
+            String url = eventsUri.buildUpon().appendPath("mobile").build().toString();
             HashMap<String, String> baseHeadersForRequest = new HashMap<>();
             baseHeadersForRequest.put("X-LaunchDarkly-Payload-ID", eventPayloadId);
             baseHeadersForRequest.putAll(baseEventHeaders);

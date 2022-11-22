@@ -278,7 +278,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 sdkKey, environmentName, null, null, null, logger);
         HttpConfiguration httpConfig = incompleteClientContext.getHttp();
 
-        FeatureFetcher fetcher = HttpFeatureFlagFetcher.newInstance(application, config, httpConfig,
+        FeatureFetcher fetcher = new HttpFeatureFlagFetcher(application, config, httpConfig,
                 environmentName, logger);
         OkHttpClient sharedEventClient = makeSharedEventClient(httpConfig);
         if (config.getDiagnosticOptOut() || (config.events == ComponentsImpl.NULL_EVENT_PROCESSOR_FACTORY)) {
@@ -305,8 +305,8 @@ public class LDClient implements LDClientInterface, Closeable {
         DataSource dataSource = config.dataSource.build(clientContext);
         eventProcessor = config.events.build(clientContext);
         connectivityManager = new ConnectivityManager(application, config, dataSource,
-                clientContext.getHttp(), eventProcessor,  userManager, environmentName,
-                diagnosticEventProcessor, diagnosticStore, logger);
+                clientContext.getHttp(), eventProcessor,  userManager,
+                environmentName, diagnosticEventProcessor, diagnosticStore, logger);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityReceiver = new ConnectivityReceiver();

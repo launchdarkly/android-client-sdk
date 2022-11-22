@@ -11,6 +11,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.android.subsystems.ServiceEndpoints;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -40,6 +41,7 @@ class StreamUpdateProcessor {
     private final HttpConfiguration httpConfig;
     private final LDConfig config;
     private final UserManager userManager;
+    private final Uri streamUri;
     private volatile boolean running = false;
     private final Debounce queue;
     private boolean connection401Error = false;
@@ -54,6 +56,7 @@ class StreamUpdateProcessor {
             LDConfig config,
             DataSource dataSourceConfig,
             HttpConfiguration httpConfig,
+            URI streamUri,
             UserManager userManager,
             String environmentName,
             DiagnosticStore diagnosticStore,
@@ -64,6 +67,7 @@ class StreamUpdateProcessor {
         this.dataSourceConfig = dataSourceConfig;
         this.httpConfig = httpConfig;
         this.userManager = userManager;
+        this.streamUri = Uri.parse(streamUri.toString());
         this.environmentName = environmentName;
         this.notifier = notifier;
         this.diagnosticStore = diagnosticStore;
@@ -177,7 +181,7 @@ class StreamUpdateProcessor {
     }
 
     private URI getUri(@Nullable LDUser user) {
-        String str = Uri.withAppendedPath(config.getStreamUri(), "meval").toString();
+        String str = Uri.withAppendedPath(streamUri, "meval").toString();
 
         if (!httpConfig.isUseReport() && user != null) {
             str += "/" + DefaultUserManager.base64Url(user);

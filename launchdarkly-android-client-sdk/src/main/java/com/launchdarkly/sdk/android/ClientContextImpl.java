@@ -55,7 +55,8 @@ final class ClientContextImpl extends ClientContext {
             LDLogger logger
     ) {
         ClientContext minimalContext = new ClientContext(null, mobileKey, logger, config,
-                environmentName, config.isEvaluationReasons(), null, config.isOffline());
+                environmentName, config.isEvaluationReasons(), null, config.isOffline(),
+                config.serviceEndpoints);
         HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 application,
@@ -65,7 +66,8 @@ final class ClientContextImpl extends ClientContext {
                 environmentName,
                 config.isEvaluationReasons(),
                 httpConfig,
-                config.isOffline()
+                config.isOffline(),
+                config.serviceEndpoints
         );
         return new ClientContextImpl(baseClientContext, diagnosticStore, sharedEventClient, summaryEventStore);
     }

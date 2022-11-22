@@ -13,12 +13,15 @@ import com.launchdarkly.sdk.UserAttribute;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.android.subsystems.ServiceEndpoints;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -56,9 +59,9 @@ public class LDConfig {
 
     static final String primaryEnvironmentName = "default";
 
-    static final Uri DEFAULT_POLL_URI = Uri.parse("https://clientsdk.launchdarkly.com");
-    static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com");
-    static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
+    static final Uri DEFAULT_POLL_URI = Uri.parse(StandardEndpoints.DEFAULT_POLLING_BASE_URI.toString());
+    static final Uri DEFAULT_EVENTS_URI = Uri.parse(StandardEndpoints.DEFAULT_EVENTS_BASE_URI.toString());
+    static final Uri DEFAULT_STREAM_URI = Uri.parse(StandardEndpoints.DEFAULT_STREAMING_BASE_URI.toString());
 
     static final int DEFAULT_MAX_CACHED_USERS = 5;
 
@@ -71,6 +74,7 @@ public class LDConfig {
     final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
     final ComponentConfigurer<HttpConfiguration> http;
+    final ServiceEndpoints serviceEndpoints;
 
     private final boolean autoAliasingOptOut;
     private final boolean diagnosticOptOut;
@@ -106,6 +110,7 @@ public class LDConfig {
              ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
              ComponentConfigurer<HttpConfiguration> http,
+             ServiceEndpoints serviceEndpoints,
              int eventsCapacity,
              int eventsFlushIntervalMillis,
              int connectionTimeoutMillis,
@@ -136,6 +141,7 @@ public class LDConfig {
         this.dataSource = dataSource;
         this.events = events;
         this.http = http;
+        this.serviceEndpoints = serviceEndpoints;
         this.eventsCapacity = eventsCapacity;
         this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
         this.connectionTimeoutMillis = connectionTimeoutMillis;
@@ -198,14 +204,29 @@ public class LDConfig {
     }
 
     /**
-     * Get the currently configured base URI for polling requests.
-     *
-     * @return the base URI configured to be used for poll requests.
+     * Returns the setting of {@link Builder#pollUri(Uri)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual base URI properties
+     *   are removed from the top-level configuration.
      */
+    @Deprecated
     public Uri getPollUri() {
         return pollUri;
     }
 
+    /**
+     * Returns the setting of {@link Builder#eventsUri(Uri)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual base URI properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public Uri getEventsUri() {
         return eventsUri;
     }
@@ -252,6 +273,16 @@ public class LDConfig {
         return connectionTimeoutMillis;
     }
 
+    /**
+     * Returns the setting of {@link Builder#streamUri(Uri)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual base URI properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public Uri getStreamUri() {
         return streamUri;
     }
@@ -441,6 +472,7 @@ public class LDConfig {
         private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
         private ComponentConfigurer<HttpConfiguration> http = null;
+        private ServiceEndpointsBuilder serviceEndpointsBuilder = null;
 
         private int eventsCapacity = EventProcessorBuilder.DEFAULT_CAPACITY;
         private int eventsFlushIntervalMillis = 0;
@@ -570,33 +602,51 @@ public class LDConfig {
         }
 
         /**
-         * Set the base URI for polling requests to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Deprecated method for setting the base URI of the polling service.
+         * <p>
+         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param pollUri the URI of the main LaunchDarkly service
+         * @param pollUri the URI of the LaunchDarkly polling service
          * @return the builder
+         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
+         *   {@link ServiceEndpointsBuilder#polling(URI)} instead.
          */
+        @Deprecated
         public LDConfig.Builder pollUri(Uri pollUri) {
             this.pollUri = pollUri;
             return this;
         }
 
         /**
-         * Set the events URI for sending analytics to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Deprecated method for setting the base URI of the events service.
+         * <p>
+         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param eventsUri the URI of the LaunchDarkly analytics event service
+         * @param eventsUri the URI of the LaunchDarkly events service
          * @return the builder
+         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
+         *   {@link ServiceEndpointsBuilder#events(URI)} instead.
          */
+        @Deprecated
         public LDConfig.Builder eventsUri(Uri eventsUri) {
             this.eventsUri = eventsUri;
             return this;
         }
 
         /**
-         * Set the stream URI for connecting to the flag update stream. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Deprecated method for setting the base URI of the streaming service.
+         * <p>
+         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param streamUri the URI of the LaunchDarkly streaming service
          * @return the builder
+         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
+         *   {@link ServiceEndpointsBuilder#streaming(URI)} instead.
          */
+        @Deprecated
         public LDConfig.Builder streamUri(Uri streamUri) {
             this.streamUri = streamUri;
             return this;
@@ -690,6 +740,27 @@ public class LDConfig {
          */
         public Builder http(ComponentConfigurer<HttpConfiguration> httpConfigurer) {
             this.http = httpConfigurer;
+            return this;
+        }
+
+        /**
+         * Sets the base service URIs used by SDK components.
+         * <p>
+         * This object is a configuration builder obtained from {@link Components#serviceEndpoints()},
+         * which has methods for setting each external endpoint to a custom URI.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder().mobileKey("key")
+         *         .serviceEndpoints(
+         *             Components.serviceEndpoints().relayProxy("http://my-relay-proxy-host")
+         *         );
+         * </code></pre>
+         *
+         * @param serviceEndpointsBuilder a configuration builder object returned by {@link Components#serviceEndpoints()}
+         * @return the builder
+         * @since 3.3.0
+         */
+        public Builder serviceEndpoints(ServiceEndpointsBuilder serviceEndpointsBuilder) {
+            this.serviceEndpointsBuilder = serviceEndpointsBuilder;
             return this;
         }
 
@@ -1199,6 +1270,10 @@ public class LDConfig {
                 httpConfig = httpBuilder;
             }
 
+            ServiceEndpoints serviceEndpoints = this.serviceEndpointsBuilder == null ?
+                    Components.serviceEndpoints().polling(pollUri).streaming(streamUri).events(eventsUri).build() :
+                    this.serviceEndpointsBuilder.build();
+
             return new LDConfig(
                     mobileKeys,
                     pollUri,
@@ -1207,6 +1282,7 @@ public class LDConfig {
                     dataSourceConfig,
                     eventsConfig,
                     httpConfig,
+                    serviceEndpoints,
                     eventsCapacity,
                     eventsFlushIntervalMillis,
                     connectionTimeoutMillis,

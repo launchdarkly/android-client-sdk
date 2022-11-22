@@ -1,7 +1,6 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.net.Uri;
 
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -692,6 +691,6 @@ public class LDClientTest {
         return new LDConfig.Builder()
                 .mobileKey(mobileKey)
                 .diagnosticOptOut(true)
-                .eventsUri(Uri.parse(baseUrl.toString()));
+                .serviceEndpoints(Components.serviceEndpoints().events(baseUrl.toString()));
     }
 }

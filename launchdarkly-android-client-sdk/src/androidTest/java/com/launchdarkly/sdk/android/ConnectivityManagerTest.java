@@ -6,7 +6,6 @@ import android.app.Application;
 import android.content.Context;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.Uri;
 import android.os.Build;
 import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
@@ -134,7 +133,11 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .mobileKey("test-mobile-key")
                 .offline(setOffline)
                 .disableBackgroundUpdating(backgroundDisabled)
-                .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
+                .serviceEndpoints(
+                        Components.serviceEndpoints().streaming(
+                                streamUri != null ? streamUri : mockStreamServer.url("/").toString()
+                        )
+                )
                 .build();
 
         ComponentConfigurer<DataSource> dataSourceConfigurer = streaming ?
