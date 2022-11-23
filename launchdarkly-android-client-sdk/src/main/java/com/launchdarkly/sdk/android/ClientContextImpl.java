@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 
 /**
@@ -50,17 +51,22 @@ final class ClientContextImpl extends ClientContext {
             PlatformState platformState,
             TaskExecutor taskExecutor
     ) {
+        boolean initiallyInBackground = platformState != null && !platformState.isForeground();
+        ClientContext minimalContext = new ClientContext(mobileKey, logger, config,
+                environmentName, config.isEvaluationReasons(), null, null,
+                initiallyInBackground, config.isOffline(), null);
+        HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 mobileKey,
                 logger,
                 config,
                 environmentName,
                 config.isEvaluationReasons(),
+                httpConfig,
                 initialContext,
-                platformState != null && !platformState.isForeground(),
+                initiallyInBackground,
                 config.isOffline(),
-                config.serviceEndpoints,
-                config.isUseReport()
+                config.serviceEndpoints
         );
         DiagnosticStore diagnosticStore = null;
         if (!config.getDiagnosticOptOut()) {

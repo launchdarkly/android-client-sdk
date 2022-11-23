@@ -14,6 +14,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
 import com.launchdarkly.sdk.android.LDClient;
@@ -69,7 +70,10 @@ public class MainActivity extends AppCompatActivity {
 
         LDConfig ldConfig = new LDConfig.Builder()
                 .mobileKey("MOBILE_KEY")
-                .useReport(false) // change to `true` if the request is to be REPORT'ed instead of GET'ed
+                .http(
+                        Components.httpConfiguration().useReport(false)
+                        // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
+                )
                 .build();
 
         LDContext context = LDContext.builder("user key")

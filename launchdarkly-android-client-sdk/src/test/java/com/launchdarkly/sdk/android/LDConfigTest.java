@@ -26,42 +26,11 @@ public class LDConfigTest {
         LDConfig config = new LDConfig.Builder().build();
         assertFalse(config.isOffline());
 
-        assertEquals(LDConfig.DEFAULT_CONNECTION_TIMEOUT_MILLIS, config.getConnectionTimeoutMillis());
-
         assertFalse(config.isDisableBackgroundPolling());
 
         assertNull(config.getMobileKey());
         assertFalse(config.isEvaluationReasons());
         assertFalse(config.getDiagnosticOptOut());
-
-        assertNull(config.getWrapperName());
-        assertNull(config.getWrapperVersion());
-    }
-
-    @Test
-    public void testBuilderUseReportDefaultGet() {
-        LDConfig config = new LDConfig.Builder()
-                .build();
-
-        assertFalse(config.isUseReport());
-    }
-
-    @Test
-    public void testBuilderUseReportSetToGet() {
-        LDConfig config = new LDConfig.Builder()
-                .useReport(false)
-                .build();
-
-        assertFalse(config.isUseReport());
-    }
-
-    @Test
-    public void testBuilderUseReportSetToReport() {
-        LDConfig config = new LDConfig.Builder()
-                .useReport(true)
-                .build();
-
-        assertTrue(config.isUseReport());
     }
 
     @Test
@@ -76,18 +45,6 @@ public class LDConfigTest {
         LDConfig config = new LDConfig.Builder().diagnosticOptOut(true).build();
 
         assertTrue(config.getDiagnosticOptOut());
-    }
-
-    @Test
-    public void testBuilderWrapperName() {
-        LDConfig config = new LDConfig.Builder().wrapperName("Scala").build();
-        assertEquals("Scala", config.getWrapperName());
-    }
-
-    @Test
-    public void testBuilderWrapperVersion() {
-        LDConfig config = new LDConfig.Builder().wrapperVersion("0.1.0").build();
-        assertEquals("0.1.0", config.getWrapperVersion());
     }
 
     @Test
@@ -121,7 +78,7 @@ public class LDConfigTest {
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
         assertEquals(2, headers.size());
-        assertEquals(LDConfig.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
+        assertEquals(LDUtil.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("api_key test-key", headers.get("authorization"));
     }
 
@@ -129,17 +86,17 @@ public class LDConfigTest {
     public void headersForEnvironmentWithTransform() {
         HashMap<String, String> expected = new HashMap<>();
         LDConfig config = new LDConfig.Builder().mobileKey("test-key")
-                .headerTransform(headers -> {
+                .http(Components.httpConfiguration().headerTransform(headers -> {
                     assertEquals(expected, headers);
                     headers.remove("User-Agent");
                     headers.put("Authorization", headers.get("Authorization") + ", more");
                     headers.put("New", "value");
-                })
+                }))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
                 null, null, null, null);
 
-        expected.put("User-Agent", LDConfig.USER_AGENT_HEADER_VALUE);
+        expected.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
         Map<String, String> headers = headersToMap(
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
