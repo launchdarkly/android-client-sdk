@@ -128,7 +128,7 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        Future<LDClient> ldClientFuture = LDClient.init(application, makeOfflineConfig(), null);
+        Future<LDClient> ldClientFuture = LDClient.init(application, makeOfflineConfig(), (LDContext)null);
 
         try {
             ldClientFuture.get();
