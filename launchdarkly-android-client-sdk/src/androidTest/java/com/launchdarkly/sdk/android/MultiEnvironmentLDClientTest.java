@@ -118,11 +118,12 @@ public class MultiEnvironmentLDClientTest {
     }
 
     @Test
-    public void testInitMissingUser() {
+    public void testInitMissingContext() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, null);
+        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig,
+                (LDContext)null);
 
         try {
             ldClientFuture.get();

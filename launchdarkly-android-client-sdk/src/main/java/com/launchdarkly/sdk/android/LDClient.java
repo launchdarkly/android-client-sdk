@@ -10,6 +10,7 @@ import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -74,7 +75,9 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param context     the initial evaluation context; see {@link LDClient} for more information
      *                    about setting the context and optionally requesting a unique key for it
      * @return a {@link Future} which will complete once the client has been initialized
-     * @see #init(Application, LDConfig, LDContext, int) 
+     * @see #init(Application, LDConfig, LDContext, int)
+     * @see #init(Application, LDConfig, LDUser)
+     * @since 3.0.0
      */
     public static Future<LDClient> init(@NonNull Application application,
                                         @NonNull LDConfig config,
@@ -184,6 +187,27 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     /**
+     * Initializes the singleton/primary instance.
+     * <p>
+     * This is equivalent to {@link #init(Application, LDConfig, LDContext)}, but using the
+     * {@link LDUser} type instead of {@link LDContext}.
+     *
+     * @param application your Android application
+     * @param config      configuration used to set up the client
+     * @param user        the initial user attributes, which will be converted to an evaluation
+     *                    context; see {@link LDClient} for more information about setting the
+     *                    context and optionally requesting a unique key for it
+     * @return a {@link Future} which will complete once the client has been initialized
+     * @see #init(Application, LDConfig, LDUser, int)
+     * @see #init(Application, LDConfig, LDContext)
+     */
+    public static Future<LDClient> init(@NonNull Application application,
+                                        @NonNull LDConfig config,
+                                        @NonNull LDUser user) {
+        return init(application, config, LDContext.fromUser(user));
+    }
+
+    /**
      * Initializes the singleton instance and blocks for up to <code>startWaitSeconds</code> seconds
      * until the client has been initialized. If the client does not initialize within
      * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
@@ -196,7 +220,9 @@ public class LDClient implements LDClientInterface, Closeable {
      *                         unique key for it
      * @param startWaitSeconds maximum number of seconds to wait for the client to initialize
      * @return the primary LDClient instance
-     * @see #init(Application, LDConfig, LDContext) 
+     * @see #init(Application, LDConfig, LDContext)
+     * @see #init(Application, LDConfig, LDUser, int)
+     * @since 3.0.0
      */
     public static LDClient init(Application application, LDConfig config, LDContext context, int startWaitSeconds) {
         initSharedLogger(config);
@@ -213,6 +239,29 @@ public class LDClient implements LDClientInterface, Closeable {
         return instances.get(LDConfig.primaryEnvironmentName);
     }
 
+    /**
+     * Initializes the singleton instance and blocks for up to <code>startWaitSeconds</code> seconds
+     * until the client has been initialized. If the client does not initialize within
+     * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
+     * have fetched the most recent feature flag values.
+     * <p>
+     * This is equivalent to {@link #init(Application, LDConfig, LDContext, int)}, but using the
+     * {@link LDUser} type instead of {@link LDContext}.
+     *
+     * @param application      your Android application
+     * @param config           configuration used to set up the client
+     * @param user             the initial user attributes, which will be converted to an evaluation
+     *                         context; see {@link LDClient} for more information about setting the
+     *                         context and optionally requesting a unique key for it
+     * @param startWaitSeconds maximum number of seconds to wait for the client to initialize
+     * @return the primary LDClient instance
+     * @see #init(Application, LDConfig, LDUser)
+     * @see #init(Application, LDConfig, LDContext, int)
+     */
+    public static LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
+        return init(application, config, LDContext.fromUser(user), startWaitSeconds);
+    }
+    
     /**
      * Returns the {@code LDClient} instance that was previously created with {@link #init(Application, LDConfig, LDContext, int)}
      * or {@link #init(Application, LDConfig, LDContext)}.
@@ -339,6 +388,11 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
         return identifyInstances(contextDecorator.decorateContext(context, getSharedLogger()));
+    }
+
+    @Override
+    public Future<Void> identify(LDUser user) {
+        return identify(LDContext.fromUser(user));
     }
 
     private @NonNull Map<String, LDClient> getInstancesIfTheyIncludeThisClient() {

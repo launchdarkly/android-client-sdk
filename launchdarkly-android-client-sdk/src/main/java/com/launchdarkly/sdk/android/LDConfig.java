@@ -7,6 +7,7 @@ import com.launchdarkly.logging.Logs;
 
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
@@ -521,7 +522,8 @@ public class LDConfig {
          * Every {@link LDContext} must always have a key, even if the key will later be overwritten
          * by the SDK, so if you use this functionality you must still provide a placeholder key.
          * This ensures that if the SDK configuration is changed so {@code generateAnonymousKeys} is
-         * no longer enabled, the SDK will still be able to use the context for evaluations.
+         * no longer enabled, the SDK will still be able to use the context for evaluations. (The
+         * legacy {@link LDUser} type does allow a null key in this case.)
          *
          * @param generateAnonymousKeys true to enable automatic anonymous key generation
          * @return the same builder
