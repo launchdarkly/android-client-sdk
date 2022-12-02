@@ -1,7 +1,6 @@
 package com.launchdarkly.sdk.android;
 
 import android.app.Application;
-import android.net.Uri;
 
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -632,10 +631,12 @@ public class LDClientTest {
             // Enqueue a successful empty response
             mockEventsServer.enqueue(new MockResponse());
 
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).headerTransform(headers -> {
-                headers.put("Proxy-Authorization", "token");
-                headers.put("Authorization", "foo");
-            }).build();
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .http(Components.httpConfiguration().headerTransform(headers -> {
+                        headers.put("Proxy-Authorization", "token");
+                        headers.put("Authorization", "foo");
+                    }))
+                    .build();
             try (LDClient client = LDClient.init(application, ldConfig, ldUser, 0)) {
                 client.blockingFlush();
             }
@@ -654,7 +655,7 @@ public class LDClientTest {
             mockEventsServer.enqueue(new MockResponse());
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
-                    .eventsCapacity(1)
+                    .events(Components.sendEvents().capacity(1))
                     .build();
 
             // Don't wait as we are not set offline
@@ -675,7 +676,7 @@ public class LDClientTest {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());
         assertEquals("/mobile", r.getPath());
-        assertEquals(LDConfig.AUTH_SCHEME + mobileKey, r.getHeader("Authorization"));
+        assertEquals(LDUtil.AUTH_SCHEME + mobileKey, r.getHeader("Authorization"));
         String body = r.getBody().readUtf8();
         System.out.println(body);
         Event[] events = TestUtil.getEventDeserializerGson().fromJson(body, Event[].class);
@@ -690,6 +691,6 @@ public class LDClientTest {
         return new LDConfig.Builder()
                 .mobileKey(mobileKey)
                 .diagnosticOptOut(true)
-                .eventsUri(Uri.parse(baseUrl.toString()));
+                .serviceEndpoints(Components.serviceEndpoints().events(baseUrl.toString()));
     }
 }

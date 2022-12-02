@@ -4,11 +4,15 @@ import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdktest.Representations.AliasEventParams;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
@@ -26,8 +30,6 @@ import android.net.Uri;
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -197,60 +199,67 @@ public class SdkClientEntity {
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
 
-    if (params.streaming != null) {
-      builder.stream(true);
-      if (params.streaming.baseUri != null) {
-        builder.streamUri(Uri.parse(params.streaming.baseUri));
-      }
-      // TODO: initialRetryDelayMs?
-    }
-
-    // The only time we should turn _off_ streaming is if polling is configured but NOT streaming
-    if (params.streaming == null && params.polling != null) {
-      builder.stream(false);
-    }
+    ServiceEndpointsBuilder endpoints = Components.serviceEndpoints();
 
     if (params.polling != null) {
-      if (params.polling.baseUri != null) {
-        builder.pollUri(Uri.parse(params.polling.baseUri));
-      }
-      if (params.polling.pollIntervalMs != null) {
-        builder.backgroundPollingIntervalMillis(params.polling.pollIntervalMs.intValue());
-      }
+      // Note that this property can be set even if streaming is enabled
+      endpoints.polling(params.polling.baseUri);
     }
 
-    if (params.events != null) {
-      builder.diagnosticOptOut(!params.events.enableDiagnostics);
-      builder.inlineUsersInEvents(params.events.inlineUsers);
+    if (params.polling != null && params.streaming == null) {
+      PollingDataSourceBuilder pollingBuilder = Components.pollingDataSource();
+      if (params.polling.pollIntervalMs != null) {
+        pollingBuilder.pollIntervalMillis(params.polling.pollIntervalMs.intValue());
+      }
+      builder.dataSource(pollingBuilder);
+    } else if (params.streaming != null) {
+      endpoints.streaming(params.streaming.baseUri);
+      StreamingDataSourceBuilder streamingBuilder = Components.streamingDataSource();
+      if (params.streaming.initialRetryDelayMs != null) {
+        streamingBuilder.initialReconnectDelayMillis(params.streaming.initialRetryDelayMs.intValue());
+      }
+      builder.dataSource(streamingBuilder);
+    }
 
-      if (params.events.baseUri != null) {
-        builder.eventsUri(Uri.parse(params.events.baseUri));
-      }
+    if (params.events == null) {
+      builder.events(Components.noEvents());
+    } else {
+      builder.diagnosticOptOut(!params.events.enableDiagnostics);
+      endpoints.events(params.events.baseUri);
+      EventProcessorBuilder eventsBuilder = Components.sendEvents()
+              .allAttributesPrivate(params.events.allAttributesPrivate)
+              .inlineUsers(params.events.inlineUsers);
       if (params.events.capacity > 0) {
-        builder.eventsCapacity(params.events.capacity);
+        eventsBuilder.capacity(params.events.capacity);
       }
       if (params.events.flushIntervalMs != null) {
-        builder.eventsFlushIntervalMillis(params.events.flushIntervalMs.intValue());
-      }
-      if (params.events.allAttributesPrivate) {
-        builder.allAttributesPrivate();
-      }
-      if (params.events.flushIntervalMs != null) {
-        builder.eventsFlushIntervalMillis(params.events.flushIntervalMs.intValue());
+        eventsBuilder.flushIntervalMillis(params.events.flushIntervalMs.intValue());
       }
       if (params.events.globalPrivateAttributes != null) {
-        String[] attrNames = params.events.globalPrivateAttributes;
-        List<UserAttribute> privateAttributes = new ArrayList<>();
-        for (String a : attrNames) {
-          privateAttributes.add(UserAttribute.forName(a));
-        }
-        builder.privateAttributes((UserAttribute[]) privateAttributes.toArray(new UserAttribute[]{}));
+        eventsBuilder.privateAttributes(params.events.globalPrivateAttributes);
       }
+      builder.events(eventsBuilder);
     }
-    // TODO: disable events if no params.events
+
     builder.autoAliasingOptOut(params.clientSide.autoAliasingOptOut);
     builder.evaluationReasons(params.clientSide.evaluationReasons);
-    builder.useReport(params.clientSide.useReport);
+    builder.http(
+            Components.httpConfiguration().useReport(params.clientSide.useReport)
+    );
+
+    if (params.serviceEndpoints != null) {
+      if (params.serviceEndpoints.streaming != null) {
+        endpoints.streaming(params.serviceEndpoints.streaming);
+      }
+      if (params.serviceEndpoints.polling != null) {
+        endpoints.polling(params.serviceEndpoints.polling);
+      }
+      if (params.serviceEndpoints.events != null) {
+        endpoints.events(params.serviceEndpoints.events);
+      }
+    }
+
+    builder.serviceEndpoints(endpoints);
 
     return builder.build();
   }

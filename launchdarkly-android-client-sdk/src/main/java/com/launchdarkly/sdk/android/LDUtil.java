@@ -19,6 +19,7 @@ import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -27,7 +28,31 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import okhttp3.Headers;
+
 class LDUtil {
+    static final String AUTH_SCHEME = "api_key ";
+    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
+
+    static Headers makeRequestHeaders(
+            @NonNull HttpConfiguration httpConfig,
+            Map<String, String> additionalHeaders
+    ) {
+        HashMap<String, String> baseHeaders = new HashMap<>();
+        for (Map.Entry<String, String> kv: httpConfig.getDefaultHeaders()) {
+            baseHeaders.put(kv.getKey(), kv.getValue());
+        }
+
+        if (additionalHeaders != null) {
+            baseHeaders.putAll(additionalHeaders);
+        }
+
+        if (httpConfig.getHeaderTransform() != null) {
+            httpConfig.getHeaderTransform().updateHeaders(baseHeaders);
+        }
+
+        return Headers.of(baseHeaders);
+    }
 
     /**
      * Looks at the Android device status to determine if the device is online.
@@ -157,15 +182,20 @@ class LDUtil {
     }
 
     static class LDUserPrivateAttributesTypeAdapter extends TypeAdapter<LDUser> {
-        private final LDConfig config;
+        private final boolean allAttributesPrivate;
+        private final Set<UserAttribute> privateAttributes;
 
-        LDUserPrivateAttributesTypeAdapter(LDConfig cfg) {
-            config = cfg;
+        LDUserPrivateAttributesTypeAdapter(
+                boolean allAttributesPrivate,
+                Set<UserAttribute> privateAttributes
+        ) {
+            this.allAttributesPrivate = allAttributesPrivate;
+            this.privateAttributes = privateAttributes;
         }
 
         private boolean isPrivate(LDUser user, UserAttribute attribute) {
-            return config.allAttributesPrivate() ||
-                    config.getPrivateAttributes().contains(attribute) ||
+            return allAttributesPrivate ||
+                    privateAttributes.contains(attribute) ||
                     user.isAttributePrivate(attribute);
         }
 

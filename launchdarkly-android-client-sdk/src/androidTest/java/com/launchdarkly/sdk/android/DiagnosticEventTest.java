@@ -6,6 +6,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -22,83 +27,219 @@ public class DiagnosticEventTest {
     public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
 
     @Test
-    public void testDefaultDiagnosticConfiguration() {
+    public void defaultDiagnosticConfiguration() {
         LDConfig ldConfig = new LDConfig.Builder().build();
-        DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);
-        JsonObject diagnosticJson = GsonCache.getGson().toJsonTree(diagnosticConfiguration).getAsJsonObject();
-        JsonObject expected = new JsonObject();
-        expected.addProperty("allAttributesPrivate", false);
-        expected.addProperty("backgroundPollingDisabled", false);
-        expected.addProperty("backgroundPollingIntervalMillis", 3_600_000);
-        expected.addProperty("connectTimeoutMillis", 10_000);
-        expected.addProperty("customBaseURI", false);
-        expected.addProperty("customEventsURI", false);
-        expected.addProperty("customStreamURI", false);
-        expected.addProperty("diagnosticRecordingIntervalMillis", 900_000);
-        expected.addProperty("evaluationReasonsRequested", false);
-        expected.addProperty("eventsCapacity", 100);
-        expected.addProperty("eventsFlushIntervalMillis",30_000);
-        expected.addProperty("inlineUsersInEvents", false);
-        expected.addProperty("mobileKeyCount", 1);
-        expected.addProperty("pollingIntervalMillis", 300_000);
-        expected.addProperty("streamingDisabled", false);
-        expected.addProperty("useReport", false);
-        expected.addProperty("maxCachedUsers", 5);
-        expected.addProperty("autoAliasingOptOut", false);
-        Assert.assertEquals(expected, diagnosticJson);
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
     @Test
-    public void testCustomDiagnosticConfiguration() {
+    public void customDiagnosticConfigurationGeneral() {
         HashMap<String, String> secondaryKeys = new HashMap<>(1);
         secondaryKeys.put("secondary", "key");
         LDConfig ldConfig = new LDConfig.Builder()
-                .allAttributesPrivate()
                 .disableBackgroundUpdating(true)
-                .backgroundPollingIntervalMillis(900_000)
-                .connectionTimeoutMillis(5_000)
-                .pollUri(Uri.parse("https://1.1.1.1"))
-                .eventsUri(Uri.parse("https://1.1.1.1"))
-                .streamUri(Uri.parse("https://1.1.1.1"))
-                .diagnosticRecordingIntervalMillis(1_800_000)
                 .evaluationReasons(true)
-                .eventsCapacity(1000)
-                .eventsFlushIntervalMillis(60_000)
-                .inlineUsersInEvents(true)
                 .secondaryMobileKeys(secondaryKeys)
-                .pollingIntervalMillis(600_000)
-                .stream(false)
-                .useReport(true)
                 .maxCachedUsers(-1)
                 .autoAliasingOptOut(true)
                 .build();
 
-        DiagnosticEvent.DiagnosticConfiguration diagnosticConfiguration = new DiagnosticEvent.DiagnosticConfiguration(ldConfig);
-        JsonObject diagnosticJson = GsonCache.getGson().toJsonTree(diagnosticConfiguration).getAsJsonObject();
-        JsonObject expected = new JsonObject();
-        expected.addProperty("allAttributesPrivate", true);
-        expected.addProperty("backgroundPollingDisabled", true);
-        expected.addProperty("backgroundPollingIntervalMillis", 900_000);
-        expected.addProperty("connectTimeoutMillis", 5_000);
-        expected.addProperty("customBaseURI", true);
-        expected.addProperty("customEventsURI", true);
-        expected.addProperty("customStreamURI", true);
-        expected.addProperty("diagnosticRecordingIntervalMillis", 1_800_000);
-        expected.addProperty("evaluationReasonsRequested", true);
-        expected.addProperty("eventsCapacity", 1000);
-        expected.addProperty("eventsFlushIntervalMillis",60_000);
-        expected.addProperty("inlineUsersInEvents", true);
-        expected.addProperty("mobileKeyCount", 2);
-        expected.addProperty("pollingIntervalMillis", 600_000);
-        expected.addProperty("streamingDisabled", true);
-        expected.addProperty("useReport", true);
-        expected.addProperty("maxCachedUsers", -1);
-        expected.addProperty("autoAliasingOptOut", true);
-        Assert.assertEquals(expected, diagnosticJson);
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("backgroundPollingDisabled", true);
+        expected.put("evaluationReasonsRequested", true);
+        expected.put("mobileKeyCount", 2);
+        expected.put("maxCachedUsers", -1);
+        expected.put("autoAliasingOptOut", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
     }
 
     @Test
-    public void testStatisticsEventSerialization(){
+    public void customDiagnosticConfigurationEvents() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .events(
+                        Components.sendEvents()
+                                .allAttributesPrivate(true)
+                                .capacity(1000)
+                                .diagnosticRecordingIntervalMillis(1_800_000)
+                                .flushIntervalMillis(60_000)
+                                .inlineUsers(true)
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("allAttributesPrivate", true);
+        expected.put("diagnosticRecordingIntervalMillis", 1_800_000);
+        expected.put("eventsCapacity", 1000);
+        expected.put("eventsFlushIntervalMillis", 60_000);
+        expected.put("inlineUsersInEvents", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @Test
+    public void customDiagnosticConfigurationStreaming() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .dataSource(
+                        Components.streamingDataSource()
+                                .backgroundPollIntervalMillis(900_000)
+                                .initialReconnectDelayMillis(500)
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("backgroundPollingIntervalMillis", 900_000);
+        expected.put("reconnectTimeMillis", 500);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @Test
+    public void customDiagnosticConfigurationPolling() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .dataSource(
+                        Components.pollingDataSource()
+                                .backgroundPollIntervalMillis(900_000)
+                                .pollIntervalMillis(600_000)
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaultsWithoutStreaming();
+        expected.put("streamingDisabled", true);
+        expected.put("backgroundPollingIntervalMillis", 900_000);
+        expected.put("pollingIntervalMillis", 600_000);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @Test
+    public void customDiagnosticConfigurationHttp() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .http(
+                        Components.httpConfiguration()
+                                .connectTimeoutMillis(5_000)
+                                .useReport(true)
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("connectTimeoutMillis", 5_000);
+        expected.put("useReport", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @Test
+    public void customDiagnosticConfigurationServiceEndpoints() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .serviceEndpoints(
+                        Components.serviceEndpoints()
+                                .streaming("https://1.1.1.1")
+                                .polling("https://1.1.1.1")
+                                .events("https://1.1.1.1")
+                )
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("customBaseURI", true);
+        expected.put("customEventsURI", true);
+        expected.put("customStreamURI", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void customDiagnosticConfigurationEventsWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .allAttributesPrivate()
+                .diagnosticRecordingIntervalMillis(1_800_000)
+                .eventsCapacity(1000)
+                .eventsFlushIntervalMillis(60_000)
+                .inlineUsersInEvents(true)
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("allAttributesPrivate", true);
+        expected.put("diagnosticRecordingIntervalMillis", 1_800_000);
+        expected.put("eventsCapacity", 1000);
+        expected.put("eventsFlushIntervalMillis", 60_000);
+        expected.put("inlineUsersInEvents", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void customDiagnosticConfigurationStreamingWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .backgroundPollingIntervalMillis(900_000)
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("backgroundPollingIntervalMillis", 900_000);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void customDiagnosticConfigurationPollingWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .stream(false)
+                .backgroundPollingIntervalMillis(900_000)
+                .pollingIntervalMillis(600_000)
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaultsWithoutStreaming();
+        expected.put("streamingDisabled", true);
+        expected.put("backgroundPollingIntervalMillis", 900_000);
+        expected.put("pollingIntervalMillis", 600_000);
+
+        // When using the deprecated setters only, there is an extra defaulting rule that causes
+        // the event flush interval to match the polling interval if not otherwise specified.
+        expected.put("eventsFlushIntervalMillis", 600_000);
+
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void customDiagnosticConfigurationHttpWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .connectionTimeoutMillis(5_000)
+                .useReport(true)
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("connectTimeoutMillis", 5_000);
+        expected.put("useReport", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    public void customDiagnosticConfigurationServiceEndpointsWithDeprecatedSetters() {
+        LDConfig ldConfig = new LDConfig.Builder()
+                .streamUri(Uri.parse("https://1.1.1.1"))
+                .pollUri(Uri.parse("https://1.1.1.1"))
+                .eventsUri(Uri.parse("https://1.1.1.1"))
+                .build();
+
+        LDValue diagnosticJson = DiagnosticEvent.makeConfigurationInfo(ldConfig);
+        ObjectBuilder expected = makeExpectedDefaults();
+        expected.put("customBaseURI", true);
+        expected.put("customEventsURI", true);
+        expected.put("customStreamURI", true);
+        Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @Test
+    public void statisticsEventSerialization() {
         DiagnosticEvent.Statistics statisticsEvent = new DiagnosticEvent.Statistics(2_000,
                 new DiagnosticId("testid", "testkey"), 1_000, 5, 100,
                 Collections.singletonList(new DiagnosticEvent.StreamInit(100, 50, false)));
@@ -121,5 +262,37 @@ public class DiagnosticEventTest {
         expectedStreamInits.add(expectedStreamInit);
         expected.add("streamInits", expectedStreamInits);
         Assert.assertEquals(expected, diagnosticJson);
+    }
+
+    private static ObjectBuilder makeExpectedDefaultsWithoutStreaming() {
+        ObjectBuilder expected = LDValue.buildObject();
+        expected.put("allAttributesPrivate", false);
+        expected.put("autoAliasingOptOut", false);
+        expected.put("backgroundPollingDisabled", false);
+        expected.put("backgroundPollingIntervalMillis",
+                LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
+        expected.put("connectTimeoutMillis",
+                HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS);
+        expected.put("customBaseURI", false);
+        expected.put("customEventsURI", false);
+        expected.put("customStreamURI", false);
+        expected.put("diagnosticRecordingIntervalMillis",
+                EventProcessorBuilder.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
+        expected.put("evaluationReasonsRequested", false);
+        expected.put("eventsCapacity", EventProcessorBuilder.DEFAULT_CAPACITY);
+        expected.put("eventsFlushIntervalMillis",
+                EventProcessorBuilder.DEFAULT_FLUSH_INTERVAL_MILLIS);
+        expected.put("inlineUsersInEvents", false);
+        expected.put("maxCachedUsers", 5);
+        expected.put("mobileKeyCount", 1);
+        expected.put("streamingDisabled", false);
+        expected.put("useReport", false);
+        return expected;
+    }
+
+    private static ObjectBuilder makeExpectedDefaults() {
+        return makeExpectedDefaultsWithoutStreaming()
+                .put("reconnectTimeMillis",
+                        StreamingDataSourceBuilder.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS);
     }
 }

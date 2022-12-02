@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class PollingUpdater extends BroadcastReceiver {
 
-    private static int backgroundPollingIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
+    private static int backgroundPollingIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
 
     private static AtomicBoolean pollingActive = new AtomicBoolean(false);
     private static AtomicInteger pollingInterval = new AtomicInteger();

@@ -2,6 +2,11 @@ package com.launchdarkly.sdk.android;
 
 import android.os.Build;
 
+import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DiagnosticDescription;
+
 import java.util.List;
 
 @SuppressWarnings({"unused", "FieldCanBeLocal"}) // fields are for JSON serialization only
@@ -25,58 +30,43 @@ class DiagnosticEvent {
         }
     }
 
-    static class DiagnosticConfiguration {
-        private final boolean customBaseURI;
-        private final boolean customEventsURI;
-        private final boolean customStreamURI;
-        private final int eventsCapacity;
-        private final int connectTimeoutMillis;
-        private final long eventsFlushIntervalMillis;
-        private final boolean streamingDisabled;
-        private final boolean allAttributesPrivate;
-        private final long pollingIntervalMillis;
-        private final long backgroundPollingIntervalMillis;
-        private final boolean inlineUsersInEvents;
-        private final boolean useReport;
-        private final boolean backgroundPollingDisabled;
-        private final boolean evaluationReasonsRequested;
-        private final int mobileKeyCount;
-        private final int diagnosticRecordingIntervalMillis;
-        private final int maxCachedUsers;
-        private final boolean autoAliasingOptOut;
+    static LDValue makeConfigurationInfo(LDConfig config) {
+        ObjectBuilder builder = LDValue.buildObject()
+                .put("customBaseURI",
+                        !StandardEndpoints.DEFAULT_POLLING_BASE_URI.equals(config.serviceEndpoints.getPollingBaseUri()))
+                .put("customEventsURI",
+                        !StandardEndpoints.DEFAULT_EVENTS_BASE_URI.equals(config.serviceEndpoints.getEventsBaseUri()))
+                .put("customStreamURI",
+                        !StandardEndpoints.DEFAULT_STREAMING_BASE_URI.equals(config.serviceEndpoints.getStreamingBaseUri()))
+                .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
+                .put("evaluationReasonsRequested", config.isEvaluationReasons())
+                .put("mobileKeyCount", config.getMobileKeys().size())
+                .put("maxCachedUsers", config.getMaxCachedUsers())
+                .put("autoAliasingOptOut", config.isAutoAliasingOptOut());
+        mergeComponentProperties(builder, config.events);
+        mergeComponentProperties(builder, config.dataSource);
+        mergeComponentProperties(builder, config.http);
+        return builder.build();
+    }
 
-        DiagnosticConfiguration(LDConfig config) {
-            this.customBaseURI = !LDConfig.DEFAULT_POLL_URI.equals(config.getPollUri());
-            this.customEventsURI = !LDConfig.DEFAULT_EVENTS_URI.equals(config.getEventsUri());
-            this.customStreamURI = !LDConfig.DEFAULT_STREAM_URI.equals(config.getStreamUri());
-            this.eventsCapacity = config.getEventsCapacity();
-            this.connectTimeoutMillis = config.getConnectionTimeoutMillis();
-            this.eventsFlushIntervalMillis = config.getEventsFlushIntervalMillis();
-            this.streamingDisabled = !config.isStream();
-            this.allAttributesPrivate = config.allAttributesPrivate();
-            this.pollingIntervalMillis = config.getPollingIntervalMillis();
-            this.backgroundPollingIntervalMillis = config.getBackgroundPollingIntervalMillis();
-            this.inlineUsersInEvents = config.inlineUsersInEvents();
-            this.useReport = config.isUseReport();
-            this.backgroundPollingDisabled = config.isDisableBackgroundPolling();
-            this.evaluationReasonsRequested = config.isEvaluationReasons();
-            this.mobileKeyCount = config.getMobileKeys().size();
-            this.diagnosticRecordingIntervalMillis = config.getDiagnosticRecordingIntervalMillis();
-            this.maxCachedUsers = config.getMaxCachedUsers();
-            this.autoAliasingOptOut = config.isAutoAliasingOptOut();
+    private static void mergeComponentProperties(ObjectBuilder builder, ComponentConfigurer<?> componentConfigurer) {
+        if (componentConfigurer instanceof DiagnosticDescription) {
+            LDValue description = ((DiagnosticDescription)componentConfigurer).describeConfiguration(null);
+            for (String key: description.keys()) {
+                builder.put(key, description.get(key));
+            }
         }
-
     }
 
     static class Init extends DiagnosticEvent {
         final DiagnosticSdk sdk;
-        final DiagnosticConfiguration configuration;
+        final LDValue configuration;
         final DiagnosticPlatform platform = new DiagnosticPlatform();
 
         Init(long creationDate, DiagnosticId diagnosticId, LDConfig config) {
             super("diagnostic-init", creationDate, diagnosticId);
             this.sdk = new DiagnosticSdk(config);
-            this.configuration = new DiagnosticConfiguration(config);
+            this.configuration = makeConfigurationInfo(config);
         }
     }
 

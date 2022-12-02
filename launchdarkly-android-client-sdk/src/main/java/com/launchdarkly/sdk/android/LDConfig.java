@@ -2,8 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import android.net.Uri;
 
-import androidx.annotation.NonNull;
-
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.launchdarkly.logging.LDLogAdapter;
@@ -12,17 +10,25 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.android.subsystems.ServiceEndpoints;
 
-import java.util.ArrayList;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import okhttp3.Headers;
 import okhttp3.MediaType;
 
 /**
@@ -30,32 +36,34 @@ import okhttp3.MediaType;
  * must be constructed with {@link LDConfig.Builder}.
  */
 public class LDConfig {
+    /**
+     * The default value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
+     * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
+     * one hour.
+     */
+    public static final int DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS = 3_600_000;
+
+    /**
+     * The minimum value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
+     * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
+     * 15 minutes.
+     */
+    public static final int MIN_BACKGROUND_POLL_INTERVAL_MILLIS = 900_000;
 
     static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
 
     static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
-    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
-    static final String AUTH_SCHEME = "api_key ";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
     static final String primaryEnvironmentName = "default";
 
-    static final Uri DEFAULT_POLL_URI = Uri.parse("https://clientsdk.launchdarkly.com");
-    static final Uri DEFAULT_EVENTS_URI = Uri.parse("https://mobile.launchdarkly.com");
-    static final Uri DEFAULT_STREAM_URI = Uri.parse("https://clientstream.launchdarkly.com");
+    static final Uri DEFAULT_POLL_URI = Uri.parse(StandardEndpoints.DEFAULT_POLLING_BASE_URI.toString());
+    static final Uri DEFAULT_EVENTS_URI = Uri.parse(StandardEndpoints.DEFAULT_EVENTS_BASE_URI.toString());
+    static final Uri DEFAULT_STREAM_URI = Uri.parse(StandardEndpoints.DEFAULT_STREAMING_BASE_URI.toString());
 
-    static final int DEFAULT_EVENTS_CAPACITY = 100;
     static final int DEFAULT_MAX_CACHED_USERS = 5;
-    static final int DEFAULT_FLUSH_INTERVAL_MILLIS = 30_000; // 30 seconds
-    static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
-    static final int DEFAULT_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS = 3_600_000; // 1 hour
-    static final int MIN_BACKGROUND_POLLING_INTERVAL_MILLIS = 900_000; // 15 minutes
-    static final int MIN_POLLING_INTERVAL_MILLIS = 300_000; // 5 minutes
-    static final int DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 900_000; // 15 minutes
-    static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000; // 5 minutes
 
     private final Map<String, String> mobileKeys;
 
@@ -63,43 +71,46 @@ public class LDConfig {
     private final Uri eventsUri;
     private final Uri streamUri;
 
-    private final int eventsCapacity;
-    private final int eventsFlushIntervalMillis;
-    private final int connectionTimeoutMillis;
-    private final int pollingIntervalMillis;
-    private final int backgroundPollingIntervalMillis;
-    private final int diagnosticRecordingIntervalMillis;
-    private final int maxCachedUsers;
-
-    private final boolean stream;
-    private final boolean offline;
-    private final boolean disableBackgroundUpdating;
-    private final boolean useReport;
-    private final boolean diagnosticOptOut;
-
-    private final boolean allAttributesPrivate;
-    private final Set<UserAttribute> privateAttributes;
-
-    private final Gson filteredEventGson;
-
-    private final boolean inlineUsersInEvents;
-
-    private final boolean evaluationReasons;
-
-    private final String wrapperName;
-    private final String wrapperVersion;
-
-    private final LDHeaderUpdater headerTransform;
+    final ComponentConfigurer<DataSource> dataSource;
+    final ComponentConfigurer<EventProcessor> events;
+    final ComponentConfigurer<HttpConfiguration> http;
+    final ServiceEndpoints serviceEndpoints;
 
     private final boolean autoAliasingOptOut;
-
+    private final boolean diagnosticOptOut;
+    private final boolean disableBackgroundUpdating;
+    private final boolean evaluationReasons;
     private final LDLogAdapter logAdapter;
     private final String loggerName;
+    private final int maxCachedUsers;
+    private final boolean offline;
+
+    final Gson filteredEventGson;
+
+    // deprecated properties that are now in sub-configuration builders
+    private final boolean allAttributesPrivate;
+    private final int backgroundPollingIntervalMillis;
+    private final int connectionTimeoutMillis;
+    private final int diagnosticRecordingIntervalMillis;
+    private final int eventsCapacity;
+    private final int eventsFlushIntervalMillis;
+    private final LDHeaderUpdater headerTransform;
+    private final boolean inlineUsersInEvents;
+    private final int pollingIntervalMillis;
+    private final Set<UserAttribute> privateAttributes;
+    private final boolean stream;
+    private final boolean useReport;
+    private final String wrapperName;
+    private final String wrapperVersion;
 
     LDConfig(Map<String, String> mobileKeys,
              Uri pollUri,
              Uri eventsUri,
              Uri streamUri,
+             ComponentConfigurer<DataSource> dataSource,
+             ComponentConfigurer<EventProcessor> events,
+             ComponentConfigurer<HttpConfiguration> http,
+             ServiceEndpoints serviceEndpoints,
              int eventsCapacity,
              int eventsFlushIntervalMillis,
              int connectionTimeoutMillis,
@@ -127,6 +138,10 @@ public class LDConfig {
         this.pollUri = pollUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
+        this.dataSource = dataSource;
+        this.events = events;
+        this.http = http;
+        this.serviceEndpoints = serviceEndpoints;
         this.eventsCapacity = eventsCapacity;
         this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
         this.connectionTimeoutMillis = connectionTimeoutMillis;
@@ -141,7 +156,6 @@ public class LDConfig {
         this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
-        this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.wrapperName = wrapperName;
         this.wrapperVersion = wrapperVersion;
         this.maxCachedUsers = maxCachedUsers;
@@ -150,38 +164,35 @@ public class LDConfig {
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
 
-        this.filteredEventGson = new GsonBuilder()
-                .registerTypeAdapter(LDUser.class, new LDUtil.LDUserPrivateAttributesTypeAdapter(this))
-                .create();
-    }
-
-    Headers headersForEnvironment(@NonNull String environmentName,
-                                  Map<String, String> additionalHeaders) {
-        String sdkKey = mobileKeys.get(environmentName);
-
-        HashMap<String, String> baseHeaders = new HashMap<>();
-        baseHeaders.put("User-Agent", USER_AGENT_HEADER_VALUE);
-        if (sdkKey != null) {
-            baseHeaders.put("Authorization", LDConfig.AUTH_SCHEME + sdkKey);
-        }
-
-        if (getWrapperName() != null) {
-            String wrapperVersion = "";
-            if (getWrapperVersion() != null) {
-                wrapperVersion = "/" + getWrapperVersion();
+        // The following temporary hack is for overriding several deprecated event-related setters
+        // with the corresponding EventProcessorBuilder setters, if those were used. The problem is
+        // that in the current SDK implementation, EventProcessor does not actually own the behavior
+        // that those options are configuring (private attributes, and the diagnostic recording
+        // interval), so we have to extract those values separately out of the config builder.
+        boolean actualAllAttributesPrivate = allAttributesPrivate;
+        Set<UserAttribute> actualPrivateAttributes = privateAttributes;
+        int actualDiagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
+        if (events instanceof ComponentsImpl.EventProcessorBuilderImpl) {
+            ComponentsImpl.EventProcessorBuilderImpl eventsBuilder =
+                    (ComponentsImpl.EventProcessorBuilderImpl)events;
+            actualAllAttributesPrivate = eventsBuilder.isAllAttributesPrivate();
+            actualDiagnosticRecordingIntervalMillis = eventsBuilder.getDiagnosticRecordingIntervalMillis();
+            actualPrivateAttributes = new HashSet<>();
+            if (eventsBuilder.getPrivateAttributes() != null) {
+                for (String a: eventsBuilder.getPrivateAttributes()) {
+                    actualPrivateAttributes.add(UserAttribute.forName(a));
+                }
             }
-            baseHeaders.put("X-LaunchDarkly-Wrapper", wrapperName + wrapperVersion);
         }
+        this.diagnosticRecordingIntervalMillis = actualDiagnosticRecordingIntervalMillis;
 
-        if (additionalHeaders != null) {
-            baseHeaders.putAll(additionalHeaders);
-        }
-
-        if (headerTransform != null) {
-            headerTransform.updateHeaders(baseHeaders);
-        }
-
-        return Headers.of(baseHeaders);
+        this.filteredEventGson = new GsonBuilder()
+                .registerTypeAdapter(LDUser.class,
+                        new LDUtil.LDUserPrivateAttributesTypeAdapter(
+                                actualAllAttributesPrivate,
+                                actualPrivateAttributes
+                        ))
+                .create();
     }
 
     public String getMobileKey() {
@@ -193,30 +204,85 @@ public class LDConfig {
     }
 
     /**
-     * Get the currently configured base URI for polling requests.
-     *
-     * @return the base URI configured to be used for poll requests.
+     * Returns the setting of {@link Builder#pollUri(Uri)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual base URI properties
+     *   are removed from the top-level configuration.
      */
+    @Deprecated
     public Uri getPollUri() {
         return pollUri;
     }
 
+    /**
+     * Returns the setting of {@link Builder#eventsUri(Uri)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual base URI properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public Uri getEventsUri() {
         return eventsUri;
     }
 
+    /**
+     * Returns the setting of {@link Builder#eventsCapacity(int)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getEventsCapacity() {
         return eventsCapacity;
     }
 
+    /**
+     * Returns the setting of {@link Builder#eventsFlushIntervalMillis(int)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getEventsFlushIntervalMillis() {
         return eventsFlushIntervalMillis;
     }
 
+    /**
+     * Returns the setting of {@link Builder#connectionTimeoutMillis(int)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#http(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual HTTP-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getConnectionTimeoutMillis() {
         return connectionTimeoutMillis;
     }
 
+    /**
+     * Returns the setting of {@link Builder#streamUri(Uri)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual base URI properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public Uri getStreamUri() {
         return streamUri;
     }
@@ -225,18 +291,58 @@ public class LDConfig {
         return offline;
     }
 
+    /**
+     * Returns the setting of {@link Builder#stream(boolean)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#dataSource(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual data source properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean isStream() {
         return stream;
     }
 
+    /**
+     * Returns the setting of {@link Builder#useReport(boolean)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#http(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual HTTP-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean isUseReport() {
         return useReport;
     }
 
+    /**
+     * Returns the setting of {@link Builder#pollingIntervalMillis(int)} ()}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#dataSource(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual data source properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getPollingIntervalMillis() {
         return pollingIntervalMillis;
     }
 
+    /**
+     * Returns the setting of {@link Builder#backgroundPollingIntervalMillis(int)} ()}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#dataSource(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual data source properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public int getBackgroundPollingIntervalMillis() {
         return backgroundPollingIntervalMillis;
     }
@@ -245,18 +351,56 @@ public class LDConfig {
         return disableBackgroundUpdating;
     }
 
+    /**
+     * Returns the setting of {@link Builder#allAttributesPrivate()}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean allAttributesPrivate() {
         return allAttributesPrivate;
     }
 
+    /**
+     * Returns the setting of {@link Builder#privateAttributes(UserAttribute...)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public Set<UserAttribute> getPrivateAttributes() {
         return Collections.unmodifiableSet(privateAttributes);
     }
 
+    /**
+     * Returns a Gson instance that is configured to serialize event data. This is used internally
+     * by the SDK; applications should not need to reference it.
+     *
+     * @return the Gson instance
+     * @deprecated Direct access to this object is deprecated and will be removed in the future.
+     */
+    @Deprecated
     public Gson getFilteredEventGson() {
         return filteredEventGson;
     }
 
+    /**
+     * Returns the setting of {@link Builder#inlineUsersInEvents(boolean)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#events(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual event-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public boolean inlineUsersInEvents() {
         return inlineUsersInEvents;
     }
@@ -285,6 +429,16 @@ public class LDConfig {
         return maxCachedUsers;
     }
 
+    /**
+     * Returns the setting of {@link Builder#headerTransform(LDHeaderUpdater)}.
+     * <p>
+     * This is only applicable if you have used the deprecated builder method rather than
+     * {@link Builder#http(ComponentConfigurer)}.
+     * @return the property value
+     * @deprecated This method will be removed in the future when individual HTTP-related properties
+     *   are removed from the top-level configuration.
+     */
+    @Deprecated
     public LDHeaderUpdater getHeaderTransform() {
         return headerTransform;
     }
@@ -315,12 +469,18 @@ public class LDConfig {
         private Uri eventsUri = DEFAULT_EVENTS_URI;
         private Uri streamUri = DEFAULT_STREAM_URI;
 
-        private int eventsCapacity = DEFAULT_EVENTS_CAPACITY;
+        private ComponentConfigurer<DataSource> dataSource = null;
+        private ComponentConfigurer<EventProcessor> events = null;
+        private ComponentConfigurer<HttpConfiguration> http = null;
+        private ServiceEndpointsBuilder serviceEndpointsBuilder = null;
+
+        private int eventsCapacity = EventProcessorBuilder.DEFAULT_CAPACITY;
         private int eventsFlushIntervalMillis = 0;
-        private int connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MILLIS;
-        private int pollingIntervalMillis = DEFAULT_POLLING_INTERVAL_MILLIS;
-        private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS;
-        private int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+        private int connectionTimeoutMillis = HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS;
+        private int pollingIntervalMillis = PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS;
+        private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
+        private int diagnosticRecordingIntervalMillis =
+                EventProcessorBuilder.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
         private int maxCachedUsers = DEFAULT_MAX_CACHED_USERS;
 
         private boolean offline = false;
@@ -345,27 +505,37 @@ public class LDConfig {
         private LDLogLevel logLevel = null;
 
         /**
-         * Specifies that user attributes (other than the key) should be hidden from LaunchDarkly.
-         * If this is set, all user attribute values will be private, not just the attributes
-         * specified in {@link #privateAttributes(UserAttribute...)}.
-         *
+         * Deprecated method for specifying that all user attributes other than the key should be
+         * hidden from LaunchDarkly.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
          * @return the builder
+         * @deprecated Use {@link #events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#allAttributesPrivate(boolean)} instead.
          */
+        @Deprecated
         public Builder allAttributesPrivate() {
             this.allAttributesPrivate = true;
             return this;
         }
 
         /**
-         * Marks a set of attributes private. Any users sent to LaunchDarkly with this configuration
-         * active will have attributes with these names removed.
-         *
+         * Deprecated method for marking a set of attributes as private.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
          * This can also be specified on a per-user basis with {@link LDUser.Builder} methods like
          * {@link LDUser.Builder#privateName(String)}.
          *
          * @param privateAttributes a set of names that will be removed from user data sent to LaunchDarkly
          * @return the builder
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#privateAttributes(String...)} instead.
          */
+        @Deprecated
         public Builder privateAttributes(UserAttribute... privateAttributes) {
             this.privateAttributes = new HashSet<>(Arrays.asList(privateAttributes));
             return this;
@@ -415,132 +585,303 @@ public class LDConfig {
         }
 
         /**
-         * Sets the flag for choosing the REPORT api call.  The default is GET.
-         * Do not use unless advised by LaunchDarkly.
+         * Deprecated method for specifying whether to use the HTTP REPORT method.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param useReport true if HTTP requests should use the REPORT verb
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#useReport(boolean)} instead.
          */
+        @Deprecated
         public LDConfig.Builder useReport(boolean useReport) {
             this.useReport = useReport;
             return this;
         }
 
         /**
-         * Set the base URI for polling requests to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Deprecated method for setting the base URI of the polling service.
+         * <p>
+         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param pollUri the URI of the main LaunchDarkly service
+         * @param pollUri the URI of the LaunchDarkly polling service
          * @return the builder
+         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
+         *   {@link ServiceEndpointsBuilder#polling(URI)} instead.
          */
+        @Deprecated
         public LDConfig.Builder pollUri(Uri pollUri) {
             this.pollUri = pollUri;
             return this;
         }
 
         /**
-         * Set the events URI for sending analytics to LaunchDarkly. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Deprecated method for setting the base URI of the events service.
+         * <p>
+         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param eventsUri the URI of the LaunchDarkly analytics event service
+         * @param eventsUri the URI of the LaunchDarkly events service
          * @return the builder
+         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
+         *   {@link ServiceEndpointsBuilder#events(URI)} instead.
          */
+        @Deprecated
         public LDConfig.Builder eventsUri(Uri eventsUri) {
             this.eventsUri = eventsUri;
             return this;
         }
 
         /**
-         * Set the stream URI for connecting to the flag update stream. You probably don't need to set this unless instructed by LaunchDarkly.
+         * Deprecated method for setting the base URI of the streaming service.
+         * <p>
+         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param streamUri the URI of the LaunchDarkly streaming service
          * @return the builder
+         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
+         *   {@link ServiceEndpointsBuilder#streaming(URI)} instead.
          */
+        @Deprecated
         public LDConfig.Builder streamUri(Uri streamUri) {
             this.streamUri = streamUri;
             return this;
         }
 
         /**
-         * Set the capacity of the event buffer. The client buffers up to this many events in memory before flushing.
-         * If the capacity is exceeded before the buffer is flushed, events will be discarded. Increasing the capacity
-         * means that events are less likely to be discarded, at the cost of consuming more memory.
+         * Sets the configuration of the component that receives feature flag data from LaunchDarkly.
          * <p>
-         * The default value is {@link #DEFAULT_EVENTS_CAPACITY}.
+         * The default is {@link Components#streamingDataSource()}; you may instead use
+         * {@link Components#pollingDataSource()}. See those methods for details on how to configure
+         * them with options that are specific to streaming or polling mode.
+         * <p>
+         * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+         * and completely disable network requests.
+         * <pre><code>
+         *     // Setting custom options when using streaming mode
+         *     LDConfig config = new LDConfig.Builder()
+         *         .dataSource(
+         *             Components.streamingDataSource()
+         *                 .initialReconnectDelayMillis(100)
+         *         )
+         *         .build();
+         *
+         *     // Using polling mode instead of streaming, and setting custom options for polling
+         *     LDConfig config = new LDConfig.Builder()
+         *         .dataSource(
+         *             Components.pollingDataSource()
+         *                 .pollingIntervalMillis(60_000)
+         *         )
+         *         .build();
+         * </code></pre>
+         *
+         * @param dataSourceConfigurer the data source configuration builder
+         * @return the main configuration builder
+         * @see Components#streamingDataSource()
+         * @see Components#pollingDataSource()
+         * @since 3.3.0
+         */
+        public LDConfig.Builder dataSource(ComponentConfigurer<DataSource> dataSourceConfigurer) {
+            this.dataSource = dataSourceConfigurer;
+            return this;
+        }
+
+        /**
+         * Sets the implementation of {@link EventProcessor} to be used for processing analytics events.
+         * <p>
+         * The default is {@link Components#sendEvents()} with no custom options. You may instead call
+         * {@link Components#sendEvents()} and then set custom options for event processing; or, disable
+         * events with {@link Components#noEvents()}; or, choose to use a custom implementation (for
+         * instance, a test fixture).
+         * <p>
+         * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
+         * and completely disable network requests.
+         * <pre><code>
+         *     // Setting custom event processing options
+         *     LDConfig config = new LDConfig.Builder()
+         *         .events(Components.sendEvents().capacity(100))
+         *         .build();
+         *
+         *     // Disabling events
+         *     LDConfig config = new LDConfig.Builder()
+         *         .events(Components.noEvents())
+         *         .build();
+         * </code></pre>
+         *
+         * @param eventsConfigurer the events configuration builder
+         * @return the main configuration builder
+         * @since 3.3.0
+         * @see Components#sendEvents()
+         * @see Components#noEvents()
+         */
+        public LDConfig.Builder events(ComponentConfigurer<EventProcessor> eventsConfigurer) {
+            this.events = eventsConfigurer;
+            return this;
+        }
+
+        /**
+         * Sets the SDK's networking configuration, using a configuration builder. This builder is
+         * obtained from {@link Components#httpConfiguration()}, and has methods for setting individual
+         * HTTP-related properties.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder()
+         *         .http(Components.httpConfiguration().connectTimeoutMillis(5000))
+         *         .build();
+         * </code></pre>
+         *
+         * @param httpConfigurer the HTTP configuration builder
+         * @return the main configuration builder
+         * @since 3.3.0
+         * @see Components#httpConfiguration()
+         */
+        public Builder http(ComponentConfigurer<HttpConfiguration> httpConfigurer) {
+            this.http = httpConfigurer;
+            return this;
+        }
+
+        /**
+         * Sets the base service URIs used by SDK components.
+         * <p>
+         * This object is a configuration builder obtained from {@link Components#serviceEndpoints()},
+         * which has methods for setting each external endpoint to a custom URI.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder().mobileKey("key")
+         *         .serviceEndpoints(
+         *             Components.serviceEndpoints().relayProxy("http://my-relay-proxy-host")
+         *         );
+         * </code></pre>
+         *
+         * @param serviceEndpointsBuilder a configuration builder object returned by {@link Components#serviceEndpoints()}
+         * @return the builder
+         * @since 3.3.0
+         */
+        public Builder serviceEndpoints(ServiceEndpointsBuilder serviceEndpointsBuilder) {
+            this.serviceEndpointsBuilder = serviceEndpointsBuilder;
+            return this;
+        }
+
+        /**
+         * Deprecated method for setting the capacity of the event buffer.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
+         * The default value is {@link EventProcessorBuilder#DEFAULT_CAPACITY}.
          *
          * @param eventsCapacity the capacity of the event buffer
          * @return the builder
          * @see #eventsFlushIntervalMillis(int)
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#capacity(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder eventsCapacity(int eventsCapacity) {
             this.eventsCapacity = eventsCapacity;
             return this;
         }
 
         /**
-         * Sets the maximum amount of time to wait in between sending analytics events to LaunchDarkly.
+         * Deprecated method for setting the maximum amount of time to wait in between sending
+         * analytics events to LaunchDarkly.
          * <p>
-         * The default value is {@link #DEFAULT_FLUSH_INTERVAL_MILLIS}.
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
+         * The default value is {@link EventProcessorBuilder#DEFAULT_FLUSH_INTERVAL_MILLIS}.
          *
          * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
          * @return the builder
          * @see #eventsCapacity(int)
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#flushIntervalMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder eventsFlushIntervalMillis(int eventsFlushIntervalMillis) {
             this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
             return this;
         }
 
-
         /**
-         * Sets the timeout when connecting to LaunchDarkly.
+         * Deprecated method for setting the connection timeout.
          * <p>
-         * The default value is {@link #DEFAULT_CONNECTION_TIMEOUT_MILLIS}.
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param connectionTimeoutMillis the connection timeout, in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#connectTimeoutMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder connectionTimeoutMillis(int connectionTimeoutMillis) {
             this.connectionTimeoutMillis = connectionTimeoutMillis;
             return this;
         }
 
-
         /**
-         * Enables or disables real-time streaming flag updates.  By default, streaming is enabled.
-         * When disabled, an efficient caching polling mechanism is used.
+         * Deprecated method for enabling or disabling real-time streaming flag updates.
+         * <p>
+         * The preferred way to set this option now is with {@link StreamingDataSourceBuilder}. Any
+         * settings there will override this deprecated method. Setting this option to {@code false}
+         * is equivalent to calling {@code builder.dataSource(Components.pollingDataSource())}.
+         * <p>
+         * By default, streaming is enabled.
          *
          * @param enabled true if streaming should be enabled
          * @return the builder
+         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} with either
+         *   {@link Components#streamingDataSource()} or {@link Components#pollingDataSource()}
+         *   instead.
          */
+        @Deprecated
         public LDConfig.Builder stream(boolean enabled) {
             this.stream = enabled;
             return this;
         }
 
         /**
-         * Sets the interval in between feature flag updates, when streaming mode is disabled.
-         * This is ignored unless {@link #stream(boolean)} is set to {@code true}. When set, it
-         * will also change the default value for {@link #eventsFlushIntervalMillis(int)} to the
-         * same value.
+         * Deprecated method for setting the interval in between feature flag updates, when
+         * streaming mode is disabled.
          * <p>
-         * The default value is {@link LDConfig#DEFAULT_POLLING_INTERVAL_MILLIS}.
+         * The preferred way to set this option now is with {@link PollingDataSourceBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
+         * The default value is {@link PollingDataSourceBuilder#DEFAULT_POLL_INTERVAL_MILLIS}.
          *
          * @param pollingIntervalMillis the feature flag polling interval, in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} and
+         *   {@link PollingDataSourceBuilder#pollIntervalMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder pollingIntervalMillis(int pollingIntervalMillis) {
             this.pollingIntervalMillis = pollingIntervalMillis;
             return this;
         }
 
         /**
-         * Sets how often the client will poll for flag updates when your application is in the background.
+         * Deprecated method for setting how often the client will poll for flag updates when your
+         * application is in the background.
          * <p>
-         * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLLING_INTERVAL_MILLIS}.
+         * The preferred way to set this option now is with {@link StreamingDataSourceBuilder} or
+         * {@link PollingDataSourceBuilder} (depending on whether you want the SDK to use streaming
+         * or polling when it is in the foreground). Any settings there will override this
+         * deprecated method.
+         * <p>
+         * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS}.
          *
          * @param backgroundPollingIntervalMillis the feature flag polling interval when in the background,
          *                                        in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} and either
+         *   {@link StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)} or
+         *   {@link PollingDataSourceBuilder#backgroundPollIntervalMillis(int)} instead.
          */
+        @Deprecated
         public LDConfig.Builder backgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
             this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
             return this;
@@ -576,15 +917,20 @@ public class LDConfig {
         }
 
         /**
-         * If enabled, events to the server will be created containing the entire User object.
-         * If disabled, events to the server will be created without the entire User object, including only the user key instead;
-         * the rest of the user properties will still be included in Identify events.
+         * Deprecated method for specifying whether events sent to the server will always include
+         * the full user object.
          * <p>
-         * Defaults to false in order to reduce network bandwidth.
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
+         * <p>
+         * This defaults to false in order to reduce network bandwidth.
          *
          * @param inlineUsersInEvents true if all user properties should be included in events
          * @return the builder
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#inlineUsers(boolean)} instead.
          */
+        @Deprecated
         public LDConfig.Builder inlineUsersInEvents(boolean inlineUsersInEvents) {
             this.inlineUsersInEvents = inlineUsersInEvents;
             return this;
@@ -624,41 +970,52 @@ public class LDConfig {
         }
 
         /**
-         * Sets the interval at which periodic diagnostic data is sent. The default is every 15 minutes (900,000
-         * milliseconds) and the minimum value is 300,000 (5 minutes).
-         *
-         * @see #diagnosticOptOut(boolean) for more information on the diagnostics data being sent.
+         * Deprecatd method for setting the interval at which periodic diagnostic data is sent.
+         * <p>
+         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
          * @return the builder
+         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
+         *   {@link EventProcessorBuilder#diagnosticRecordingIntervalMillis(int)} instead.
+         * @see #diagnosticOptOut(boolean)
          */
+        @Deprecated
         public LDConfig.Builder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
             this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
             return this;
         }
 
         /**
-         * For use by wrapper libraries to set an identifying name for the wrapper being used. This will be sent in
-         * User-Agent headers during requests to the LaunchDarkly servers to allow recording metrics on the usage of
-         * these wrapper libraries.
+         * Deprecated method for setting a wrapper library name to include in User-Agent headers.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param wrapperName An identifying name for the wrapper library
+         * @param wrapperName an identifying name for the wrapper library
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#wrapper(String, String)} instead.
          */
+        @Deprecated
         public LDConfig.Builder wrapperName(String wrapperName) {
             this.wrapperName = wrapperName;
             return this;
         }
 
         /**
-         * For use by wrapper libraries to report the version of the library in use. If the wrapper
-         * name has not been set with {@link #wrapperName(String)} this field will be ignored.
-         * Otherwise the version string will be included in the User-Agent headers along with the
-         * wrapperName during requests to the LaunchDarkly servers.
+         * Deprecated method for setting a wrapper library version to include in User-Agent headers.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
-         * @param wrapperVersion Version string for the wrapper library
+         * @param wrapperVersion a version string for the wrapper library
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#wrapper(String, String)} instead.
          */
+        @Deprecated
         public LDConfig.Builder wrapperVersion(String wrapperVersion) {
             this.wrapperVersion = wrapperVersion;
             return this;
@@ -693,11 +1050,17 @@ public class LDConfig {
         }
 
         /**
-         * Provides a callback for dynamically modifying headers used on requests to the LaunchDarkly service.
+         * Deprecated method for dynamically modifying request headers.
+         * <p>
+         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
+         * settings there will override this deprecated method.
          *
          * @param headerTransform the transformation to apply to requests
          * @return the builder
+         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
+         *   {@link HttpConfigurationBuilder#headerTransform(LDHeaderUpdater)} instead.
          */
+        @Deprecated
         public LDConfig.Builder headerTransform(LDHeaderUpdater headerTransform) {
             this.headerTransform = headerTransform;
             return this;
@@ -812,45 +1175,11 @@ public class LDConfig {
 
             LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
 
-            if (!stream) {
-                if (pollingIntervalMillis < MIN_POLLING_INTERVAL_MILLIS) {
-                    logger.warn(
-                            "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
-                            pollingIntervalMillis, MIN_POLLING_INTERVAL_MILLIS);
-                    pollingIntervalMillis = MIN_POLLING_INTERVAL_MILLIS;
-                }
-
-                if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                    logger.warn(
-                            "BackgroundPollingIntervalMillis: {} was set below the foreground polling interval: {}. Ignoring and using minimum value for background polling.",
-                            backgroundPollingIntervalMillis, pollingIntervalMillis);
-                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
-                }
-
-                if (eventsFlushIntervalMillis == 0) {
-                    eventsFlushIntervalMillis = pollingIntervalMillis;
-                    // this is a normal occurrence, so don't log a warning about it
-                }
-            }
-
-            if (!disableBackgroundUpdating) {
-                if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLLING_INTERVAL_MILLIS) {
-                    logger.warn(
-                            "BackgroundPollingIntervalMillis: {} was set below the minimum allowed: {}. Ignoring and using minimum value.",
-                            backgroundPollingIntervalMillis, MIN_BACKGROUND_POLLING_INTERVAL_MILLIS);
-                    backgroundPollingIntervalMillis = MIN_BACKGROUND_POLLING_INTERVAL_MILLIS;
-                }
-            }
-
-            if (eventsFlushIntervalMillis == 0) {
-                eventsFlushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS; // this is a normal occurrence, so don't log a warning about it
-            }
-
-            if (diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
+            if (diagnosticRecordingIntervalMillis < EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
                 logger.warn(
                         "diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.",
-                        diagnosticRecordingIntervalMillis, MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
-                diagnosticRecordingIntervalMillis = MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+                        diagnosticRecordingIntervalMillis, EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
+                diagnosticRecordingIntervalMillis = EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
             }
 
             HashMap<String, String> mobileKeys;
@@ -862,11 +1191,98 @@ public class LDConfig {
             }
             mobileKeys.put(primaryEnvironmentName, mobileKey);
 
+            ComponentConfigurer<DataSource> dataSourceConfig = this.dataSource;
+            if (dataSourceConfig == null) {
+                // Copy the deprecated properties to the new data source configuration builder.
+                // There is some additional validation logic here that is specific to the
+                // deprecated property setters; the new configuration builder, in keeping with the
+                // standard behavior of other configuration builders in the Java and Android SDKs,
+                // doesn't log such messages.
+
+                if (!disableBackgroundUpdating) {
+                    if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLL_INTERVAL_MILLIS) {
+                        logger.warn(
+                                "BackgroundPollingIntervalMillis: {} was set below the minimum allowed: {}. Ignoring and using minimum value.",
+                                backgroundPollingIntervalMillis, MIN_BACKGROUND_POLL_INTERVAL_MILLIS);
+                        backgroundPollingIntervalMillis = MIN_BACKGROUND_POLL_INTERVAL_MILLIS;
+                    }
+                }
+
+                if (stream) {
+                    dataSourceConfig = Components.streamingDataSource()
+                            .backgroundPollIntervalMillis(backgroundPollingIntervalMillis);
+                } else {
+                    if (pollingIntervalMillis < PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS) {
+                        // the default is also the minimum
+                        logger.warn(
+                                "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
+                                pollingIntervalMillis, PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS);
+                        pollingIntervalMillis = PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS;
+                    }
+
+                    if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
+                        logger.warn(
+                                "BackgroundPollingIntervalMillis: {} was set below the foreground polling interval: {}. Ignoring and using minimum value for background polling.",
+                                backgroundPollingIntervalMillis, pollingIntervalMillis);
+                        backgroundPollingIntervalMillis = MIN_BACKGROUND_POLL_INTERVAL_MILLIS;
+                    }
+
+                    if (eventsFlushIntervalMillis == 0) {
+                        // This behavior is retained for historical reasons; the newer configuration
+                        // builder does not modify properties like this that are outside its scope.
+                        eventsFlushIntervalMillis = pollingIntervalMillis;
+                    }
+
+                    dataSourceConfig = Components.pollingDataSource()
+                            .backgroundPollIntervalMillis(backgroundPollingIntervalMillis)
+                            .pollIntervalMillis(pollingIntervalMillis);
+                }
+            }
+
+            if (eventsFlushIntervalMillis == 0) {
+                eventsFlushIntervalMillis = EventProcessorBuilder.DEFAULT_FLUSH_INTERVAL_MILLIS;
+                // this is a normal occurrence, so don't log a warning about it
+            }
+
+            ComponentConfigurer<EventProcessor> eventsConfig = this.events;
+            if (eventsConfig == null) {
+                // Copy the deprecated properties to the new events configuration builder.
+                EventProcessorBuilder eventsBuilder = Components.sendEvents()
+                        .allAttributesPrivate(allAttributesPrivate)
+                        .capacity(eventsCapacity)
+                        .diagnosticRecordingIntervalMillis(diagnosticRecordingIntervalMillis)
+                        .flushIntervalMillis(eventsFlushIntervalMillis)
+                        .inlineUsers(inlineUsersInEvents);
+                if (privateAttributes != null) {
+                    eventsBuilder.privateAttributes(privateAttributes.toArray(new UserAttribute[privateAttributes.size()]));
+                }
+                eventsConfig = eventsBuilder;
+            }
+
+            ComponentConfigurer<HttpConfiguration> httpConfig = this.http;
+            if (httpConfig == null) {
+                // Copy the deprecated properties to the new HTTP configuration builder.
+                HttpConfigurationBuilder httpBuilder = Components.httpConfiguration()
+                        .connectTimeoutMillis(connectionTimeoutMillis)
+                        .headerTransform(headerTransform)
+                        .useReport(useReport)
+                        .wrapper(wrapperName, wrapperVersion);
+                httpConfig = httpBuilder;
+            }
+
+            ServiceEndpoints serviceEndpoints = this.serviceEndpointsBuilder == null ?
+                    Components.serviceEndpoints().polling(pollUri).streaming(streamUri).events(eventsUri).build() :
+                    this.serviceEndpointsBuilder.build();
+
             return new LDConfig(
                     mobileKeys,
                     pollUri,
                     eventsUri,
                     streamUri,
+                    dataSourceConfig,
+                    eventsConfig,
+                    httpConfig,
+                    serviceEndpoints,
                     eventsCapacity,
                     eventsFlushIntervalMillis,
                     connectionTimeoutMillis,

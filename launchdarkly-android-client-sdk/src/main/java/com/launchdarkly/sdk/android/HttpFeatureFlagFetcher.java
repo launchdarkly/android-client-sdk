@@ -8,17 +8,16 @@ import androidx.annotation.NonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
+import java.net.URI;
 
 import okhttp3.Cache;
 import okhttp3.Call;
 import okhttp3.Callback;
-import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -34,20 +33,29 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
     private final LDConfig config;
+    private final HttpConfiguration httpConfig;
+    private final Uri pollUri;
     private final String environmentName;
     private final Context context;
     private final OkHttpClient client;
     private final LDLogger logger;
 
-    static HttpFeatureFlagFetcher newInstance(Context context, LDConfig config, String environmentName, LDLogger logger) {
-        return new HttpFeatureFlagFetcher(context, config, environmentName, logger);
-    }
-
-    private HttpFeatureFlagFetcher(Context context, LDConfig config, String environmentName, LDLogger logger) {
+    HttpFeatureFlagFetcher(
+            Context context,
+            LDConfig config,
+            HttpConfiguration httpConfig,
+            String environmentName,
+            LDLogger logger
+    ) {
         this.config = config;
+        this.httpConfig = httpConfig;
         this.environmentName = environmentName;
         this.context = context;
         this.logger = logger;
+
+        URI pollUri = StandardEndpoints.selectBaseUri(config.serviceEndpoints.getPollingBaseUri(),
+                StandardEndpoints.DEFAULT_POLLING_BASE_URI, "polling", logger);
+        this.pollUri = Uri.parse(pollUri.toString());
 
         File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
@@ -62,7 +70,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     public synchronized void fetch(LDUser user, final LDUtil.ResultCallback<JsonObject> callback) {
         if (user != null && isClientConnected(context, environmentName)) {
 
-            final Request request = config.isUseReport()
+            final Request request = httpConfig.isUseReport()
                     ? getReportRequest(user)
                     : getDefaultRequest(user);
 
@@ -112,19 +120,19 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     private Request getDefaultRequest(LDUser user) {
-        String uri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/users/").toString() +
+        String uri = Uri.withAppendedPath(pollUri, "msdk/evalx/users/").toString() +
                 DefaultUserManager.base64Url(user);
         if (config.isEvaluationReasons()) {
             uri += "?withReasons=true";
         }
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
         return new Request.Builder().url(uri)
-                .headers(config.headersForEnvironment(environmentName, null))
+                .headers(LDUtil.makeRequestHeaders(httpConfig, null))
                 .build();
     }
 
     private Request getReportRequest(LDUser user) {
-        String reportUri = Uri.withAppendedPath(config.getPollUri(), "msdk/evalx/user").toString();
+        String reportUri = Uri.withAppendedPath(pollUri, "msdk/evalx/user").toString();
         if (config.isEvaluationReasons()) {
             reportUri += "?withReasons=true";
         }
@@ -133,7 +141,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         RequestBody reportBody = RequestBody.create(userJson, JSON);
 
         return new Request.Builder().url(reportUri)
-                .headers(config.headersForEnvironment(environmentName, null))
+                .headers(LDUtil.makeRequestHeaders(httpConfig, null))
                 .method("REPORT", reportBody)
                 .build();
     }

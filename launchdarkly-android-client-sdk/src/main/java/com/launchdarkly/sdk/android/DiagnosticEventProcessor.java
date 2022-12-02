@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import android.content.Context;
+import android.net.Uri;
 
 import androidx.annotation.NonNull;
 
@@ -22,6 +23,7 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 class DiagnosticEventProcessor {
     private static final HashMap<String, String> baseDiagnosticHeaders = new HashMap<String, String>() {{
@@ -29,18 +31,26 @@ class DiagnosticEventProcessor {
     }};
 
     private final OkHttpClient client;
-    private final LDConfig config;
-    private final String environment;
+    private final HttpConfiguration httpConfig;
+    private final int diagnosticRecordingIntervalMillis;
+    private final Uri eventsUri;
     private final DiagnosticStore diagnosticStore;
     private final ThreadFactory diagnosticThreadFactory;
     private final Context context;
     private final LDLogger logger;
     private ScheduledExecutorService executorService;
 
-    DiagnosticEventProcessor(LDConfig config, String environment, final DiagnosticStore diagnosticStore, Context context,
-                             OkHttpClient sharedClient, LDLogger logger) {
-        this.config = config;
-        this.environment = environment;
+    DiagnosticEventProcessor(
+            LDConfig config,
+            HttpConfiguration httpConfig,
+            final DiagnosticStore diagnosticStore,
+            Context context,
+            OkHttpClient sharedClient,
+            LDLogger logger
+    ) {
+        this.httpConfig = httpConfig;
+        this.diagnosticRecordingIntervalMillis = config.getDiagnosticRecordingIntervalMillis();
+        this.eventsUri = Uri.parse(config.serviceEndpoints.getEventsBaseUri().toString());
         this.diagnosticStore = diagnosticStore;
         this.client = sharedClient;
         this.context = context;
@@ -95,14 +105,14 @@ class DiagnosticEventProcessor {
 
     void startScheduler() {
         if (executorService == null) {
-            long initialDelay = config.getDiagnosticRecordingIntervalMillis() - (System.currentTimeMillis() - diagnosticStore.getDataSince());
-            long safeDelay = Math.min(Math.max(initialDelay, 0), config.getDiagnosticRecordingIntervalMillis());
+            long initialDelay = diagnosticRecordingIntervalMillis - (System.currentTimeMillis() - diagnosticStore.getDataSince());
+            long safeDelay = Math.min(Math.max(initialDelay, 0), diagnosticRecordingIntervalMillis);
 
             executorService = Executors.newSingleThreadScheduledExecutor(diagnosticThreadFactory);
             executorService.scheduleAtFixedRate(
                     this::enqueueEvent,
                     safeDelay,
-                    config.getDiagnosticRecordingIntervalMillis(),
+                    diagnosticRecordingIntervalMillis,
                     TimeUnit.MILLISECONDS
             );
         }
@@ -127,8 +137,8 @@ class DiagnosticEventProcessor {
         String content = GsonCache.getGson().toJson(diagnosticEvent);
 
         Request request = new Request.Builder()
-                .url(config.getEventsUri().buildUpon().appendEncodedPath("mobile/events/diagnostic").build().toString())
-                .headers(config.headersForEnvironment(environment, baseDiagnosticHeaders))
+                .url(eventsUri.buildUpon().appendEncodedPath("mobile/events/diagnostic").build().toString())
+                .headers(LDUtil.makeRequestHeaders(httpConfig, baseDiagnosticHeaders))
                 .post(RequestBody.create(content, JSON)).build();
 
         logger.debug("Posting diagnostic event to {} with body {}", request.url(), content);

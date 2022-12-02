@@ -1,10 +1,11 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.android.TestUtil.simpleClientContext;
+
 import android.app.Application;
 import android.content.Context;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.Uri;
 import android.os.Build;
 import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
@@ -17,7 +18,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import org.easymock.Capture;
 import org.easymock.EasyMockRule;
@@ -127,12 +132,20 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         LDConfig config = new LDConfig.Builder()
                 .mobileKey("test-mobile-key")
                 .offline(setOffline)
-                .stream(streaming)
                 .disableBackgroundUpdating(backgroundDisabled)
-                .streamUri(streamUri != null ? Uri.parse(streamUri) : Uri.parse(mockStreamServer.url("/").toString()))
+                .serviceEndpoints(
+                        Components.serviceEndpoints().streaming(
+                                streamUri != null ? streamUri : mockStreamServer.url("/").toString()
+                        )
+                )
                 .build();
 
-        connectivityManager = new ConnectivityManager(app, config, eventProcessor, userManager, "default",
+        ComponentConfigurer<DataSource> dataSourceConfigurer = streaming ?
+                Components.streamingDataSource() : Components.pollingDataSource();
+        DataSource dataSourceConfig = dataSourceConfigurer.build(null);
+        HttpConfiguration httpConfig = simpleClientContext(config).getHttp();
+        connectivityManager = new ConnectivityManager(app, config, dataSourceConfig, httpConfig,
+                eventProcessor, userManager, "default",
                 null, null, LDLogger.none());
     }
 
