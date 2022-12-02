@@ -63,7 +63,8 @@ public class MockPlatformState implements PlatformState {
         foregroundChangeListeners.remove(listener);
     }
 
-    public void notifyForegroundChangeListeners(boolean foreground) {
+    public void setAndNotifyForegroundChangeListeners(boolean foreground) {
+        this.foreground = foreground;
         new Thread(() -> {
             for (ForegroundChangeListener listener: foregroundChangeListeners) {
                 listener.onForegroundChanged(foreground);

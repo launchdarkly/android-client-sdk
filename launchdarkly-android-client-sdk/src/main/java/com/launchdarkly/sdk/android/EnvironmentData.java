@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import androidx.annotation.NonNull;
 
 import com.google.gson.reflect.TypeToken;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.SerializationException;
 
@@ -10,7 +11,6 @@ import java.lang.reflect.Type;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * An immutable set of flag data.
@@ -26,8 +26,16 @@ final class EnvironmentData {
         this(new HashMap<>());
     }
 
-    public EnvironmentData(Map<String, Flag> flags) {
-        this.flags = flags == null ? new HashMap<>() : new HashMap<>(flags);
+    private EnvironmentData(Map<String, Flag> flags) {
+        this.flags = flags == null ? new HashMap<>() : flags;
+    }
+
+    public static EnvironmentData copyingFlagsMap(Map<String, Flag> flags) {
+        return new EnvironmentData(flags == null ? null : new HashMap<>(flags));
+    }
+
+    public static EnvironmentData usingExistingFlagsMap(Map<String, Flag> flags) {
+        return new EnvironmentData(flags);
     }
 
     public Flag getFlag(String key) {
@@ -73,7 +81,10 @@ final class EnvironmentData {
         for (Map.Entry<String, Flag> e: dataMap.entrySet()) {
             Flag f = e.getValue();
             if (f.getKey() == null) {
-                dataMap.put(e.getKey(), f.withKey(e.getKey()));
+                f = new Flag(e.getKey(), f.getValue(), f.getVersion(), f.getFlagVersion(),
+                        f.getVariation(), f.isTrackEvents(), f.isTrackReason(), f.getDebugEventsUntilDate(),
+                        f.getReason());
+                dataMap.put(e.getKey(), f);
             }
         }
         return new EnvironmentData(dataMap);

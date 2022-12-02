@@ -5,21 +5,22 @@ import androidx.annotation.NonNull;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Iterator;
 import java.util.List;
-import java.util.TimeZone;
-import java.util.concurrent.ScheduledFuture;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
-import static com.launchdarkly.sdk.android.LDUtil.safeCallbackSuccess;
 
 class ConnectivityManager {
     // Implementation notes:
@@ -32,158 +33,216 @@ class ConnectivityManager {
     // 2. Each instance of this class belongs to a single LDClient instance. So in multi-environment
     // mode, there will be several of these, one for each client.
     //
-    // 3. This class manages the "are we set to be explicitly offline" state, which is set at
-    // configuration time but can also be changed dynamically. Other components access that state
-    // through the ClientStateProvider so that they do not to access ConnectivityManager directly.
-
-    /**
-     * Internal Callback interface to allow data source implementations (like StreamUpdateProcessor)
-     * to ask the ConnectivityManager to do things, without exposing it to their full control.
-     */
-    interface DataSourceActions {
-        /**
-         * Other components can call this method to signal that a one-time flag data poll should be
-         * done as soon as possible. We do this if we get a "ping" message from a stream.
-         */
-        void triggerPoll();
-
-        /**
-         * Other components can call this method to signal that we should go offline because we
-         * got a 401 error for a mobile key.
-         */
-        void shutdownForInvalidMobileKey();
-    }
+    // 3. Whenever there is a state change that requires new data source behavior to be changed
+    // (e.g. starting a stream for the first time, restarting a stream for a new context, or
+    // switching between foreground and background), the existing data source if any is stopped,
+    // and a new data source is created and started.
+    //
+    // 4. Whenever there is a state change that requires us to be offline (e.g. set offline in
+    // configuration, or network unavailable, or we're in the background and background updating is
+    // disabled), the existing data source if any is stopped.
+    //
+    // This class does not know anything about data source details such as streaming/polling; those
+    // are handled by the configured data source factory.
 
     private static final long MAX_RETRY_TIME_MS = 60_000; // 60 seconds
     private static final long RETRY_TIME_MS = 1_000; // 1 second
 
-    private final ConnectionMode foregroundMode;
-    private final ConnectionMode backgroundMode;
-
-    private final ClientContext clientContext;
+    private final ClientContext baseClientContext;
     private final PlatformState platformState;
-    private final ClientStateImpl clientState;
+    private final ComponentConfigurer<DataSource> dataSourceFactory;
+    private final DataSourceUpdateSink dataSourceUpdateSink;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
-    private final StreamUpdateProcessor streamUpdateProcessor;
     private final ContextDataManager contextDataManager;
-    private final DataSource dataSourceConfig;
-    private final FeatureFetcher fetcher;
     private final EventProcessor eventProcessor;
-    private final Throttler throttler;
     private final PlatformState.ForegroundChangeListener foregroundListener;
     private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final TaskExecutor taskExecutor;
-    private final int pollingInterval;
-    private final int backgroundPollingInterval;
-    private final AtomicReference<ScheduledFuture<?>> pollingTaskReference =
-            new AtomicReference<>();
-    private final LDUtil.ResultCallback<Void> monitor;
+    private final boolean backgroundUpdatingDisabled;
     private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
     private final Debounce pollDebouncer = new Debounce();
+    private final AtomicBoolean forcedOffline = new AtomicBoolean();
+    private final AtomicBoolean started = new AtomicBoolean();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
     private final LDLogger logger;
-    private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
 
+    // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
+    // This has two purposes: 1. to decouple the data source implementation from the details of how
+    // data is stored; 2. to implement additional logic that does not depend on what kind of data
+    // source we're using, like "if there was an error, update the ConnectionInformation."
+    private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink {
+        private final AtomicReference<ConnectionMode> connectionMode = new AtomicReference<>(null);
+        private final AtomicReference<LDFailure> lastFailure = new AtomicReference<>(null);
+
+        @Override
+        public void init(Map<String, DataModel.Flag> items) {
+            contextDataManager.initData(contextDataManager.getCurrentContext(),
+                    EnvironmentData.usingExistingFlagsMap(items));
+            // Currently, contextDataManager is responsible for firing any necessary flag change events.
+        }
+
+        @Override
+        public void upsert(DataModel.Flag item) {
+            contextDataManager.upsert(item);
+            // Currently, contextDataManager is responsible for firing any necessary flag change events.
+        }
+
+        @Override
+        public void setStatus(ConnectionMode newConnectionMode, Throwable error) {
+            ConnectionMode oldConnectionMode = newConnectionMode == null ? null :
+                    connectionMode.getAndSet(newConnectionMode);
+            LDFailure failure = null;
+            if (error != null) {
+                if (error instanceof LDFailure) {
+                    failure = (LDFailure)error;
+                } else {
+                    failure = new LDFailure("Unknown failure", error, LDFailure.FailureType.UNKNOWN_ERROR);
+                }
+                lastFailure.set(failure);
+            }
+            boolean updated = false;
+            if (newConnectionMode != null && oldConnectionMode != newConnectionMode) {
+                if (failure == null && newConnectionMode.isConnectionActive()) {
+                    connectionInformation.setLastSuccessfulConnection(System.currentTimeMillis());
+                }
+                connectionInformation.setConnectionMode(newConnectionMode);
+                updated = true;
+            }
+            if (failure != null) {
+                connectionInformation.setLastFailedConnection(System.currentTimeMillis());
+                connectionInformation.setLastFailure(failure);
+                updated = true;
+            }
+            if (updated) {
+                try {
+                    saveConnectionInformation();
+                } catch (Exception ex) {
+                    LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
+                }
+                updateStatusListeners(connectionInformation);
+                if (failure != null) {
+                    updateListenersOnFailure(failure);
+                }
+            }
+        }
+
+        @Override
+        public void shutDown() {
+            // The DataSource will call this method if it receives an error such as HTTP 401 that
+            // indicates the mobile key is invalid.
+            ConnectivityManager.this.shutDown();
+            setStatus(ConnectionMode.SHUTDOWN, null);
+        }
+    }
+
     ConnectivityManager(@NonNull final ClientContext clientContext,
-                        @NonNull final ClientStateImpl clientState,
-                        @NonNull final DataSource dataSourceConfig,
+                        @NonNull final ComponentConfigurer<DataSource> dataSourceFactory,
                         @NonNull final EventProcessor eventProcessor,
                         @NonNull final ContextDataManager contextDataManager,
-                        @NonNull final FeatureFetcher fetcher,
                         @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore
     ) {
-        this.clientContext = clientContext;
-        this.dataSourceConfig = dataSourceConfig;
+        this.baseClientContext = clientContext;
+        this.dataSourceFactory = dataSourceFactory;
+        this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl();
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
-        this.clientState = clientState;
         this.eventProcessor = eventProcessor;
         this.contextDataManager = contextDataManager;
-        this.fetcher = fetcher;
         this.environmentStore = environmentStore;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
 
+        forcedOffline.set(clientContext.isSetOffline());
+
         LDConfig ldConfig = clientContext.getConfig();
-        pollingInterval = dataSourceConfig.getPollIntervalMillis();
-        backgroundPollingInterval = dataSourceConfig.getBackgroundPollIntervalMillis();
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
+        this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();
 
-        backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
-        foregroundMode = dataSourceConfig.isStreamingDisabled() ? ConnectionMode.POLLING : ConnectionMode.STREAMING;
-
-        throttler = new Throttler(() -> {
-            synchronized (ConnectivityManager.this) {
-                attemptTransition(platformState.isForeground() ? foregroundMode : backgroundMode);
-            }
-        }, RETRY_TIME_MS, MAX_RETRY_TIME_MS);
-
-        connectivityChangeListener = networkAvailable ->
-            onNetworkConnectivityChange(networkAvailable);
+        connectivityChangeListener = networkAvailable -> {
+            updateDataSource(false, LDUtil.noOpCallback());
+        };
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
         foregroundListener = foreground -> {
-            synchronized (ConnectivityManager.this) {
-                if (foreground) {
-                    if (platformState.isNetworkAvailable() && !clientState.isForcedOffline() &&
-                            connectionInformation.getConnectionMode() != foregroundMode) {
-                        throttler.attemptRun();
-                        eventProcessor.setInBackground(false);
-                    }
-                } else {
-                    if (platformState.isNetworkAvailable() && !clientState.isForcedOffline() &&
-                            connectionInformation.getConnectionMode() != backgroundMode) {
-                        throttler.cancel();
-                        eventProcessor.setInBackground(true);
-                        attemptTransition(backgroundMode);
-                    }
-                }
-            }
+            updateDataSource(true, LDUtil.noOpCallback());
         };
         platformState.addForegroundChangeListener(foregroundListener);
+    }
 
-        monitor = new LDUtil.ResultCallback<Void>() {
+    void refresh(@NonNull Callback<Void> onCompletion) {
+        updateDataSource(true, onCompletion);
+    }
+
+    private boolean updateDataSource(
+            boolean mustReinitializeDataSource,
+            @NonNull Callback<Void> onCompletion
+    ) {
+        if (!started.get()) {
+            return false;
+        }
+
+        boolean forceOffline = forcedOffline.get();
+        boolean networkEnabled = platformState.isNetworkAvailable();
+        boolean inBackground = !platformState.isForeground();
+
+        eventProcessor.setOffline(forceOffline || !networkEnabled);
+        eventProcessor.setInBackground(inBackground);
+
+        boolean shouldStopExistingDataSource = true,
+                shouldStartDataSourceIfStopped = false;
+
+        if (forceOffline) {
+            logger.debug("Initialized in offline mode");
+            initialized = true;
+            dataSourceUpdateSink.setStatus(ConnectionMode.SET_OFFLINE, null);
+        } else if (!networkEnabled) {
+            dataSourceUpdateSink.setStatus(ConnectionMode.OFFLINE, null);
+        } else if (inBackground && backgroundUpdatingDisabled) {
+            dataSourceUpdateSink.setStatus(ConnectionMode.BACKGROUND_DISABLED, null);
+        } else {
+            shouldStopExistingDataSource = mustReinitializeDataSource;
+            shouldStartDataSourceIfStopped = true;
+        }
+
+        if (shouldStopExistingDataSource) {
+            DataSource oldDataSource = currentDataSource.getAndSet(null);
+            if (oldDataSource != null) {
+                logger.debug("Stopping current data source");
+                oldDataSource.stop(LDUtil.noOpCallback());
+            }
+        }
+        if (!shouldStartDataSourceIfStopped || currentDataSource.get() != null) {
+            onCompletion.onSuccess(null);
+            return false;
+        }
+
+        logger.debug("Creating data source (background={})", inBackground);
+        ClientContext clientContext = ClientContextImpl.forDataSource(
+                baseClientContext,
+                dataSourceUpdateSink,
+                contextDataManager.getCurrentContext(),
+                inBackground
+        );
+        DataSource dataSource = dataSourceFactory.build(clientContext);
+        currentDataSource.set(dataSource);
+
+        dataSource.start(new Callback<Boolean>() {
             @Override
-            public void onSuccess(Void result) {
-                synchronized (ConnectivityManager.this) {
-                    initialized = true;
-                    connectionInformation.setLastSuccessfulConnection(getCurrentTimestamp());
-                    saveConnectionInformation();
-                    callInitCallback();
-                }
+            public void onSuccess(Boolean result) {
+                initialized = true;
+                onCompletion.onSuccess(null);
             }
 
             @Override
-            public void onError(Throwable e) {
-                synchronized (ConnectivityManager.this) {
-                    connectionInformation.setLastFailedConnection(getCurrentTimestamp());
-                    if (e instanceof LDFailure) {
-                        connectionInformation.setLastFailure((LDFailure) e);
-                    } else {
-                        connectionInformation.setLastFailure(new LDFailure("Unknown failure", e, LDFailure.FailureType.UNKNOWN_ERROR));
-                    }
-                    saveConnectionInformation();
-                    updateListenersOnFailure(connectionInformation.getLastFailure());
-                    callInitCallback();
-                }
+            public void onError(Throwable error) {
+                onCompletion.onSuccess(null);
             }
-        };
+        });
 
-        final DataSourceActions dataSourceActions = new DataSourceActions() {
-            @Override
-            public void triggerPoll() {
-                ConnectivityManager.this.triggerPoll();
-            }
-
-            @Override
-            public void shutdownForInvalidMobileKey() {
-                setOffline();
-            }
-        };
-        streamUpdateProcessor = dataSourceConfig.isStreamingDisabled() ? null :
-                new StreamUpdateProcessor(clientContext, contextDataManager, dataSourceActions,
-                        dataSourceConfig.getInitialReconnectDelayMillis(), monitor);
+        return true;
     }
 
     boolean isInitialized() {
@@ -214,11 +273,6 @@ class ConnectivityManager {
         }
     }
 
-    private void callInitCallback() {
-        LDUtil.safeCallbackSuccess(initCallback, null);
-        initCallback = null;
-    }
-
     private void readStoredConnectionState() {
         PersistentDataStoreWrapper.SavedConnectionInfo savedConnectionInfo =
                 environmentStore.getConnectionInfo();
@@ -240,7 +294,7 @@ class ConnectivityManager {
         environmentStore.setConnectionInfo(savedConnectionInfo);
     }
 
-    private void updateListenersConnectionModeChanged(final ConnectionInformation connectionInformation) {
+    private void updateStatusListeners(final ConnectionInformation connectionInformation) {
         synchronized (statusListeners) {
             Iterator<WeakReference<LDStatusListener>> iter = statusListeners.iterator();
             while (iter.hasNext()) {
@@ -268,100 +322,20 @@ class ConnectivityManager {
         }
     }
 
-    private void stopPolling() {
-        ScheduledFuture<?> task = pollingTaskReference.getAndSet(null);
-        if (task != null) {
-            task.cancel(false);
-        }
-    }
-
-    private void startPolling() {
-        synchronized (pollingTaskReference) {
-            stopPolling(); // in case a task was active with a different polling interval
-            ScheduledFuture<?> task = taskExecutor.startRepeatingTask(() -> triggerPoll(),
-                    pollingInterval, pollingInterval);
-            pollingTaskReference.set(task);
-        }
-        triggerPoll(); // we want the first poll to happen immediately, not deferred
-    }
-
-    private void startBackgroundPolling() {
-        if (initCallback != null) {
-            initCallback.onSuccess(null);
-            initCallback = null;
-        }
-        synchronized (pollingTaskReference) {
-            stopPolling(); // in case a task was active with a different polling interval
-            ScheduledFuture<?> task = taskExecutor.startRepeatingTask(() -> triggerPoll(),
-                    backgroundPollingInterval, backgroundPollingInterval);
-            pollingTaskReference.set(task);
-        }
-    }
-
-    private void stopStreaming() {
-        if (streamUpdateProcessor != null) {
-            streamUpdateProcessor.stop(null);
-        }
-    }
-
-    private void stopStreaming(final LDUtil.ResultCallback<Void> onCompleteListener) {
-        if (streamUpdateProcessor != null) {
-            streamUpdateProcessor.stop(onCompleteListener);
-        } else {
-            safeCallbackSuccess(onCompleteListener, null);
-        }
-    }
-
-    private void startStreaming() {
-        if (streamUpdateProcessor != null) {
-            streamUpdateProcessor.start();
-        }
-    }
-
-    private synchronized void attemptTransition(ConnectionMode nextState) {
-        switch (nextState) {
-            case SHUTDOWN:
-            case BACKGROUND_DISABLED:
-            case SET_OFFLINE:
-            case OFFLINE:
-                initialized = true;
-                callInitCallback();
-                stopPolling();
-                stopStreaming();
-                break;
-            case STREAMING:
-                initialized = false;
-                stopPolling();
-                startStreaming();
-                break;
-            case POLLING:
-                initialized = false;
-                stopPolling();
-                startPolling();
-                break;
-            case BACKGROUND_POLLING:
-                initialized = true;
-                callInitCallback();
-                stopStreaming();
-                stopPolling();
-                startBackgroundPolling();
-                break;
-        }
-
-        updateConnectionMode(nextState);
-    }
-
     /**
      * Attempts to start the data source if possible.
      * <p>
      * If we are configured to be offline or the network is unavailable, it immediately calls the
      * completion listener and returns. Otherwise, it continues initialization asynchronously and
      * the listener will be called when the data source successfully starts up or permanently fails.
-     * <p>
-     * The return value is true if we are online, or false if we are offline (this determines
-     * whether we should try to send an identify event on startup).
+     *
+     * @return true if we are online, or false if we are offline (this determines whether we should
+     *  try to send an identify event on startup)
      */
-    synchronized boolean startUp(LDUtil.ResultCallback<Void> onCompleteListener) {
+    synchronized boolean startUp(@NonNull Callback<Void> onCompletion) {
+        if (closed.get() || started.getAndSet(true)) {
+            return false;
+        }
         initialized = false;
 
         final LDContext context = contextDataManager.getCurrentContext();
@@ -372,140 +346,70 @@ class ConnectivityManager {
         // initialization times out or otherwise fails.
         contextDataManager.initFromStoredData(context);
 
-        if (clientState.isForcedOffline()) {
-            logger.debug("Initialized in offline mode");
-            initialized = true;
-            updateConnectionMode(ConnectionMode.SET_OFFLINE);
-            safeCallbackSuccess(onCompleteListener, null);
-            return false;
-        }
-
-        final boolean connected = platformState.isNetworkAvailable();
-
-        if (!connected) {
-            initialized = true;
-            updateConnectionMode(ConnectionMode.OFFLINE);
-            safeCallbackSuccess(onCompleteListener, null);
-            return false;
-        }
-
-        initCallback = onCompleteListener;
-        eventProcessor.setOffline(false);
-        throttler.attemptRun();
-        return true;
+        return updateDataSource(true, onCompletion);
     }
 
-    synchronized void shutdown() {
-        throttler.cancel();
-        updateConnectionMode(ConnectionMode.SHUTDOWN);
-        platformState.removeConnectivityChangeListener(connectivityChangeListener);
-        platformState.removeForegroundChangeListener(foregroundListener);
-        stopStreaming();
-        stopPolling();
-        clientState.setForcedOffline(true);
-        eventProcessor.setOffline(true);
-        callInitCallback();
-    }
-
-    synchronized void setOnline() {
-        boolean wasOffline = clientState.setForcedOffline(false);
-        if (wasOffline) {
-            startUp(null);
-        }
-    }
-
-    synchronized void setOffline() {
-        boolean wasOffline = clientState.setForcedOffline(true);
-        if (!wasOffline) {
-            throttler.cancel();
-            attemptTransition(ConnectionMode.SET_OFFLINE);
-            eventProcessor.setOffline(true);
-        }
-    }
-
-    synchronized void reloadData(final LDUtil.ResultCallback<Void> onCompleteListener) {
-        throttler.cancel();
-        callInitCallback();
-        stopPolling();
-        stopStreaming(new LDUtil.ResultCallback<Void>() {
-            @Override
-            public void onSuccess(Void result) {
-                startUp(onCompleteListener);
-            }
-
-            @Override
-            public void onError(Throwable e) {
-                startUp(onCompleteListener);
-            }
-        });
-    }
-
-    private synchronized void updateConnectionMode(ConnectionMode connectionMode) {
-        if (connectionInformation.getConnectionMode() == ConnectionMode.STREAMING && initialized) {
-            connectionInformation.setLastSuccessfulConnection(getCurrentTimestamp());
-        }
-        connectionInformation.setConnectionMode(connectionMode);
-        try {
-            saveConnectionInformation();
-        } catch (Exception ex) {
-            LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
-        }
-        updateListenersConnectionModeChanged(connectionInformation);
-    }
-
-    private synchronized void onNetworkConnectivityChange(boolean connectedToInternet) {
-        if (clientState.isForcedOffline()) {
-            // abort if manually set offline
+    /**
+     * Permanently stops data updating for the current client instance. We call this if the client
+     * is being closed, or if we receive an error that indicates the mobile key is invalid.
+     */
+    void shutDown() {
+        if (closed.getAndSet(true)) {
             return;
         }
-        if (connectionInformation.getConnectionMode() == ConnectionMode.OFFLINE && connectedToInternet) {
-            eventProcessor.setOffline(false);
-            throttler.attemptRun();
-        } else if (connectionInformation.getConnectionMode() != ConnectionMode.OFFLINE && !connectedToInternet) {
-            eventProcessor.setOffline(true);
-            throttler.cancel();
-            attemptTransition(ConnectionMode.OFFLINE);
+        DataSource oldDataSource = currentDataSource.getAndSet(null);
+        if (oldDataSource != null) {
+            oldDataSource.stop(LDUtil.noOpCallback());
+        }
+        platformState.removeForegroundChangeListener(foregroundListener);
+        platformState.removeConnectivityChangeListener(connectivityChangeListener);
+    }
+
+    void setForceOffline(boolean forceOffline) {
+        boolean wasForcedOffline = forcedOffline.getAndSet(forceOffline);
+        if (forceOffline != wasForcedOffline) {
+            updateDataSource(false, LDUtil.noOpCallback());
         }
     }
 
-    private long getCurrentTimestamp() {
-        return Calendar.getInstance(TimeZone.getTimeZone("UTC")).getTimeInMillis();
+    boolean isForcedOffline() {
+        return forcedOffline.get();
     }
 
     synchronized ConnectionInformation getConnectionInformation() {
-        if (connectionInformation.getConnectionMode() == ConnectionMode.STREAMING && initialized) {
-            connectionInformation.setLastSuccessfulConnection(getCurrentTimestamp());
-            saveConnectionInformation();
-        }
         return connectionInformation;
     }
 
-    private void triggerPoll() {
-        if (!clientState.isForcedOffline()) {
-            pollDebouncer.call(() -> {
-                doSinglePoll();
-                return null;
-            });
-        }
-    }
-
-    private void doSinglePoll() {
-        LDContext currentContext = contextDataManager.getCurrentContext();
-        fetcher.fetch(currentContext, new LDUtil.ResultCallback<String>() {
+    static void fetchAndSetData(
+            FeatureFetcher fetcher,
+            LDContext currentContext,
+            DataSourceUpdateSink dataSourceUpdateSink,
+            Callback<Boolean> resultCallback,
+            LDLogger logger
+    ) {
+        fetcher.fetch(currentContext, new Callback<String>() {
             @Override
             public void onSuccess(String flagsJson) {
-                contextDataManager.initDataFromJson(currentContext, flagsJson, monitor);
+                EnvironmentData data;
+                try {
+                    data = EnvironmentData.fromJson(flagsJson);
+                } catch (Exception e) {
+                    logger.debug("Received invalid JSON flag data: {}", flagsJson);
+                    resultCallback.onError(new LDFailure("Invalid JSON received from flags endpoint",
+                            e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
+                    return;
+                }
+                dataSourceUpdateSink.init(data.getAll());
+                resultCallback.onSuccess(true);
             }
 
             @Override
             public void onError(Throwable e) {
-                if (platformState.isNetworkAvailable()) {
-                    logger.error("Error when attempting to get flag data: [{}] [{}]: {}",
-                            LDUtil.base64Url(currentContext),
-                            currentContext,
-                            LogValues.exceptionSummary(e));
-                }
-                monitor.onError(e);
+                logger.error("Error when attempting to get flag data: [{}] [{}]: {}",
+                        LDUtil.base64Url(currentContext),
+                        currentContext,
+                        LogValues.exceptionSummary(e));
+                resultCallback.onError(e);
             }
         });
     }

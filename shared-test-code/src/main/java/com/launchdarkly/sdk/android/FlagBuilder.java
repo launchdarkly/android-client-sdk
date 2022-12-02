@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 
 public final class FlagBuilder {
     @NonNull
@@ -12,8 +13,8 @@ public final class FlagBuilder {
     private int version;
     private Integer flagVersion = null;
     private Integer variation = null;
-    private Boolean trackEvents = null;
-    private Boolean trackReason = null;
+    private boolean trackEvents = false;
+    private boolean trackReason = false;
     private Long debugEventsUntilDate = null;
     private EvaluationReason reason = null;
 

@@ -6,7 +6,9 @@ import androidx.annotation.Nullable;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,7 +61,7 @@ final class ContextDataManager {
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             int maxCachedContexts
     ) {
-        this.currentContext = clientContext.getInitialEvaluationContext();
+        this.currentContext = clientContext.getEvaluationContext();
         this.environmentStore = environmentStore;
         this.maxCachedContexts = maxCachedContexts;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
@@ -204,7 +206,7 @@ final class ContextDataManager {
     public void initDataFromJson(
         @NonNull LDContext context,
         @NonNull String newDataJson,
-        LDUtil.ResultCallback<Void> onCompleteListener
+        Callback<Void> onCompleteListener
     ) {
         EnvironmentData data;
         try {
@@ -249,7 +251,7 @@ final class ContextDataManager {
                         filtered.put(f1.getKey(), f1);
                     }
                 }
-                return new EnvironmentData(filtered);
+                return EnvironmentData.usingExistingFlagsMap(filtered);
             }
         }
         return data;

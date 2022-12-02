@@ -12,7 +12,8 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.Callback;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
@@ -57,7 +58,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ContextDataManager contextDataManager;
     private final EventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
-    private final ClientStateImpl clientState;
     private final LDLogger logger;
 
     /**
@@ -162,7 +162,7 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
-        LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
+        Callback<Void> completeWhenCounterZero = new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (initCounter.decrementAndGet() == 0) {
@@ -324,36 +324,42 @@ public class LDClient implements LDClientInterface, Closeable {
             throw new LaunchDarklyException("Mobile key cannot be null");
         }
 
-        clientState = new ClientStateImpl(config.isOffline());
-
+        // We may be recreating the DataSource component repeatedly due to changes in things like
+        // the online state and the current evaluation context-- but we don't want to have to
+        // recreate the FeatureFetcher, because it doesn't depend on those state properties and it
+        // contains an HTTP client that could be expensive to keep recreating. So we'll make just
+        // one for this client instance and share it.
+        FeatureFetcher fetcher = null;
+        if (config.dataSource instanceof ComponentsImpl.DataSourceRequiresFeatureFetcher) {
+            ClientContextImpl minimalContext = ClientContextImpl.fromConfig(config, mobileKey,
+                    environmentName, null, initialContext, logger, platformState, taskExecutor
+            );
+            fetcher = new HttpFeatureFlagFetcher(minimalContext);
+        }
         ClientContextImpl clientContext = ClientContextImpl.fromConfig(
                 config,
                 mobileKey,
                 environmentName,
+                fetcher,
                 initialContext,
                 logger,
                 platformState,
                 taskExecutor
         );
 
-        FeatureFetcher fetcher = new HttpFeatureFlagFetcher(clientContext, clientState);
         this.contextDataManager = new ContextDataManager(
                 clientContext,
                 environmentStore,
                 config.getMaxCachedContexts()
         );
 
-        DataSource dataSource = config.dataSource.build(clientContext);
-
         eventProcessor = config.events.build(clientContext);
 
         connectivityManager = new ConnectivityManager(
                 clientContext,
-                clientState,
-                dataSource,
+                config.dataSource,
                 eventProcessor,
                 contextDataManager,
-                fetcher,
                 environmentStore
         );
     }
@@ -412,9 +418,9 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void identifyInternal(@NonNull LDContext context,
-                                  LDUtil.ResultCallback<Void> onCompleteListener) {
+                                  Callback<Void> onCompleteListener) {
         contextDataManager.setCurrentContext(context);
-        connectivityManager.reloadData(onCompleteListener);
+        connectivityManager.refresh(onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
 
@@ -422,7 +428,7 @@ public class LDClient implements LDClientInterface, Closeable {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
         final Map<String, LDClient> instancesNow = getInstancesIfTheyIncludeThisClient();
         final AtomicInteger identifyCounter = new AtomicInteger(instancesNow.size());
-        LDUtil.ResultCallback<Void> completeWhenCounterZero = new LDUtil.ResultCallback<Void>() {
+        Callback<Void> completeWhenCounterZero = new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (identifyCounter.decrementAndGet() == 0) {
@@ -568,7 +574,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void closeInternal() {
-        connectivityManager.shutdown();
+        connectivityManager.shutDown();
         try {
             eventProcessor.close();
         } catch (IOException e) {
@@ -606,12 +612,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean isInitialized() {
-        return clientState.isForcedOffline() || connectivityManager.isInitialized();
+        return connectivityManager.isForcedOffline() || connectivityManager.isInitialized();
     }
 
     @Override
     public boolean isOffline() {
-        return clientState.isForcedOffline();
+        return connectivityManager.isForcedOffline();
     }
 
     @Override
@@ -622,7 +628,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void setOfflineInternal() {
-        connectivityManager.setOffline();
+        connectivityManager.setForceOffline(true);
     }
 
     @Override
@@ -633,7 +639,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void setOnlineStatusInternal() {
-        connectivityManager.setOnline();
+        connectivityManager.setForceOffline(false);
     }
 
     @Override

@@ -11,53 +11,53 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
  * creating components.
  * <p>
  * The getter methods in this class provide information about the initial configuration of the
- * client. This includes properties from {@link LDConfig}, and also values that are computed
- * during initialization. It is preferable for components to copy properties from this class rather
- * than to retain a reference to the entire {@link LDConfig} object.
+ * client, as well as its current state. This includes properties from {@link LDConfig}, and also
+ * values that are computed during initialization. It is preferable for components to copy
+ * properties from this class rather than to retain a reference to the entire {@link LDConfig} object.
  * <p>
  * The actual implementation class may contain other properties that are only relevant to the built-in
  * SDK components and are therefore not part of this base class; this allows the SDK to add its own
  * context information as needed without disturbing the public API.
- * <p>
- * All properties of this object are immutable; they are set at initialization time and do not
- * reflect any later state changes in the client.
  *
  * @since 3.3.0
  */
 public class ClientContext {
     private final LDLogger baseLogger;
     private final LDConfig config;
+    private final DataSourceUpdateSink dataSourceUpdateSink;
     private final boolean evaluationReasons;
     private final String environmentName;
+    private final LDContext evaluationContext;
     private final HttpConfiguration http;
-    private final LDContext initialEvaluationContext;
-    private final boolean initiallyInBackground;
-    private final boolean initiallySetOffline;
+    private final boolean inBackground;
     private final String mobileKey;
     private final ServiceEndpoints serviceEndpoints;
+    private final boolean setOffline;
 
     public ClientContext(
             String mobileKey,
             LDLogger baseLogger,
             LDConfig config,
+            DataSourceUpdateSink dataSourceUpdateSink,
             String environmentName,
             boolean evaluationReasons,
+            LDContext evaluationContext,
             HttpConfiguration http,
-            LDContext initialEvaluationContext,
-            boolean initiallyInBackground,
-            boolean initiallySetOffline,
-            ServiceEndpoints serviceEndpoints
+            boolean inBackground,
+            ServiceEndpoints serviceEndpoints,
+            boolean setOffline
     ) {
         this.mobileKey = mobileKey;
         this.baseLogger = baseLogger;
         this.config = config;
+        this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.environmentName = environmentName;
         this.evaluationReasons = evaluationReasons;
+        this.evaluationContext = evaluationContext;
         this.http = http;
-        this.initialEvaluationContext = initialEvaluationContext;
-        this.initiallyInBackground = initiallyInBackground;
-        this.initiallySetOffline = initiallySetOffline;
+        this.inBackground = inBackground;
         this.serviceEndpoints = serviceEndpoints;
+        this.setOffline = setOffline;
     }
 
     protected ClientContext(ClientContext copyFrom) {
@@ -65,14 +65,15 @@ public class ClientContext {
                 copyFrom.mobileKey,
                 copyFrom.baseLogger,
                 copyFrom.config,
+                copyFrom.dataSourceUpdateSink,
                 copyFrom.environmentName,
                 copyFrom.evaluationReasons,
+                copyFrom.evaluationContext,
                 copyFrom.http,
-                copyFrom.initialEvaluationContext,
-                copyFrom.initiallyInBackground,
-                copyFrom.initiallySetOffline,
-                copyFrom.serviceEndpoints
-                );
+                copyFrom.inBackground,
+                copyFrom.serviceEndpoints,
+                copyFrom.setOffline
+        );
     }
 
     /**
@@ -91,6 +92,10 @@ public class ClientContext {
      */
     public LDConfig getConfig() {
         return config;
+    }
+
+    public DataSourceUpdateSink getDataSourceUpdateSink() {
+        return dataSourceUpdateSink;
     }
 
     /**
@@ -118,27 +123,20 @@ public class ClientContext {
     }
 
     /**
-     * Returns the evaluation context that the SDK was initialized with.
-     * @return the initial evaluation context
+     * Returns the current evaluation context as of the time that this component was created.
+     * @return the current evaluation context
      */
-    public LDContext getInitialEvaluationContext() {
-        return initialEvaluationContext;
+    public LDContext getEvaluationContext() {
+        return evaluationContext;
     }
 
     /**
-     * Returns true if the application was in the background at initialization time.
-     * @return true if initially in the background
+     * Returns true if the application was in the background at the time that this component was
+     * created.
+     * @return true if in the background
      */
-    public boolean isInitiallyInBackground() {
-        return initiallyInBackground;
-    }
-
-    /**
-     * Returns true if the initial configuration specified that the SDK should be offline.
-     * @return true if initially set to be offline
-     */
-    public boolean isInitiallySetOffline() {
-        return initiallySetOffline;
+    public boolean isInBackground() {
+        return inBackground;
     }
 
     /**
@@ -159,5 +157,13 @@ public class ClientContext {
      */
     public ServiceEndpoints getServiceEndpoints() {
         return serviceEndpoints;
+    }
+
+    /**
+     * Returns true if the application has specified that the SDK should be offline.
+     * @return true if set to be offline
+     */
+    public boolean isSetOffline() {
+        return setOffline;
     }
 }

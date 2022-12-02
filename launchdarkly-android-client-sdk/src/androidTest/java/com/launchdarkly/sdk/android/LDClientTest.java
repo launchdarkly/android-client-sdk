@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.junit.Before;
@@ -24,43 +25,34 @@ import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
 public class LDClientTest {
-
     private static final String mobileKey = "test-mobile-key";
+    private static final LDContext ldUser = LDContext.create("userKey");
+
     private Application application;
-    private LDClient ldClient;
-    private Future<LDClient> ldClientFuture;
-    private LDConfig ldConfig;
-    private LDContext ldUser;
 
     @Before
     public void setUp() {
         application = ApplicationProvider.getApplicationContext();
-        ldConfig = new LDConfig.Builder()
-                .mobileKey(mobileKey)
-                .offline(true)
-                .build();
-
-        ldUser = LDContext.create("userKey");
     }
 
     @Test
-    public void testOfflineClientReturnsDefaultsIfThereAreNoStoredFlags() {
-        ldClient = LDClient.init(application, ldConfig, ldUser, 1);
+    public void testOfflineClientReturnsDefaultsIfThereAreNoStoredFlags() throws Exception {
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser, 1)) {
+            assertTrue("client was not initialized", ldClient.isInitialized());
+            assertTrue("client was offline", ldClient.isOffline());
 
-        assertTrue("client was not initialized", ldClient.isInitialized());
-        assertTrue("client was offline", ldClient.isOffline());
+            assertTrue(ldClient.boolVariation("boolFlag", true));
+            assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5), 0.0);
+            assertEquals(1, ldClient.intVariation("intFlag", 1));
+            assertEquals("default", ldClient.stringVariation("stringFlag", "default"));
 
-        assertTrue(ldClient.boolVariation("boolFlag", true));
-        assertEquals(1.5, ldClient.doubleVariation("doubleFlag", 1.5), 0.0);
-        assertEquals(1, ldClient.intVariation("intFlag", 1));
-        assertEquals("default", ldClient.stringVariation("stringFlag", "default"));
-
-        LDValue expectedJson = LDValue.of("value");
-        assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
+            LDValue expectedJson = LDValue.of("value");
+            assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
+        }
     }
 
     @Test
-    public void testOfflineClientUsesStoredFlags() {
+    public void testOfflineClientUsesStoredFlags() throws Exception {
         PersistentDataStore store = new InMemoryPersistentDataStore();
         LDConfig config = new LDConfig.Builder()
                 .mobileKey(mobileKey)
@@ -72,30 +64,50 @@ public class LDClientTest {
         Flag flag = new FlagBuilder(flagKey).version(1).value(LDValue.of(flagValue)).build();
         TestUtil.writeFlagUpdateToStore(store, mobileKey, ldUser, flag);
 
-        ldClient = LDClient.init(application, config, ldUser, 1);
+        try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
+            assertTrue("client was not initialized", ldClient.isInitialized());
+            assertTrue("client was offline", ldClient.isOffline());
 
-        assertTrue("client was not initialized", ldClient.isInitialized());
-        assertTrue("client was offline", ldClient.isOffline());
-
-        assertEquals(flagValue, ldClient.stringVariation(flagKey, "default"));
+            assertEquals(flagValue, ldClient.stringVariation(flagKey, "default"));
+        }
     }
 
     @Test
-    public void givenDefaultsAreNullAndTestOfflineClientReturnsDefaults() {
-        ldClient = LDClient.init(application, ldConfig, ldUser, 1);
-
-        assertTrue(ldClient.isInitialized());
-        assertTrue(ldClient.isOffline());
-        assertNull(ldClient.stringVariation("stringFlag", null));
-        assertEquals(ldClient.jsonValueVariation("jsonFlag", null), LDValue.ofNull());
+    public void givenDefaultsAreNullAndTestOfflineClientReturnsDefaults() throws Exception {
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser, 1)) {
+            assertTrue(ldClient.isInitialized());
+            assertTrue(ldClient.isOffline());
+            assertNull(ldClient.stringVariation("stringFlag", null));
+            assertEquals(ldClient.jsonValueVariation("jsonFlag", null), LDValue.ofNull());
+        }
     }
 
     @Test
-    public void testInitMissingApplication() {
+    public void testInitMissingApplication() throws Exception {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        ldClientFuture = LDClient.init(null, ldConfig, ldUser);
+        Future<LDClient> ldClientFuture = LDClient.init(null, makeOfflineConfig(), ldUser);
+
+        try {
+            ldClientFuture.get();
+        } catch (InterruptedException e) {
+            fail();
+        } catch (ExecutionException e) {
+            actualFutureException = e;
+            actualProvidedException = (LaunchDarklyException) e.getCause();
+        }
+        assertEquals(ExecutionException.class, actualFutureException.getClass());
+        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
+        assertTrue("No future task to run", ldClientFuture.isDone());
+    }
+
+    @Test
+    public void testInitMissingConfig() throws Exception {
+        ExecutionException actualFutureException = null;
+        LaunchDarklyException actualProvidedException = null;
+
+        Future<LDClient> ldClientFuture = LDClient.init(application, null, ldUser);
 
         try {
             ldClientFuture.get();
@@ -112,32 +124,11 @@ public class LDClientTest {
     }
 
     @Test
-    public void testInitMissingConfig() {
+    public void testInitMissingContext() throws Exception {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        ldClientFuture = LDClient.init(application, null, ldUser);
-
-        try {
-            ldClientFuture.get();
-        } catch (InterruptedException e) {
-            fail();
-        } catch (ExecutionException e) {
-            actualFutureException = e;
-            actualProvidedException = (LaunchDarklyException) e.getCause();
-        }
-
-        assertEquals(ExecutionException.class, actualFutureException.getClass());
-        assertEquals(LaunchDarklyException.class, actualProvidedException.getClass());
-        assertTrue("No future task to run", ldClientFuture.isDone());
-    }
-
-    @Test
-    public void testInitMissingContext() {
-        ExecutionException actualFutureException = null;
-        LaunchDarklyException actualProvidedException = null;
-
-        ldClientFuture = LDClient.init(application, ldConfig, (LDContext)null);
+        Future<LDClient> ldClientFuture = LDClient.init(application, makeOfflineConfig(), (LDContext)null);
 
         try {
             ldClientFuture.get();
@@ -154,31 +145,43 @@ public class LDClientTest {
     }
 
     // the second ldClient.close() should throw a npe
+    @Test
     public void testDoubleClose() throws IOException {
-        ldClient = LDClient.init(application, ldConfig, ldUser, 1);
+        LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser, 1);
         ldClient.close();
-        ldClient.close();
+        try {
+            ldClient.close();
+            fail("expected exception");
+        } catch (NullPointerException e) {}
     }
 
     @Test
-    public void testInitBackgroundThread() throws ExecutionException, InterruptedException {
+    public void testInitBackgroundThread() throws Exception {
         Future<?> backgroundComplete = new BackgroundThreadExecutor().newFixedThreadPool(1).submit(() -> {
             try {
-                ldClient = LDClient.init(application, ldConfig, ldUser).get();
+                try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser).get()) {
+                    assertTrue(ldClient.isInitialized());
+                    assertTrue(ldClient.isOffline());
+
+                    assertTrue(ldClient.boolVariation("boolFlag", true));
+                    assertEquals(1.0, ldClient.doubleVariation("floatFlag", 1.0), 0.0);
+                    assertEquals(1, ldClient.intVariation("intFlag", 1));
+                    assertEquals("default", ldClient.stringVariation("stringFlag", "default"));
+
+                    LDValue expectedJson = LDValue.of("value");
+                    assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
+                }
             } catch (Exception e) {
-                fail();
+                throw new RuntimeException(e);
             }
-            assertTrue(ldClient.isInitialized());
-            assertTrue(ldClient.isOffline());
-
-            assertTrue(ldClient.boolVariation("boolFlag", true));
-            assertEquals(1.0, ldClient.doubleVariation("floatFlag", 1.0), 0.0);
-            assertEquals(1, ldClient.intVariation("intFlag", 1));
-            assertEquals("default", ldClient.stringVariation("stringFlag", "default"));
-
-            LDValue expectedJson = LDValue.of("value");
-            assertEquals(expectedJson, ldClient.jsonValueVariation("jsonFlag", expectedJson));
         });
         backgroundComplete.get();
+    }
+
+    private LDConfig makeOfflineConfig() {
+        return new LDConfig.Builder()
+                .mobileKey(mobileKey)
+                .offline(true)
+                .build();
     }
 }

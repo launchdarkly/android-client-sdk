@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
@@ -15,7 +16,6 @@ import java.net.URI;
 
 import okhttp3.Cache;
 import okhttp3.Call;
-import okhttp3.Callback;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -32,24 +32,20 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     private final boolean evaluationReasons;
     private final boolean useReport;
     private final HttpProperties httpProperties;
-    private final ClientState clientStateProvider;
-    private final PlatformState platformState;
     private final OkHttpClient client;
     private final LDLogger logger;
 
     HttpFeatureFlagFetcher(
-            @NonNull ClientContext clientContext,
-            @NonNull ClientState clientStateProvider
+            @NonNull ClientContext clientContext
     ) {
         this.pollUri = clientContext.getServiceEndpoints().getPollingBaseUri();
         this.evaluationReasons = clientContext.isEvaluationReasons();
         this.useReport = clientContext.getHttp().isUseReport();
-        this.clientStateProvider = clientStateProvider;
         this.httpProperties = LDUtil.makeHttpProperties(clientContext);
-        this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.logger = clientContext.getBaseLogger();
 
-        File cacheDir = new File(platformState.getCacheDir(), "com.launchdarkly.http-cache");
+        File cacheDir = new File(ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
+                "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
 
         client = httpProperties.toHttpClientBuilder()
@@ -66,8 +62,8 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     }
 
     @Override
-    public synchronized void fetch(LDContext ldContext, final LDUtil.ResultCallback<String> callback) {
-        if (ldContext != null && !clientStateProvider.isForcedOffline() && platformState.isNetworkAvailable()) {
+    public synchronized void fetch(LDContext ldContext, final Callback<String> callback) {
+        if (ldContext != null) {
 
             final Request request;
             try {
@@ -82,7 +78,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
 
             logger.debug(request.toString());
             Call call = client.newCall(request);
-            call.enqueue(new Callback() {
+            call.enqueue(new okhttp3.Callback() {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
                     LDUtil.logExceptionAtErrorLevel(logger, e, "Exception when fetching flags");
@@ -123,6 +119,11 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                 }
             });
         }
+    }
+
+    @Override
+    public void close() {
+        HttpProperties.shutdownHttpClient(client);
     }
 
     private Request getDefaultRequest(LDContext ldContext) throws IOException {

@@ -46,6 +46,7 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
                 new LDConfig.Builder().build(),
                 "mobile-key",
                 "",
+                null,
                 INITIAL_CONTEXT,
                 logging.logger,
                 null,

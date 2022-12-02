@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.http.HeadersTransformer;
@@ -27,6 +28,16 @@ class LDUtil {
     static final String AUTH_SCHEME = "api_key ";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
 
+    static <T> Callback<T> noOpCallback() {
+        return new Callback<T>() {
+            @Override
+            public void onSuccess(T result) {}
+
+            @Override
+            public void onError(Throwable error) {}
+        };
+    }
+
     static Headers makeRequestHeaders(
             @NonNull HttpConfiguration httpConfig,
             Map<String, String> additionalHeaders
@@ -45,18 +56,6 @@ class LDUtil {
         }
 
         return Headers.of(baseHeaders);
-    }
-
-    static <T> void safeCallbackSuccess(ResultCallback<T> listener, T result) {
-        if (listener != null) {
-            listener.onSuccess(result);
-        }
-    }
-
-    static void safeCallbackError(ResultCallback<?> listener, Throwable e) {
-        if (listener != null) {
-            listener.onError(e);
-        }
     }
 
     static String urlSafeBase64Hash(String input) {
@@ -101,11 +100,6 @@ class LDUtil {
                 null, // sslSocketFactory
                 null // trustManager
         );
-    }
-
-    interface ResultCallback<T> {
-        void onSuccess(T result);
-        void onError(Throwable e);
     }
 
     /**
