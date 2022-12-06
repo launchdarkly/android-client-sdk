@@ -239,11 +239,13 @@ public class LDConfig {
          * Sets the configuration of the component that receives feature flag data from LaunchDarkly.
          * <p>
          * The default is {@link Components#streamingDataSource()}; you may instead use
-         * {@link Components#pollingDataSource()}. See those methods for details on how to configure
-         * them with options that are specific to streaming or polling mode.
+         * {@link Components#pollingDataSource()}, or a test fixture such as
+         * {@link com.launchdarkly.sdk.android.integrations.TestData}. See {@link Components#streamingDataSource()}
+         * and {@link Components#pollingDataSource()} for details on how to configure them with
+         * options that are specific to streaming or polling mode.
          * <p>
          * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
-         * and completely disable network requests.
+         * and completely disable all data sources.
          * <pre><code>
          *     // Setting custom options when using streaming mode
          *     LDConfig config = new LDConfig.Builder()

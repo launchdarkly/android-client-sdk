@@ -9,6 +9,7 @@ import com.launchdarkly.sdk.android.DataModel.Flag;
 
 import com.google.gson.Gson;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
@@ -71,5 +72,17 @@ public class AssertHelpers {
             }
         }
         throw new AssertionError("timed out after " + timeout);
+    }
+
+    public static <T> T requireValue(BlockingQueue<T> queue, int timeout, TimeUnit timeoutUnit) {
+        try {
+            T value = queue.poll(timeout, timeoutUnit);
+            if (value == null) {
+                throw new AssertionError("timed out waiting for value");
+            }
+            return value;
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
