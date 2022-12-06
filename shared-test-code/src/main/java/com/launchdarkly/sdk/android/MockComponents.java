@@ -1,14 +1,19 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.android.AssertHelpers.requireValue;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -42,6 +47,41 @@ public abstract class MockComponents {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
+        }
+    }
+
+    public static class MockDataSourceUpdateSink implements DataSourceUpdateSink {
+        public final BlockingQueue<Map<String, DataModel.Flag>> inits = new LinkedBlockingQueue<>();
+        public final BlockingQueue<DataModel.Flag> upserts = new LinkedBlockingQueue<>();
+
+        @Override
+        public void init(@NonNull Map<String, DataModel.Flag> items) {
+            inits.add(items);
+        }
+
+        public Map<String, DataModel.Flag> expectInit() {
+            return requireValue(inits, 1, TimeUnit.SECONDS);
+        }
+
+        @Override
+        public void upsert(@NonNull DataModel.Flag item) {
+            upserts.add(item);
+        }
+
+        public DataModel.Flag expectUpsert(String flagKey) {
+            DataModel.Flag flag = requireValue(upserts, 1, TimeUnit.SECONDS);
+            assertEquals(flagKey, flag.getKey());
+            return flag;
+        }
+
+        @Override
+        public void setStatus(@NonNull ConnectionInformation.ConnectionMode connectionMode, @Nullable Throwable failure) {
+
+        }
+
+        @Override
+        public void shutDown() {
+
         }
     }
 

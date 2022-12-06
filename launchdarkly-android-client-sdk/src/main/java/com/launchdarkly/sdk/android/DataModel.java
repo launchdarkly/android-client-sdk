@@ -9,6 +9,8 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.json.SerializationException;
 
+import java.util.Objects;
+
 /**
  * Contains information about the internal data model for feature flag state.
  * <p>
@@ -140,6 +142,23 @@ public abstract class DataModel {
         @Override
         public String toString() {
             return toJson();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (other instanceof Flag) {
+                Flag o = (Flag)other;
+                return Objects.equals(key, o.key) &&
+                        Objects.equals(value, o.value) &&
+                        version == o.version &&
+                        Objects.equals(variation, o.variation) &&
+                        Objects.equals(reason, o.reason) &&
+                        trackEvents == o.trackEvents &&
+                        trackReason == o.trackReason &&
+                        Objects.equals(debugEventsUntilDate, o.debugEventsUntilDate) &&
+                        deleted == o.deleted;
+            }
+            return false;
         }
 
         public static Flag fromJson(String json) throws SerializationException {
