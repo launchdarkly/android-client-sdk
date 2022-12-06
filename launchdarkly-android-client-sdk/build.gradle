@@ -59,13 +59,13 @@ configurations.all {
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
-    "eventsource": "3.0.0-SNAPSHOT",
+    "eventsource": "3.0.0",
     "gson": "2.8.9",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
-    "launchdarklyJavaSdkCommon": "2.0.0-SNAPSHOT",
-    "launchdarklyJavaSdkInternal": "1.0.0-SNAPSHOT",
+    "launchdarklyJavaSdkCommon": "2.0.0",
+    "launchdarklyJavaSdkInternal": "1.0.0",
     "launchdarklyLogging": "1.1.1",
     "okhttp": "4.9.2",
     "timber": "5.0.1",
