@@ -3,6 +3,28 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.3.0] - 2022-12-02
+The primary purpose of this release is to introduce newer APIs for SDK configuration, corresponding to how configuration will work in the upcoming 4.0 release. The corresponding older APIs are now deprecated; switching from them to the newer ones now will facilitate migrating to 4.0 in the future. This also brings the Android SDK's API closer in line with other current LaunchDarkly SDKs, such as the Java SDK and the .NET SDKs.
+
+Previously, most configuration options were set by setter methods in `LDConfig.Builder`. These are being superseded by builders that are specific to one area of functionality: for instance, `Components.streamingDataSource()` and `Components.pollingDataSource()` provide builders/factories that have options specific to streaming or polling, and the SDK's many options related to analytics events are now in a builder returned by `Components.sendEvents()`. Using this newer API makes it clearer which options are for what, and makes it impossible to write contradictory configurations like `.stream(true).pollingIntervalMillis(30000)`.
+
+The new configuration builders also include some options for SDK behavior that could not previously be configured; see "Added".
+
+### Added:
+- `Components`, containing factory methods for the various configuration builders.
+- Configuration builder classes in `com.launchdarkly.sdk.android.integrations`: `StreamingDataSourceBuilder`, `PollingDataSourceBuilder`, `EventProcessorBuilder`, `HttpConfigurationBuilder`, `ServiceEndpointsBuilder`.
+- It is now possible to entirely disable analytics events, by setting `LDConfig.Builder.events()` to `Components.noEvents()`.
+- It is now possible to substitute a test fixture for the analytics events subsystem, by creating a custom implementation of `com.launchdarkly.sdk.android.subsystems.EventProcessor`.
+- It is now possible to change the initial delay for reconnecting after a stream connection failure, with `StreamingDataSourceBuilder.initialReconnectDelayMillis()`.
+
+### Deprecated:
+(all in `LDConfig.Builder`)
+- `pollingIntervalMillis`, `stream`: see `PollingDataSourceBuilder`.
+- `backgroundPollingIntervalMillis`: see `PollingDataSourceBuilder` and `StreamingDataSourceBuilder`.
+- `allAttributesPrivate`, `diagnosticRecordingIntervalMillis`, `eventsCapacity`, `eventsFlushIntervalMillis`, `inlineUsersInEvents`, `privateAttributes`: see `EventProcessorBuilder`.
+- `connectionTimeoutMillis`, `headerTransform`, `useReport`, `wrapperName`, `wrapperVersion`: see `HttpConfigurationBuilder`.
+- `streamUri`, `pollUri`, `eventsUri`: See `ServiceEndpointsBuilder`.
+
 ## [3.2.3] - 2022-11-16
 ### Fixed:
 - The SDK no longer updates SharedPreferences data during every flag evaluation. It was using this to store summary counters for analytics events; however, the small chance that a subset of summary data could be lost, if the application terminated before events were delivered, was outweighed by the performance cost (and other types of analytics data were not being stored like this anyway). It now uses a simpler in-memory data structure. ([#194](https://github.com/launchdarkly/android-client-sdk/issues/194))
