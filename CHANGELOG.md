@@ -3,6 +3,36 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.0.0] - 2022-12-07
+The latest version of this SDK supports LaunchDarkly's new custom contexts feature. Contexts are an evolution of a previously-existing concept, "users." Contexts let you create targeting rules for feature flags based on a variety of different information, including attributes pertaining to users, organizations, devices, and more. You can even combine contexts to create "multi-contexts." 
+
+This feature is only available to members of LaunchDarkly's Early Access Program (EAP). If you're in the EAP, you can use contexts by updating your SDK to the latest version and, if applicable, updating your Relay Proxy. Outdated SDK versions do not support contexts, and will cause unpredictable flag evaluation behavior.
+
+If you are not in the EAP, only use single contexts of kind "user", or continue to use the user type if available. If you try to create contexts, the context will be sent to LaunchDarkly, but any data not related to the user object will be ignored.
+
+For detailed information about this version, please refer to the list below. For information on how to upgrade from the previous version, please read the [migration guide](https://docs.launchdarkly.com/sdk/client-side/android/migration-3-to-4).
+
+### Added:
+- In `com.launchDarkly.sdk`, the types `LDContext` and `ContextKind` define the new context model.
+- For all SDK methods that took an `LDUser` parameter, there is now an overload that takes an `LDContext`. The SDK still supports `LDUser` for now, but `LDContext` is the preferred model and `LDUser` may be removed in a future version.
+- The `TestData` class in `com.launchdarkly.sdk.android.integrations` is a new way to inject feature flag data programmatically into the SDK for testing—either with fixed values for each flag, or with targeting logic that can return different values for different contexts.
+
+### Changed _(breaking changes from 3.x)_:
+- It was previously allowable to set a user key to an empty string. In the new context model, the key is not allowed to be empty. Trying to use an empty key will cause evaluations to fail and return the default value.
+- There is no longer such a thing as a `secondary` meta-attribute that affects percentage rollouts. If you set an attribute with that name in `LDContext`, it will simply be a custom attribute like any other.
+- The `anonymous` attribute in `LDUser` is now a simple boolean, with no distinction between a false state and a null state.
+
+### Changed (behavioral changes):
+- The SDK no longer uses Android's `AlarmManager` API to schedule background polling of flag data. Instead, it uses a simple worker thread. `AlarmManager` notifications could wake up a sleeping device, which is not desirable just for getting flag data.
+- Analytics event data now uses a new JSON schema due to differences between the context model and the old user model.
+- The SDK no longer adds `device` and `os` values to the user attributes. Applications that wish to use device/OS information in feature flag rules must explicitly add such information.
+
+### Removed:
+- Removed all types, fields, and methods that were deprecated as of the most recent 3.x release.
+- Removed the `secondary` meta-attribute in `LDUser` and `LDUser.Builder`.
+- The `alias` method no longer exists because alias events are not needed in the new context model.
+- The `autoAliasingOptOut` and `inlineUsersInEvents` options no longer exist because they are not relevant in the new context model.
+
 ## [3.3.0] - 2022-12-02
 The primary purpose of this release is to introduce newer APIs for SDK configuration, corresponding to how configuration will work in the upcoming 4.0 release. The corresponding older APIs are now deprecated; switching from them to the newer ones now will facilitate migrating to 4.0 in the future. This also brings the Android SDK's API closer in line with other current LaunchDarkly SDKs, such as the Java SDK and the .NET SDKs.
 
