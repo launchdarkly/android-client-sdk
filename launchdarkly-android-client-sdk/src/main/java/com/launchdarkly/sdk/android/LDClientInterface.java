@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import android.app.Application;
 
 import com.launchdarkly.sdk.EvaluationDetail;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 
@@ -13,7 +14,7 @@ import java.util.concurrent.Future;
 /**
  * The interface for the LaunchDarkly SDK client.
  * <p>
- * To obtain a client instance, use {@link LDClient} methods such as {@link LDClient#init(Application, LDConfig, LDUser)}.
+ * To obtain a client instance, use {@link LDClient} methods such as {@link LDClient#init(Application, LDConfig, LDContext)}.
  */
 public interface LDClientInterface extends Closeable {
     /**
@@ -56,38 +57,95 @@ public interface LDClientInterface extends Closeable {
     void setOnline();
 
     /**
-     * Tracks that a user performed an event, and provides an additional numeric value for custom metrics.
+     * Tracks that an application-defined event occurred, and provides an additional numeric value
+     * for custom metrics.
+     * <p>
+     * This method creates a "custom" analytics event containing the specified event name (key)
+     * the current evaluation context, optional custom data, and a numeric metric value.
+     * <p>
+     * Note that event delivery is asynchronous, so the event may not actually be sent until
+     * later; see {@link #flush()}.
      *
      * @param eventName   the name of the event
-     * @param data        an {@link LDValue} containing additional data associated with the event; if not applicable,
-     *                    you may pass either {@code null} or {@link LDValue#ofNull()}
-     * @param metricValue A numeric value used by the LaunchDarkly experimentation feature in
-     *                    numeric custom metrics. This field will also be returned as part of the
-     *                    custom event for Data Export.
+     * @param data        an {@link LDValue} containing additional data associated with the event;
+     *                    if not applicable, you may pass either {@code null} or
+     *                    {@link LDValue#ofNull()}
+     * @param metricValue a numeric value used by the LaunchDarkly experimentation feature in
+     *                    numeric custom metrics; this field will also be returned as part of the
+     *                    custom event for Data Export
+     * @see #track(String)
+     * @see #trackData(String, LDValue)
      */
     void trackMetric(String eventName, LDValue data, double metricValue);
 
     /**
-     * Tracks that a user performed an event, and provides additional custom data.
+     * Tracks that an application-defined event occurred, and provides additional custom data.
+     * <p>
+     * This method creates a "custom" analytics event containing the specified event name (key)
+     * the current evaluation context, and optional custom data. To specify a numeric metric, use
+     * {@link #trackMetric(String, LDValue, double)} instead.
+     * <p>
+     * Note that event delivery is asynchronous, so the event may not actually be sent until
+     * later; see {@link #flush()}.
      *
      * @param eventName the name of the event
-     * @param data      an {@link LDValue} containing additional data associated with the event
+     * @param data      an {@link LDValue} containing additional data associated with the event;
+     *                  if not applicable, you may pass either {@code null} or
+     *                  {@link LDValue#ofNull()}
+     * @see #track(String)
+     * @see #trackMetric(String, LDValue, double)
      */
     void trackData(String eventName, LDValue data);
 
     /**
-     * Tracks that a user performed an event.
+     * Tracks that an application-defined event occurred.
+     * <p>
+     * This method creates a "custom" analytics event containing the specified event name (key)
+     * and the current evaluation context. You may attach other data to the event by calling
+     * {@link #trackData(String, LDValue)} or {@link #trackMetric(String, LDValue, double)}
+     * instead.
+     * <p>
+     * Note that event delivery is asynchronous, so the event may not actually be sent until
+     * later; see {@link #flush()}.
      *
      * @param eventName the name of the event
+     * @see #trackData(String, LDValue)
+     * @see #trackMetric(String, LDValue, double) 
      */
     void track(String eventName);
 
     /**
-     * Sets the current user, retrieves flags for that user, then sends an Identify Event to LaunchDarkly.
-     * The 5 most recent users' flag settings are kept locally.
+     * Changes the current evaluation context, requests flags for that context from LaunchDarkly if we are online,
+     * and generates an analytics event to tell LaunchDarkly about the context.
+     * <p>
+     * If the SDK is online, the returned {@code Future} is completed once the SDK has received feature
+     * flag values for the new context from LaunchDarkly, or received an unrecoverable error. If the SDK
+     * is offline, the returned {@code Future} is completed immediately.
+     * <p>
+     * The SDK normally caches flag settings for recently used evaluation contexts; this behavior
+     * can be configured with {@link LDConfig.Builder#maxCachedContexts(int)}.
      *
-     * @param user The user for evaluation and event reporting
-     * @return Future whose success indicates this user's flag settings have been stored locally and are ready for evaluation.
+     * @param context the new evaluation context; see {@link LDClient} for more about
+     *   setting the context and optionally requesting a unique key for it
+     * @return a Future whose success indicates the flag values for the new evaluation context have
+     *   been stored locally and are ready for use
+     * @see #identify(LDUser)
+     * @since 3.0.0
+     */
+    Future<Void> identify(LDContext context);
+
+    /**
+     * Changes the current evaluation context, requests flags for that context from LaunchDarkly if we are online,
+     * and generates an analytics event to tell LaunchDarkly about the context.
+     * <p>
+     * This is equivalent to {@link #identify(LDContext)}, but using the {@link LDUser} type
+     * instead of {@link LDContext}.
+     *
+     * @param user the new user attributes, which will be converted to an evaluation context; see
+     *   {@link LDClient} for more about setting the context and optionally requesting a unique key for it
+     * @return a Future whose success indicates the flag values for the new evaluation context have
+     *   been stored locally and are ready for use
+     * @see #identify(LDContext)
      */
     Future<Void> identify(LDUser user);
 
@@ -97,19 +155,18 @@ public interface LDClientInterface extends Closeable {
     void flush();
 
     /**
-     * Returns a map of all feature flags for the current user. No events are sent to LaunchDarkly.
+     * Returns a map of all feature flags for the current evaluation context. No events are sent to LaunchDarkly.
      *
      * @return a map of all feature flags
      */
     Map<String, LDValue> allFlags();
 
     /**
-     * Returns the flag value for the current user. Returns <code>defaultValue</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a boolean type</li>
-     * <li>Any other error</li>
-     * </ol>
+     * Returns the boolean value of a feature flag for the current evaluation context.
+     * <p>
+     * If the flag variation does not have a boolean value, or if an error makes it impossible to
+     * evaluate the flag (for instance, if {@code flagKey} does not match any existing flag),
+     * {@code defaultValue} is returned.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag
@@ -118,27 +175,32 @@ public interface LDClientInterface extends Closeable {
     boolean boolVariation(String flagKey, boolean defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
-     *
+     * Returns the boolean value of a feature flag for the current evaluation context, along with
+     * information about how it was calculated.
+     * <p>
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #boolVariation(String, boolean)})
-     * @return an {@link EvaluationDetail} object containing the value and other information.
+     * @return an {@link EvaluationDetail} object containing the value and other information
      *
      * @since 2.7.0
      */
     EvaluationDetail<Boolean> boolVariationDetail(String flagKey, boolean defaultValue);
 
     /**
-     * Returns the flag value for the current user. Returns <code>defaultValue</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a numeric type</li>
-     * <li>Any other error</li>
-     * </ol>
+     * Returns the integer value of a feature flag for the current evaluation context.
+     * <p>
+     * If the flag variation has a numeric value that is not an integer, it is rounded toward zero.
+     * <p>
+     * If the flag variation does not have a numeric value, or if an error makes it impossible to
+     * evaluate the flag (for instance, if {@code flagKey} does not match any existing flag),
+     * {@code defaultValue} is returned.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag
@@ -147,27 +209,33 @@ public interface LDClientInterface extends Closeable {
     int intVariation(String flagKey, int defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
-     *
+     * Returns the integer value of a feature flag for the current evaluation context, along with
+     * information about how it was calculated.
+     * <p>
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
+     * <p>
+     * The behavior is otherwise identical to {@link #intVariation}.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #intVariation(String, int)})
-     * @return an {@link EvaluationDetail} object containing the value and other information.
+     * @return an {@link EvaluationDetail} object containing the value and other information
      *
      * @since 2.7.0
      */
     EvaluationDetail<Integer> intVariationDetail(String flagKey, int defaultValue);
 
     /**
-     * Returns the flag value for the current user. Returns <code>defaultValue</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a numeric type</li>
-     * <li>Any other error</li>
-     * </ol>
+     * Returns the double-precision floating-point numeric value of a feature flag for the
+     * current evaluation context.
+     * <p>
+     * If the flag variation does not have a numeric value, or if an error makes it impossible to
+     * evaluate the flag (for instance, if {@code flagKey} does not match any existing flag),
+     * {@code defaultValue} is returned.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag
@@ -176,11 +244,17 @@ public interface LDClientInterface extends Closeable {
     double doubleVariation(String flagKey, double defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
+     * Returns the double-precision floating-point numeric value of a feature flag for the
+     * current evaluation context, along with information about how it was calculated.
      *
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
+     * <p>
+     * The behavior is otherwise identical to {@link #doubleVariation}.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #doubleVariation(String, double)})
@@ -189,12 +263,11 @@ public interface LDClientInterface extends Closeable {
     EvaluationDetail<Double> doubleVariationDetail(String flagKey, double defaultValue);
 
     /**
-     * Returns the flag value for the current user. Returns <code>default</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>The flag is not of a string type</li>
-     * <li>Any other error</li>
-     * </ol>
+     * Returns the string value of a feature flag for the current evaluation context.
+     * <p>
+     * If the flag variation does not have a string value, or if an error makes it impossible to
+     * evaluate the flag (for instance, if {@code flagKey} does not match any existing flag),
+     * {@code defaultValue} is returned.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag
@@ -203,11 +276,17 @@ public interface LDClientInterface extends Closeable {
     String stringVariation(String flagKey, String defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
-     *
+     * Returns the string value of a feature flag for the current evaluation context, along with
+     * information about how it was calculated.
+     * <p>
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
+     * <p>
+     * The behavior is otherwise identical to {@link #stringVariation}.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #stringVariation(String, String)})
@@ -228,11 +307,11 @@ public interface LDClientInterface extends Closeable {
     void registerFeatureFlagListener(String flagKey, FeatureFlagChangeListener listener);
 
     /**
-     * Returns the flag value for the current user. Returns <code>defualtValue</code> when one of the following occurs:
-     * <ol>
-     * <li>Flag is missing</li>
-     * <li>Any other error</li>
-     * </ol>
+     * Returns the value of a feature flag for the current evaluation context, which may be of any
+     * type.
+     * <p>
+     * The type {@link LDValue} is used to represent any of the value types that can exist in JSON.
+     * Use {@link LDValue} methods to examine its type and value.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag
@@ -241,11 +320,20 @@ public interface LDClientInterface extends Closeable {
     LDValue jsonValueVariation(String flagKey, LDValue defaultValue);
 
     /**
-     * Returns the flag value for the current user, along with information about how it was calculated.
-     *
+     * Returns the value of a feature flag for the current evaluation context, which may be of any
+     * type, along with information about how it was calculated.
+     * <p>
+     * The type {@link LDValue} is used to represent any of the value types that can exist in JSON.
+     * Use {@link LDValue} methods to examine its type and value.
+     * <p>
      * Note that this will only work if you have set {@code evaluationReasons} to true with
      * {@link LDConfig.Builder#evaluationReasons(boolean)}. Otherwise, the {@code reason} property of the result
      * will be null.
+     * <p>
+     * The evaluation reason will also be included in analytics events, if you are capturing
+     * detailed event data for this flag.
+     * <p>
+     * The behavior is otherwise identical to {@link #jsonValueVariation}.
      *
      * @param flagKey key for the flag to evaluate
      * @param defaultValue default value in case of errors evaluating the flag (see {@link #jsonValueVariation(String, LDValue)})

@@ -1,6 +1,6 @@
 package com.launchdarkly.sdk.android.integrations;
 
-import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.LDConfig.Builder;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
@@ -50,8 +50,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     protected int capacity = DEFAULT_CAPACITY;
     protected int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
-    protected boolean inlineUsers = false;
-    protected Set<String> privateAttributes;
+    protected Set<AttributeRef> privateAttributes;
 
     /**
      * Sets whether or not all optional user attributes should be hidden from LaunchDarkly.
@@ -119,22 +118,6 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     }
 
     /**
-     * If enabled, events to the server will be created containing the entire LDUser object.
-     * If disabled, events to the server will be created without the entire LDUser object, including
-     * only the user key instead; the rest of the user properties will still be included in Identify
-     * events.
-     * <p>
-     * Defaults to false in order to reduce network bandwidth.
-     *
-     * @param inlineUsers true if all user properties should be included in events
-     * @return the builder
-     */
-    public EventProcessorBuilder inlineUsers(boolean inlineUsers) {
-        this.inlineUsers = inlineUsers;
-        return this;
-    }
-
-    /**
      * Marks a set of attribute names or subproperties as private.
      * <p>
      * Any contexts sent to LaunchDarkly with this configuration active will have attributes with these
@@ -152,26 +135,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public EventProcessorBuilder privateAttributes(String... attributeNames) {
         privateAttributes = new HashSet<>();
         for (String a: attributeNames) {
-            privateAttributes.add(a);
-        }
-        return this;
-    }
-
-    /**
-     * Marks a set of attribute names or subproperties as private.
-     * <p>
-     * This is the same as {@link #privateAttributes(String...)}, but uses the
-     * {@link UserAttribute} type.
-     *
-     * @param attributeNames a set of attribute names that will be removed from context data set to LaunchDarkly
-     * @return the builder
-     * @see #allAttributesPrivate(boolean)
-     * @see com.launchdarkly.sdk.LDUser.Builder
-     */
-    public EventProcessorBuilder privateAttributes(UserAttribute... attributeNames) {
-        privateAttributes = new HashSet<>();
-        for (UserAttribute a: attributeNames) {
-            privateAttributes.add(a.getName());
+            privateAttributes.add(AttributeRef.fromPath(a));
         }
         return this;
     }

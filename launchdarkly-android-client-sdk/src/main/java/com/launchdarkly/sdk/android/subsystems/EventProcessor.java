@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android.subsystems;
 
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 
@@ -28,7 +29,7 @@ public interface EventProcessor extends Closeable {
      * Depending on the feature flag properties and event properties, this may be transmitted to
      * the events service as an individual event, or may only be added into summary data.
      *
-     * @param user the current user
+     * @param context the current evaluation context
      * @param flagKey key of the feature flag that was evaluated
      * @param flagVersion the version of the flag, or {@link #NO_VERSION} if the flag was not found
      * @param variation the result variation index, or {@link EvaluationDetail#NO_VARIATION} if evaluation failed
@@ -39,7 +40,7 @@ public interface EventProcessor extends Closeable {
      * @param debugEventsUntilDate if non-null, debug events are to be generated until this millisecond time
      */
     void recordEvaluationEvent(
-            LDUser user,
+            LDContext context,
             String flagKey,
             int flagVersion,
             int variation,
@@ -53,50 +54,35 @@ public interface EventProcessor extends Closeable {
     /**
      * Registers an evaluation context, as when the SDK's {@code identify} method is called.
      *
-     * @param user the current user
+     * @param context the evaluation context
      */
     void recordIdentifyEvent(
-            LDUser user
+            LDContext context
     );
 
     /**
      * Creates a custom event, as when the SDK's {@code track} method is called.
      *
-     * @param user the current user
+     * @param context the current evaluation context
      * @param eventKey the event key
      * @param data optional custom data provided for the event, may be null or {@link LDValue#ofNull()} if not used
      * @param metricValue optional numeric metric value provided for the event, or null
      */
     void recordCustomEvent(
-            LDUser user,
+            LDContext context,
             String eventKey,
             LDValue data,
             Double metricValue
     );
 
     /**
-     * Creates an alias event, as when the SDK's {@code alias} method is called.
-     *
-     * @param user the current user
-     * @param previousUser the previous user
+     * Puts the event processor into background mode if appropriate.
+     * @param inBackground true if we are running in the background
      */
-    void recordAliasEvent(
-            LDUser user,
-            LDUser previousUser
-    );
+    void setInBackground(boolean inBackground);
 
     /**
-     * Starts any periodic tasks used by the event processor.
-     */
-    void start();
-
-    /**
-     * Stops any periodic tasks used by the event processor.
-     */
-    void stop();
-
-    /**
-     * Puts the event processor into offline mode if appropriate
+     * Puts the event processor into offline mode if appropriate.
      * @param offline true if the SDK has been put offline
      */
     void setOffline(boolean offline);

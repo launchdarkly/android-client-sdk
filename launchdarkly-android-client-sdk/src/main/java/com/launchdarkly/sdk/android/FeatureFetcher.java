@@ -1,8 +1,10 @@
 package com.launchdarkly.sdk.android;
 
-import com.google.gson.JsonObject;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 
-interface FeatureFetcher {
-    void fetch(LDUser user, final LDUtil.ResultCallback<JsonObject> callback);
+import java.io.Closeable;
+
+interface FeatureFetcher extends Closeable {
+    void fetch(LDContext context, final Callback<String> callback);
 }

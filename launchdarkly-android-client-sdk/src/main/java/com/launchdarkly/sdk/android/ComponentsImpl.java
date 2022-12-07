@@ -1,35 +1,54 @@
 package com.launchdarkly.sdk.android;
 
-import android.net.Uri;
-
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
+import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DiagnosticDescription;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
-import com.launchdarkly.sdk.android.subsystems.ServiceEndpoints;
+import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
+import com.launchdarkly.sdk.internal.events.DefaultEventSender;
+import com.launchdarkly.sdk.internal.events.Event;
+import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 
-import java.net.URI;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * This class contains the package-private implementations of component factories and builders whose
  * public factory methods are in {@link Components}.
  */
 abstract class ComponentsImpl {
-    private ComponentsImpl() {
+    private ComponentsImpl() {}
+
+    static final class ServiceEndpointsBuilderImpl extends ServiceEndpointsBuilder {
+        @Override
+        public ServiceEndpoints createServiceEndpoints() {
+            // If *any* custom URIs have been set, then we do not want to use default values for any that were not set,
+            // so we will leave those null. That way, if we decide later on (in other component factories, such as
+            // EventProcessorBuilder) that we are actually interested in one of these values, and we
+            // see that it is null, we can assume that there was a configuration mistake and log an
+            // error.
+            if (streamingBaseUri == null && pollingBaseUri == null && eventsBaseUri == null) {
+                return new ServiceEndpoints(
+                        StandardEndpoints.DEFAULT_STREAMING_BASE_URI,
+                        StandardEndpoints.DEFAULT_POLLING_BASE_URI,
+                        StandardEndpoints.DEFAULT_EVENTS_BASE_URI
+                );
+            }
+            return new ServiceEndpoints(streamingBaseUri, pollingBaseUri, eventsBaseUri);
+        }
     }
 
     static final ComponentConfigurer<EventProcessor> NULL_EVENT_PROCESSOR_FACTORY = new ComponentConfigurer<EventProcessor>() {
@@ -53,65 +72,56 @@ abstract class ComponentsImpl {
         public void blockingFlush() {}
 
         @Override
-        public void start() {}
+        public void setInBackground(boolean inBackground) {}
 
         @Override
-        public void stop() {}
+        public void setOffline(boolean offline) {}
 
         @Override
         public void close() {}
 
         @Override
-        public void recordEvaluationEvent(LDUser user, String flagKey, int flagVersion, int variation, LDValue value,
+        public void recordEvaluationEvent(LDContext context, String flagKey, int flagVersion, int variation, LDValue value,
                                           EvaluationReason reason, LDValue defaultValue, boolean requireFullEvent,
                                           Long debugEventsUntilDate) {}
 
         @Override
-        public void recordIdentifyEvent(LDUser user) {}
+        public void recordIdentifyEvent(LDContext context) {}
 
         @Override
-        public void recordCustomEvent(LDUser user, String eventKey, LDValue data, Double metricValue) {}
-
-        @Override
-        public void recordAliasEvent(LDUser user, LDUser previousUser) {}
-
-        @Override
-        public void setOffline(boolean offline) {}
+        public void recordCustomEvent(LDContext context, String eventKey, LDValue data, Double metricValue) {}
     }
 
     static final class EventProcessorBuilderImpl extends EventProcessorBuilder
             implements DiagnosticDescription {
-        // see comments in LDConfig constructor regarding the purpose of these package-private getters
-        boolean isAllAttributesPrivate() {
-            return allAttributesPrivate;
-        }
-
-        int getDiagnosticRecordingIntervalMillis() { return diagnosticRecordingIntervalMillis; }
-
-        Set<String> getPrivateAttributes() {
-            return privateAttributes;
-        }
-
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
-            URI eventsUri = StandardEndpoints.selectBaseUri(clientContext.getServiceEndpoints().getEventsBaseUri(),
-                    StandardEndpoints.DEFAULT_EVENTS_BASE_URI, "events", clientContext.getBaseLogger());
-            return new DefaultEventProcessor(
-                    clientContext.getApplication(),
-                    clientContext.getConfig(),
-                    clientContext.getHttp(),
-                    eventsUri,
-                    clientContextImpl.getSummaryEventStore(),
-                    clientContext.getEnvironmentName(),
-                    clientContext.isInitiallySetOffline(),
+            EventsConfiguration eventsConfig = new EventsConfiguration(
+                    allAttributesPrivate,
                     capacity,
-                    flushIntervalMillis,
-                    inlineUsers,
+                    null, // contextDeduplicator - not needed for client-side use
+                    diagnosticRecordingIntervalMillis,
                     clientContextImpl.getDiagnosticStore(),
-                    clientContextImpl.getSharedEventClient(),
-                    clientContext.getBaseLogger()
+                    new DefaultEventSender(
+                            LDUtil.makeHttpProperties(clientContext),
+                            StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
+                            StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
+                            0, // use default retry delay
+                            clientContext.getBaseLogger()),
+                    1, // eventSendingThreadPoolSize
+                    clientContext.getServiceEndpoints().getEventsBaseUri(),
+                    flushIntervalMillis,
+                    clientContext.isInBackground(),
+                    true, // initiallyOffline
+                    privateAttributes
             );
+            return new DefaultEventProcessorWrapper(new DefaultEventProcessor(
+                    eventsConfig,
+                    EventUtil.makeEventsTaskExecutor(),
+                    Thread.NORM_PRIORITY, // note, we may want to make this configurable as it is in java-server-sdk
+                    clientContext.getBaseLogger()
+            ));
         }
 
         @Override
@@ -122,8 +132,73 @@ abstract class ComponentsImpl {
                     .put("eventsCapacity", capacity)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
-                    .put("inlineUsersInEvents", inlineUsers)
                     .build();
+        }
+
+        /**
+         * Adapter from the public component interface of EventProcessor to the internal
+         * implementation class from java-sdk-internal.
+         */
+        private final class DefaultEventProcessorWrapper implements EventProcessor {
+            private final DefaultEventProcessor eventProcessor;
+
+            DefaultEventProcessorWrapper(DefaultEventProcessor eventProcessor) {
+                this.eventProcessor = eventProcessor;
+            }
+
+            @Override
+            public void recordEvaluationEvent(
+                    LDContext context,
+                    String flagKey,
+                    int flagVersion,
+                    int variation,
+                    LDValue value,
+                    EvaluationReason reason,
+                    LDValue defaultValue,
+                    boolean requireFullEvent,
+                    Long debugEventsUntilDate
+            ) {
+                eventProcessor.sendEvent(new Event.FeatureRequest(
+                        System.currentTimeMillis(), flagKey, context, flagVersion, variation,
+                        value, defaultValue, reason, null, requireFullEvent,
+                        debugEventsUntilDate, false));
+            }
+
+            @Override
+            public void recordIdentifyEvent(LDContext context) {
+                eventProcessor.sendEvent(new Event.Identify(System.currentTimeMillis(), context));
+            }
+
+            @Override
+            public void recordCustomEvent(LDContext context, String eventKey, LDValue data, Double metricValue) {
+                eventProcessor.sendEvent(new Event.Custom(System.currentTimeMillis(), eventKey,
+                        context, data, metricValue));
+            }
+
+            @Override
+            public void setInBackground(boolean inBackground) {
+                eventProcessor.setInBackground(inBackground);
+            }
+
+            @Override
+            public void setOffline(boolean offline) {
+                eventProcessor.setOffline(offline);
+            }
+
+            @Override
+            public void flush() {
+                eventProcessor.flushAsync();
+            }
+
+            @Override
+            public void blockingFlush() {
+                eventProcessor.flushBlocking();
+            }
+
+            @Override
+            public void close() throws IOException {
+                eventProcessor.close();
+            }
         }
     }
 
@@ -159,11 +234,29 @@ abstract class ComponentsImpl {
     }
 
     static final class PollingDataSourceBuilderImpl extends PollingDataSourceBuilder
-            implements DiagnosticDescription {
+            implements DiagnosticDescription, DataSourceRequiresFeatureFetcher {
         @Override
         public DataSource build(ClientContext clientContext) {
-            return new DataSourceImpl(true, backgroundPollIntervalMillis, 0,
-                    pollIntervalMillis);
+            clientContext.getDataSourceUpdateSink().setStatus(
+                    clientContext.isInBackground() ? ConnectionInformation.ConnectionMode.BACKGROUND_POLLING :
+                            ConnectionInformation.ConnectionMode.POLLING,
+                    null
+            );
+            int actualPollIntervalMillis = clientContext.isInBackground() ? backgroundPollIntervalMillis :
+                    pollIntervalMillis;
+            int initialDelayMillis = clientContext.isInBackground() ? backgroundPollIntervalMillis :
+                    0; // when in the foreground, we want to start the first poll right away
+            ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
+            return new PollingDataSource(
+                    clientContext.getEvaluationContext(),
+                    clientContext.getDataSourceUpdateSink(),
+                    initialDelayMillis,
+                    actualPollIntervalMillis,
+                    clientContextImpl.getFetcher(),
+                    clientContextImpl.getPlatformState(),
+                    clientContextImpl.getTaskExecutor(),
+                    clientContext.getBaseLogger()
+            );
         }
 
         @Override
@@ -176,31 +269,25 @@ abstract class ComponentsImpl {
         }
     }
 
-    static final class ServiceEndpointsBuilderImpl extends ServiceEndpointsBuilder {
-        @Override
-        public ServiceEndpoints build() {
-            // If *any* custom URIs have been set, then we do not want to use default values for any that were not set,
-            // so we will leave those null. That way, if we decide later on (in other component factories, such as
-            // EventProcessorBuilder) that we are actually interested in one of these values, and we
-            // see that it is null, we can assume that there was a configuration mistake and log an
-            // error.
-            if (streamingBaseUri == null && pollingBaseUri == null && eventsBaseUri == null) {
-                return new ServiceEndpoints(
-                        StandardEndpoints.DEFAULT_STREAMING_BASE_URI,
-                        StandardEndpoints.DEFAULT_POLLING_BASE_URI,
-                        StandardEndpoints.DEFAULT_EVENTS_BASE_URI
-                );
-            }
-            return new ServiceEndpoints(streamingBaseUri, pollingBaseUri, eventsBaseUri);
-        }
-    }
-
     static final class StreamingDataSourceBuilderImpl extends StreamingDataSourceBuilder
-            implements DiagnosticDescription {
+            implements DiagnosticDescription, DataSourceRequiresFeatureFetcher {
         @Override
         public DataSource build(ClientContext clientContext) {
-            return new DataSourceImpl(false, backgroundPollIntervalMillis,
-                    initialReconnectDelayMillis, 0);
+            if (clientContext.isInBackground()) {
+                return Components.pollingDataSource()
+                        .backgroundPollIntervalMillis(backgroundPollIntervalMillis)
+                        .pollIntervalMillis(backgroundPollIntervalMillis)
+                        .build(clientContext);
+            }
+            clientContext.getDataSourceUpdateSink().setStatus(ConnectionInformation.ConnectionMode.STREAMING, null);
+            ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
+            return new StreamUpdateProcessor(
+                    clientContext,
+                    clientContext.getEvaluationContext(),
+                    clientContext.getDataSourceUpdateSink(),
+                    clientContextImpl.getFetcher(),
+                    initialReconnectDelayMillis
+            );
         }
 
         @Override
@@ -213,38 +300,6 @@ abstract class ComponentsImpl {
         }
     }
 
-    private static final class DataSourceImpl implements DataSource {
-        private final boolean streamingDisabled;
-        private final int backgroundPollIntervalMillis;
-        private final int initialReconnectDelayMillis;
-        private final int pollIntervalMillis;
-
-        DataSourceImpl(
-                boolean streamingDisabled,
-                int backgroundPollIntervalMillis,
-                int initialReconnectDelayMillis,
-                int pollIntervalMillis
-        ) {
-            this.streamingDisabled = streamingDisabled;
-            this.backgroundPollIntervalMillis = backgroundPollIntervalMillis;
-            this.initialReconnectDelayMillis = initialReconnectDelayMillis;
-            this.pollIntervalMillis = pollIntervalMillis;
-        }
-
-        public boolean isStreamingDisabled() {
-            return streamingDisabled;
-        }
-
-        public int getBackgroundPollIntervalMillis() {
-            return backgroundPollIntervalMillis;
-        }
-
-        public int getInitialReconnectDelayMillis() {
-            return initialReconnectDelayMillis;
-        }
-
-        public int getPollIntervalMillis() {
-            return pollIntervalMillis;
-        }
-    }
+    // Marker interface for data source implementations that will require a FeatureFetcher
+    interface DataSourceRequiresFeatureFetcher {}
 }

@@ -8,7 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LogCapture;
 import com.launchdarkly.logging.Logs;
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -23,18 +23,18 @@ public class LDClientLoggingTest {
 
     private static final String mobileKey = "test-mobile-key";
     private Application application;
-    private LDUser ldUser;
+    private LDContext ldUser;
 
     @Before
     public void setUp() {
         application = ApplicationProvider.getApplicationContext();
-        ldUser = new LDUser("key");
+        ldUser = LDContext.create("key");
     }
 
     @Test
     public void customLogAdapterWithDefaultLevel() throws Exception {
         LogCapture logCapture = Logs.capture();
-        LDConfig config = new LDConfig.Builder().offline(true).logAdapter(logCapture).build();
+        LDConfig config = new LDConfig.Builder().mobileKey(mobileKey).offline(true).logAdapter(logCapture).build();
         try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
             for (LogCapture.Message m: logCapture.getMessages()) {
                 assertNotEquals(LDLogLevel.DEBUG, m.getLevel());
@@ -47,7 +47,7 @@ public class LDClientLoggingTest {
     @Test
     public void customLogAdapterWithDebugLevel() throws Exception {
         LogCapture logCapture = Logs.capture();
-        LDConfig config = new LDConfig.Builder().offline(true).logAdapter(logCapture).logLevel(LDLogLevel.DEBUG).build();
+        LDConfig config = new LDConfig.Builder().mobileKey(mobileKey).offline(true).logAdapter(logCapture).logLevel(LDLogLevel.DEBUG).build();
         try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
             logCapture.requireMessage(LDLogLevel.DEBUG, 2000);
         }

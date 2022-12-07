@@ -1,10 +1,8 @@
 package com.launchdarkly.sdk.android.integrations;
 
-import android.net.Uri;
-
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.LDConfig;
-import com.launchdarkly.sdk.android.subsystems.ServiceEndpoints;
+import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 
 import java.net.URI;
 
@@ -55,7 +53,7 @@ import java.net.URI;
  *         .build();
  * </code></pre>
  *
- * @since 3.3.0
+ * @since 4.0.0
  */
 public abstract class ServiceEndpointsBuilder {
     protected URI streamingBaseUri;
@@ -97,15 +95,6 @@ public abstract class ServiceEndpointsBuilder {
     }
 
     /**
-     * Equivalent to {@link #events(URI)}, specifying the URI as an {@code android.net.Uri}.
-     * @param eventsBaseUri the base URI of the events service; null to use the default
-     * @return the builder
-     */
-    public ServiceEndpointsBuilder events(Uri eventsBaseUri) {
-        return events(eventsBaseUri == null ? null : URI.create(eventsBaseUri.toString()));
-    }
-
-    /**
      * Sets a custom base URI for the polling service.
      * <p>
      * You should only call this method if you are using a private instance or test fixture
@@ -140,15 +129,6 @@ public abstract class ServiceEndpointsBuilder {
     }
 
     /**
-     * Equivalent to {@link #polling(URI)}, specifying the URI as an {@code android.net.Uri}.
-     * @param pollingBaseUri the base URI of the events service; null to use the default
-     * @return the builder
-     */
-    public ServiceEndpointsBuilder polling(Uri pollingBaseUri) {
-        return polling(pollingBaseUri == null ? null : URI.create(pollingBaseUri.toString()));
-    }
-
-    /**
      * Specifies a single base URI for a Relay Proxy instance.
      * <p>
      * When using the LaunchDarkly Relay Proxy, the SDK only needs to know the single base URI
@@ -179,15 +159,6 @@ public abstract class ServiceEndpointsBuilder {
      */
     public ServiceEndpointsBuilder relayProxy(String relayProxyBaseUri) {
         return relayProxy(relayProxyBaseUri == null ? null : URI.create(relayProxyBaseUri));
-    }
-
-    /**
-     * Equivalent to {@link #relayProxy(URI)}, specifying the URI as an {@code android.net.Uri}.
-     * @param relayProxyBaseUri the Relay Proxy base URI, or null to reset to default endpoints
-     * @return the builder
-     */
-    public ServiceEndpointsBuilder relayProxy(Uri relayProxyBaseUri) {
-        return relayProxy(relayProxyBaseUri == null ? null : URI.create(relayProxyBaseUri.toString()));
     }
 
     /**
@@ -225,18 +196,9 @@ public abstract class ServiceEndpointsBuilder {
     }
 
     /**
-     * Equivalent to {@link #streaming(URI)}, specifying the URI as an {@code android.net.Uri}.
-     * @param streamingBaseUri the base URI of the events service; null to use the default
-     * @return the builder
-     */
-    public ServiceEndpointsBuilder streaming(Uri streamingBaseUri) {
-        return streaming(streamingBaseUri == null ? null : URI.create(streamingBaseUri.toString()));
-    }
-
-    /**
      * Called internally by the SDK to create a configuration instance. Applications do not need
      * to call this method.
      * @return the configuration object
      */
-    abstract public ServiceEndpoints build();
+    abstract public ServiceEndpoints createServiceEndpoints();
 }

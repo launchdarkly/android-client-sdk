@@ -2,19 +2,27 @@ package com.launchdarkly.sdktest;
 
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.ContextBuilder;
+import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.EvaluationDetail;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.Components;
+import com.launchdarkly.sdk.android.ConfigHelper;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
-
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
-import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
-import com.launchdarkly.sdktest.Representations.AliasEventParams;
+import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+import com.launchdarkly.sdk.json.JsonSerialization;
+
 import com.launchdarkly.sdktest.Representations.CommandParams;
+import com.launchdarkly.sdktest.Representations.ContextBuildParams;
+import com.launchdarkly.sdktest.Representations.ContextBuildResponse;
+import com.launchdarkly.sdktest.Representations.ContextBuildSingleParams;
+import com.launchdarkly.sdktest.Representations.ContextConvertParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
 import com.launchdarkly.sdktest.Representations.CustomEventParams;
 import com.launchdarkly.sdktest.Representations.EvaluateAllFlagsParams;
@@ -25,7 +33,6 @@ import com.launchdarkly.sdktest.Representations.IdentifyEventParams;
 import com.launchdarkly.sdktest.Representations.SdkConfigParams;
 
 import android.app.Application;
-import android.net.Uri;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
@@ -52,10 +59,10 @@ public class SdkClientEntity {
     LDConfig config = buildSdkConfig(params.configuration, logAdapterForTest, params.tag);
     long startWaitMs = params.configuration.startWaitTimeMs != null ?
             params.configuration.startWaitTimeMs.longValue() : 5000;
-    Future<LDClient> initFuture = LDClient.init(
-            application,
-            config,
-            params.configuration.clientSide.initialUser);
+    Representations.SdkConfigClientSideParams clientSideParams = params.configuration.clientSide;
+    Future<LDClient> initFuture = clientSideParams.initialUser == null ?
+            LDClient.init(application, config, clientSideParams.initialContext) :
+            LDClient.init(application, config, clientSideParams.initialUser);
     // Try to initialize client, but if it fails, keep going in case the test harness wants us to
     // work with an uninitialized client
     try {
@@ -93,12 +100,13 @@ public class SdkClientEntity {
       case "customEvent":
         doCustomEvent(params.customEvent);
         return null;
-      case "aliasEvent":
-        doAliasEvent(params.aliasEvent);
-        return null;
       case "flushEvents":
         client.flush();
         return null;
+      case "contextBuild":
+        return doContextBuild(params.contextBuild);
+      case "contextConvert":
+        return doContextConvert(params.contextConvert);
       default:
         throw new TestService.BadRequestException("unknown command: " + params.command);
     }
@@ -174,7 +182,11 @@ public class SdkClientEntity {
 
   private void doIdentifyEvent(IdentifyEventParams params) {
     try {
-      client.identify(params.user).get();
+      if (params.user == null) {
+        client.identify(params.context).get();
+      } else {
+        client.identify(params.user).get();
+      }
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException("Error waiting for identify", e);
     }
@@ -190,8 +202,53 @@ public class SdkClientEntity {
     }
   }
 
-  private void doAliasEvent(AliasEventParams params) {
-    client.alias(params.user, params.previousUser);
+  private ContextBuildResponse doContextBuild(ContextBuildParams params) {
+    LDContext c;
+    if (params.multi == null) {
+      c = doContextBuildSingle(params.single);
+    } else {
+      ContextMultiBuilder b = LDContext.multiBuilder();
+      for (ContextBuildSingleParams s: params.multi) {
+        b.add(doContextBuildSingle(s));
+      }
+      c = b.build();
+    }
+    ContextBuildResponse resp = new ContextBuildResponse();
+    if (c.isValid()) {
+      resp.output = JsonSerialization.serialize(c);
+    } else {
+      resp.error = c.getError();
+    }
+    return resp;
+  }
+
+  private LDContext doContextBuildSingle(ContextBuildSingleParams params) {
+    ContextBuilder b = LDContext.builder(params.key)
+            .kind(params.kind)
+            .name(params.name);
+    if (params.anonymous != null) {
+      b.anonymous(params.anonymous.booleanValue());
+    }
+    if (params.custom != null) {
+      for (Map.Entry<String, LDValue> kv: params.custom.entrySet()) {
+        b.set(kv.getKey(), kv.getValue());
+      }
+    }
+    if (params.privateAttrs != null) {
+      b.privateAttributes(params.privateAttrs);
+    }
+    return b.build();
+  }
+
+  private ContextBuildResponse doContextConvert(ContextConvertParams params) {
+    ContextBuildResponse resp = new ContextBuildResponse();
+    try {
+      LDContext c = JsonSerialization.deserialize(params.input, LDContext.class);
+      resp.output = JsonSerialization.serialize(c);
+    } catch (Exception e) {
+      resp.error = e.getMessage();
+    }
+    return resp;
   }
 
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
@@ -201,7 +258,13 @@ public class SdkClientEntity {
 
     ServiceEndpointsBuilder endpoints = Components.serviceEndpoints();
 
-    if (params.polling != null) {
+    // We don't want to use the default persistent storage mechanism when running contract tests
+    // because the state of each test is supposed to be independent from the others. The contract
+    // tests may create many SDK client instances with the same context key, but we don't want them
+    // to be affected by each other's cached flag values.
+    ConfigHelper.configureIsolatedInMemoryPersistence(builder);
+
+    if (params.polling != null && params.polling.baseUri != null) {
       // Note that this property can be set even if streaming is enabled
       endpoints.polling(params.polling.baseUri);
     }
@@ -213,7 +276,9 @@ public class SdkClientEntity {
       }
       builder.dataSource(pollingBuilder);
     } else if (params.streaming != null) {
-      endpoints.streaming(params.streaming.baseUri);
+      if (params.streaming.baseUri != null) {
+        endpoints.streaming(params.streaming.baseUri);
+      }
       StreamingDataSourceBuilder streamingBuilder = Components.streamingDataSource();
       if (params.streaming.initialRetryDelayMs != null) {
         streamingBuilder.initialReconnectDelayMillis(params.streaming.initialRetryDelayMs.intValue());
@@ -224,11 +289,10 @@ public class SdkClientEntity {
     if (params.events == null) {
       builder.events(Components.noEvents());
     } else {
-      builder.diagnosticOptOut(!params.events.enableDiagnostics);
       endpoints.events(params.events.baseUri);
+      builder.diagnosticOptOut(!params.events.enableDiagnostics);
       EventProcessorBuilder eventsBuilder = Components.sendEvents()
-              .allAttributesPrivate(params.events.allAttributesPrivate)
-              .inlineUsers(params.events.inlineUsers);
+              .allAttributesPrivate(params.events.allAttributesPrivate);
       if (params.events.capacity > 0) {
         eventsBuilder.capacity(params.events.capacity);
       }
@@ -241,7 +305,6 @@ public class SdkClientEntity {
       builder.events(eventsBuilder);
     }
 
-    builder.autoAliasingOptOut(params.clientSide.autoAliasingOptOut);
     builder.evaluationReasons(params.clientSide.evaluationReasons);
     builder.http(
             Components.httpConfiguration().useReport(params.clientSide.useReport)

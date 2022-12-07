@@ -1,28 +1,19 @@
 package com.launchdarkly.sdk.android;
 
-import android.net.Uri;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
+import com.launchdarkly.sdk.ContextKind;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
-import com.launchdarkly.sdk.UserAttribute;
-import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
-import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
-import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
-import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
+import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
-import com.launchdarkly.sdk.android.subsystems.ServiceEndpoints;
+import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
-import java.net.URI;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -53,146 +44,59 @@ public class LDConfig {
     static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
 
-    static final String SHARED_PREFS_BASE_KEY = "LaunchDarkly-";
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-    static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
     static final String primaryEnvironmentName = "default";
 
-    static final Uri DEFAULT_POLL_URI = Uri.parse(StandardEndpoints.DEFAULT_POLLING_BASE_URI.toString());
-    static final Uri DEFAULT_EVENTS_URI = Uri.parse(StandardEndpoints.DEFAULT_EVENTS_BASE_URI.toString());
-    static final Uri DEFAULT_STREAM_URI = Uri.parse(StandardEndpoints.DEFAULT_STREAMING_BASE_URI.toString());
-
-    static final int DEFAULT_MAX_CACHED_USERS = 5;
+    static final int DEFAULT_MAX_CACHED_CONTEXTS = 5;
+    static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
 
     private final Map<String, String> mobileKeys;
 
-    private final Uri pollUri;
-    private final Uri eventsUri;
-    private final Uri streamUri;
+    final ServiceEndpoints serviceEndpoints;
 
     final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
     final ComponentConfigurer<HttpConfiguration> http;
-    final ServiceEndpoints serviceEndpoints;
 
-    private final boolean autoAliasingOptOut;
     private final boolean diagnosticOptOut;
     private final boolean disableBackgroundUpdating;
     private final boolean evaluationReasons;
+    private final boolean generateAnonymousKeys;
     private final LDLogAdapter logAdapter;
     private final String loggerName;
-    private final int maxCachedUsers;
+    private final int maxCachedContexts;
     private final boolean offline;
-
-    final Gson filteredEventGson;
-
-    // deprecated properties that are now in sub-configuration builders
-    private final boolean allAttributesPrivate;
-    private final int backgroundPollingIntervalMillis;
-    private final int connectionTimeoutMillis;
-    private final int diagnosticRecordingIntervalMillis;
-    private final int eventsCapacity;
-    private final int eventsFlushIntervalMillis;
-    private final LDHeaderUpdater headerTransform;
-    private final boolean inlineUsersInEvents;
-    private final int pollingIntervalMillis;
-    private final Set<UserAttribute> privateAttributes;
-    private final boolean stream;
-    private final boolean useReport;
-    private final String wrapperName;
-    private final String wrapperVersion;
+    private final PersistentDataStore persistentDataStore; // configurable for testing only
 
     LDConfig(Map<String, String> mobileKeys,
-             Uri pollUri,
-             Uri eventsUri,
-             Uri streamUri,
+             ServiceEndpoints serviceEndpoints,
              ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
              ComponentConfigurer<HttpConfiguration> http,
-             ServiceEndpoints serviceEndpoints,
-             int eventsCapacity,
-             int eventsFlushIntervalMillis,
-             int connectionTimeoutMillis,
              boolean offline,
-             boolean stream,
-             int pollingIntervalMillis,
-             int backgroundPollingIntervalMillis,
              boolean disableBackgroundUpdating,
-             boolean useReport,
-             boolean allAttributesPrivate,
-             Set<UserAttribute> privateAttributes,
-             boolean inlineUsersInEvents,
              boolean evaluationReasons,
              boolean diagnosticOptOut,
-             int diagnosticRecordingIntervalMillis,
-             String wrapperName,
-             String wrapperVersion,
-             int maxCachedUsers,
-             LDHeaderUpdater headerTransform,
-             boolean autoAliasingOptOut,
+             int maxCachedContexts,
+             boolean generateAnonymousKeys,
+             PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
              String loggerName) {
-
         this.mobileKeys = mobileKeys;
-        this.pollUri = pollUri;
-        this.eventsUri = eventsUri;
-        this.streamUri = streamUri;
+        this.serviceEndpoints = serviceEndpoints;
         this.dataSource = dataSource;
         this.events = events;
         this.http = http;
-        this.serviceEndpoints = serviceEndpoints;
-        this.eventsCapacity = eventsCapacity;
-        this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
-        this.connectionTimeoutMillis = connectionTimeoutMillis;
         this.offline = offline;
-        this.stream = stream;
-        this.pollingIntervalMillis = pollingIntervalMillis;
-        this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
-        this.useReport = useReport;
-        this.allAttributesPrivate = allAttributesPrivate;
-        this.privateAttributes = privateAttributes;
-        this.inlineUsersInEvents = inlineUsersInEvents;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
-        this.wrapperName = wrapperName;
-        this.wrapperVersion = wrapperVersion;
-        this.maxCachedUsers = maxCachedUsers;
-        this.headerTransform = headerTransform;
-        this.autoAliasingOptOut = autoAliasingOptOut;
+        this.maxCachedContexts = maxCachedContexts;
+        this.generateAnonymousKeys = generateAnonymousKeys;
+        this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
-
-        // The following temporary hack is for overriding several deprecated event-related setters
-        // with the corresponding EventProcessorBuilder setters, if those were used. The problem is
-        // that in the current SDK implementation, EventProcessor does not actually own the behavior
-        // that those options are configuring (private attributes, and the diagnostic recording
-        // interval), so we have to extract those values separately out of the config builder.
-        boolean actualAllAttributesPrivate = allAttributesPrivate;
-        Set<UserAttribute> actualPrivateAttributes = privateAttributes;
-        int actualDiagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
-        if (events instanceof ComponentsImpl.EventProcessorBuilderImpl) {
-            ComponentsImpl.EventProcessorBuilderImpl eventsBuilder =
-                    (ComponentsImpl.EventProcessorBuilderImpl)events;
-            actualAllAttributesPrivate = eventsBuilder.isAllAttributesPrivate();
-            actualDiagnosticRecordingIntervalMillis = eventsBuilder.getDiagnosticRecordingIntervalMillis();
-            actualPrivateAttributes = new HashSet<>();
-            if (eventsBuilder.getPrivateAttributes() != null) {
-                for (String a: eventsBuilder.getPrivateAttributes()) {
-                    actualPrivateAttributes.add(UserAttribute.forName(a));
-                }
-            }
-        }
-        this.diagnosticRecordingIntervalMillis = actualDiagnosticRecordingIntervalMillis;
-
-        this.filteredEventGson = new GsonBuilder()
-                .registerTypeAdapter(LDUser.class,
-                        new LDUtil.LDUserPrivateAttributesTypeAdapter(
-                                actualAllAttributesPrivate,
-                                actualPrivateAttributes
-                        ))
-                .create();
     }
 
     public String getMobileKey() {
@@ -203,206 +107,12 @@ public class LDConfig {
         return mobileKeys;
     }
 
-    /**
-     * Returns the setting of {@link Builder#pollUri(Uri)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual base URI properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public Uri getPollUri() {
-        return pollUri;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#eventsUri(Uri)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual base URI properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public Uri getEventsUri() {
-        return eventsUri;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#eventsCapacity(int)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#events(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual event-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public int getEventsCapacity() {
-        return eventsCapacity;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#eventsFlushIntervalMillis(int)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#events(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual event-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public int getEventsFlushIntervalMillis() {
-        return eventsFlushIntervalMillis;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#connectionTimeoutMillis(int)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#http(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual HTTP-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public int getConnectionTimeoutMillis() {
-        return connectionTimeoutMillis;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#streamUri(Uri)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual base URI properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public Uri getStreamUri() {
-        return streamUri;
-    }
-
     public boolean isOffline() {
         return offline;
     }
 
-    /**
-     * Returns the setting of {@link Builder#stream(boolean)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#dataSource(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual data source properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public boolean isStream() {
-        return stream;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#useReport(boolean)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#http(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual HTTP-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public boolean isUseReport() {
-        return useReport;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#pollingIntervalMillis(int)} ()}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#dataSource(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual data source properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public int getPollingIntervalMillis() {
-        return pollingIntervalMillis;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#backgroundPollingIntervalMillis(int)} ()}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#dataSource(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual data source properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public int getBackgroundPollingIntervalMillis() {
-        return backgroundPollingIntervalMillis;
-    }
-
     public boolean isDisableBackgroundPolling() {
         return disableBackgroundUpdating;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#allAttributesPrivate()}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#events(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual event-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public boolean allAttributesPrivate() {
-        return allAttributesPrivate;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#privateAttributes(UserAttribute...)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#events(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual event-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public Set<UserAttribute> getPrivateAttributes() {
-        return Collections.unmodifiableSet(privateAttributes);
-    }
-
-    /**
-     * Returns a Gson instance that is configured to serialize event data. This is used internally
-     * by the SDK; applications should not need to reference it.
-     *
-     * @return the Gson instance
-     * @deprecated Direct access to this object is deprecated and will be removed in the future.
-     */
-    @Deprecated
-    public Gson getFilteredEventGson() {
-        return filteredEventGson;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#inlineUsersInEvents(boolean)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#events(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual event-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public boolean inlineUsersInEvents() {
-        return inlineUsersInEvents;
     }
 
     public boolean isEvaluationReasons() {
@@ -413,39 +123,13 @@ public class LDConfig {
         return diagnosticOptOut;
     }
 
-    int getDiagnosticRecordingIntervalMillis() {
-        return diagnosticRecordingIntervalMillis;
+    int getMaxCachedContexts() {
+        return maxCachedContexts;
     }
 
-    String getWrapperName() {
-        return wrapperName;
-    }
+    public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
 
-    String getWrapperVersion() {
-        return wrapperVersion;
-    }
-
-    int getMaxCachedUsers() {
-        return maxCachedUsers;
-    }
-
-    /**
-     * Returns the setting of {@link Builder#headerTransform(LDHeaderUpdater)}.
-     * <p>
-     * This is only applicable if you have used the deprecated builder method rather than
-     * {@link Builder#http(ComponentConfigurer)}.
-     * @return the property value
-     * @deprecated This method will be removed in the future when individual HTTP-related properties
-     *   are removed from the top-level configuration.
-     */
-    @Deprecated
-    public LDHeaderUpdater getHeaderTransform() {
-        return headerTransform;
-    }
-
-    boolean isAutoAliasingOptOut() {
-        return autoAliasingOptOut;
-    }
+    PersistentDataStore getPersistentDataStore() { return persistentDataStore; }
 
     LDLogAdapter getLogAdapter() { return logAdapter; }
 
@@ -465,81 +149,27 @@ public class LDConfig {
         private String mobileKey;
         private Map<String, String> secondaryMobileKeys;
 
-        private Uri pollUri = DEFAULT_POLL_URI;
-        private Uri eventsUri = DEFAULT_EVENTS_URI;
-        private Uri streamUri = DEFAULT_STREAM_URI;
+        private ServiceEndpointsBuilder serviceEndpointsBuilder;
 
         private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
         private ComponentConfigurer<HttpConfiguration> http = null;
-        private ServiceEndpointsBuilder serviceEndpointsBuilder = null;
 
-        private int eventsCapacity = EventProcessorBuilder.DEFAULT_CAPACITY;
-        private int eventsFlushIntervalMillis = 0;
-        private int connectionTimeoutMillis = HttpConfigurationBuilder.DEFAULT_CONNECT_TIMEOUT_MILLIS;
-        private int pollingIntervalMillis = PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS;
-        private int backgroundPollingIntervalMillis = DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
-        private int diagnosticRecordingIntervalMillis =
-                EventProcessorBuilder.DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
-        private int maxCachedUsers = DEFAULT_MAX_CACHED_USERS;
+        private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
 
         private boolean offline = false;
-        private boolean stream = true;
         private boolean disableBackgroundUpdating = false;
-        private boolean useReport = false;
         private boolean diagnosticOptOut = false;
 
-        private boolean allAttributesPrivate = false;
-        private Set<UserAttribute> privateAttributes = new HashSet<>();
-
-        private boolean inlineUsersInEvents = false;
         private boolean evaluationReasons = false;
 
-        private String wrapperName;
-        private String wrapperVersion;
-        private LDHeaderUpdater headerTransform;
-        private boolean autoAliasingOptOut = false;
+        private boolean generateAnonymousKeys;
+
+        private PersistentDataStore persistentDataStore;
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = DEFAULT_LOGGER_NAME;
         private LDLogLevel logLevel = null;
-
-        /**
-         * Deprecated method for specifying that all user attributes other than the key should be
-         * hidden from LaunchDarkly.
-         * <p>
-         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
-         * settings there will override this deprecated method.
-         * <p>
-         * @return the builder
-         * @deprecated Use {@link #events(ComponentConfigurer)} and
-         *   {@link EventProcessorBuilder#allAttributesPrivate(boolean)} instead.
-         */
-        @Deprecated
-        public Builder allAttributesPrivate() {
-            this.allAttributesPrivate = true;
-            return this;
-        }
-
-        /**
-         * Deprecated method for marking a set of attributes as private.
-         * <p>
-         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
-         * settings there will override this deprecated method.
-         * <p>
-         * This can also be specified on a per-user basis with {@link LDUser.Builder} methods like
-         * {@link LDUser.Builder#privateName(String)}.
-         *
-         * @param privateAttributes a set of names that will be removed from user data sent to LaunchDarkly
-         * @return the builder
-         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
-         *   {@link EventProcessorBuilder#privateAttributes(String...)} instead.
-         */
-        @Deprecated
-        public Builder privateAttributes(UserAttribute... privateAttributes) {
-            this.privateAttributes = new HashSet<>(Arrays.asList(privateAttributes));
-            return this;
-        }
 
         /**
          * Sets the key for authenticating with LaunchDarkly. This is required unless you're using the client in offline mode.
@@ -585,70 +215,23 @@ public class LDConfig {
         }
 
         /**
-         * Deprecated method for specifying whether to use the HTTP REPORT method.
+         * Sets the base service URIs used by SDK components.
          * <p>
-         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
-         * settings there will override this deprecated method.
+         * This object is a configuration builder obtained from {@link Components#serviceEndpoints()},
+         * which has methods for setting each external endpoint to a custom URI.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder().mobileKey("key")
+         *         .serviceEndpoints(
+         *             Components.serviceEndpoints().relayProxy("http://my-relay-proxy-host")
+         *         );
+         * </code></pre>
          *
-         * @param useReport true if HTTP requests should use the REPORT verb
+         * @param serviceEndpointsBuilder a configuration builder object returned by {@link Components#serviceEndpoints()}
          * @return the builder
-         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
-         *   {@link HttpConfigurationBuilder#useReport(boolean)} instead.
+         * @since 4.0.0
          */
-        @Deprecated
-        public LDConfig.Builder useReport(boolean useReport) {
-            this.useReport = useReport;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting the base URI of the polling service.
-         * <p>
-         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
-         * settings there will override this deprecated method.
-         *
-         * @param pollUri the URI of the LaunchDarkly polling service
-         * @return the builder
-         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
-         *   {@link ServiceEndpointsBuilder#polling(URI)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder pollUri(Uri pollUri) {
-            this.pollUri = pollUri;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting the base URI of the events service.
-         * <p>
-         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
-         * settings there will override this deprecated method.
-         *
-         * @param eventsUri the URI of the LaunchDarkly events service
-         * @return the builder
-         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
-         *   {@link ServiceEndpointsBuilder#events(URI)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder eventsUri(Uri eventsUri) {
-            this.eventsUri = eventsUri;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting the base URI of the streaming service.
-         * <p>
-         * The preferred way to set this option now is with {@link ServiceEndpointsBuilder}. Any
-         * settings there will override this deprecated method.
-         *
-         * @param streamUri the URI of the LaunchDarkly streaming service
-         * @return the builder
-         * @deprecated Use {@link Builder#serviceEndpoints(ServiceEndpointsBuilder)} and
-         *   {@link ServiceEndpointsBuilder#streaming(URI)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder streamUri(Uri streamUri) {
-            this.streamUri = streamUri;
+        public Builder serviceEndpoints(ServiceEndpointsBuilder serviceEndpointsBuilder) {
+            this.serviceEndpointsBuilder = serviceEndpointsBuilder;
             return this;
         }
 
@@ -656,11 +239,13 @@ public class LDConfig {
          * Sets the configuration of the component that receives feature flag data from LaunchDarkly.
          * <p>
          * The default is {@link Components#streamingDataSource()}; you may instead use
-         * {@link Components#pollingDataSource()}. See those methods for details on how to configure
-         * them with options that are specific to streaming or polling mode.
+         * {@link Components#pollingDataSource()}, or a test fixture such as
+         * {@link com.launchdarkly.sdk.android.integrations.TestData}. See {@link Components#streamingDataSource()}
+         * and {@link Components#pollingDataSource()} for details on how to configure them with
+         * options that are specific to streaming or polling mode.
          * <p>
          * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
-         * and completely disable network requests.
+         * and completely disable all data sources.
          * <pre><code>
          *     // Setting custom options when using streaming mode
          *     LDConfig config = new LDConfig.Builder()
@@ -744,150 +329,6 @@ public class LDConfig {
         }
 
         /**
-         * Sets the base service URIs used by SDK components.
-         * <p>
-         * This object is a configuration builder obtained from {@link Components#serviceEndpoints()},
-         * which has methods for setting each external endpoint to a custom URI.
-         * <pre><code>
-         *     LDConfig config = new LDConfig.Builder().mobileKey("key")
-         *         .serviceEndpoints(
-         *             Components.serviceEndpoints().relayProxy("http://my-relay-proxy-host")
-         *         );
-         * </code></pre>
-         *
-         * @param serviceEndpointsBuilder a configuration builder object returned by {@link Components#serviceEndpoints()}
-         * @return the builder
-         * @since 3.3.0
-         */
-        public Builder serviceEndpoints(ServiceEndpointsBuilder serviceEndpointsBuilder) {
-            this.serviceEndpointsBuilder = serviceEndpointsBuilder;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting the capacity of the event buffer.
-         * <p>
-         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
-         * settings there will override this deprecated method.
-         * <p>
-         * The default value is {@link EventProcessorBuilder#DEFAULT_CAPACITY}.
-         *
-         * @param eventsCapacity the capacity of the event buffer
-         * @return the builder
-         * @see #eventsFlushIntervalMillis(int)
-         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
-         *   {@link EventProcessorBuilder#capacity(int)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder eventsCapacity(int eventsCapacity) {
-            this.eventsCapacity = eventsCapacity;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting the maximum amount of time to wait in between sending
-         * analytics events to LaunchDarkly.
-         * <p>
-         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
-         * settings there will override this deprecated method.
-         * <p>
-         * The default value is {@link EventProcessorBuilder#DEFAULT_FLUSH_INTERVAL_MILLIS}.
-         *
-         * @param eventsFlushIntervalMillis the interval between event flushes, in milliseconds
-         * @return the builder
-         * @see #eventsCapacity(int)
-         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
-         *   {@link EventProcessorBuilder#flushIntervalMillis(int)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder eventsFlushIntervalMillis(int eventsFlushIntervalMillis) {
-            this.eventsFlushIntervalMillis = eventsFlushIntervalMillis;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting the connection timeout.
-         * <p>
-         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
-         * settings there will override this deprecated method.
-         *
-         * @param connectionTimeoutMillis the connection timeout, in milliseconds
-         * @return the builder
-         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
-         *   {@link HttpConfigurationBuilder#connectTimeoutMillis(int)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder connectionTimeoutMillis(int connectionTimeoutMillis) {
-            this.connectionTimeoutMillis = connectionTimeoutMillis;
-            return this;
-        }
-
-        /**
-         * Deprecated method for enabling or disabling real-time streaming flag updates.
-         * <p>
-         * The preferred way to set this option now is with {@link StreamingDataSourceBuilder}. Any
-         * settings there will override this deprecated method. Setting this option to {@code false}
-         * is equivalent to calling {@code builder.dataSource(Components.pollingDataSource())}.
-         * <p>
-         * By default, streaming is enabled.
-         *
-         * @param enabled true if streaming should be enabled
-         * @return the builder
-         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} with either
-         *   {@link Components#streamingDataSource()} or {@link Components#pollingDataSource()}
-         *   instead.
-         */
-        @Deprecated
-        public LDConfig.Builder stream(boolean enabled) {
-            this.stream = enabled;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting the interval in between feature flag updates, when
-         * streaming mode is disabled.
-         * <p>
-         * The preferred way to set this option now is with {@link PollingDataSourceBuilder}. Any
-         * settings there will override this deprecated method.
-         * <p>
-         * The default value is {@link PollingDataSourceBuilder#DEFAULT_POLL_INTERVAL_MILLIS}.
-         *
-         * @param pollingIntervalMillis the feature flag polling interval, in milliseconds
-         * @return the builder
-         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} and
-         *   {@link PollingDataSourceBuilder#pollIntervalMillis(int)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder pollingIntervalMillis(int pollingIntervalMillis) {
-            this.pollingIntervalMillis = pollingIntervalMillis;
-            return this;
-        }
-
-        /**
-         * Deprecated method for setting how often the client will poll for flag updates when your
-         * application is in the background.
-         * <p>
-         * The preferred way to set this option now is with {@link StreamingDataSourceBuilder} or
-         * {@link PollingDataSourceBuilder} (depending on whether you want the SDK to use streaming
-         * or polling when it is in the foreground). Any settings there will override this
-         * deprecated method.
-         * <p>
-         * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS}.
-         *
-         * @param backgroundPollingIntervalMillis the feature flag polling interval when in the background,
-         *                                        in milliseconds
-         * @return the builder
-         * @deprecated Use {@link Builder#dataSource(ComponentConfigurer)} and either
-         *   {@link StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)} or
-         *   {@link PollingDataSourceBuilder#backgroundPollIntervalMillis(int)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder backgroundPollingIntervalMillis(int backgroundPollingIntervalMillis) {
-            this.backgroundPollingIntervalMillis = backgroundPollingIntervalMillis;
-            return this;
-        }
-
-        /**
          * Sets whether feature flag updates should be disabled when your app is in the background.
          * <p>
          * The default value is false (flag updates <i>will</i> be done in the background).
@@ -913,26 +354,6 @@ public class LDConfig {
          */
         public LDConfig.Builder offline(boolean offline) {
             this.offline = offline;
-            return this;
-        }
-
-        /**
-         * Deprecated method for specifying whether events sent to the server will always include
-         * the full user object.
-         * <p>
-         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
-         * settings there will override this deprecated method.
-         * <p>
-         * This defaults to false in order to reduce network bandwidth.
-         *
-         * @param inlineUsersInEvents true if all user properties should be included in events
-         * @return the builder
-         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
-         *   {@link EventProcessorBuilder#inlineUsers(boolean)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder inlineUsersInEvents(boolean inlineUsersInEvents) {
-            this.inlineUsersInEvents = inlineUsersInEvents;
             return this;
         }
 
@@ -970,99 +391,65 @@ public class LDConfig {
         }
 
         /**
-         * Deprecatd method for setting the interval at which periodic diagnostic data is sent.
+         * Sets the maximum number of evaluation contexts to cache the flag values for locally in
+         * the device's SharedPreferences.
          * <p>
-         * The preferred way to set this option now is with {@link EventProcessorBuilder}. Any
-         * settings there will override this deprecated method.
+         * Note that the active evaluation context is not considered part of this limit, as it will
+         * always be served from the backing SharedPreferences.
+         * <p>
+         * If not specified, the default is {@link #DEFAULT_MAX_CACHED_CONTEXTS} (5).
          *
-         * @param diagnosticRecordingIntervalMillis the diagnostics interval in milliseconds
+         * @param maxCachedContexts The maximum number of evaluation contexts to cache; negative
+         *                          values represent allowing an unlimited number of cached contexts
          * @return the builder
-         * @deprecated Use {@link Builder#events(ComponentConfigurer)} and
-         *   {@link EventProcessorBuilder#diagnosticRecordingIntervalMillis(int)} instead.
-         * @see #diagnosticOptOut(boolean)
          */
-        @Deprecated
-        public LDConfig.Builder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
-            this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
+        public LDConfig.Builder maxCachedContexts(int maxCachedContexts) {
+            this.maxCachedContexts = maxCachedContexts;
             return this;
         }
 
         /**
-         * Deprecated method for setting a wrapper library name to include in User-Agent headers.
+         * Set to {@code true} to make the SDK provide unique keys for anonymous contexts.
          * <p>
-         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
-         * settings there will override this deprecated method.
+         * If enabled, this option changes the SDK's behavior whenever the {@link LDContext} (as
+         * given to methods like {@link LDClient#init(android.app.Application, LDConfig, LDContext, int)} or
+         * {@link LDClient#identify(LDContext)}) has an {@link LDContext#isAnonymous()} property of
+         * {@code true}, as follows:
+         * <ul>
+         * <li> The first time this happens in the application, the SDK will generate a
+         * pseudo-random GUID and overwrite the context's {@code key} with this string. </li>
+         * <li> The SDK will then cache this key so that the same key will be reused next time. </li>
+         * <li> This uses the same persistent storage (shared preferences) mechanism as the caching
+         * of flag values, so that the key can persist across restarts. </li>
+         * </ul>
+         * <p>
+         * If you use multiple {@link ContextKind}s, this behavior is per-kind: that is, a separate
+         * randomized key is generated and cached for each context kind.
+         * <p>
+         * Every {@link LDContext} must always have a key, even if the key will later be overwritten
+         * by the SDK, so if you use this functionality you must still provide a placeholder key.
+         * This ensures that if the SDK configuration is changed so {@code generateAnonymousKeys} is
+         * no longer enabled, the SDK will still be able to use the context for evaluations. (The
+         * legacy {@link LDUser} type does allow a null key in this case.)
          *
-         * @param wrapperName an identifying name for the wrapper library
-         * @return the builder
-         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
-         *   {@link HttpConfigurationBuilder#wrapper(String, String)} instead.
+         * @param generateAnonymousKeys true to enable automatic anonymous key generation
+         * @return the same builder
+         * @since 4.0.0
          */
-        @Deprecated
-        public LDConfig.Builder wrapperName(String wrapperName) {
-            this.wrapperName = wrapperName;
+        public LDConfig.Builder generateAnonymousKeys(boolean generateAnonymousKeys) {
+            this.generateAnonymousKeys = generateAnonymousKeys;
             return this;
         }
 
         /**
-         * Deprecated method for setting a wrapper library version to include in User-Agent headers.
-         * <p>
-         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
-         * settings there will override this deprecated method.
+         * Specifies a custom data store. Deliberately package-private-- currently this is only
+         * configurable for tests.
          *
-         * @param wrapperVersion a version string for the wrapper library
-         * @return the builder
-         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
-         *   {@link HttpConfigurationBuilder#wrapper(String, String)} instead.
+         * @param persistentDataStore the store implementation
+         * @return the same builder
          */
-        @Deprecated
-        public LDConfig.Builder wrapperVersion(String wrapperVersion) {
-            this.wrapperVersion = wrapperVersion;
-            return this;
-        }
-
-        /**
-         * Sets the maximum number of users to cache the flag values for locally in the device's
-         * SharedPreferences.
-         * <p>
-         * Note that the active user is not considered part of this limit, as it will always be
-         * served from the backing SharedPreferences.
-         *
-         * @param maxCachedUsers The maximum number of users to cache, negative values represent
-         *                       allowing an unlimited number of cached users.
-         * @return the builder
-         */
-        public LDConfig.Builder maxCachedUsers(int maxCachedUsers) {
-            this.maxCachedUsers = maxCachedUsers;
-            return this;
-        }
-
-        /**
-         * Enable this opt-out to disable sending an automatic alias event when {@link LDClient#identify(LDUser)} is
-         * called with a non-anonymous user when the current user is anonymous.
-         *
-         * @param autoAliasingOptOut Whether the automatic aliasing feature should be disabled
-         * @return the builder
-         */
-        public LDConfig.Builder autoAliasingOptOut(boolean autoAliasingOptOut) {
-            this.autoAliasingOptOut = autoAliasingOptOut;
-            return this;
-        }
-
-        /**
-         * Deprecated method for dynamically modifying request headers.
-         * <p>
-         * The preferred way to set this option now is with {@link HttpConfigurationBuilder}. Any
-         * settings there will override this deprecated method.
-         *
-         * @param headerTransform the transformation to apply to requests
-         * @return the builder
-         * @deprecated Use {@link Builder#http(ComponentConfigurer)} and
-         *   {@link HttpConfigurationBuilder#headerTransform(LDHeaderUpdater)} instead.
-         */
-        @Deprecated
-        public LDConfig.Builder headerTransform(LDHeaderUpdater headerTransform) {
-            this.headerTransform = headerTransform;
+        LDConfig.Builder persistentDataStore(PersistentDataStore persistentDataStore) {
+            this.persistentDataStore = persistentDataStore;
             return this;
         }
 
@@ -1173,15 +560,6 @@ public class LDConfig {
             // debug logging. But if it is LDAndroidLogging or anything else, Logs.level ensures that no
             // output at a lower level than logLevel will be sent anywhere.
 
-            LDLogger logger = LDLogger.withAdapter(actualLogAdapter, loggerName);
-
-            if (diagnosticRecordingIntervalMillis < EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS) {
-                logger.warn(
-                        "diagnosticRecordingIntervalMillis was set to %s, lower than the minimum allowed (%s). Ignoring and using minimum value.",
-                        diagnosticRecordingIntervalMillis, EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS);
-                diagnosticRecordingIntervalMillis = EventProcessorBuilder.MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
-            }
-
             HashMap<String, String> mobileKeys;
             if (secondaryMobileKeys == null) {
                 mobileKeys = new HashMap<>();
@@ -1191,118 +569,24 @@ public class LDConfig {
             }
             mobileKeys.put(primaryEnvironmentName, mobileKey);
 
-            ComponentConfigurer<DataSource> dataSourceConfig = this.dataSource;
-            if (dataSourceConfig == null) {
-                // Copy the deprecated properties to the new data source configuration builder.
-                // There is some additional validation logic here that is specific to the
-                // deprecated property setters; the new configuration builder, in keeping with the
-                // standard behavior of other configuration builders in the Java and Android SDKs,
-                // doesn't log such messages.
-
-                if (!disableBackgroundUpdating) {
-                    if (backgroundPollingIntervalMillis < MIN_BACKGROUND_POLL_INTERVAL_MILLIS) {
-                        logger.warn(
-                                "BackgroundPollingIntervalMillis: {} was set below the minimum allowed: {}. Ignoring and using minimum value.",
-                                backgroundPollingIntervalMillis, MIN_BACKGROUND_POLL_INTERVAL_MILLIS);
-                        backgroundPollingIntervalMillis = MIN_BACKGROUND_POLL_INTERVAL_MILLIS;
-                    }
-                }
-
-                if (stream) {
-                    dataSourceConfig = Components.streamingDataSource()
-                            .backgroundPollIntervalMillis(backgroundPollingIntervalMillis);
-                } else {
-                    if (pollingIntervalMillis < PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS) {
-                        // the default is also the minimum
-                        logger.warn(
-                                "setPollingIntervalMillis: {} was set below the allowed minimum of: {}. Ignoring and using minimum value.",
-                                pollingIntervalMillis, PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS);
-                        pollingIntervalMillis = PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS;
-                    }
-
-                    if (!disableBackgroundUpdating && backgroundPollingIntervalMillis < pollingIntervalMillis) {
-                        logger.warn(
-                                "BackgroundPollingIntervalMillis: {} was set below the foreground polling interval: {}. Ignoring and using minimum value for background polling.",
-                                backgroundPollingIntervalMillis, pollingIntervalMillis);
-                        backgroundPollingIntervalMillis = MIN_BACKGROUND_POLL_INTERVAL_MILLIS;
-                    }
-
-                    if (eventsFlushIntervalMillis == 0) {
-                        // This behavior is retained for historical reasons; the newer configuration
-                        // builder does not modify properties like this that are outside its scope.
-                        eventsFlushIntervalMillis = pollingIntervalMillis;
-                    }
-
-                    dataSourceConfig = Components.pollingDataSource()
-                            .backgroundPollIntervalMillis(backgroundPollingIntervalMillis)
-                            .pollIntervalMillis(pollingIntervalMillis);
-                }
-            }
-
-            if (eventsFlushIntervalMillis == 0) {
-                eventsFlushIntervalMillis = EventProcessorBuilder.DEFAULT_FLUSH_INTERVAL_MILLIS;
-                // this is a normal occurrence, so don't log a warning about it
-            }
-
-            ComponentConfigurer<EventProcessor> eventsConfig = this.events;
-            if (eventsConfig == null) {
-                // Copy the deprecated properties to the new events configuration builder.
-                EventProcessorBuilder eventsBuilder = Components.sendEvents()
-                        .allAttributesPrivate(allAttributesPrivate)
-                        .capacity(eventsCapacity)
-                        .diagnosticRecordingIntervalMillis(diagnosticRecordingIntervalMillis)
-                        .flushIntervalMillis(eventsFlushIntervalMillis)
-                        .inlineUsers(inlineUsersInEvents);
-                if (privateAttributes != null) {
-                    eventsBuilder.privateAttributes(privateAttributes.toArray(new UserAttribute[privateAttributes.size()]));
-                }
-                eventsConfig = eventsBuilder;
-            }
-
-            ComponentConfigurer<HttpConfiguration> httpConfig = this.http;
-            if (httpConfig == null) {
-                // Copy the deprecated properties to the new HTTP configuration builder.
-                HttpConfigurationBuilder httpBuilder = Components.httpConfiguration()
-                        .connectTimeoutMillis(connectionTimeoutMillis)
-                        .headerTransform(headerTransform)
-                        .useReport(useReport)
-                        .wrapper(wrapperName, wrapperVersion);
-                httpConfig = httpBuilder;
-            }
-
-            ServiceEndpoints serviceEndpoints = this.serviceEndpointsBuilder == null ?
-                    Components.serviceEndpoints().polling(pollUri).streaming(streamUri).events(eventsUri).build() :
-                    this.serviceEndpointsBuilder.build();
+            ServiceEndpoints serviceEndpoints =
+                    (serviceEndpointsBuilder == null ? Components.serviceEndpoints() :
+                            serviceEndpointsBuilder)
+                            .createServiceEndpoints();
 
             return new LDConfig(
                     mobileKeys,
-                    pollUri,
-                    eventsUri,
-                    streamUri,
-                    dataSourceConfig,
-                    eventsConfig,
-                    httpConfig,
                     serviceEndpoints,
-                    eventsCapacity,
-                    eventsFlushIntervalMillis,
-                    connectionTimeoutMillis,
+                    this.dataSource == null ? Components.streamingDataSource() : this.dataSource,
+                    this.events == null ? Components.sendEvents() : this.events,
+                    this.http == null ? Components.httpConfiguration() : this.http,
                     offline,
-                    stream,
-                    pollingIntervalMillis,
-                    backgroundPollingIntervalMillis,
                     disableBackgroundUpdating,
-                    useReport,
-                    allAttributesPrivate,
-                    privateAttributes,
-                    inlineUsersInEvents,
                     evaluationReasons,
                     diagnosticOptOut,
-                    diagnosticRecordingIntervalMillis,
-                    wrapperName,
-                    wrapperVersion,
-                    maxCachedUsers,
-                    headerTransform,
-                    autoAliasingOptOut,
+                    maxCachedContexts,
+                    generateAnonymousKeys,
+                    persistentDataStore,
                     actualLogAdapter,
                     loggerName);
         }

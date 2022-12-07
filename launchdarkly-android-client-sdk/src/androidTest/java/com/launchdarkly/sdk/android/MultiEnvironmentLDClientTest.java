@@ -3,7 +3,7 @@ package com.launchdarkly.sdk.android;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 
 import org.junit.Before;
@@ -25,12 +25,12 @@ import static org.junit.Assert.fail;
 public class MultiEnvironmentLDClientTest {
 
     @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
+    public AndroidLoggingRule logging = new AndroidLoggingRule();
 
     private LDClient ldClient;
     private Future<LDClient> ldClientFuture;
     private LDConfig ldConfig;
-    private LDUser ldUser;
+    private LDContext ldUser;
 
     @Before
     public void setUp() {
@@ -39,11 +39,14 @@ public class MultiEnvironmentLDClientTest {
         secondaryKeys.put("test1", "test1");
 
         ldConfig = new LDConfig.Builder()
+                .mobileKey("default-mobile-key")
                 .offline(true)
                 .secondaryMobileKeys(secondaryKeys)
+                .logAdapter(logging.logAdapter)
+                .loggerName(logging.loggerName)
                 .build();
 
-        ldUser = new LDUser.Builder("userKey").build();
+        ldUser = LDContext.create("userKey");
     }
 
     @Test
@@ -115,11 +118,12 @@ public class MultiEnvironmentLDClientTest {
     }
 
     @Test
-    public void testInitMissingUser() {
+    public void testInitMissingContext() {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, null);
+        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig,
+                (LDContext)null);
 
         try {
             ldClientFuture.get();

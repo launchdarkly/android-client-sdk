@@ -1,6 +1,8 @@
 package com.launchdarkly.sdktest;
 
+import com.google.gson.annotations.SerializedName;
 import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 
@@ -51,7 +53,6 @@ public abstract class Representations {
         boolean enableDiagnostics;
         String[] globalPrivateAttributes;
         Long flushIntervalMs;
-        boolean inlineUsers;
     }
 
     public static class SdkConfigTagParams {
@@ -66,8 +67,8 @@ public abstract class Representations {
     }
 
     public static class SdkConfigClientSideParams {
+        LDContext initialContext;
         LDUser initialUser;
-        boolean autoAliasingOptOut;
         boolean evaluationReasons;
         boolean useReport;
     }
@@ -78,14 +79,13 @@ public abstract class Representations {
         EvaluateAllFlagsParams evaluateAll;
         IdentifyEventParams identifyEvent;
         CustomEventParams customEvent;
-        AliasEventParams aliasEvent;
+        ContextBuildParams contextBuild;
+        ContextConvertParams contextConvert;
     }
 
     public static class EvaluateFlagParams {
         String flagKey;
-        LDUser user;
         String valueType;
-        LDValue value;
         LDValue defaultValue;
         boolean detail;
     }
@@ -97,7 +97,6 @@ public abstract class Representations {
     }
 
     public static class EvaluateAllFlagsParams {
-        LDUser user;
         boolean clientSideOnly;
         boolean detailsOnlyForTrackedFlags;
         boolean withReasons;
@@ -108,19 +107,38 @@ public abstract class Representations {
     }
 
     public static class IdentifyEventParams {
+        LDContext context;
         LDUser user;
     }
 
     public static class CustomEventParams {
         String eventKey;
-        LDUser user;
         LDValue data;
         boolean omitNullData;
         Double metricValue;
     }
 
-    public static class AliasEventParams {
-        LDUser user;
-        LDUser previousUser;
+    public static class ContextBuildParams {
+        ContextBuildSingleParams single;
+        ContextBuildSingleParams[] multi;
+    }
+
+    public static class ContextBuildSingleParams {
+        public String kind;
+        public String key;
+        public String name;
+        public Boolean anonymous;
+        public String secondary;
+        @SerializedName("private") public String[] privateAttrs;
+        public Map<String, LDValue> custom;
+    }
+
+    public static class ContextBuildResponse {
+        String output;
+        String error;
+    }
+
+    public static class ContextConvertParams {
+        String input;
     }
 }

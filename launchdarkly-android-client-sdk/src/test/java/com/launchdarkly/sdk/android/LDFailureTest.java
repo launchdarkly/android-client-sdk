@@ -1,10 +1,9 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.launchdarkly.sdk.android.GsonCache;
-import com.launchdarkly.sdk.android.LDFailure;
-import com.launchdarkly.sdk.android.LDInvalidResponseCodeFailure;
 
 import org.junit.Test;
 
@@ -18,7 +17,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class LDFailureTest {
-    private static final Gson gson = GsonCache.getGson();
+    private static final Gson gson = gsonInstance();
     private static final Exception cause = new Exception("root cause");
 
     @Test

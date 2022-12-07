@@ -1,15 +1,14 @@
 package com.launchdarkly.sdk.android;
 
-import android.content.Context;
-import android.net.Uri;
-
 import androidx.annotation.NonNull;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.sdk.LDUser;
-import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.internal.http.HttpHelpers;
+import com.launchdarkly.sdk.internal.http.HttpProperties;
+import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.io.File;
 import java.io.IOException;
@@ -17,66 +16,69 @@ import java.net.URI;
 
 import okhttp3.Cache;
 import okhttp3.Call;
-import okhttp3.Callback;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-import static com.launchdarkly.sdk.android.LDConfig.GSON;
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
-import static com.launchdarkly.sdk.android.LDUtil.isClientConnected;
 
 class HttpFeatureFlagFetcher implements FeatureFetcher {
 
     private static final int MAX_CACHE_SIZE_BYTES = 500_000;
 
-    private final LDConfig config;
-    private final HttpConfiguration httpConfig;
-    private final Uri pollUri;
-    private final String environmentName;
-    private final Context context;
+    private final URI pollUri;
+    private final boolean evaluationReasons;
+    private final boolean useReport;
+    private final HttpProperties httpProperties;
     private final OkHttpClient client;
     private final LDLogger logger;
 
     HttpFeatureFlagFetcher(
-            Context context,
-            LDConfig config,
-            HttpConfiguration httpConfig,
-            String environmentName,
-            LDLogger logger
+            @NonNull ClientContext clientContext
     ) {
-        this.config = config;
-        this.httpConfig = httpConfig;
-        this.environmentName = environmentName;
-        this.context = context;
-        this.logger = logger;
+        this.pollUri = clientContext.getServiceEndpoints().getPollingBaseUri();
+        this.evaluationReasons = clientContext.isEvaluationReasons();
+        this.useReport = clientContext.getHttp().isUseReport();
+        this.httpProperties = LDUtil.makeHttpProperties(clientContext);
+        this.logger = clientContext.getBaseLogger();
 
-        URI pollUri = StandardEndpoints.selectBaseUri(config.serviceEndpoints.getPollingBaseUri(),
-                StandardEndpoints.DEFAULT_POLLING_BASE_URI, "polling", logger);
-        this.pollUri = Uri.parse(pollUri.toString());
-
-        File cacheDir = new File(context.getCacheDir(), "com.launchdarkly.http-cache");
+        File cacheDir = new File(ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
+                "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
 
-        client = new OkHttpClient.Builder()
+        client = httpProperties.toHttpClientBuilder()
+                // The following client options are currently only used for polling requests; caching is
+                // not relevant for streaming or events, and we don't use OkHttp's auto-retry logic for
+                // streaming or events because we have our own different retry logic. However, in the
+                // the future we may want to share a ConnectionPool across clients. We may also want to
+                // create a single HTTP client at init() time and share it across multiple SDK clients,
+                // if there are multiple environments; right now a new HTTP client is being created for
+                // polling for each environment, even though they all have the same configuration.
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
                 .retryOnConnectionFailure(true)
                 .build();
     }
 
     @Override
-    public synchronized void fetch(LDUser user, final LDUtil.ResultCallback<JsonObject> callback) {
-        if (user != null && isClientConnected(context, environmentName)) {
+    public synchronized void fetch(LDContext ldContext, final Callback<String> callback) {
+        if (ldContext != null) {
 
-            final Request request = httpConfig.isUseReport()
-                    ? getReportRequest(user)
-                    : getDefaultRequest(user);
+            final Request request;
+            try {
+                request = useReport
+                        ? getReportRequest(ldContext)
+                        : getDefaultRequest(ldContext);
+            } catch (IOException e) {
+                LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected error in constructing request");
+                callback.onError(new LDFailure("Exception while fetching flags", e, LDFailure.FailureType.UNKNOWN_ERROR));
+                return;
+            }
 
             logger.debug(request.toString());
             Call call = client.newCall(request);
-            call.enqueue(new Callback() {
+            call.enqueue(new okhttp3.Callback() {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
                     LDUtil.logExceptionAtErrorLevel(logger, e, "Exception when fetching flags");
@@ -97,14 +99,14 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                             }
                             callback.onError(new LDInvalidResponseCodeFailure("Unexpected response when retrieving Feature Flags: " + response + " using url: "
                                     + request.url() + " with body: " + body, response.code(), true));
+                            return;
                         }
                         logger.debug(body);
                         logger.debug("Cache hit count: {} Cache network Count: {}", client.cache().hitCount(), client.cache().networkCount());
                         logger.debug("Cache response: {}", response.cacheResponse());
                         logger.debug("Network response: {}", response.networkResponse());
 
-                        JsonObject jsonObject = JsonParser.parseString(body).getAsJsonObject();
-                        callback.onSuccess(jsonObject);
+                        callback.onSuccess(body);
                     } catch (Exception e) {
                         LDUtil.logExceptionAtErrorLevel(logger, e,
                                 "Exception when handling response for url: {} with body: {}", request.url(), body);
@@ -119,29 +121,37 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         }
     }
 
-    private Request getDefaultRequest(LDUser user) {
-        String uri = Uri.withAppendedPath(pollUri, "msdk/evalx/users/").toString() +
-                DefaultUserManager.base64Url(user);
-        if (config.isEvaluationReasons()) {
-            uri += "?withReasons=true";
+    @Override
+    public void close() {
+        HttpProperties.shutdownHttpClient(client);
+    }
+
+    private Request getDefaultRequest(LDContext ldContext) throws IOException {
+        // Here we're using java.net.URI and our own URI-building helpers, rather than android.net.Uri
+        // and methods like Uri.withAppendedPath, simply to minimize the amount of code that relies on
+        // Android-specific APIs so our components are more easily unit-testable.
+        URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_GET_BASE_PATH);
+        uri = HttpHelpers.concatenateUriPath(uri, LDUtil.base64Url(ldContext));
+        if (evaluationReasons) {
+            uri = URI.create(uri.toString() + "?withReasons=true");
         }
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
-        return new Request.Builder().url(uri)
-                .headers(LDUtil.makeRequestHeaders(httpConfig, null))
+        return new Request.Builder().url(uri.toURL())
+                .headers(httpProperties.toHeadersBuilder().build())
                 .build();
     }
 
-    private Request getReportRequest(LDUser user) {
-        String reportUri = Uri.withAppendedPath(pollUri, "msdk/evalx/user").toString();
-        if (config.isEvaluationReasons()) {
-            reportUri += "?withReasons=true";
+    private Request getReportRequest(LDContext ldContext) throws IOException {
+        URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_REPORT_BASE_PATH);
+        if (evaluationReasons) {
+            uri = URI.create(uri.toString() + "?withReasons=true");
         }
-        logger.debug("Attempting to report user using uri: {}", reportUri);
-        String userJson = GSON.toJson(user);
-        RequestBody reportBody = RequestBody.create(userJson, JSON);
+        logger.debug("Attempting to report user using uri: {}", uri);
+        String contextJson = JsonSerialization.serialize(ldContext);
+        RequestBody reportBody = RequestBody.create(contextJson, JSON);
 
-        return new Request.Builder().url(reportUri)
-                .headers(LDUtil.makeRequestHeaders(httpConfig, null))
+        return new Request.Builder().url(uri.toURL())
+                .headers(httpProperties.toHeadersBuilder().build())
                 .method("REPORT", reportBody)
                 .build();
     }

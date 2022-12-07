@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.launchdarkly.sdk.android.sharedtest">
+    <!-- Note, the classes in this module use the package com.launchdarkly.sdk.android, not
+         com.launchdarkly.sdk.android.sharedtest - because they need to be able to access
+         package-private types from the SDK. But we need to declare a different package name
+         here just to avoid conflicts in dexing. -->
+</manifest>

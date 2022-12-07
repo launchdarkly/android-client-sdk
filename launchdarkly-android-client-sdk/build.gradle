@@ -51,15 +51,21 @@ configurations {
     }
 }
 
+configurations.all {
+    // allows snapshot dependencies to be updated
+    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
+
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
-    "eventsource": "1.11.3",
+    "eventsource": "3.0.0",
     "gson": "2.8.9",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
-    "launchdarklyJavaSdkCommon": "1.2.0",
+    "launchdarklyJavaSdkCommon": "2.0.0",
+    "launchdarklyJavaSdkInternal": "1.0.0",
     "launchdarklyLogging": "1.1.1",
     "okhttp": "4.9.2",
     "timber": "5.0.1",
@@ -76,14 +82,18 @@ dependencies {
 
     implementation("com.google.code.gson:gson:${versions.gson}")
     implementation("androidx.annotation:annotation:${versions.androidAnnotation}")
+    implementation("com.launchdarkly:launchdarkly-java-sdk-internal:${versions.launchdarklyJavaSdkInternal}")
     implementation("com.launchdarkly:okhttp-eventsource:${versions.eventsource}")
     implementation("com.squareup.okhttp3:okhttp:${versions.okhttp}")
     implementation("com.jakewharton.timber:timber:${versions.timber}")
 
     testImplementation("junit:junit:${versions.junit}")
+    testImplementation("org.easymock:easymock:4.3")
+    testImplementation(project(":shared-test-code"))
 
     androidTestImplementation("junit:junit:${versions.junit}")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
+    androidTestImplementation(project(":shared-test-code"))
 
     androidTestImplementation("androidx.test:core:1.4.0")
     androidTestImplementation("androidx.test:runner:1.4.0")

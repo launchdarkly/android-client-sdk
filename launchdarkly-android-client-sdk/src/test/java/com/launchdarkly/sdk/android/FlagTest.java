@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
+
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -8,6 +10,7 @@ import com.launchdarkly.sdk.ArrayBuilder;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -24,7 +27,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class FlagTest {
-    private static final Gson gson = GsonCache.getGson();
+    private static final Gson gson = gsonInstance();
 
     private Map<EvaluationReason, String> TEST_REASONS;
 
@@ -115,7 +118,6 @@ public class FlagTest {
     public void versionIsDeserialized() {
         final String jsonStr = "{\"version\": 99}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertNotNull(r.getVersion());
         assertEquals(99, (int) r.getVersion());
     }
 
@@ -271,10 +273,10 @@ public class FlagTest {
 
     @Test
     public void emptyPropertiesAreNotSerialized() {
-        final Flag r = new FlagBuilder("flag").value(LDValue.of("yes")).version(99).flagVersion(100).trackEvents(false).build();
+        final Flag r = new FlagBuilder("flag").value(LDValue.of("yes")).version(99).flagVersion(100).build();
         final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
-        assertEquals(5, json.keySet().size());
-        assertTrue(json.keySet().containsAll(Arrays.asList("key", "trackEvents", "value", "version", "flagVersion")));
+        assertEquals(4, json.keySet().size());
+        assertTrue(json.keySet().containsAll(Arrays.asList("key", "value", "version", "flagVersion")));
     }
 
     @Test
@@ -293,23 +295,5 @@ public class FlagTest {
 
         assertEquals(10, withVersion.getVersionForEvents());
         assertEquals(5, withVersionAndFlagVersion.getVersionForEvents());
-    }
-
-    @Test
-    public void flagToUpdateReturnsKey() {
-        final Flag flag = new FlagBuilder("flag").build();
-        assertEquals(flag.getKey(), flag.flagToUpdate());
-    }
-
-    @Test
-    public void testUpdateFlag() {
-        final Flag flagLowVersion = new FlagBuilder("flagLowVersion").version(50).build();
-        final Flag flagSameVersion = new FlagBuilder("flagSameVersion").version(50).build();
-        final Flag flagHighVersion = new FlagBuilder("flagHighVersion").version(100).build();
-
-        assertEquals(flagLowVersion, flagLowVersion.updateFlag(null));
-        assertEquals(flagSameVersion, flagLowVersion.updateFlag(flagSameVersion));
-        assertEquals(flagHighVersion, flagHighVersion.updateFlag(flagLowVersion));
-        assertEquals(flagHighVersion, flagLowVersion.updateFlag(flagHighVersion));
     }
 }

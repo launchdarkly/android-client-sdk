@@ -1,12 +1,12 @@
 package com.launchdarkly.sdk.android;
 
-import android.app.Application;
-
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
-
-import okhttp3.OkHttpClient;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
+import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 
 /**
  * This package-private subclass of {@link ClientContext} contains additional non-public SDK objects
@@ -22,84 +22,125 @@ import okhttp3.OkHttpClient;
  * implementation of {@link ClientContext}, which might have been created for instance in application
  * test code).
  * <p>
- * Any attempt by SDK components to access an object that would normally be provided by the SDK,
- * but that has not been set, will cause an immediate unchecked exception. This would only happen if
- * components were being used outside of the SDK client in test code that did not correctly set
- * these properties.
+ * Any attempt by SDK components to access an object that would normally be provided by the SDK
+ * (such as PlatformState), but that has not been set, will cause an immediate unchecked exception.
+ * This would only happen if components were being used outside of the SDK client in test code that
+ * did not correctly set these properties.
  */
 final class ClientContextImpl extends ClientContext {
     private final DiagnosticStore diagnosticStore;
-    private final OkHttpClient sharedEventClient;
-    private final SummaryEventStore summaryEventStore;
+    private final FeatureFetcher fetcher;
+    private final PlatformState platformState;
+    private final TaskExecutor taskExecutor;
 
     ClientContextImpl(
             ClientContext base,
             DiagnosticStore diagnosticStore,
-            OkHttpClient sharedEventClient,
-            SummaryEventStore summaryEventStore
+            FeatureFetcher fetcher,
+            PlatformState platformState,
+            TaskExecutor taskExecutor
     ) {
         super(base);
         this.diagnosticStore = diagnosticStore;
-        this.sharedEventClient = sharedEventClient;
-        this.summaryEventStore = summaryEventStore;
+        this.fetcher = fetcher;
+        this.platformState = platformState;
+        this.taskExecutor = taskExecutor;
     }
 
     static ClientContextImpl fromConfig(
-            Application application,
             LDConfig config,
             String mobileKey,
             String environmentName,
-            DiagnosticStore diagnosticStore,
-            OkHttpClient sharedEventClient,
-            SummaryEventStore summaryEventStore,
-            LDLogger logger
+            FeatureFetcher fetcher,
+            LDContext initialContext,
+            LDLogger logger,
+            PlatformState platformState,
+            TaskExecutor taskExecutor
     ) {
-        ClientContext minimalContext = new ClientContext(null, mobileKey, logger, config,
-                environmentName, config.isEvaluationReasons(), null, config.isOffline(),
-                config.serviceEndpoints);
+        boolean initiallyInBackground = platformState != null && !platformState.isForeground();
+        ClientContext minimalContext = new ClientContext(mobileKey, logger, config,
+                null, environmentName, config.isEvaluationReasons(), initialContext, null,
+                initiallyInBackground, config.serviceEndpoints, config.isOffline());
         HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
-                application,
                 mobileKey,
                 logger,
                 config,
+                null,
                 environmentName,
                 config.isEvaluationReasons(),
+                initialContext,
                 httpConfig,
-                config.isOffline(),
-                config.serviceEndpoints
+                initiallyInBackground,
+                config.serviceEndpoints,
+                config.isOffline()
         );
-        return new ClientContextImpl(baseClientContext, diagnosticStore, sharedEventClient, summaryEventStore);
+        DiagnosticStore diagnosticStore = null;
+        if (!config.getDiagnosticOptOut()) {
+            diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(baseClientContext));
+        }
+        return new ClientContextImpl(baseClientContext, diagnosticStore, fetcher, platformState, taskExecutor);
     }
 
     public static ClientContextImpl get(ClientContext context) {
         if (context instanceof ClientContextImpl) {
             return (ClientContextImpl)context;
         }
-        return new ClientContextImpl(context, null, null, null);
+        return new ClientContextImpl(context, null, null, null, null);
+    }
+
+    public static ClientContextImpl forDataSource(
+            ClientContext baseClientContext,
+            DataSourceUpdateSink dataSourceUpdateSink,
+            LDContext newEvaluationContext,
+            boolean newInBackground
+    ) {
+        ClientContextImpl baseContextImpl = ClientContextImpl.get(baseClientContext);
+        return new ClientContextImpl(
+                new ClientContext(
+                        baseClientContext.getMobileKey(),
+                        baseClientContext.getBaseLogger(),
+                        baseClientContext.getConfig(),
+                        dataSourceUpdateSink,
+                        baseClientContext.getEnvironmentName(),
+                        baseClientContext.isEvaluationReasons(),
+                        newEvaluationContext,
+                        baseClientContext.getHttp(),
+                        newInBackground,
+                        baseClientContext.getServiceEndpoints(),
+                        false // setOffline is always false if we are creating a data source
+                ),
+                baseContextImpl.getDiagnosticStore(),
+                baseContextImpl.getFetcher(),
+                baseContextImpl.getPlatformState(),
+                baseContextImpl.getTaskExecutor()
+        );
     }
 
     public DiagnosticStore getDiagnosticStore() {
         return diagnosticStore;
     }
 
-    public OkHttpClient getSharedEventClient() {
-        throwExceptionIfNull(sharedEventClient);
-        return sharedEventClient;
+    public FeatureFetcher getFetcher() {
+        return fetcher;
     }
 
-    public SummaryEventStore getSummaryEventStore() {
-        throwExceptionIfNull(summaryEventStore);
-        return summaryEventStore;
+    public PlatformState getPlatformState() {
+        return throwExceptionIfNull(platformState);
     }
 
-    private static void throwExceptionIfNull(Object o) {
+    public TaskExecutor getTaskExecutor() {
+        return throwExceptionIfNull(taskExecutor);
+    }
+
+    private static <T> T throwExceptionIfNull(T o) {
         if (o == null) {
             throw new IllegalStateException(
                     "Attempted to use an SDK component without the necessary dependencies from LDClient; "
-                            + " this should never happen unless an application has tried to construct the"
-                            + " component directly outside of normal SDK usage"
+                    + " this should never happen unless an application has tried to construct the"
+                    + " component directly outside of normal SDK usage"
             );
         }
+        return o;
     }
 }
