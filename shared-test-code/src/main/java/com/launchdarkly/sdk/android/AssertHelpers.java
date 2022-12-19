@@ -85,4 +85,15 @@ public class AssertHelpers {
             throw new RuntimeException(e);
         }
     }
+
+    public static <T> void requireNoMoreValues(BlockingQueue<T> queue, int timeout, TimeUnit timeoutUnit) {
+        try {
+            T value = queue.poll(timeout, timeoutUnit);
+            if (value != null) {
+                throw new AssertionError("did not expect a value, but got: " + value);
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

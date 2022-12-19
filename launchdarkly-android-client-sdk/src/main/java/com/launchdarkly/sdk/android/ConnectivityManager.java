@@ -66,6 +66,7 @@ class ConnectivityManager {
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
+    private final AtomicReference<Boolean> previouslyInBackground = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
 
@@ -224,10 +225,12 @@ class ConnectivityManager {
                 baseClientContext,
                 dataSourceUpdateSink,
                 contextDataManager.getCurrentContext(),
-                inBackground
+                inBackground,
+                previouslyInBackground.get()
         );
         DataSource dataSource = dataSourceFactory.build(clientContext);
         currentDataSource.set(dataSource);
+        previouslyInBackground.set(Boolean.valueOf(inBackground));
 
         dataSource.start(new Callback<Boolean>() {
             @Override
