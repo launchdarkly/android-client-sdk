@@ -60,7 +60,7 @@ final class ClientContextImpl extends ClientContext {
         boolean initiallyInBackground = platformState != null && !platformState.isForeground();
         ClientContext minimalContext = new ClientContext(mobileKey, logger, config,
                 null, environmentName, config.isEvaluationReasons(), initialContext, null,
-                initiallyInBackground, config.serviceEndpoints, config.isOffline());
+                initiallyInBackground, null, config.serviceEndpoints, config.isOffline());
         HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 mobileKey,
@@ -72,6 +72,7 @@ final class ClientContextImpl extends ClientContext {
                 initialContext,
                 httpConfig,
                 initiallyInBackground,
+                null,
                 config.serviceEndpoints,
                 config.isOffline()
         );
@@ -93,7 +94,8 @@ final class ClientContextImpl extends ClientContext {
             ClientContext baseClientContext,
             DataSourceUpdateSink dataSourceUpdateSink,
             LDContext newEvaluationContext,
-            boolean newInBackground
+            boolean newInBackground,
+            Boolean previouslyInBackground
     ) {
         ClientContextImpl baseContextImpl = ClientContextImpl.get(baseClientContext);
         return new ClientContextImpl(
@@ -107,6 +109,7 @@ final class ClientContextImpl extends ClientContext {
                         newEvaluationContext,
                         baseClientContext.getHttp(),
                         newInBackground,
+                        previouslyInBackground,
                         baseClientContext.getServiceEndpoints(),
                         false // setOffline is always false if we are creating a data source
                 ),

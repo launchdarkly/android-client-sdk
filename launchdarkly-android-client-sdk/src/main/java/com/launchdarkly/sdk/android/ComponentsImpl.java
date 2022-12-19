@@ -244,8 +244,17 @@ abstract class ComponentsImpl {
             );
             int actualPollIntervalMillis = clientContext.isInBackground() ? backgroundPollIntervalMillis :
                     pollIntervalMillis;
-            int initialDelayMillis = clientContext.isInBackground() ? backgroundPollIntervalMillis :
-                    0; // when in the foreground, we want to start the first poll right away
+            int initialDelayMillis;
+            if (clientContext.isInBackground() && Boolean.FALSE.equals(clientContext.getPreviouslyInBackground())) {
+                // If we're transitioning from foreground to background, then we don't want to do a
+                // poll right away because we already have recent flag data. Start polling *after*
+                // the first background poll interval.
+                initialDelayMillis = backgroundPollIntervalMillis;
+            } else {
+                // If we're in the foreground-- or, if we're in the background but we started out
+                // that way rather than transitioning-- then we should do the first poll right away.
+                initialDelayMillis = 0;
+            }
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
             return new PollingDataSource(
                     clientContext.getEvaluationContext(),
@@ -266,6 +275,18 @@ abstract class ComponentsImpl {
                     .put("backgroundPollingIntervalMillis", backgroundPollIntervalMillis)
                     .put("pollingIntervalMillis", pollIntervalMillis)
                     .build();
+        }
+
+        // This method is for testing - not exposed in the public PollingDataSourceBuilder
+        public PollingDataSourceBuilder backgroundPollIntervalMillisNoMinimum(int backgroundPollIntervalMillis) {
+            this.backgroundPollIntervalMillis = backgroundPollIntervalMillis;
+            return this;
+        }
+
+        // This method is for testing - not exposed in the public PollingDataSourceBuilder
+        public PollingDataSourceBuilder pollIntervalMillisNoMinimum(int pollIntervalMillis) {
+            this.pollIntervalMillis = pollIntervalMillis;
+            return this;
         }
     }
 
