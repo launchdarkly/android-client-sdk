@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.0.1] - 2022-12-19
+### Fixed:
+- If the application is in the background when the SDK is started, the SDK will go into polling mode and immediately make a flag data request to LaunchDarkly. Previously, in this scenario the first poll would not happen until the background poll interval elapsed, so the SDK would effectively never have flag data at initialization time for an app or service that started in the background.
+
 ## [4.0.0] - 2022-12-07
 The latest version of this SDK supports LaunchDarkly's new custom contexts feature. Contexts are an evolution of a previously-existing concept, "users." Contexts let you create targeting rules for feature flags based on a variety of different information, including attributes pertaining to users, organizations, devices, and more. You can even combine contexts to create "multi-contexts." 
 
