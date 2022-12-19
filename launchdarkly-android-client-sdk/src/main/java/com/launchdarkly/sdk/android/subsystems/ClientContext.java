@@ -31,9 +31,71 @@ public class ClientContext {
     private final HttpConfiguration http;
     private final boolean inBackground;
     private final String mobileKey;
+    private final Boolean previouslyInBackground;
     private final ServiceEndpoints serviceEndpoints;
     private final boolean setOffline;
 
+    /**
+     * Constructs an instance, specifying all properties.
+     *
+     * @param mobileKey see {@link #getMobileKey()}
+     * @param baseLogger see {@link #getBaseLogger()}
+     * @param config see {@link #getConfig()}
+     * @param dataSourceUpdateSink see {@link #getDataSourceUpdateSink()}
+     * @param environmentName see {@link #getEnvironmentName()}
+     * @param evaluationReasons see {@link #isEvaluationReasons()}
+     * @param evaluationContext see {@link #getEvaluationContext()}
+     * @param http see {@link #getHttp()}
+     * @param inBackground see {@link #isInBackground()}
+     * @param previouslyInBackground see {@link #getPreviouslyInBackground()}
+     * @param serviceEndpoints see {@link #getServiceEndpoints()}
+     * @param setOffline see {@link #isSetOffline()}
+     */
+    public ClientContext(
+            String mobileKey,
+            LDLogger baseLogger,
+            LDConfig config,
+            DataSourceUpdateSink dataSourceUpdateSink,
+            String environmentName,
+            boolean evaluationReasons,
+            LDContext evaluationContext,
+            HttpConfiguration http,
+            boolean inBackground,
+            Boolean previouslyInBackground,
+            ServiceEndpoints serviceEndpoints,
+            boolean setOffline
+    ) {
+        this.mobileKey = mobileKey;
+        this.baseLogger = baseLogger;
+        this.config = config;
+        this.dataSourceUpdateSink = dataSourceUpdateSink;
+        this.environmentName = environmentName;
+        this.evaluationReasons = evaluationReasons;
+        this.evaluationContext = evaluationContext;
+        this.http = http;
+        this.inBackground = inBackground;
+        this.previouslyInBackground = previouslyInBackground;
+        this.serviceEndpoints = serviceEndpoints;
+        this.setOffline = setOffline;
+    }
+
+    /**
+     * Deprecated constructor overload.
+     *
+     * @param mobileKey see {@link #getMobileKey()}
+     * @param baseLogger see {@link #getBaseLogger()}
+     * @param config see {@link #getConfig()}
+     * @param dataSourceUpdateSink see {@link #getDataSourceUpdateSink()}
+     * @param environmentName see {@link #getEnvironmentName()}
+     * @param evaluationReasons see {@link #isEvaluationReasons()}
+     * @param evaluationContext see {@link #getEvaluationContext()}
+     * @param http see {@link #getHttp()}
+     * @param inBackground see {@link #isInBackground()}
+     * @param serviceEndpoints see {@link #getServiceEndpoints()}
+     * @param setOffline see {@link #isSetOffline()}
+     * @deprecated use newer constructor
+     */
+    @Deprecated
     public ClientContext(
             String mobileKey,
             LDLogger baseLogger,
@@ -47,17 +109,10 @@ public class ClientContext {
             ServiceEndpoints serviceEndpoints,
             boolean setOffline
     ) {
-        this.mobileKey = mobileKey;
-        this.baseLogger = baseLogger;
-        this.config = config;
-        this.dataSourceUpdateSink = dataSourceUpdateSink;
-        this.environmentName = environmentName;
-        this.evaluationReasons = evaluationReasons;
-        this.evaluationContext = evaluationContext;
-        this.http = http;
-        this.inBackground = inBackground;
-        this.serviceEndpoints = serviceEndpoints;
-        this.setOffline = setOffline;
+        this(mobileKey, baseLogger, config, dataSourceUpdateSink, environmentName,
+                evaluationReasons, evaluationContext, http, inBackground,
+                null,
+                serviceEndpoints, setOffline);
     }
 
     protected ClientContext(ClientContext copyFrom) {
@@ -71,6 +126,7 @@ public class ClientContext {
                 copyFrom.evaluationContext,
                 copyFrom.http,
                 copyFrom.inBackground,
+                copyFrom.previouslyInBackground,
                 copyFrom.serviceEndpoints,
                 copyFrom.setOffline
         );
@@ -149,6 +205,22 @@ public class ClientContext {
      */
     public String getMobileKey() {
         return mobileKey;
+    }
+
+    /**
+     * Returns the previous background state.
+     * <p>
+     * This is initially null when the SDK is initialized. It is set to {@code true} or
+     * {@code false} when the SDK is restarting the data source due to a state change, in case the
+     * data source might need to have different behavior depending on whether the state change
+     * included a change in foreground/background state.
+     *
+     * @return {@code true} if the application was in the background before the time that this
+     *   component was created; {@code false} if it was in the foreground; or {@code null} if this
+     *   is the first time the component is being created during the lifetime of the SDK
+     */
+    public Boolean getPreviouslyInBackground() {
+        return previouslyInBackground;
     }
 
     /**

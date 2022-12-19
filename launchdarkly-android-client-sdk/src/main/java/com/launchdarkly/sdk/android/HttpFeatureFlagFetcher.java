@@ -64,7 +64,6 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     @Override
     public synchronized void fetch(LDContext ldContext, final Callback<String> callback) {
         if (ldContext != null) {
-
             final Request request;
             try {
                 request = useReport
@@ -76,7 +75,8 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                 return;
             }
 
-            logger.debug(request.toString());
+            logger.debug("Polling for flag data: {}", request.url());
+            
             Call call = client.newCall(request);
             call.enqueue(new okhttp3.Callback() {
                 @Override

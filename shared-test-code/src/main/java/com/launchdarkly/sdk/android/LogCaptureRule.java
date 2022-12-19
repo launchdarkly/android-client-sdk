@@ -33,8 +33,8 @@ public final class LogCaptureRule extends TestWatcher {
 
     @Override
     protected void failed(Throwable e, Description description) {
-        for (String s: logCapture.getMessageStrings()) {
-            System.out.println("LOG >>> " + s);
+        for (LogCapture.Message m: logCapture.getMessages()) {
+            System.out.println("LOG >>> " + m.toStringWithTimestamp());
         }
     }
 
