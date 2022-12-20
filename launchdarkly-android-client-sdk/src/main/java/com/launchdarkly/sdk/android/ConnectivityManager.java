@@ -66,6 +66,7 @@ class ConnectivityManager {
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
+    private final AtomicReference<LDContext> currentEvaluationContext = new AtomicReference<>();
     private final AtomicReference<Boolean> previouslyInBackground = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
@@ -80,7 +81,7 @@ class ConnectivityManager {
 
         @Override
         public void init(Map<String, DataModel.Flag> items) {
-            contextDataManager.initData(contextDataManager.getCurrentContext(),
+            contextDataManager.initData(currentEvaluationContext.get(),
                     EnvironmentData.usingExistingFlagsMap(items));
             // Currently, contextDataManager is responsible for firing any necessary flag change events.
         }
@@ -155,6 +156,7 @@ class ConnectivityManager {
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
 
+        currentEvaluationContext.set(clientContext.getEvaluationContext());
         forcedOffline.set(clientContext.isSetOffline());
 
         LDConfig ldConfig = clientContext.getConfig();
@@ -168,13 +170,27 @@ class ConnectivityManager {
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
         foregroundListener = foreground -> {
-            updateDataSource(true, LDUtil.noOpCallback());
+            DataSource dataSource = currentDataSource.get();
+            if (dataSource == null || dataSource.needsRefresh(!foreground,
+                    currentEvaluationContext.get())) {
+                updateDataSource(true, LDUtil.noOpCallback());
+            }
         };
         platformState.addForegroundChangeListener(foregroundListener);
     }
 
-    void refresh(@NonNull Callback<Void> onCompletion) {
-        updateDataSource(true, onCompletion);
+    void setEvaluationContext(@NonNull LDContext newContext, @NonNull Callback<Void> onCompletion) {
+        DataSource dataSource = currentDataSource.get();
+        LDContext oldContext = currentEvaluationContext.getAndSet(newContext);
+        if (oldContext == newContext || oldContext.equals(newContext)) {
+            onCompletion.onSuccess(null);
+        } else {
+            if (dataSource == null || dataSource.needsRefresh(!platformState.isForeground(), newContext)) {
+                updateDataSource(true, onCompletion);
+            } else {
+                onCompletion.onSuccess(null);
+            }
+        }
     }
 
     private boolean updateDataSource(
@@ -188,6 +204,7 @@ class ConnectivityManager {
         boolean forceOffline = forcedOffline.get();
         boolean networkEnabled = platformState.isNetworkAvailable();
         boolean inBackground = !platformState.isForeground();
+        LDContext evaluationContext = currentEvaluationContext.get();
 
         eventProcessor.setOffline(forceOffline || !networkEnabled);
         eventProcessor.setInBackground(inBackground);
@@ -224,7 +241,7 @@ class ConnectivityManager {
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
-                contextDataManager.getCurrentContext(),
+                evaluationContext,
                 inBackground,
                 previouslyInBackground.get()
         );
@@ -341,13 +358,11 @@ class ConnectivityManager {
         }
         initialized = false;
 
-        final LDContext context = contextDataManager.getCurrentContext();
-
         // Calling initFromStoredData updates the current flag state *if* stored flags exist for
         // this context. If they don't, it has no effect. Currently we do *not* return early from
         // initialization just because stored flags exist; we're just making them available in case
         // initialization times out or otherwise fails.
-        contextDataManager.initFromStoredData(context);
+        contextDataManager.initFromStoredData(currentEvaluationContext.get());
 
         return updateDataSource(true, onCompletion);
     }

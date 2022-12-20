@@ -294,7 +294,11 @@ abstract class ComponentsImpl {
             implements DiagnosticDescription, DataSourceRequiresFeatureFetcher {
         @Override
         public DataSource build(ClientContext clientContext) {
-            if (clientContext.isInBackground()) {
+            // Even though this is called StreamingDataSourceBuilder, it doesn't always create a
+            // streaming data source. By default, we only do streaming when in the foreground; if
+            // we're in the background, this builder delegates to the *polling* builder. But that
+            // can be overridden with streamEvenInBackground.
+            if (clientContext.isInBackground() && !streamEvenInBackground) {
                 return Components.pollingDataSource()
                         .backgroundPollIntervalMillis(backgroundPollIntervalMillis)
                         .pollIntervalMillis(backgroundPollIntervalMillis)
@@ -302,12 +306,13 @@ abstract class ComponentsImpl {
             }
             clientContext.getDataSourceUpdateSink().setStatus(ConnectionInformation.ConnectionMode.STREAMING, null);
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
-            return new StreamUpdateProcessor(
+            return new StreamingDataSource(
                     clientContext,
                     clientContext.getEvaluationContext(),
                     clientContext.getDataSourceUpdateSink(),
                     clientContextImpl.getFetcher(),
-                    initialReconnectDelayMillis
+                    initialReconnectDelayMillis,
+                    streamEvenInBackground
             );
         }
 

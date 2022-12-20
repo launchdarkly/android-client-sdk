@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNotNull;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
@@ -99,12 +100,12 @@ public abstract class MockComponents {
     }
 
     public static DataSource successfulDataSource(
-            final ClientContext clientContext,
-            final EnvironmentData data,
-            final ConnectionInformation.ConnectionMode connectionMode,
-            final BlockingQueue<DataSource> startedQueue,
-            final BlockingQueue<DataSource> stoppedQueue
-            ) {
+        final ClientContext clientContext,
+        final EnvironmentData data,
+        final ConnectionInformation.ConnectionMode connectionMode,
+        final BlockingQueue<DataSource> startedQueue,
+        final BlockingQueue<DataSource> stoppedQueue
+        ) {
         return new DataSource() {
             @Override
             public void start(@NonNull Callback<Boolean> resultCallback) {

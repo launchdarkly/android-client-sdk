@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android.subsystems;
 
 import androidx.annotation.NonNull;
 
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.LDConfig.Builder;
@@ -43,4 +44,29 @@ public interface DataSource {
      *                           be done on the main thread)
      */
     void stop(@NonNull Callback<Void> completionCallback);
+
+    /**
+     * The SDK calls this method to determine whether it needs to stop the current data source and
+     * start a new one after a state transition.
+     * <p>
+     * State transitions include going from foreground to background or vice versa, or changing the
+     * evaluation context. The SDK will not call this method unless at least one of those types of
+     * transitions has happened.
+     * <p>
+     * If this method returns true, the SDK considers the current data source to be no longer valid,
+     * stops it, and asks the ComponentConfigurer to create a new one.
+     * <p>
+     * If this method returns false, the SDK retains the current data source.
+     *
+     * @param newInBackground true if the application is now in the background
+     * @param newEvaluationContext the new evaluation context
+     * @return true if the data source should be recreated
+     * @since 4.1.0
+     */
+    default boolean needsRefresh(
+            boolean newInBackground,
+            LDContext newEvaluationContext
+    ) {
+        return true;
+    }
 }

@@ -420,7 +420,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private void identifyInternal(@NonNull LDContext context,
                                   Callback<Void> onCompleteListener) {
         contextDataManager.setCurrentContext(context);
-        connectivityManager.refresh(onCompleteListener);
+        connectivityManager.setEvaluationContext(context, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
 
