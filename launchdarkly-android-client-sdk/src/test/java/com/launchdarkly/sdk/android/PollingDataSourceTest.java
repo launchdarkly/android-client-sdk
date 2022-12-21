@@ -13,7 +13,6 @@ import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 
 import org.easymock.EasyMockSupport;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -31,17 +30,9 @@ public class PollingDataSourceTest extends EasyMockSupport {
     private final MockFetcher fetcher = new MockFetcher();
     private final MockPlatformState platformState = new MockPlatformState();
     private final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
-    private ClientContext baseClientContext;
 
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
-
-    @Before
-    public void setup() {
-        baseClientContext = ClientContextImpl.fromConfig(
-                EMPTY_CONFIG, "", "", fetcher, CONTEXT,
-                logging.logger, platformState, taskExecutor);
-    }
 
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
