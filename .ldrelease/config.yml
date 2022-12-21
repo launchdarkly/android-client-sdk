@@ -18,6 +18,7 @@ jobs:
 
 branches:
   - name: main
+  - name: 3.x
 
 documentation:
   gitHubPages: true
