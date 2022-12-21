@@ -14,6 +14,7 @@ import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import java.net.URI;
 import java.util.Calendar;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import static com.launchdarkly.sdk.android.LDUtil.isInternetConnected;
@@ -38,6 +39,7 @@ class ConnectivityManager {
     private final String environmentName;
     private final int pollingInterval;
     private final LDUtil.ResultCallback<Void> monitor;
+    private final AtomicBoolean dataSourceHasAlreadyStarted = new AtomicBoolean(false);
     private final LDLogger logger;
     private LDUtil.ResultCallback<Void> initCallback = null;
     private volatile boolean initialized = false;
@@ -189,20 +191,30 @@ class ConnectivityManager {
     }
 
     private void stopPolling() {
-        PollingUpdater.stop(application);
+        PollingUpdater.stop(application, logger);
     }
 
     private void startPolling() {
         triggerPoll();
-        PollingUpdater.startPolling(application, pollingInterval, pollingInterval);
+        PollingUpdater.startPolling(application, pollingInterval, pollingInterval, logger);
+        dataSourceHasAlreadyStarted.set(true);
     }
 
     private void startBackgroundPolling() {
-        if (initCallback != null) {
-            initCallback.onSuccess(null);
-            initCallback = null;
+        boolean wasPreviouslyActive = dataSourceHasAlreadyStarted.getAndSet(true);
+
+        // If we're transitioning from foreground to background, then we don't want to do a poll
+        // right away because we already have recent flag data; start polling *after* the first
+        // first background poll interval. But if we're in the background but we started out that
+        // way rather than transitioning, then we should do the first poll right away.
+        if (wasPreviouslyActive) {
+            initialized = true; // assume the SDK is in a valid state already
+            callInitCallback();
+        } else {
+            initialized = false; // only report successful init once a poll has succeeded
+            triggerPoll();
         }
-        PollingUpdater.startBackgroundPolling(application);
+        PollingUpdater.startBackgroundPolling(application, logger);
     }
 
     private void stopStreaming() {
@@ -222,6 +234,7 @@ class ConnectivityManager {
     private void startStreaming() {
         if (streamUpdateProcessor != null) {
             streamUpdateProcessor.start();
+            dataSourceHasAlreadyStarted.set(true);
         }
     }
 
@@ -277,8 +290,6 @@ class ConnectivityManager {
                 startPolling();
                 break;
             case BACKGROUND_POLLING:
-                initialized = true;
-                callInitCallback();
                 stopStreaming();
                 stopPolling();
                 startBackgroundPolling();
@@ -370,22 +381,36 @@ class ConnectivityManager {
     }
 
     synchronized void reloadUser(final LDUtil.ResultCallback<Void> onCompleteListener) {
+        ConnectionMode oldConnectionMode = connectionInformation == null ? null :
+                connectionInformation.getConnectionMode();
         throttler.cancel();
         callInitCallback();
         removeForegroundListener();
         removeNetworkListener();
-        stopPolling();
-        stopStreaming(new LDUtil.ResultCallback<Void>() {
-            @Override
-            public void onSuccess(Void result) {
-                startUp(onCompleteListener);
-            }
+        if (streamUpdateProcessor != null) {
+            stopStreaming(new LDUtil.ResultCallback<Void>() {
+                @Override
+                public void onSuccess(Void result) {
+                    startUp(onCompleteListener);
+                }
 
-            @Override
-            public void onError(Throwable e) {
-                startUp(onCompleteListener);
+                @Override
+                public void onError(Throwable e) {
+                    startUp(onCompleteListener);
+                }
+            });
+        } else {
+            stopPolling();
+            initCallback = onCompleteListener;
+            switch (oldConnectionMode) {
+                case POLLING:
+                    startPolling();
+                case BACKGROUND_POLLING:
+                    startBackgroundPolling();
+                default:
+                    startUp(onCompleteListener);
             }
-        });
+        }
     }
 
     private synchronized void updateConnectionMode(ConnectionMode connectionMode) {
