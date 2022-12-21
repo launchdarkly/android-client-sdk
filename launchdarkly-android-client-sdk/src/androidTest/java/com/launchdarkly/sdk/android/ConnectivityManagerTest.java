@@ -75,8 +75,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             new ActivityScenarioRule<>(TestActivity.class);
 
     @Rule
-    public TimberLoggingRule timberLoggingRule = new TimberLoggingRule();
-    @Rule
     public EasyMockRule easyMockRule = new EasyMockRule(this);
     @Rule
     public Timeout globalTimeout = Timeout.seconds(20);
@@ -92,6 +90,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private ConnectivityManager connectivityManager;
     private MockWebServer mockStreamServer;
     private ActivityScenario<TestActivity> scenario;
+    private LDLogger logger;
 
     static {
         StrictMode.setThreadPolicy(ThreadPolicy.LAX);
@@ -113,6 +112,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 }
             });
         });
+        logger = LDLogger.withAdapter(LDAndroidLogging.adapter(), "ConnectivityManagerTest");
     }
 
     @After
@@ -146,7 +146,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         HttpConfiguration httpConfig = simpleClientContext(config).getHttp();
         connectivityManager = new ConnectivityManager(app, config, dataSourceConfig, httpConfig,
                 eventProcessor, userManager, "default",
-                null, null, LDLogger.none());
+                null, null, logger);
     }
 
     private void awaitStartUp() throws ExecutionException {
@@ -217,6 +217,14 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void initBackgroundPolling() throws ExecutionException {
+        // This test simulates starting up the SDK when the app is already in background mode.
+        // We should see an initial poll in this case.
+        final Capture<LDUtil.ResultCallback<Void>> callbackCapture = Capture.newInstance();
+        userManager.updateCurrentUser(capture(callbackCapture));
+        expectLastCall().andAnswer(() -> {
+            callbackCapture.getValue().onSuccess(null);
+            return null;
+        });
         eventProcessor.start();
         replayAll();
 
@@ -229,7 +237,10 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isOffline());
         assertEquals(ConnectionMode.BACKGROUND_POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
-        assertNoConnection();
+        assertNull(connectivityManager.getConnectionInformation().getLastFailure());
+        assertNull(connectivityManager.getConnectionInformation().getLastFailedConnection());
+        assertNotNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
+        Assert.assertEquals(0, mockStreamServer.getRequestCount());
     }
 
     @Test
@@ -374,8 +385,25 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void reloadBackgroundPolling() throws ExecutionException {
+        // This test simulates switching users when the app is in the background.
+        final Capture<LDUtil.ResultCallback<Void>> callbackCapture1 = Capture.newInstance();
+        final Capture<LDUtil.ResultCallback<Void>> callbackCapture2 = Capture.newInstance();
+        userManager.updateCurrentUser(capture(callbackCapture1));
+        expectLastCall().andAnswer(() -> {
+            callbackCapture1.getValue().onSuccess(null);
+            return null;
+        });
+        userManager.updateCurrentUser(capture(callbackCapture2));
+        expectLastCall().andAnswer(() -> {
+            callbackCapture2.getValue().onSuccess(null);
+            return null;
+        });
+        eventProcessor.start();
+        expectLastCall().times(2);
+        replayAll();
+
         ForegroundTestController.setup(false);
-        createTestManager(false, true, false);
+        createTestManager(false, false, false);
 
         awaitStartUp();
         awaitReloadUser();
@@ -383,7 +411,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isOffline());
         assertEquals(ConnectionMode.BACKGROUND_POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
-        assertNoConnection();
     }
 
     @Test

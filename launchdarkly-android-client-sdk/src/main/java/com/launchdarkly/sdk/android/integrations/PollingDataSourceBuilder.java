@@ -62,8 +62,7 @@ public abstract class PollingDataSourceBuilder implements ComponentConfigurer<Da
     /**
      * Sets the interval between feature flag updates when the application is running in the foreground.
      * <p>
-     * The default value is {@link LDConfig#DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS}. That is also
-     * the minimum value.
+     * The default value is {@link #DEFAULT_POLL_INTERVAL_MILLIS}. That is also the minimum value.
      *
      * @param pollIntervalMillis the reconnect time base value in milliseconds
      * @return the builder
