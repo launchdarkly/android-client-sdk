@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.3.1] - 2022-12-21
+### Fixed:
+- If the application is in the background when the SDK is started, the SDK will go into polling mode and immediately make a flag data request to LaunchDarkly. Previously, in this scenario the first poll would not happen until the background poll interval elapsed, so the SDK would effectively never have flag data at initialization time for an app or service that started in the background.
+
 ## [3.3.0] - 2022-12-02
 The primary purpose of this release is to introduce newer APIs for SDK configuration, corresponding to how configuration will work in the upcoming 4.0 release. The corresponding older APIs are now deprecated; switching from them to the newer ones now will facilitate migrating to 4.0 in the future. This also brings the Android SDK's API closer in line with other current LaunchDarkly SDKs, such as the Java SDK and the .NET SDKs.
 
