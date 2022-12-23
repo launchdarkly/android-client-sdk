@@ -30,6 +30,7 @@ public abstract class StreamingDataSourceBuilder implements ComponentConfigurer<
 
     protected int backgroundPollIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
     protected int initialReconnectDelayMillis = DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS;
+    protected boolean streamEvenInBackground = false;
 
     /**
      * Sets the interval between feature flag updates when the application is running in the background.
@@ -65,6 +66,26 @@ public abstract class StreamingDataSourceBuilder implements ComponentConfigurer<
     public StreamingDataSourceBuilder initialReconnectDelayMillis(int initialReconnectDelayMillis) {
         this.initialReconnectDelayMillis = initialReconnectDelayMillis <= 0 ? 0 :
                 initialReconnectDelayMillis;
+        return this;
+    }
+
+    /**
+     * Sets whether streaming should be used even if the application is in the background.
+     * <p>
+     * By default, this option is false, meaning that if the application is in the background then
+     * the SDK will turn off the stream connection and use infrequent polling, until the application
+     * is in the foreground again.
+     * <p>
+     * If you set this option to {@code true}, the SDK will continue to use the stream connection
+     * regardless of foreground/background state. Use this option with caution, since normally it is
+     * preferable to limit network usage by backgrounded applications.
+     *
+     * @param streamEvenInBackground true if streaming should be used even in the background
+     * @return the builder
+     * @since 3.4.0
+     */
+    public StreamingDataSourceBuilder streamEvenInBackground(boolean streamEvenInBackground) {
+        this.streamEvenInBackground = streamEvenInBackground;
         return this;
     }
 }

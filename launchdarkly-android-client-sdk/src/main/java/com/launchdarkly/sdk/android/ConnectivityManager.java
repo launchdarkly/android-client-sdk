@@ -72,7 +72,12 @@ class ConnectivityManager {
                 StandardEndpoints.selectBaseUri(ldConfig.serviceEndpoints.getStreamingBaseUri(),
                         StandardEndpoints.DEFAULT_STREAMING_BASE_URI, "streaming", logger);
 
-        backgroundMode = ldConfig.isDisableBackgroundPolling() ? ConnectionMode.BACKGROUND_DISABLED : ConnectionMode.BACKGROUND_POLLING;
+        if (ldConfig.isDisableBackgroundPolling()) {
+            backgroundMode = ConnectionMode.BACKGROUND_DISABLED;
+        } else {
+            backgroundMode = dataSourceConfig.isStreamEvenInBackground() ? ConnectionMode.STREAMING :
+                    ConnectionMode.BACKGROUND_POLLING;
+        }
         foregroundMode = dataSourceConfig.isStreamingDisabled() ? ConnectionMode.POLLING : ConnectionMode.STREAMING;
 
         // Currently the background polling interval is owned statically by PollingUpdater, even

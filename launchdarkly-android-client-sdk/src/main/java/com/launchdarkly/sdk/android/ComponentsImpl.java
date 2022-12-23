@@ -1,8 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import android.net.Uri;
-
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
@@ -131,7 +128,6 @@ abstract class ComponentsImpl {
             implements DiagnosticDescription {
         @Override
         public HttpConfiguration build(ClientContext clientContext) {
-            LDLogger logger = clientContext.getBaseLogger();
             // Build the default headers
             Map<String, String> headers = new HashMap<>();
             headers.put("Authorization", LDUtil.AUTH_SCHEME + clientContext.getMobileKey());
@@ -163,7 +159,7 @@ abstract class ComponentsImpl {
         @Override
         public DataSource build(ClientContext clientContext) {
             return new DataSourceImpl(true, backgroundPollIntervalMillis, 0,
-                    pollIntervalMillis);
+                    pollIntervalMillis, false);
         }
 
         @Override
@@ -200,7 +196,7 @@ abstract class ComponentsImpl {
         @Override
         public DataSource build(ClientContext clientContext) {
             return new DataSourceImpl(false, backgroundPollIntervalMillis,
-                    initialReconnectDelayMillis, 0);
+                    initialReconnectDelayMillis, 0, streamEvenInBackground);
         }
 
         @Override
@@ -218,17 +214,20 @@ abstract class ComponentsImpl {
         private final int backgroundPollIntervalMillis;
         private final int initialReconnectDelayMillis;
         private final int pollIntervalMillis;
+        private final boolean streamEvenInBackground;
 
         DataSourceImpl(
                 boolean streamingDisabled,
                 int backgroundPollIntervalMillis,
                 int initialReconnectDelayMillis,
-                int pollIntervalMillis
+                int pollIntervalMillis,
+                boolean streamEvenInBackground
         ) {
             this.streamingDisabled = streamingDisabled;
             this.backgroundPollIntervalMillis = backgroundPollIntervalMillis;
             this.initialReconnectDelayMillis = initialReconnectDelayMillis;
             this.pollIntervalMillis = pollIntervalMillis;
+            this.streamEvenInBackground = streamEvenInBackground;
         }
 
         public boolean isStreamingDisabled() {
@@ -245,6 +244,10 @@ abstract class ComponentsImpl {
 
         public int getPollIntervalMillis() {
             return pollIntervalMillis;
+        }
+
+        public boolean isStreamEvenInBackground() {
+            return streamEvenInBackground;
         }
     }
 }
