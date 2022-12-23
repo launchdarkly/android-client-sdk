@@ -39,4 +39,14 @@ public interface DataSource {
      * @return the foreground polling interval in milliseconds, or zero if streaming is enabled
      */
     int getPollIntervalMillis();
+
+    /**
+     * Returns the option set by
+     * {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#streamEvenInBackground(boolean)}.
+     * @return true if streaming mode can continue in the background (if not disabled)
+     * @since 3.4.0
+     */
+    default boolean isStreamEvenInBackground() {
+        return false;
+    }
 }
