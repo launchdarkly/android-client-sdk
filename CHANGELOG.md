@@ -3,6 +3,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.5.0] - 2022-12-22
+### Added:
+- `StreamingDataSourceBuilder.streamEvenInBackground`, an option for allowing the SDK to maintain a streaming data connection even when the application is in the background.
+
+## [3.4.0] - 2022-12-22
+_This release is broken and should not be used. It was an accidental duplicate of 4.1.0._
+
 ## [3.3.1] - 2022-12-21
 ### Fixed:
 - If the application is in the background when the SDK is started, the SDK will go into polling mode and immediately make a flag data request to LaunchDarkly. Previously, in this scenario the first poll would not happen until the background poll interval elapsed, so the SDK would effectively never have flag data at initialization time for an app or service that started in the background.
