@@ -36,7 +36,7 @@ import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
  * The SDK uses this implementation if streaming is enabled (as it is by default) and the
  * application is the foreground. The logic for this is in ComponentsImpl.StreamingDataSourceBuilderImpl.
  */
-final class StreamUpdateProcessor implements DataSource {
+final class StreamingDataSource implements DataSource {
     private static final String METHOD_REPORT = "REPORT";
 
     private static final String PING = "ping";
@@ -54,11 +54,12 @@ final class StreamUpdateProcessor implements DataSource {
     private final LDContext currentContext;
     private final HttpProperties httpProperties;
     private final boolean evaluationReasons;
-    private final int initialReconnectDelayMillis;
+    final int initialReconnectDelayMillis; // visible for testing
     private final boolean useReport;
     private final URI streamUri;
     private final DataSourceUpdateSink dataSourceUpdateSink;
     private final FeatureFetcher fetcher;
+    private final boolean streamEvenInBackground;
     private volatile boolean running = false;
     private boolean connection401Error = false;
     private final ExecutorService executor;
@@ -66,12 +67,13 @@ final class StreamUpdateProcessor implements DataSource {
     private long eventSourceStarted;
     private final LDLogger logger;
 
-    StreamUpdateProcessor(
+    StreamingDataSource(
             @NonNull ClientContext clientContext,
             @NonNull LDContext currentContext,
             @NonNull DataSourceUpdateSink dataSourceUpdateSink,
             @NonNull FeatureFetcher fetcher,
-            int initialReconnectDelayMillis
+            int initialReconnectDelayMillis,
+            boolean streamEvenInBackground
     ) {
         this.currentContext = currentContext;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
@@ -81,6 +83,7 @@ final class StreamUpdateProcessor implements DataSource {
         this.evaluationReasons = clientContext.isEvaluationReasons();
         this.useReport = clientContext.getHttp().isUseReport();
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
+        this.streamEvenInBackground = streamEvenInBackground;
         this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
         this.logger = clientContext.getBaseLogger();
         executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
@@ -242,6 +245,12 @@ final class StreamUpdateProcessor implements DataSource {
                 onCompleteListener.onSuccess(null);
             }
         });
+    }
+
+    @Override
+    public boolean needsRefresh(boolean newInBackground, LDContext newEvaluationContext) {
+        return !newEvaluationContext.equals(currentContext) ||
+                (newInBackground && !streamEvenInBackground);
     }
 
     private synchronized void stopSync() {

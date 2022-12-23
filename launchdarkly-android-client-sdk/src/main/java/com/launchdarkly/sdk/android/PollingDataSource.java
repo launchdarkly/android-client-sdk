@@ -20,8 +20,8 @@ import java.util.concurrent.atomic.AtomicReference;
 final class PollingDataSource implements DataSource {
     private final LDContext currentContext;
     private final DataSourceUpdateSink dataSourceUpdateSink;
-    private final int initialDelayMillis;
-    private final int pollIntervalMillis;
+    final int initialDelayMillis; // visible for testing
+    final int pollIntervalMillis; // visible for testing
     private final FeatureFetcher fetcher;
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;

@@ -6,6 +6,7 @@ import static com.launchdarkly.sdk.android.TestUtil.requireValue;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
@@ -34,6 +35,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
+import androidx.annotation.NonNull;
 
 public class ConnectivityManagerTest extends EasyMockSupport {
     // These tests use a mock PlatformState instead of AndroidPlatformState, so that we can test
@@ -392,6 +395,47 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
+    public void setInBackgroundDoesNotRefreshDataSourceIfDataSourceSaysNotTo() throws Exception {
+        eventProcessor.setOffline(false); // we expect this call
+        eventProcessor.setInBackground(false); // we expect this call
+        replayAll();
+
+        ComponentConfigurer<DataSource> makeDataSourceThatDoesNotRefresh = clientContext -> {
+            DataSource underlyingDataSource = makeSuccessfulDataSource(clientContext);
+            return new DataSource() {
+                @Override
+                public void start(@NonNull Callback<Boolean> resultCallback) {
+                    underlyingDataSource.start(resultCallback);
+                }
+
+                @Override
+                public void stop(@NonNull Callback<Void> completionCallback) {
+                    underlyingDataSource.stop(completionCallback);
+                }
+
+                @Override
+                public boolean needsRefresh(boolean newInBackground, LDContext newEvaluationContext) {
+                    return false;
+                }
+            };
+        };
+        createTestManager(false, false, makeDataSourceThatDoesNotRefresh);
+
+        awaitStartUp();
+
+        assertTrue(connectivityManager.isInitialized());
+        assertFalse(connectivityManager.isForcedOffline());
+        assertEquals(ConnectionMode.POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
+
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
     public void setInBackgroundAfterInitWithBackgroundPollingDisabled() throws Exception {
         eventProcessor.setOffline(false); // we expect this call
         eventProcessor.setInBackground(false); // we expect this call
@@ -426,7 +470,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void refreshDataSourceForNewContext() {
+    public void refreshDataSourceForNewContext() throws Exception {
         eventProcessor.setOffline(false); // we expect this call
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
@@ -446,7 +490,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         LDContext context2 = LDContext.create("context2");
         contextDataManager.setCurrentContext(context2);
-        connectivityManager.refresh(LDUtil.noOpCallback());
+        AwaitableCallback<Void> done = new AwaitableCallback<>();
+        connectivityManager.setEvaluationContext(context2, done);
+        done.await();
 
         verifyAll(); // verifies eventProcessor calls
         verifyDataSourceWasStopped();
@@ -474,7 +520,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         LDContext context2 = LDContext.create("context2");
         contextDataManager.setCurrentContext(context2);
-        connectivityManager.refresh(LDUtil.noOpCallback());
+        connectivityManager.setEvaluationContext(context2, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
@@ -502,20 +548,22 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         LDContext context2 = LDContext.create("context2");
         contextDataManager.setCurrentContext(context2);
-        connectivityManager.refresh(LDUtil.noOpCallback());
+        connectivityManager.setEvaluationContext(context2, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
     }
 
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {
-        return clientContext -> {
-            receivedClientContexts.add(clientContext);
-            return MockComponents.successfulDataSource(clientContext, DATA,
-                    clientContext.isInBackground() ? EXPECTED_BACKGROUND_MODE : EXPECTED_FOREGROUND_MODE,
-                    startedDataSources,
-                    stoppedDataSources);
-        };
+        return clientContext -> makeSuccessfulDataSource(clientContext);
+    }
+
+    private DataSource makeSuccessfulDataSource(ClientContext clientContext) {
+        receivedClientContexts.add(clientContext);
+        return MockComponents.successfulDataSource(clientContext, DATA,
+                clientContext.isInBackground() ? EXPECTED_BACKGROUND_MODE : EXPECTED_FOREGROUND_MODE,
+                startedDataSources,
+                stoppedDataSources);
     }
 
     private ConnectionMode awaitConnectionModeChangedFrom(ConnectionMode originalConnectionMode) {
@@ -541,13 +589,13 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         requireValue(startedDataSources, 1, TimeUnit.SECONDS, "starting of data source");
     }
 
-    private void verifyBackgroundDataSourceWasCreatedAndStarted(
+    private DataSource verifyBackgroundDataSourceWasCreatedAndStarted(
             LDContext evaluationContext
     ) {
         ClientContext clientContext = requireReceivedClientContext();
         assertTrue(clientContext.isInBackground());
         assertEquals(evaluationContext, clientContext.getEvaluationContext());
-        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "starting of data source");
+        return requireValue(startedDataSources, 1, TimeUnit.SECONDS, "starting of data source");
     }
 
     private void verifyDataSourceWasStopped() {
@@ -557,5 +605,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private void verifyNoMoreDataSourcesWereCreated() {
         requireNoMoreValues(receivedClientContexts, 10, TimeUnit.MILLISECONDS,
                 "call to create another data source");
+    }
+
+    private void verifyNoMoreDataSourcesWereStopped() {
+        requireNoMoreValues(stoppedDataSources, 1, TimeUnit.SECONDS, "stopping of data source");
     }
 }
