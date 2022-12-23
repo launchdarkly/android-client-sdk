@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.1.0] - 2022-12-22
+### Added:
+- `StreamingDataSourceBuilder.streamEvenInBackground`, an option for allowing the SDK to maintain a streaming data connection even when the application is in the background.
+
 ## [3.4.0] - 2022-12-22
 _This release is broken and should not be used. It was an accidental duplicate of 4.1.0._
 
