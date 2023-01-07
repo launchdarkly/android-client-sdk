@@ -13,9 +13,11 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cache;
 import okhttp3.Call;
+import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -57,6 +59,11 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                 // if there are multiple environments; right now a new HTTP client is being created for
                 // polling for each environment, even though they all have the same configuration.
                 .cache(new Cache(cacheDir, MAX_CACHE_SIZE_BYTES))
+                .connectionPool(new ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
+                    // We want a new connection each time, because keeping an idle connection alive
+                    // could cause an unwanted wakeup due to connection-cleanup network traffic if
+                    // it expires while the app is in the background. If we did not call
+                    // .connectionPool() at all, OkHttp would default to a pool of non-zero size.
                 .retryOnConnectionFailure(true)
                 .build();
     }
