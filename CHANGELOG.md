@@ -3,6 +3,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.6.0] - 2023-01-11
+### Added:
+- `LDConfig.Builder.applicationInfo()`, for configuration of application metadata that may be used in LaunchDarkly analytics or other product features. This does not affect feature flag evaluations.
+
 ## [3.5.1] - 2023-01-06
 ### Fixed:
 - The fix for unnecessarily long-lived polling connections in the [3.2.2](https://github.com/launchdarkly/android-client-sdk/releases/tag/3.2.2) release was incomplete: rather than turning off the keep-alive behavior, it only reduced it from 10 minutes to 5 minutes. It should now close the connection immediately after each request as intended.
