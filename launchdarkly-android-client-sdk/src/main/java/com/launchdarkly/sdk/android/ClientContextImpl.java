@@ -54,19 +54,20 @@ final class ClientContextImpl extends ClientContext {
             SummaryEventStore summaryEventStore,
             LDLogger logger
     ) {
-        ClientContext minimalContext = new ClientContext(null, mobileKey, logger, config,
+        ClientContext minimalContext = new ClientContext(null, config.applicationInfo, logger, config,
                 environmentName, config.isEvaluationReasons(), null, config.isOffline(),
-                config.serviceEndpoints);
+                mobileKey, config.serviceEndpoints);
         HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 application,
-                mobileKey,
+                config.applicationInfo,
                 logger,
                 config,
                 environmentName,
                 config.isEvaluationReasons(),
                 httpConfig,
                 config.isOffline(),
+                mobileKey,
                 config.serviceEndpoints
         );
         return new ClientContextImpl(baseClientContext, diagnosticStore, sharedEventClient, summaryEventStore);

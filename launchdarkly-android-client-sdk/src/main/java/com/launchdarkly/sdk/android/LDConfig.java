@@ -10,11 +10,13 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
+import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -71,6 +73,7 @@ public class LDConfig {
     private final Uri eventsUri;
     private final Uri streamUri;
 
+    final ApplicationInfo applicationInfo;
     final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
     final ComponentConfigurer<HttpConfiguration> http;
@@ -107,6 +110,7 @@ public class LDConfig {
              Uri pollUri,
              Uri eventsUri,
              Uri streamUri,
+             ApplicationInfo applicationInfo,
              ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
              ComponentConfigurer<HttpConfiguration> http,
@@ -138,6 +142,7 @@ public class LDConfig {
         this.pollUri = pollUri;
         this.eventsUri = eventsUri;
         this.streamUri = streamUri;
+        this.applicationInfo = applicationInfo;
         this.dataSource = dataSource;
         this.events = events;
         this.http = http;
@@ -469,6 +474,7 @@ public class LDConfig {
         private Uri eventsUri = DEFAULT_EVENTS_URI;
         private Uri streamUri = DEFAULT_STREAM_URI;
 
+        private ApplicationInfoBuilder applicationInfoBuilder = null;
         private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
         private ComponentConfigurer<HttpConfiguration> http = null;
@@ -649,6 +655,22 @@ public class LDConfig {
         @Deprecated
         public LDConfig.Builder streamUri(Uri streamUri) {
             this.streamUri = streamUri;
+            return this;
+        }
+
+        /**
+         * Sets the SDK's application metadata, which may be used in LaunchDarkly analytics or other product features,
+         * but does not affect feature flag evaluations.
+         * <p>
+         * This object is normally a configuration builder obtained from {@link Components#applicationInfo()},
+         * which has methods for setting individual metadata properties.
+         *
+         * @param applicationInfoBuilder a configuration builder object returned by {@link Components#applicationInfo()}
+         * @return the builder
+         * @since 3.3.0
+         */
+        public Builder applicationInfo(ApplicationInfoBuilder applicationInfoBuilder) {
+            this.applicationInfoBuilder = applicationInfoBuilder;
             return this;
         }
 
@@ -1274,11 +1296,16 @@ public class LDConfig {
                     Components.serviceEndpoints().polling(pollUri).streaming(streamUri).events(eventsUri).build() :
                     this.serviceEndpointsBuilder.build();
 
+            ApplicationInfo applicationInfo = this.applicationInfoBuilder == null ?
+                    Components.applicationInfo().createApplicationInfo() :
+                    applicationInfoBuilder.createApplicationInfo();
+
             return new LDConfig(
                     mobileKeys,
                     pollUri,
                     eventsUri,
                     streamUri,
+                    applicationInfo,
                     dataSourceConfig,
                     eventsConfig,
                     httpConfig,

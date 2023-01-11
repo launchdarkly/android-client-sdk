@@ -19,20 +19,59 @@ import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.UserAttribute;
+import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import okhttp3.Headers;
 
 class LDUtil {
     static final String AUTH_SCHEME = "api_key ";
     static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
+
+    // Tag values must not be empty, and only contain letters, numbers, `.`, `_`, or `-`.
+    private static Pattern TAG_VALUE_REGEX = Pattern.compile("^[-a-zA-Z0-9._]+$");
+
+    /**
+     * Builds the "X-LaunchDarkly-Tags" HTTP header out of the configured application info.
+     *
+     * @param applicationInfo the application metadata
+     * @return a space-separated string of tags, e.g. "application-id/authentication-service application-version/1.0.0"
+     */
+    static String applicationTagHeader(ApplicationInfo applicationInfo, LDLogger logger) {
+        String[][] tags = {
+                {"applicationId", "application-id", applicationInfo.getApplicationId()},
+                {"applicationVersion", "application-version", applicationInfo.getApplicationVersion()},
+        };
+        List<String> parts = new ArrayList<>();
+        for (String[] row : tags) {
+            String javaKey = row[0];
+            String tagKey = row[1];
+            String tagVal = row[2];
+            if (tagVal == null) {
+                continue;
+            }
+            if (!TAG_VALUE_REGEX.matcher(tagVal).matches()) {
+                logger.warn("Value of ApplicationInfo.{} contained invalid characters and was discarded", javaKey);
+                continue;
+            }
+            if (tagVal.length() > 64) {
+                logger.warn("Value of ApplicationInfo.{} was longer than 64 characters and was discarded", javaKey);
+                continue;
+            }
+            parts.add(tagKey + "/" + tagVal);
+        }
+        return String.join(" ", parts);
+    }
 
     static Headers makeRequestHeaders(
             @NonNull HttpConfiguration httpConfig,
