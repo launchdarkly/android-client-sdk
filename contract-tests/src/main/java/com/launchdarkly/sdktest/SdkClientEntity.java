@@ -9,6 +9,7 @@ import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
+import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
@@ -246,6 +247,17 @@ public class SdkClientEntity {
     builder.http(
             Components.httpConfiguration().useReport(params.clientSide.useReport)
     );
+
+    if (params.tags != null) {
+      ApplicationInfoBuilder ab = Components.applicationInfo();
+      if (params.tags.applicationId != null) {
+        ab.applicationId(params.tags.applicationId);
+      }
+      if (params.tags.applicationVersion != null) {
+        ab.applicationVersion(params.tags.applicationVersion);
+      }
+      builder.applicationInfo(ab);
+    }
 
     if (params.serviceEndpoints != null) {
       if (params.serviceEndpoints.streaming != null) {

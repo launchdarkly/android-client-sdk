@@ -32,6 +32,7 @@ public class TestService extends NanoHTTPD {
             "service-endpoints",
             "singleton",
             "strongly-typed",
+            "tags"
     };
     private static final String MIME_JSON = "application/json";
     static final Gson gson = new GsonBuilder()

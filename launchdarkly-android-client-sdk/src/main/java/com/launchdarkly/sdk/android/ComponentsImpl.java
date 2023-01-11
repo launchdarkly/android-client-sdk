@@ -132,6 +132,13 @@ abstract class ComponentsImpl {
             Map<String, String> headers = new HashMap<>();
             headers.put("Authorization", LDUtil.AUTH_SCHEME + clientContext.getMobileKey());
             headers.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
+            if (clientContext.getApplicationInfo() != null) {
+                String tagHeader = LDUtil.applicationTagHeader(clientContext.getApplicationInfo(),
+                        clientContext.getBaseLogger());
+                if (!tagHeader.isEmpty()) {
+                    headers.put("X-LaunchDarkly-Tags", tagHeader);
+                }
+            }
             if (wrapperName != null) {
                 String wrapperId = wrapperVersion == null ? wrapperName : (wrapperName + "/" + wrapperVersion);
                 headers.put("X-LaunchDarkly-Wrapper", wrapperId);

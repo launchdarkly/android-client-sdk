@@ -25,7 +25,8 @@ import com.launchdarkly.sdk.android.LDConfig;
  * @since 3.3.0
  */
 public class ClientContext {
-    private final Application application;
+    private final Application androidApplication;
+    private final ApplicationInfo applicationInfo;
     private final LDLogger baseLogger;
     private final LDConfig config;
     private final boolean evaluationReasons;
@@ -36,37 +37,40 @@ public class ClientContext {
     private final ServiceEndpoints serviceEndpoints;
 
     public ClientContext(
-            Application application,
-            String mobileKey,
+            Application androidApplication,
+            ApplicationInfo applicationInfo,
             LDLogger baseLogger,
             LDConfig config,
             String environmentName,
             boolean evaluationReasons,
             HttpConfiguration http,
             boolean initiallySetOffline,
+            String mobileKey,
             ServiceEndpoints serviceEndpoints
     ) {
-        this.application = application;
-        this.mobileKey = mobileKey;
+        this.androidApplication = androidApplication;
+        this.applicationInfo = applicationInfo;
         this.baseLogger = baseLogger;
         this.config = config;
         this.environmentName = environmentName;
         this.evaluationReasons = evaluationReasons;
         this.http = http;
         this.initiallySetOffline = initiallySetOffline;
+        this.mobileKey = mobileKey;
         this.serviceEndpoints = serviceEndpoints;
     }
 
     protected ClientContext(ClientContext copyFrom) {
         this(
-                copyFrom.application,
-                copyFrom.mobileKey,
+                copyFrom.androidApplication,
+                copyFrom.applicationInfo,
                 copyFrom.baseLogger,
                 copyFrom.config,
                 copyFrom.environmentName,
                 copyFrom.evaluationReasons,
                 copyFrom.http,
                 copyFrom.initiallySetOffline,
+                copyFrom.mobileKey,
                 copyFrom.serviceEndpoints
         );
     }
@@ -76,7 +80,15 @@ public class ClientContext {
      * @return the application
      */
     public Application getApplication() {
-        return application;
+        return androidApplication;
+    }
+
+    /**
+     * The application metadata object.
+     * @return the application metadata
+     */
+    public ApplicationInfo getApplicationInfo() {
+        return applicationInfo;
     }
 
     /**
