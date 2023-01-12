@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android;
 
+import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
@@ -24,6 +25,29 @@ import static com.launchdarkly.sdk.android.ComponentsImpl.NULL_EVENT_PROCESSOR_F
  */
 public abstract class Components {
     private Components() {}
+
+    /**
+     * Returns a configuration builder for the SDK's application metadata.
+     * <p>
+     * Passing this to {@link LDConfig.Builder#applicationInfo(com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder)},
+     * after setting any desired properties on the builder, applies this configuration to the SDK.
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder()
+     *         .applicationInfo(
+     *             Components.applicationInfo()
+     *                 .applicationId("authentication-service")
+     *                 .applicationVersion("1.0.0")
+     *         )
+     *         .build();
+     * </code></pre>
+     *
+     * @return a builder object
+     * @see LDConfig.Builder#applicationInfo(com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder)
+     * @since 4.1.0
+     */
+    public static ApplicationInfoBuilder applicationInfo() {
+        return new ApplicationInfoBuilder();
+    }
 
     /**
      * Returns a configuration builder for the SDK's networking configuration.

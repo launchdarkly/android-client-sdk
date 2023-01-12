@@ -152,7 +152,7 @@ public class TestDataTest {
     }
 
     private void createAndStart() {
-        ClientContext clientContext = new ClientContext("", LDLogger.none(),
+        ClientContext clientContext = new ClientContext("", null, LDLogger.none(),
                 new LDConfig.Builder().build(), updates, "", false,
                 initialUser, null, false, null, null, false);
         DataSource ds = td.build(clientContext);
