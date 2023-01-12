@@ -6,8 +6,10 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
+import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
+import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -55,6 +57,7 @@ public class LDConfig {
 
     final ServiceEndpoints serviceEndpoints;
 
+    final ApplicationInfo applicationInfo;
     final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
     final ComponentConfigurer<HttpConfiguration> http;
@@ -71,6 +74,7 @@ public class LDConfig {
 
     LDConfig(Map<String, String> mobileKeys,
              ServiceEndpoints serviceEndpoints,
+             ApplicationInfo applicationInfo,
              ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
              ComponentConfigurer<HttpConfiguration> http,
@@ -85,6 +89,7 @@ public class LDConfig {
              String loggerName) {
         this.mobileKeys = mobileKeys;
         this.serviceEndpoints = serviceEndpoints;
+        this.applicationInfo = applicationInfo;
         this.dataSource = dataSource;
         this.events = events;
         this.http = http;
@@ -151,6 +156,7 @@ public class LDConfig {
 
         private ServiceEndpointsBuilder serviceEndpointsBuilder;
 
+        private ApplicationInfoBuilder applicationInfoBuilder = null;
         private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
         private ComponentConfigurer<HttpConfiguration> http = null;
@@ -232,6 +238,22 @@ public class LDConfig {
          */
         public Builder serviceEndpoints(ServiceEndpointsBuilder serviceEndpointsBuilder) {
             this.serviceEndpointsBuilder = serviceEndpointsBuilder;
+            return this;
+        }
+
+        /**
+         * Sets the SDK's application metadata, which may be used in LaunchDarkly analytics or other product features,
+         * but does not affect feature flag evaluations.
+         * <p>
+         * This object is normally a configuration builder obtained from {@link Components#applicationInfo()},
+         * which has methods for setting individual metadata properties.
+         *
+         * @param applicationInfoBuilder a configuration builder object returned by {@link Components#applicationInfo()}
+         * @return the builder
+         * @since 4.1.0
+         */
+        public Builder applicationInfo(ApplicationInfoBuilder applicationInfoBuilder) {
+            this.applicationInfoBuilder = applicationInfoBuilder;
             return this;
         }
 
@@ -574,9 +596,14 @@ public class LDConfig {
                             serviceEndpointsBuilder)
                             .createServiceEndpoints();
 
+            ApplicationInfo applicationInfo = this.applicationInfoBuilder == null ?
+                    Components.applicationInfo().createApplicationInfo() :
+                    applicationInfoBuilder.createApplicationInfo();
+
             return new LDConfig(
                     mobileKeys,
                     serviceEndpoints,
+                    applicationInfo,
                     this.dataSource == null ? Components.streamingDataSource() : this.dataSource,
                     this.events == null ? Components.sendEvents() : this.events,
                     this.http == null ? Components.httpConfiguration() : this.http,
