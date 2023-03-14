@@ -73,6 +73,8 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
 
         manager.registerListener(flag.getKey(), listener);
         manager.unregisterListener(flag.getKey(), listener);
+        manager.registerAllFlagsListener(allFlagsListener);
+        manager.unregisterAllFlagsListener(allFlagsListener);
 
         manager.upsert(flag);
 
