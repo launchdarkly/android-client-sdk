@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.2.1] - 2023-03-15
+### Fixed:
+- Fixed an issue where the allFlagsListener would be not be informed of changed flags.  Now the allFlagsListener will be called correctly.  This issue was introduced in 4.0.0 .
+
 ## [4.2.0] - 2023-01-11
 ### Added:
 - `LDConfig.Builder.applicationInfo()`, for configuration of application metadata that may be used in LaunchDarkly analytics or other product features. This does not affect feature flag evaluations.
