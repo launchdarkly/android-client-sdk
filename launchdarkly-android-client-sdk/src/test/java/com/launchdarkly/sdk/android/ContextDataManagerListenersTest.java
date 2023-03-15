@@ -8,6 +8,7 @@ import com.launchdarkly.sdk.android.DataModel.Flag;
 
 import org.junit.Test;
 
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -36,12 +37,15 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         Flag flag = new FlagBuilder("flag").version(1).build();
         final ContextDataManager manager = createDataManager();
         AwaitableFlagListener listener = new AwaitableFlagListener();
+        AwaitableFlagListener allFlagsListener = new AwaitableFlagListener();
 
         manager.registerListener(flag.getKey(), listener);
+        manager.registerAllFlagsListener(allFlagsListener);
 
         manager.upsert(flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
+        assertEquals(flag.getKey(), allFlagsListener.expectUpdate(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -49,12 +53,15 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         Flag flag = Flag.deletedItemPlaceholder("flag", 1);
         final ContextDataManager manager = createDataManager();
         AwaitableFlagListener listener = new AwaitableFlagListener();
+        AwaitableFlagListener allFlagsListener = new AwaitableFlagListener();
 
         manager.registerListener(flag.getKey(), listener);
+        manager.registerAllFlagsListener(allFlagsListener);
 
         manager.upsert(flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
+        assertEquals(flag.getKey(), allFlagsListener.expectUpdate(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -62,15 +69,19 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         Flag flag = new FlagBuilder("flag").version(1).build();
         final ContextDataManager manager = createDataManager();
         AwaitableFlagListener listener = new AwaitableFlagListener();
+        AwaitableFlagListener allFlagsListener = new AwaitableFlagListener();
 
         manager.registerListener(flag.getKey(), listener);
         manager.unregisterListener(flag.getKey(), listener);
+        manager.registerAllFlagsListener(allFlagsListener);
+        manager.unregisterAllFlagsListener(allFlagsListener);
 
         manager.upsert(flag);
 
         // Unfortunately we are testing that an asynchronous method is *not* called, we just have to
         // wait a bit to be sure.
         listener.expectNoUpdates(100, TimeUnit.MILLISECONDS);
+        allFlagsListener.expectNoUpdates(100, TimeUnit.MILLISECONDS);
 
         verifyAll();
     }
@@ -80,16 +91,20 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         Flag flag = Flag.deletedItemPlaceholder("flag", 1);
         final ContextDataManager manager = createDataManager();
         AwaitableFlagListener listener = new AwaitableFlagListener();
+        AwaitableFlagListener allFlagsListener = new AwaitableFlagListener();
 
         manager.registerListener(flag.getKey(), listener);
+        manager.registerAllFlagsListener(allFlagsListener);
 
         manager.upsert(flag);
 
         listener.expectUpdate(5, TimeUnit.SECONDS);
+        allFlagsListener.expectUpdate(5, TimeUnit.SECONDS);
         assertTrue(listener.isCalledFromMainThread());
+        assertTrue(allFlagsListener.isCalledFromMainThread());
     }
 
-    private class AwaitableFlagListener implements FeatureFlagChangeListener {
+    private class AwaitableFlagListener implements FeatureFlagChangeListener, LDAllFlagsListener {
         private final BlockingQueue<String> flagKeysUpdated = new LinkedBlockingQueue<>();
         private volatile boolean calledFromMainThread;
 
@@ -97,6 +112,12 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         public void onFeatureFlagChange(String flagKey) {
             calledFromMainThread = taskExecutor.isThisTheFakeMainThread();
             flagKeysUpdated.add(flagKey);
+        }
+
+        @Override
+        public void onChange(List<String> flagKey) {
+            calledFromMainThread = taskExecutor.isThisTheFakeMainThread();
+            flagKeysUpdated.addAll(flagKey);
         }
 
         public String expectUpdate(long timeout, TimeUnit timeoutUnit) {

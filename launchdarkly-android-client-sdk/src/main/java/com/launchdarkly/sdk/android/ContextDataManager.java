@@ -282,7 +282,9 @@ final class ContextDataManager {
         }
         environmentStore.setContextData(contextId, updatedFlags);
 
-        notifyFlagListeners(Collections.singletonList(flag.getKey()));
+        Collection<String> updatedFlag = Collections.singletonList(flag.getKey());
+        notifyAllFlagsListeners(updatedFlag);
+        notifyFlagListeners(updatedFlag);
 
         return true;
     }
