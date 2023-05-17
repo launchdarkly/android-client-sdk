@@ -566,9 +566,14 @@ public class LDClient implements LDClientInterface, Closeable {
         closeInstances();
 
         synchronized (initLock) {
-            sharedTaskExecutor.close();
+            if (sharedTaskExecutor != null) {
+                sharedTaskExecutor.close();
+            }
             sharedTaskExecutor = null;
-            sharedPlatformState.close();
+
+            if (sharedPlatformState != null) {
+                sharedPlatformState.close();
+            }
             sharedPlatformState = null;
         }
     }
