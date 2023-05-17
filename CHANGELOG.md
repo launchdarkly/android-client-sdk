@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.2.2] - 2023-05-17
+### Fixed:
+- Fixed NPE when closing a LDClient in certain cases.
+- Fixed NPE when creating a multi-context that included one invalid context.
+
 ## [4.2.1] - 2023-03-15
 ### Fixed:
 - Fixed an issue where the allFlagsListener would be not be informed of changed flags.  Now the allFlagsListener will be called correctly.  This issue was introduced in 4.0.0 .
