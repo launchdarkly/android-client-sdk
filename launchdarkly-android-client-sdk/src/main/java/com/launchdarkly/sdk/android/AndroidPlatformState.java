@@ -57,13 +57,9 @@ final class AndroidPlatformState implements PlatformState {
         this.taskExecutor = taskExecutor;
         this.logger = logger;
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            connectivityReceiver = new ConnectivityReceiver();
-            IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
-            application.registerReceiver(connectivityReceiver, filter);
-        } else {
-            connectivityReceiver = null;
-        }
+        connectivityReceiver = new ConnectivityReceiver();
+        IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
+        application.registerReceiver(connectivityReceiver, filter);
 
         // When we are first starting up, we can't use the ActivityLifecycleCallbacks mechanism to
         // determine whether we're in the foreground or not, because the last foreground or
@@ -101,7 +97,7 @@ final class AndroidPlatformState implements PlatformState {
         try {
             android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
                     application.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (Build.VERSION.SDK_INT >= 23) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 Network net = cm.getActiveNetwork();
                 if (net == null)
                     return false;

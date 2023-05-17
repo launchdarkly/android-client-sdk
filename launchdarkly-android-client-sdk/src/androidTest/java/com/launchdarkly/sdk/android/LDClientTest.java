@@ -144,15 +144,11 @@ public class LDClientTest {
         assertTrue("No future task to run", ldClientFuture.isDone());
     }
 
-    // the second ldClient.close() should throw a npe
     @Test
     public void testDoubleClose() throws IOException {
         LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser, 1);
         ldClient.close();
-        try {
-            ldClient.close();
-            fail("expected exception");
-        } catch (NullPointerException e) {}
+        ldClient.close();
     }
 
     @Test
