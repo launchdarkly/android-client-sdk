@@ -18,7 +18,7 @@ Refer to the [SDK documentation](https://docs.launchdarkly.com/sdk/client-side/a
 
 ## Learn more
 
-Check out our [documentation](https://docs.launchdarkly.com) for in-depth instructions on configuring and using LaunchDarkly. You can also head straight to the [complete reference guide for this SDK](https://docs.launchdarkly.com/docs/android-sdk-reference) or our [Javadocs](http://launchdarkly.github.io/android-client-sdk/).
+Check out our [documentation](https://docs.launchdarkly.com) for in-depth instructions on configuring and using LaunchDarkly. You can also head straight to the [complete reference guide for this SDK](https://docs.launchdarkly.com/sdk/client-side/android) or our [Javadocs](http://launchdarkly.github.io/android-client-sdk/).
 
 ## Testing
 
