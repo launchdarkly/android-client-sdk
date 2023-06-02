@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 
 import org.junit.Test;
@@ -84,6 +86,44 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         allFlagsListener.expectNoUpdates(100, TimeUnit.MILLISECONDS);
 
         verifyAll();
+    }
+
+    @Test
+    public void listenerIsCalledAfterInitData() {
+
+        LDContext context = LDContext.create("user");
+        final String FLAG_KEY = "key";
+        Flag flagState1 = new FlagBuilder(FLAG_KEY).value(LDValue.of(1)).build();
+
+        final ContextDataManager manager = createDataManager();
+
+        // register some listeners
+        AwaitableFlagListener specific1 = new AwaitableFlagListener();
+        AwaitableFlagListener all1 = new AwaitableFlagListener();
+        manager.registerListener(FLAG_KEY, specific1);
+        manager.registerAllFlagsListener(all1);
+
+        // change the data
+        manager.upsert(flagState1);
+
+        // verify callbacks
+        assertEquals(FLAG_KEY, specific1.expectUpdate(5, TimeUnit.SECONDS));
+        assertEquals(FLAG_KEY, all1.expectUpdate(5, TimeUnit.SECONDS));
+
+        // register some more listeners
+        AwaitableFlagListener specific2 = new AwaitableFlagListener();
+        AwaitableFlagListener all2 = new AwaitableFlagListener();
+        manager.registerListener(FLAG_KEY, specific2);
+        manager.registerAllFlagsListener(all2);
+
+        // simulate switching context
+        Flag flagState2 = new FlagBuilder(FLAG_KEY).value(LDValue.of(2)).build();
+        EnvironmentData envData = new EnvironmentData().withFlagUpdatedOrAdded(flagState2);
+        manager.initData(context, envData);
+
+        // verify callbacks
+        assertEquals(FLAG_KEY, specific2.expectUpdate(5, TimeUnit.SECONDS));
+        assertEquals(FLAG_KEY, all2.expectUpdate(5, TimeUnit.SECONDS));
     }
 
     @Test
