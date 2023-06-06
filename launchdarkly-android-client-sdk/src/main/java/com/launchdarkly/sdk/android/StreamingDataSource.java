@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
 import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
@@ -202,7 +203,8 @@ final class StreamingDataSource implements DataSource {
         return uri;
     }
 
-    private void handle(final String name, final String eventData,
+    @VisibleForTesting
+    void handle(final String name, final String eventData,
                         @NonNull final Callback<Boolean> resultCallback) {
         switch (name.toLowerCase()) {
             case PUT:
@@ -226,7 +228,7 @@ final class StreamingDataSource implements DataSource {
                 break;
             case PING:
                 ConnectivityManager.fetchAndSetData(fetcher, currentContext, dataSourceUpdateSink,
-                        LDUtil.noOpCallback(), logger);
+                        resultCallback, logger);
                 break;
             default:
                 logger.debug("Found an unknown stream protocol: {}", name);
