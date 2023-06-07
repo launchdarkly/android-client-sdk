@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.2.3] - 2023-06-07
+### Fixed:
+- Streaming data connection to a relax proxy now calls the callback correctly after fetching the flag data.
+- Flag listeners are now called correctly after `identify` results in flag value changes.
+
 ## [4.2.2] - 2023-05-17
 ### Fixed:
 - Fixed NPE when closing a LDClient in certain cases.
