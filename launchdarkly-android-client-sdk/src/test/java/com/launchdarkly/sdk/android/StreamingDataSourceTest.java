@@ -1,13 +1,17 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 
 import org.junit.Rule;
 import org.junit.Test;
+
+import java.io.IOException;
 
 public class StreamingDataSourceTest {
     // This class doesn't currently include any tests done with real HTTP, because we don't yet have
@@ -35,6 +39,39 @@ public class StreamingDataSourceTest {
                 inBackground,
                 previouslyInBackground
         );
+    }
+
+    // When react to a PING message from the stream,
+    // the StreamingDataSource will try to use the fetcher
+    // to get flag data, so we need to create a ClientContext (Android runtime state)
+    // that has a fetcher
+    private ClientContext makeClientContextWithFetcher() {
+        ClientContext baseClientContext = ClientContextImpl.fromConfig(
+                new LDConfig.Builder().build(), "", "", makeFeatureFetcher(), CONTEXT,
+                logging.logger, platformState, taskExecutor);
+        return ClientContextImpl.forDataSource(
+                baseClientContext,
+                dataSourceUpdateSink,
+                CONTEXT,
+                false, //Not in background
+                false //Not Previously in background
+        );
+    }
+    private FeatureFetcher makeFeatureFetcher() {
+        return new FeatureFetcher() {
+            @Override
+            public void close() throws IOException {
+                // Do nothing
+            }
+
+            @Override
+            public void fetch(LDContext context, Callback<String> callback) {
+                String json = "{" +
+                        "\"flag1\":{\"key\":\"flag1\",\"version\":200,\"value\":false}" +
+                        "}";
+                callback.onSuccess(json);
+            }
+        };
     }
 
     @Test
@@ -85,5 +122,27 @@ public class StreamingDataSourceTest {
                 .build(clientContext);
 
         assertEquals(StreamingDataSource.class, ds.getClass());
+    }
+    @Test
+    public void handlePingMessageBehavior() {
+        ClientContext clientContext = makeClientContextWithFetcher();
+        StreamingDataSource sds = (StreamingDataSource) Components.streamingDataSource()
+                .streamEvenInBackground(true)
+                .build(clientContext);
+
+        final Boolean[] callbackInvoked = {false};
+        Callback<Boolean> callback = new Callback<Boolean>() {
+            @Override
+            public void onSuccess(Boolean result) {
+                callbackInvoked[0] = true;
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                // We are testing the callback is getting call, not which callback is called
+            }
+        };
+        sds.handle("ping", null, callback);
+        assertTrue(callbackInvoked[0]);
     }
 }

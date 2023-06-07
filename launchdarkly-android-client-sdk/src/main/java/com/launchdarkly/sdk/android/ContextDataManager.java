@@ -182,11 +182,18 @@ final class ContextDataManager {
         Set<String> updatedFlagKeys = new HashSet<>();
         for (Flag newFlag: newData.values()) {
             Flag oldFlag = oldData.getFlag(newFlag.getKey());
-            if (oldFlag == null || oldFlag.getVersion() != newFlag.getVersion()) {
+            if (oldFlag == null || !oldFlag.getValue().equals(newFlag.getValue())) {
+                // if the flag is new or the value has changed, notify.  This logic can be run if
+                // the context changes, which can result in an evaluation change even if the version
+                // of the flag stays the same.  You will notice this logic slightly differs from
+                // upsert.  Upsert should only be calling to listeners if the value has changed,
+                // but we left upsert alone out of fear of that we'd uncover bugs in customer code
+                // if we added conditionals in upsert
                 updatedFlagKeys.add(newFlag.getKey());
             }
         }
         for (Flag oldFlag: oldData.values()) {
+            // if old flag is no longer appearing, notify
             if (newData.getFlag(oldFlag.getKey()) == null) {
                 updatedFlagKeys.add(oldFlag.getKey());
             }
@@ -283,6 +290,10 @@ final class ContextDataManager {
         environmentStore.setContextData(contextId, updatedFlags);
 
         Collection<String> updatedFlag = Collections.singletonList(flag.getKey());
+
+        // We really should only be calling to listeners if the value has changed, but we left this
+        // unconditional out of fear that we'd uncover bugs in customer code as a result of
+        // conditionally notifying listeners
         notifyAllFlagsListeners(updatedFlag);
         notifyFlagListeners(updatedFlag);
 
@@ -343,6 +354,7 @@ final class ContextDataManager {
         if (listenersToCall.isEmpty()) {
             return;
         }
+
         // We make sure to call listener callbacks on the main thread, as we consistently did so in
         // the past by virtue of using SharedPreferences to implement the callbacks.
         taskExecutor.executeOnMainThread(() -> {
