@@ -46,8 +46,11 @@ public class LDClient implements LDClientInterface, Closeable {
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
     private static volatile PlatformState sharedPlatformState;
+
+    private static volatile EnvironmentReporter environmentReporter;
     private static volatile TaskExecutor sharedTaskExecutor;
-    private static volatile ContextDecorator contextDecorator;
+    private static volatile TelemetryContextModifier telemetryContextModifier;
+    private static volatile AnonymousKeyContextModifier anonymousKeyContextModifier;
 
     // A lock to ensure calls to `init()` are serialized.
     static Object initLock = new Object();
@@ -72,7 +75,7 @@ public class LDClient implements LDClientInterface, Closeable {
      *
      * @param application your Android application
      * @param config      configuration used to set up the client
-     * @param context     the initial evaluation context; see {@link LDClient} for more information
+     * @param inputContext     the initial evaluation context; see {@link LDClient} for more information
      *                    about setting the context and optionally requesting a unique key for it
      * @return a {@link Future} which will complete once the client has been initialized
      * @see #init(Application, LDConfig, LDContext, int)
@@ -81,7 +84,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     public static Future<LDClient> init(@NonNull Application application,
                                         @NonNull LDConfig config,
-                                        @NonNull LDContext context) {
+                                        @NonNull LDContext inputContext) {
         // As this is an externally facing API we should still check these, so we hide the linter
         // warnings
 
@@ -94,16 +97,16 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
         //noinspection ConstantConditions
-        if (context == null || !context.isValid()) {
+        if (inputContext == null || !inputContext.isValid()) {
             return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid evaluation context ("
-                + (context == null ? "was null" : context.getError() + ")")));
+                + (inputContext == null ? "was null" : inputContext.getError() + ")")));
         }
 
         LDLogger logger = initSharedLogger(config);
 
         final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
         LDClient primaryClient;
-        LDContext actualContext;
+        LDContext modifiedContext;
 
         // Acquire the `initLock` to ensure that if `init()` is called multiple times, we will only
         // initialize the client(s) once.
@@ -115,6 +118,8 @@ public class LDClient implements LDClientInterface, Closeable {
 
             sharedTaskExecutor = new AndroidTaskExecutor(application, logger);
             sharedPlatformState = new AndroidPlatformState(application, sharedTaskExecutor, logger);
+            environmentReporter = new EnvironmentReporter(application);
+            environmentReporter.setApplicationInfo(config.applicationInfo);
 
             PersistentDataStore store = config.getPersistentDataStore() == null ?
                     new SharedPreferencesPersistentDataStore(application, logger) :
@@ -123,11 +128,15 @@ public class LDClient implements LDClientInterface, Closeable {
                     store,
                     logger
             );
-            contextDecorator = new ContextDecorator(persistentData, config.isGenerateAnonymousKeys());
+            telemetryContextModifier = new TelemetryContextModifier(persistentData, environmentReporter);
+            anonymousKeyContextModifier = new AnonymousKeyContextModifier(persistentData, config.isGenerateAnonymousKeys());
 
+            // TODO: seems like this migration should be happening before the PersistentDataStoreWrapper exists.  Discuss.
             Migration.migrateWhenNeeded(store, logger);
 
-            actualContext = contextDecorator.decorateContext(context, logger);
+
+            modifiedContext = telemetryContextModifier.modifyContext(inputContext);
+            modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext, logger);
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
@@ -138,9 +147,10 @@ public class LDClient implements LDClientInterface, Closeable {
                 try {
                     final LDClient instance = new LDClient(
                             sharedPlatformState,
+                            environmentReporter,
                             sharedTaskExecutor,
                             persistentData.perEnvironmentData(mobileKey),
-                            actualContext,
+                            modifiedContext,
                             config,
                             mobileKey,
                             envName
@@ -179,7 +189,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // Start up all instances
         for (final LDClient instance : instances.values()) {
             if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                instance.eventProcessor.recordIdentifyEvent(actualContext);
+                instance.eventProcessor.recordIdentifyEvent(modifiedContext);
             }
         }
 
@@ -310,6 +320,7 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     protected LDClient(
             @NonNull final PlatformState platformState,
+            @NonNull final EnvironmentReporter environmentReporter,
             @NonNull final TaskExecutor taskExecutor,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull LDContext initialContext,
@@ -332,7 +343,7 @@ public class LDClient implements LDClientInterface, Closeable {
         FeatureFetcher fetcher = null;
         if (config.dataSource instanceof ComponentsImpl.DataSourceRequiresFeatureFetcher) {
             ClientContextImpl minimalContext = ClientContextImpl.fromConfig(config, mobileKey,
-                    environmentName, null, initialContext, logger, platformState, taskExecutor
+                    environmentName, null, initialContext, logger, platformState, environmentReporter, taskExecutor
             );
             fetcher = new HttpFeatureFlagFetcher(minimalContext);
         }
@@ -344,6 +355,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 initialContext,
                 logger,
                 platformState,
+                environmentReporter,
                 taskExecutor
         );
 
@@ -393,7 +405,10 @@ public class LDClient implements LDClientInterface, Closeable {
             logger.warn("identify() was called with an invalid context: {}", context.getError());
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
-        return identifyInstances(contextDecorator.decorateContext(context, getSharedLogger()));
+
+        LDContext modifiedContext = telemetryContextModifier.modifyContext(context);
+        modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext, getSharedLogger());
+        return identifyInstances(modifiedContext);
     }
 
     @Override

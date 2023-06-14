@@ -12,7 +12,7 @@ import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import org.junit.Rule;
 import org.junit.Test;
 
-public class ContextDecoratorTest {
+public class AnonymousKeyContextModifierTest {
     private static final ContextKind KIND1 = ContextKind.of("kind1");
     private static final ContextKind KIND2 = ContextKind.of("kind2");
 
@@ -23,7 +23,7 @@ public class ContextDecoratorTest {
     public void singleKindNonAnonymousContextIsUnchanged() {
         LDContext context = LDContext.builder("key1").name("name").build();
         assertEquals(context,
-                makeDecoratorWithoutPersistence().decorateContext(context, logging.logger));
+                makeDecoratorWithoutPersistence().modifyContext(context, logging.logger));
         logging.assertNothingLogged();
     }
 
@@ -31,7 +31,7 @@ public class ContextDecoratorTest {
     public void singleKindAnonymousContextIsUnchangedIfConfigOptionIsNotSet() {
         LDContext context = LDContext.builder("key1").anonymous(true).name("name").build();
         assertEquals(context,
-                makeDecoratorWithoutPersistence().decorateContext(context, logging.logger));
+                makeDecoratorWithoutPersistence().modifyContext(context, logging.logger));
         logging.assertNothingLogged();
     }
 
@@ -39,7 +39,7 @@ public class ContextDecoratorTest {
     public void singleKindAnonymousContextGetsGeneratedKeyIfConfigOptionIsSet() {
         LDContext context = LDContext.builder("placeholder").anonymous(true).name("name").build();
         LDContext transformed = makeDecoratorWithoutPersistence(true)
-                .decorateContext(context, logging.logger);
+                .modifyContext(context, logging.logger);
         assertContextHasBeenTransformedWithNewKey(context, transformed);
         logging.assertInfoLogged("Did not find a generated anonymous key for context kind \"user\"");
     }
@@ -51,7 +51,7 @@ public class ContextDecoratorTest {
         LDContext multiContext = LDContext.createMulti(c1, c2);
 
         assertSame(multiContext,
-                makeDecoratorWithoutPersistence().decorateContext(multiContext, logging.logger));
+                makeDecoratorWithoutPersistence().modifyContext(multiContext, logging.logger));
         logging.assertNothingLogged();
     }
 
@@ -61,7 +61,7 @@ public class ContextDecoratorTest {
         LDContext c2 = LDContext.builder("key2").kind(KIND2).anonymous(true).name("name2").build();
         LDContext multiContext = LDContext.createMulti(c1, c2);
         LDContext transformedMulti = makeDecoratorWithoutPersistence(true)
-                .decorateContext(multiContext, logging.logger);
+                .modifyContext(multiContext, logging.logger);
 
         assertEquals(multiContext.getIndividualContextCount(), transformedMulti.getIndividualContextCount());
         assertSame(multiContext.getIndividualContext(0), transformedMulti.getIndividualContext(0));
@@ -75,7 +75,7 @@ public class ContextDecoratorTest {
         LDContext c2 = LDContext.builder("key2").kind(KIND2).anonymous(true).name("name2").build();
         LDContext multiContext = LDContext.createMulti(c1, c2);
         LDContext transformedMulti = makeDecoratorWithoutPersistence(true)
-                .decorateContext(multiContext, logging.logger);
+                .modifyContext(multiContext, logging.logger);
 
         assertEquals(multiContext.getIndividualContextCount(), transformedMulti.getIndividualContextCount());
         assertContextHasBeenTransformedWithNewKey(
@@ -94,15 +94,15 @@ public class ContextDecoratorTest {
 
         PersistentDataStore store = new InMemoryPersistentDataStore();
 
-        ContextDecorator decorator1 = makeDecoratorWithPersistence(store, true);
-        LDContext transformedMultiA = decorator1.decorateContext(multiContext, logging.logger);
+        AnonymousKeyContextModifier decorator1 = makeDecoratorWithPersistence(store, true);
+        LDContext transformedMultiA = decorator1.modifyContext(multiContext, logging.logger);
         assertContextHasBeenTransformedWithNewKey(
                 multiContext.getIndividualContext(0), transformedMultiA.getIndividualContext(0));
         assertContextHasBeenTransformedWithNewKey(
                 multiContext.getIndividualContext(1), transformedMultiA.getIndividualContext(1));
 
-        ContextDecorator decorator2 = makeDecoratorWithPersistence(store, true);
-        LDContext transformedMultiB = decorator2.decorateContext(multiContext, logging.logger);
+        AnonymousKeyContextModifier decorator2 = makeDecoratorWithPersistence(store, true);
+        LDContext transformedMultiB = decorator2.modifyContext(multiContext, logging.logger);
         assertEquals(transformedMultiA, transformedMultiB);
     }
 
@@ -112,14 +112,14 @@ public class ContextDecoratorTest {
         LDContext c2 = LDContext.builder("key2").kind(KIND2).anonymous(true).name("name2").build();
         LDContext multiContext = LDContext.createMulti(c1, c2);
 
-        ContextDecorator decorator = makeDecoratorWithoutPersistence(true);
-        LDContext transformedMultiA = decorator.decorateContext(multiContext, logging.logger);
+        AnonymousKeyContextModifier decorator = makeDecoratorWithoutPersistence(true);
+        LDContext transformedMultiA = decorator.modifyContext(multiContext, logging.logger);
         assertContextHasBeenTransformedWithNewKey(
                 multiContext.getIndividualContext(0), transformedMultiA.getIndividualContext(0));
         assertContextHasBeenTransformedWithNewKey(
                 multiContext.getIndividualContext(1), transformedMultiA.getIndividualContext(1));
 
-        LDContext transformedMultiB = decorator.decorateContext(multiContext, logging.logger);
+        LDContext transformedMultiB = decorator.modifyContext(multiContext, logging.logger);
         assertEquals(transformedMultiA, transformedMultiB);
     }
 
@@ -129,15 +129,15 @@ public class ContextDecoratorTest {
         LDContext c2 = LDContext.builder("key2").kind(KIND2).anonymous(true).name("name2").build();
         LDContext multiContext = LDContext.createMulti(c1, c2);
 
-        ContextDecorator decorator1 = makeDecoratorWithoutPersistence(true);
-        LDContext transformedMultiA = decorator1.decorateContext(multiContext, logging.logger);
+        AnonymousKeyContextModifier decorator1 = makeDecoratorWithoutPersistence(true);
+        LDContext transformedMultiA = decorator1.modifyContext(multiContext, logging.logger);
         assertContextHasBeenTransformedWithNewKey(
                 multiContext.getIndividualContext(0), transformedMultiA.getIndividualContext(0));
         assertContextHasBeenTransformedWithNewKey(
                 multiContext.getIndividualContext(1), transformedMultiA.getIndividualContext(1));
 
-        ContextDecorator decorator2 = makeDecoratorWithoutPersistence(true);
-        LDContext transformedMultiB = decorator2.decorateContext(multiContext, logging.logger);
+        AnonymousKeyContextModifier decorator2 = makeDecoratorWithoutPersistence(true);
+        LDContext transformedMultiB = decorator2.modifyContext(multiContext, logging.logger);
         assertContextHasBeenTransformedWithNewKey(
                 multiContext.getIndividualContext(0), transformedMultiB.getIndividualContext(0));
         assertNotEquals(transformedMultiA.getIndividualContext(0).getKey(),
@@ -147,17 +147,17 @@ public class ContextDecoratorTest {
         assertNotEquals(transformedMultiA.getIndividualContext(1).getKey(),
                 transformedMultiB.getIndividualContext(1).getKey());
     }
-    private ContextDecorator makeDecoratorWithPersistence(PersistentDataStore store,
-                                                          boolean generateAnonymousKeys) {
+    private AnonymousKeyContextModifier makeDecoratorWithPersistence(PersistentDataStore store,
+                                                                     boolean generateAnonymousKeys) {
         PersistentDataStoreWrapper persistentData = new PersistentDataStoreWrapper(store, LDLogger.none());
-        return new ContextDecorator(persistentData, generateAnonymousKeys);
+        return new AnonymousKeyContextModifier(persistentData, generateAnonymousKeys);
     }
 
-    private ContextDecorator makeDecoratorWithoutPersistence(boolean generateAnonymousKeys) {
+    private AnonymousKeyContextModifier makeDecoratorWithoutPersistence(boolean generateAnonymousKeys) {
         return makeDecoratorWithPersistence(new NullPersistentDataStore(), generateAnonymousKeys);
     }
 
-    private ContextDecorator makeDecoratorWithoutPersistence() {
+    private AnonymousKeyContextModifier makeDecoratorWithoutPersistence() {
         return makeDecoratorWithoutPersistence(false);
     }
 

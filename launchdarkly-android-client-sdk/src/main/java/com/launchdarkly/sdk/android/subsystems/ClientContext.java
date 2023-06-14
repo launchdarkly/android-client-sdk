@@ -1,7 +1,10 @@
 package com.launchdarkly.sdk.android.subsystems;
 
+import androidx.annotation.Nullable;
+
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.EnvironmentReporter;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
@@ -23,6 +26,9 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
  */
 public class ClientContext {
     private final ApplicationInfo applicationInfo;
+
+    private final EnvironmentReporter environmentReporter;
+
     private final LDLogger baseLogger;
     private final LDConfig config;
     private final DataSourceUpdateSink dataSourceUpdateSink;
@@ -55,6 +61,7 @@ public class ClientContext {
     public ClientContext(
             String mobileKey,
             ApplicationInfo applicationInfo,
+            EnvironmentReporter environmentReporter,
             LDLogger baseLogger,
             LDConfig config,
             DataSourceUpdateSink dataSourceUpdateSink,
@@ -69,6 +76,7 @@ public class ClientContext {
     ) {
         this.mobileKey = mobileKey;
         this.applicationInfo = applicationInfo;
+        this.environmentReporter = environmentReporter;
         this.baseLogger = baseLogger;
         this.config = config;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
@@ -101,6 +109,7 @@ public class ClientContext {
     @Deprecated
     public ClientContext(
             String mobileKey,
+            EnvironmentReporter environmentReporter,
             LDLogger baseLogger,
             LDConfig config,
             DataSourceUpdateSink dataSourceUpdateSink,
@@ -113,7 +122,7 @@ public class ClientContext {
             ServiceEndpoints serviceEndpoints,
             boolean setOffline
     ) {
-        this(mobileKey, null, baseLogger, config, dataSourceUpdateSink, environmentName,
+        this(mobileKey, null, environmentReporter, baseLogger, config, dataSourceUpdateSink, environmentName,
                 evaluationReasons, evaluationContext, http, inBackground, previouslyInBackground,
                 serviceEndpoints, setOffline);
     }
@@ -154,21 +163,22 @@ public class ClientContext {
                 serviceEndpoints, setOffline);
     }
 
-    protected ClientContext(ClientContext copyFrom) {
+    protected ClientContext(ClientContext copy) {
         this(
-                copyFrom.mobileKey,
-                copyFrom.applicationInfo,
-                copyFrom.baseLogger,
-                copyFrom.config,
-                copyFrom.dataSourceUpdateSink,
-                copyFrom.environmentName,
-                copyFrom.evaluationReasons,
-                copyFrom.evaluationContext,
-                copyFrom.http,
-                copyFrom.inBackground,
-                copyFrom.previouslyInBackground,
-                copyFrom.serviceEndpoints,
-                copyFrom.setOffline
+                copy.mobileKey,
+                copy.applicationInfo,
+                copy.environmentReporter,
+                copy.baseLogger,
+                copy.config,
+                copy.dataSourceUpdateSink,
+                copy.environmentName,
+                copy.evaluationReasons,
+                copy.evaluationContext,
+                copy.http,
+                copy.inBackground,
+                copy.previouslyInBackground,
+                copy.serviceEndpoints,
+                copy.setOffline
         );
     }
 
@@ -176,8 +186,13 @@ public class ClientContext {
      * The application metadata object.
      * @return the application metadata
      */
+    @Nullable
     public ApplicationInfo getApplicationInfo() {
         return applicationInfo;
+    }
+
+    public EnvironmentReporter getEnvironmentReporter() {
+        return environmentReporter;
     }
 
     /**

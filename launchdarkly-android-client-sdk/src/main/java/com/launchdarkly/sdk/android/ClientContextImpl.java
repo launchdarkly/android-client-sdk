@@ -54,16 +54,18 @@ final class ClientContextImpl extends ClientContext {
             LDContext initialContext,
             LDLogger logger,
             PlatformState platformState,
+            EnvironmentReporter environmentReporter,
             TaskExecutor taskExecutor
     ) {
         boolean initiallyInBackground = platformState != null && !platformState.isForeground();
-        ClientContext minimalContext = new ClientContext(mobileKey, config.applicationInfo, logger, config,
+        ClientContext minimalContext = new ClientContext(mobileKey, environmentReporter, logger, config,
                 null, environmentName, config.isEvaluationReasons(), initialContext, null,
                 initiallyInBackground, null, config.serviceEndpoints, config.isOffline());
         HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 mobileKey,
                 config.applicationInfo,
+                environmentReporter,
                 logger,
                 config,
                 null,
@@ -102,6 +104,7 @@ final class ClientContextImpl extends ClientContext {
                 new ClientContext(
                         baseClientContext.getMobileKey(),
                         baseClientContext.getApplicationInfo(),
+                        baseClientContext.getEnvironmentReporter(),
                         baseClientContext.getBaseLogger(),
                         baseClientContext.getConfig(),
                         dataSourceUpdateSink,

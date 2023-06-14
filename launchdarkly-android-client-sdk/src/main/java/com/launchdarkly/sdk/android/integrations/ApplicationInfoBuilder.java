@@ -26,7 +26,9 @@ import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
  */
 public final class ApplicationInfoBuilder {
     private String applicationId;
+    private String applicationName;
     private String applicationVersion;
+    private String applicationVersionName;
 
     /**
      * Create an empty ApplicationInfoBuilder.
@@ -50,6 +52,11 @@ public final class ApplicationInfoBuilder {
         return this;
     }
 
+    public ApplicationInfoBuilder applicationName(String applicationName) {
+        this.applicationName = applicationName;
+        return this;
+    }
+
     /**
      * Sets a unique identifier representing the version of the application where the LaunchDarkly SDK
      * is running.
@@ -61,8 +68,13 @@ public final class ApplicationInfoBuilder {
      * @param applicationVersion the application version
      * @return the builder
      */
-    public ApplicationInfoBuilder applicationVersion(String applicationVersion) {
-        this.applicationVersion = applicationVersion;
+    public ApplicationInfoBuilder applicationVersion(String version) {
+        this.applicationVersion = version;
+        return this;
+    }
+
+    public ApplicationInfoBuilder applicationVersionName(String versionName) {
+        this.applicationVersionName = versionName;
         return this;
     }
 
@@ -72,6 +84,8 @@ public final class ApplicationInfoBuilder {
      * @return the configuration object
      */
     public ApplicationInfo createApplicationInfo() {
-        return new ApplicationInfo(applicationId, applicationVersion);
+        // TODO: evaluate the risk of injecting a new parameter of the same type in the middle of
+        // an existing constructor.
+        return new ApplicationInfo(applicationId, applicationName, applicationVersion, applicationVersionName);
     }
 }

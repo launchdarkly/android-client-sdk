@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.json.SerializationException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -49,6 +50,9 @@ final class PersistentDataStoreWrapper {
 
     private static final String GLOBAL_NAMESPACE = "LaunchDarkly";
     private static final String NAMESPACE_PREFIX = "LaunchDarkly_";
+
+    // TODO: We are now generating keys for non-anonymous contexts (the telemetry contexts).
+    // At the moment of writing this TODO, the generated keys are using the anonKey prefix.
     private static final String ANON_CONTEXT_KEY_PREFIX = "anonKey_";
     private static final String ENVIRONMENT_METADATA_KEY = "index";
     private static final String ENVIRONMENT_CONTEXT_DATA_KEY_PREFIX = "flags_";
@@ -60,6 +64,9 @@ final class PersistentDataStoreWrapper {
 
     private final LDLogger logger;
     private final Object storeLock = new Object();
+
+    private Map<ContextKind, String> generatedKeysCache = new HashMap<>();
+
     private final AtomicBoolean loggedStorageError = new AtomicBoolean(false);
 
     public PersistentDataStoreWrapper(
@@ -83,17 +90,49 @@ final class PersistentDataStoreWrapper {
     }
 
     /**
-     * Returns the cached anonymous key, if any, for the specified context kind (used when
-     * {@link LDConfig.Builder#generateAnonymousKeys(boolean)} is enabled). This is not in
-     * {@link PerEnvironmentData} because these generated keys are per device+context kind, not
-     * per environment.
+     * Returns the cached generated key if one exists or generates and saves a key for the
+     * specified context kind This is not in {@link PerEnvironmentData} because these generated
+     * keys are per device+context kind, not per environment.
      *
      * @param contextKind a context kind
      * @return the cached key, or null if there is none
      */
-    public String getGeneratedContextKey(ContextKind contextKind) {
-        return tryGetValue(GLOBAL_NAMESPACE,
-                ANON_CONTEXT_KEY_PREFIX + contextKind.toString());
+    public String getOrGenerateContextKey(ContextKind contextKind) {
+        synchronized (generatedKeysCache) {
+            // do we have a generated key in the cache?
+            String cachedKey = generatedKeysCache.get(contextKind);
+            if (cachedKey != null) {
+                return cachedKey;
+            }
+
+            // do we have a generated key in persistence?
+            String persistedKey = tryGetValue(GLOBAL_NAMESPACE, ANON_CONTEXT_KEY_PREFIX + contextKind.toString());
+            if (persistedKey != null) {
+                generatedKeysCache.put(contextKind, persistedKey);
+                return persistedKey;
+            }
+
+            // don't have a generated key, so generate a key
+            final String generatedKey = UUID.randomUUID().toString();
+            generatedKeysCache.put(contextKind, generatedKey);
+
+            logger.info("Did not find a generated key for context kind \"{}\". Generating a new one: {}", contextKind, generatedKey);
+
+            // Updating persistent storage may be a blocking I/O call, so don't do it on the main
+            // thread. That part doesn't need to be done under this lock anyway - the fact that
+            // we've put it into the cachedGeneratedKey map already means any subsequent calls will
+            // get that value and not have to hit the persistent store.
+
+            // TODO: Revisit usage of new Thread instead of executor service.
+            new Thread(new Runnable() {
+                public void run() {
+                    trySetValue(GLOBAL_NAMESPACE,
+                            ANON_CONTEXT_KEY_PREFIX + contextKind.toString(), generatedKey);
+                }
+            }).run();
+
+            return generatedKey;
+        }
     }
 
     /**
@@ -103,7 +142,7 @@ final class PersistentDataStoreWrapper {
      * per environment.
      *
      * @param contextKind a context kind
-     * @param key the generated key
+     * @param key         the generated key
      */
     public void setGeneratedContextKey(ContextKind contextKind, String key) {
         trySetValue(GLOBAL_NAMESPACE,
@@ -141,7 +180,7 @@ final class PersistentDataStoreWrapper {
          * Stores flag data for a specific context, overwriting any previous data for that context.
          *
          * @param hashedContextId the hashed key of the context
-         * @param allData the flag data
+         * @param allData         the flag data
          */
         public void setContextData(String hashedContextId, EnvironmentData allData) {
             trySetValue(environmentNamespace, keyForContextId(hashedContextId), allData.toJson());
@@ -161,7 +200,8 @@ final class PersistentDataStoreWrapper {
          *
          * @return a {@link ContextIndex} (never null; will be empty if none have been stored)
          */
-        @NonNull public ContextIndex getIndex() {
+        @NonNull
+        public ContextIndex getIndex() {
             String serializedData = tryGetValue(environmentNamespace, ENVIRONMENT_METADATA_KEY);
             try {
                 return serializedData == null ? new ContextIndex() :
@@ -185,7 +225,8 @@ final class PersistentDataStoreWrapper {
          *
          * @return a {@link SavedConnectionInfo} (never null; will be empty if none was stored)
          */
-        @NonNull public SavedConnectionInfo getConnectionInfo() {
+        @NonNull
+        public SavedConnectionInfo getConnectionInfo() {
             Long lastSuccessTime = tryGetValueAsLong(environmentNamespace, ENVIRONMENT_LAST_SUCCESS_TIME_KEY);
             Long lastFailureTime = tryGetValueAsLong(environmentNamespace, ENVIRONMENT_LAST_FAILURE_TIME_KEY);
             String lastFailureJson = tryGetValue(environmentNamespace, ENVIRONMENT_LAST_FAILURE_KEY);
@@ -251,10 +292,10 @@ final class PersistentDataStoreWrapper {
     }
 
     private void maybeLogStoreError(Exception e) {
-         if (loggedStorageError.getAndSet(true)) {
-             return;
-         }
-         LDUtil.logExceptionAtErrorLevel(logger, e, "Failure in persistent data store");
+        if (loggedStorageError.getAndSet(true)) {
+            return;
+        }
+        LDUtil.logExceptionAtErrorLevel(logger, e, "Failure in persistent data store");
     }
 
     private Long tryGetValueAsLong(String namespace, String key) {

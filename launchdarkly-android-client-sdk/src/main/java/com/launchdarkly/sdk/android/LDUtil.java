@@ -57,6 +57,7 @@ class LDUtil {
         String[][] tags = {
                 {"applicationId", "application-id", applicationInfo.getApplicationId()},
                 {"applicationVersion", "application-version", applicationInfo.getApplicationVersion()},
+                {"applicationVersionName", "application-version-name", applicationInfo.getApplicationVersionName()}
         };
         List<String> parts = new ArrayList<>();
         for (String[] row : tags) {
