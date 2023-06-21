@@ -12,9 +12,9 @@ public class AutoEnvContextModifierTest {
 
     /**
      * Requirement 1.2.2.1 - Schema adherence
-     * Requirement 1.2.2.2 - Adding all context kinds
      * Requirement 1.2.2.3 - Adding all attributes
      * Requirement 1.2.2.5 - Schema version in _meta
+     * Requirement 1.2.2.7 - Adding all context kinds
      */
     @Test
     public void adheresToSchemaTest() {
@@ -60,6 +60,7 @@ public class AutoEnvContextModifierTest {
     }
 
     /**
+     *  Requirement 1.2.2.6 - Don't add kind if already exists
      *  Requirement 1.2.5.1 - Doesn't change customer provided data
      */
     @Test

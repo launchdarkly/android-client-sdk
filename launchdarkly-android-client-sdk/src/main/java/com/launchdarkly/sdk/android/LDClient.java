@@ -50,6 +50,8 @@ public class LDClient implements LDClientInterface, Closeable {
     private static volatile PlatformState sharedPlatformState;
     private static volatile IEnvironmentReporter environmentReporter;
     private static volatile TaskExecutor sharedTaskExecutor;
+
+    // TODO: sc-204374 - Support opt-in/out
     private static volatile AutoEnvContextModifier autoEnvContextModifier;
     private static volatile AnonymousKeyContextModifier anonymousKeyContextModifier;
 
@@ -135,14 +137,15 @@ public class LDClient implements LDClientInterface, Closeable {
                     store,
                     logger
             );
-            autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter);
+            // TODO: sc-204374 - Support opt-in/out
+            // autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter);
             anonymousKeyContextModifier = new AnonymousKeyContextModifier(persistentData, config.isGenerateAnonymousKeys());
 
             Migration.migrateWhenNeeded(store, logger);
 
-
-            modifiedContext = autoEnvContextModifier.modifyContext(context);
-            modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext, logger);
+            // TODO: sc-204374 - Support opt-in/out
+            // modifiedContext = autoEnvContextModifier.modifyContext(context);
+            modifiedContext = anonymousKeyContextModifier.modifyContext(context, logger);
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
@@ -412,8 +415,9 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
 
-        LDContext modifiedContext = autoEnvContextModifier.modifyContext(context);
-        modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext, getSharedLogger());
+        // TODO: sc-204374 - Support opt-in/out
+        // LDContext modifiedContext = autoEnvContextModifier.modifyContext(context);
+        LDContext modifiedContext = anonymousKeyContextModifier.modifyContext(context, getSharedLogger());
         return identifyInstances(modifiedContext);
     }
 

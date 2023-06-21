@@ -51,6 +51,8 @@ public class AutoEnvContextModifier implements IContextModifier {
             if (context.getIndividualContext(recipe.kind) == null) {
                 builder.add(makeLDContextFromRecipe(recipe));
             }
+
+            // TODO: log message when there is a collision
         }
 
         return builder.build();
