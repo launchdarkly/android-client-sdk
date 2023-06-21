@@ -50,9 +50,6 @@ final class PersistentDataStoreWrapper {
 
     private static final String GLOBAL_NAMESPACE = "LaunchDarkly";
     private static final String NAMESPACE_PREFIX = "LaunchDarkly_";
-
-    // TODO: We are now generating keys for non-anonymous contexts (the telemetry contexts).
-    // At the moment of writing this TODO, the generated keys are using the anonKey prefix.
     private static final String ANON_CONTEXT_KEY_PREFIX = "anonKey_";
     private static final String ENVIRONMENT_METADATA_KEY = "index";
     private static final String ENVIRONMENT_CONTEXT_DATA_KEY_PREFIX = "flags_";
@@ -91,7 +88,7 @@ final class PersistentDataStoreWrapper {
 
     /**
      * Returns the cached generated key if one exists or generates and saves a key for the
-     * specified context kind This is not in {@link PerEnvironmentData} because these generated
+     * specified context kind.  This is not in {@link PerEnvironmentData} because these generated
      * keys are per device+context kind, not per environment.
      *
      * @param contextKind a context kind
@@ -112,7 +109,7 @@ final class PersistentDataStoreWrapper {
                 return persistedKey;
             }
 
-            // don't have a generated key, so generate a key
+            // don't have a key, so generate a key
             final String generatedKey = UUID.randomUUID().toString();
             generatedKeysCache.put(contextKind, generatedKey);
 
@@ -123,13 +120,8 @@ final class PersistentDataStoreWrapper {
             // we've put it into the cachedGeneratedKey map already means any subsequent calls will
             // get that value and not have to hit the persistent store.
 
-            // TODO: Revisit usage of new Thread instead of executor service.
-            new Thread(new Runnable() {
-                public void run() {
-                    trySetValue(GLOBAL_NAMESPACE,
-                            ANON_CONTEXT_KEY_PREFIX + contextKind.toString(), generatedKey);
-                }
-            }).run();
+            new Thread(() -> trySetValue(GLOBAL_NAMESPACE,
+                    ANON_CONTEXT_KEY_PREFIX + contextKind.toString(), generatedKey)).run();
 
             return generatedKey;
         }
@@ -142,7 +134,7 @@ final class PersistentDataStoreWrapper {
      * per environment.
      *
      * @param contextKind a context kind
-     * @param key         the generated key
+     * @param key the generated key
      */
     public void setGeneratedContextKey(ContextKind contextKind, String key) {
         trySetValue(GLOBAL_NAMESPACE,
@@ -180,7 +172,7 @@ final class PersistentDataStoreWrapper {
          * Stores flag data for a specific context, overwriting any previous data for that context.
          *
          * @param hashedContextId the hashed key of the context
-         * @param allData         the flag data
+         * @param allData the flag data
          */
         public void setContextData(String hashedContextId, EnvironmentData allData) {
             trySetValue(environmentNamespace, keyForContextId(hashedContextId), allData.toJson());
@@ -292,10 +284,10 @@ final class PersistentDataStoreWrapper {
     }
 
     private void maybeLogStoreError(Exception e) {
-        if (loggedStorageError.getAndSet(true)) {
-            return;
-        }
-        LDUtil.logExceptionAtErrorLevel(logger, e, "Failure in persistent data store");
+         if (loggedStorageError.getAndSet(true)) {
+             return;
+         }
+         LDUtil.logExceptionAtErrorLevel(logger, e, "Failure in persistent data store");
     }
 
     private Long tryGetValueAsLong(String namespace, String key) {

@@ -16,6 +16,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 
 public class LDConfigTest {
@@ -73,11 +74,11 @@ public class LDConfigTest {
     public void headersForEnvironment() {
         LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
-                null, null, null, null, null);
+                null, null, null, null, new EnvironmentReporterBuilder().build(), null);
         Map<String, String> headers = headersToMap(
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
-        assertEquals(2, headers.size());
+        assertEquals(3, headers.size());
         assertEquals(LDUtil.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("api_key test-key", headers.get("authorization"));
     }
@@ -94,14 +95,17 @@ public class LDConfigTest {
                 }))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
-                null, null, null, null, null);
+                null, null, null, null, new EnvironmentReporterBuilder().build(), null);
 
         expected.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
+        expected.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-version/" +
+                BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
         Map<String, String> headers = headersToMap(
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
-        assertEquals(2, headers.size());
+
+        assertEquals(3, headers.size());
         assertEquals("api_key test-key, more", headers.get("authorization"));
         assertEquals("value", headers.get("new"));
     }

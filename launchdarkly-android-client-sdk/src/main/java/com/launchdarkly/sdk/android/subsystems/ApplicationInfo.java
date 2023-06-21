@@ -49,10 +49,20 @@ public final class ApplicationInfo {
         return applicationVersion;
     }
 
+    /**
+     * A user friendly name for the application in which the LaunchDarkly SDK is running.
+     *
+     * @return the friendly name of the application, or null
+     */
     public String getApplicationName() {
         return applicationName;
     }
 
+    /**
+     * A user friendly name for the version of the application in which the LaunchDarkly SDK is running.
+     *
+     * @return the friendly name of the version, or null
+     */
     public String getApplicationVersionName() {
         return applicationVersionName;
     }

@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
@@ -54,7 +55,7 @@ final class ClientContextImpl extends ClientContext {
             LDContext initialContext,
             LDLogger logger,
             PlatformState platformState,
-            EnvironmentReporter environmentReporter,
+            IEnvironmentReporter environmentReporter,
             TaskExecutor taskExecutor
     ) {
         boolean initiallyInBackground = platformState != null && !platformState.isForeground();
@@ -64,7 +65,6 @@ final class ClientContextImpl extends ClientContext {
         HttpConfiguration httpConfig = config.http.build(minimalContext);
         ClientContext baseClientContext = new ClientContext(
                 mobileKey,
-                config.applicationInfo,
                 environmentReporter,
                 logger,
                 config,
@@ -103,7 +103,6 @@ final class ClientContextImpl extends ClientContext {
         return new ClientContextImpl(
                 new ClientContext(
                         baseClientContext.getMobileKey(),
-                        baseClientContext.getApplicationInfo(),
                         baseClientContext.getEnvironmentReporter(),
                         baseClientContext.getBaseLogger(),
                         baseClientContext.getConfig(),

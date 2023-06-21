@@ -211,9 +211,10 @@ abstract class ComponentsImpl {
             Map<String, String> headers = new HashMap<>();
             headers.put("Authorization", LDUtil.AUTH_SCHEME + clientContext.getMobileKey());
             headers.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
-            clientContext.getEnvironmentReporter().getApplicationInfo();
-            String tagHeader = LDUtil.applicationTagHeader(clientContext.getEnvironmentReporter().getApplicationInfo(),
-                    clientContext.getBaseLogger());
+            String tagHeader = LDUtil.applicationTagHeader(
+                    clientContext.getEnvironmentReporter().getApplicationInfo(),
+                    clientContext.getBaseLogger()
+            );
             if (!tagHeader.isEmpty()) {
                 headers.put("X-LaunchDarkly-Tags", tagHeader);
             }

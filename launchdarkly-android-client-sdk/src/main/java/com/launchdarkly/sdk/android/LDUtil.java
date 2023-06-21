@@ -30,7 +30,7 @@ import okhttp3.Headers;
 
 class LDUtil {
     static final String AUTH_SCHEME = "api_key ";
-    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
+    static final String USER_AGENT_HEADER_VALUE = LDPackageConsts.SDK_CLIENT_NAME + "/" + BuildConfig.VERSION_NAME;
 
     static <T> Callback<T> noOpCallback() {
         return new Callback<T>() {

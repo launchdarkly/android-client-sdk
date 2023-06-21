@@ -1,6 +1,6 @@
 package com.launchdarkly.sdk.android;
 
-import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 
@@ -14,13 +14,15 @@ import static org.junit.Assert.assertEquals;
 
 public class HttpConfigurationBuilderTest {
     private static final String MOBILE_KEY = "mobile-key";
-    private static final ClientContext BASIC_CONTEXT = new ClientContext(MOBILE_KEY, null, null, null, null, "",
-            false, null, null, false, null, null, false);
+    private static final ClientContext BASIC_CONTEXT = new ClientContext(MOBILE_KEY, new EnvironmentReporterBuilder().build(),
+            null, null, null, "", false, null, null, false, null, null, false);
 
     private static Map<String, String> buildBasicHeaders() {
         Map<String, String> ret = new HashMap<>();
         ret.put("Authorization", LDUtil.AUTH_SCHEME + MOBILE_KEY);
         ret.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
+        ret.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-version/" +
+                BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
         return ret;
     }
 
@@ -65,12 +67,11 @@ public class HttpConfigurationBuilderTest {
 
     @Test
     public void testApplicationTags() {
-        ApplicationInfo info = new ApplicationInfo("authentication-service", "1.0.0");
-        ClientContext contextWithTags = new ClientContext(MOBILE_KEY, info, null, null, null,
-                "", false, null, null, false, null, null, false);
+        ClientContext contextWithTags = new ClientContext(MOBILE_KEY, new EnvironmentReporterBuilder().build(),
+                null, null, null, "", false, null, null, false, null, null, false);
         HttpConfiguration hc = Components.httpConfiguration()
                 .build(contextWithTags);
-        assertEquals("application-id/authentication-service application-version/1.0.0",
+        assertEquals("application-id/" + LDPackageConsts.SDK_NAME + " application-version/" + BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME ,
                 toMap(hc.getDefaultHeaders()).get("X-LaunchDarkly-Tags"));
     }
 }

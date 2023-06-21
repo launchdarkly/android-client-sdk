@@ -12,6 +12,8 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -46,10 +48,9 @@ public class LDClient implements LDClientInterface, Closeable {
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
     private static volatile PlatformState sharedPlatformState;
-
-    private static volatile EnvironmentReporter environmentReporter;
+    private static volatile IEnvironmentReporter environmentReporter;
     private static volatile TaskExecutor sharedTaskExecutor;
-    private static volatile TelemetryContextModifier telemetryContextModifier;
+    private static volatile AutoEnvContextModifier autoEnvContextModifier;
     private static volatile AnonymousKeyContextModifier anonymousKeyContextModifier;
 
     // A lock to ensure calls to `init()` are serialized.
@@ -75,7 +76,7 @@ public class LDClient implements LDClientInterface, Closeable {
      *
      * @param application your Android application
      * @param config      configuration used to set up the client
-     * @param inputContext     the initial evaluation context; see {@link LDClient} for more information
+     * @param context     the initial evaluation context; see {@link LDClient} for more information
      *                    about setting the context and optionally requesting a unique key for it
      * @return a {@link Future} which will complete once the client has been initialized
      * @see #init(Application, LDConfig, LDContext, int)
@@ -84,7 +85,7 @@ public class LDClient implements LDClientInterface, Closeable {
      */
     public static Future<LDClient> init(@NonNull Application application,
                                         @NonNull LDConfig config,
-                                        @NonNull LDContext inputContext) {
+                                        @NonNull LDContext context) {
         // As this is an externally facing API we should still check these, so we hide the linter
         // warnings
 
@@ -97,9 +98,9 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid configuration"));
         }
         //noinspection ConstantConditions
-        if (inputContext == null || !inputContext.isValid()) {
+        if (context == null || !context.isValid()) {
             return new LDFailedFuture<>(new LaunchDarklyException("Client initialization requires a valid evaluation context ("
-                + (inputContext == null ? "was null" : inputContext.getError() + ")")));
+                + (context == null ? "was null" : context.getError() + ")")));
         }
 
         LDLogger logger = initSharedLogger(config);
@@ -118,8 +119,14 @@ public class LDClient implements LDClientInterface, Closeable {
 
             sharedTaskExecutor = new AndroidTaskExecutor(application, logger);
             sharedPlatformState = new AndroidPlatformState(application, sharedTaskExecutor, logger);
-            environmentReporter = new EnvironmentReporter(application);
-            environmentReporter.setApplicationInfo(config.applicationInfo);
+
+            EnvironmentReporterBuilder reporterBuilder = new EnvironmentReporterBuilder();
+            reporterBuilder.setApplicationInfo(config.applicationInfo);
+
+            // TODO: sc-204374 - Support opt-in/out
+            // reporterBuilder.enableCollectionFromPlatform(application);
+
+            environmentReporter = reporterBuilder.build();
 
             PersistentDataStore store = config.getPersistentDataStore() == null ?
                     new SharedPreferencesPersistentDataStore(application, logger) :
@@ -128,14 +135,13 @@ public class LDClient implements LDClientInterface, Closeable {
                     store,
                     logger
             );
-            telemetryContextModifier = new TelemetryContextModifier(persistentData, environmentReporter);
+            autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter);
             anonymousKeyContextModifier = new AnonymousKeyContextModifier(persistentData, config.isGenerateAnonymousKeys());
 
-            // TODO: seems like this migration should be happening before the PersistentDataStoreWrapper exists.  Discuss.
             Migration.migrateWhenNeeded(store, logger);
 
 
-            modifiedContext = telemetryContextModifier.modifyContext(inputContext);
+            modifiedContext = autoEnvContextModifier.modifyContext(context);
             modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext, logger);
 
             // Create, but don't start, every LDClient instance
@@ -320,7 +326,7 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     protected LDClient(
             @NonNull final PlatformState platformState,
-            @NonNull final EnvironmentReporter environmentReporter,
+            @NonNull final IEnvironmentReporter environmentReporter,
             @NonNull final TaskExecutor taskExecutor,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull LDContext initialContext,
@@ -406,7 +412,7 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
 
-        LDContext modifiedContext = telemetryContextModifier.modifyContext(context);
+        LDContext modifiedContext = autoEnvContextModifier.modifyContext(context);
         modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext, getSharedLogger());
         return identifyInstances(modifiedContext);
     }

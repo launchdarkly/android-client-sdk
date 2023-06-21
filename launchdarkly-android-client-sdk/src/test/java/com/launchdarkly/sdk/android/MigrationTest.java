@@ -12,8 +12,6 @@ import org.easymock.EasyMockSupport;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.util.Collections;
-
 public class MigrationTest extends EasyMockSupport {
     private final PersistentDataStore store = new InMemoryPersistentDataStore();
 
@@ -63,7 +61,7 @@ public class MigrationTest extends EasyMockSupport {
         assertCurrentSchemaIdIsPresent();
 
         PersistentDataStoreWrapper w = new PersistentDataStoreWrapper(store, logging.logger);
-        assertThat(w.getGeneratedContextKey(ContextKind.DEFAULT), equalTo(generatedKey));
+        assertThat(w.getOrGenerateContextKey(ContextKind.DEFAULT), equalTo(generatedKey));
     }
 
     private void assertCurrentSchemaIdIsPresent() {

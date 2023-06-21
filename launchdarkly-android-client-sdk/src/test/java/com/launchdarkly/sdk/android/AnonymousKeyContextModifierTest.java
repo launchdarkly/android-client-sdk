@@ -41,7 +41,6 @@ public class AnonymousKeyContextModifierTest {
         LDContext transformed = makeDecoratorWithoutPersistence(true)
                 .modifyContext(context, logging.logger);
         assertContextHasBeenTransformedWithNewKey(context, transformed);
-        logging.assertInfoLogged("Did not find a generated anonymous key for context kind \"user\"");
     }
 
     @Test

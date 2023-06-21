@@ -52,6 +52,16 @@ public final class ApplicationInfoBuilder {
         return this;
     }
 
+    /**
+     * Sets a user friendly name for the application in which the LaunchDarkly SDK is running.
+     * <p>
+     * This can be specified as any string value as long as it only uses the following characters: ASCII
+     * letters, ASCII digits, period, hyphen, underscore. A string containing any other characters will be
+     * ignored.
+     *
+     * @param applicationName the user friendly name
+     * @return the builder
+     */
     public ApplicationInfoBuilder applicationName(String applicationName) {
         this.applicationName = applicationName;
         return this;
@@ -65,7 +75,7 @@ public final class ApplicationInfoBuilder {
      * letters, ASCII digits, period, hyphen, underscore. A string containing any other characters will be
      * ignored.
      *
-     * @param applicationVersion the application version
+     * @param version the application version
      * @return the builder
      */
     public ApplicationInfoBuilder applicationVersion(String version) {
@@ -73,6 +83,16 @@ public final class ApplicationInfoBuilder {
         return this;
     }
 
+    /**
+     * Sets a user friendly name for the version of the application in which the LaunchDarkly SDK is running.
+     * <p>
+     * This can be specified as any string value as long as it only uses the following characters: ASCII
+     * letters, ASCII digits, period, hyphen, underscore. A string containing any other characters will be
+     * ignored.
+     *
+     * @param versionName the user friendly version name
+     * @return the builder
+     */
     public ApplicationInfoBuilder applicationVersionName(String versionName) {
         this.applicationVersionName = versionName;
         return this;
