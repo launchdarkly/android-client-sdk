@@ -145,7 +145,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
             // TODO: sc-204374 - Support opt-in/out
             // modifiedContext = autoEnvContextModifier.modifyContext(context);
-            modifiedContext = anonymousKeyContextModifier.modifyContext(context, logger);
+            modifiedContext = anonymousKeyContextModifier.modifyContext(context);
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
@@ -417,7 +417,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         // TODO: sc-204374 - Support opt-in/out
         // LDContext modifiedContext = autoEnvContextModifier.modifyContext(context);
-        LDContext modifiedContext = anonymousKeyContextModifier.modifyContext(context, getSharedLogger());
+        LDContext modifiedContext = anonymousKeyContextModifier.modifyContext(context);
         return identifyInstances(modifiedContext);
     }
 

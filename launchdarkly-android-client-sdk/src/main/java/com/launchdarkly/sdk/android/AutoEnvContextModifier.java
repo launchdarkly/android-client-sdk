@@ -32,9 +32,13 @@ public class AutoEnvContextModifier implements IContextModifier {
     static final String ATTR_OS = "os";
     static final String ATTR_FAMILY = "family";
 
-    private PersistentDataStoreWrapper persistentData;
-    private IEnvironmentReporter environmentReporter;
+    private final PersistentDataStoreWrapper persistentData;
+    private final IEnvironmentReporter environmentReporter;
 
+    /**
+     * @param persistentData for retrieving/storing generated context keys
+     * @param environmentReporter for retrieving attributes
+     */
     public AutoEnvContextModifier(PersistentDataStoreWrapper persistentData,
                                   IEnvironmentReporter environmentReporter) {
         this.persistentData = persistentData;
