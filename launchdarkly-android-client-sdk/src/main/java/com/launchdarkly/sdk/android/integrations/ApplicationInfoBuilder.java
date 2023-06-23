@@ -104,8 +104,6 @@ public final class ApplicationInfoBuilder {
      * @return the configuration object
      */
     public ApplicationInfo createApplicationInfo() {
-        // TODO: evaluate the risk of injecting a new parameter of the same type in the middle of
-        // an existing constructor.
-        return new ApplicationInfo(applicationId, applicationName, applicationVersion, applicationVersionName);
+        return new ApplicationInfo(applicationId, applicationVersion, applicationName, applicationVersionName);
     }
 }

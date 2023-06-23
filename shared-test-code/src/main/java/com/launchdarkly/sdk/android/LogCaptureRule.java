@@ -48,6 +48,11 @@ public final class LogCaptureRule extends TestWatcher {
                         containsString(messageSubstring)));
     }
 
+    public void assertWarnLogged(String messageSubstring) {
+        assertThat(logCapture.getMessageStrings(),
+                hasItems(allOf(containsString("WARN:")),
+                        containsString(messageSubstring)));
+    }
     public void assertErrorLogged(String messageSubstring) {
         assertThat(logCapture.getMessageStrings(),
                 hasItems(allOf(containsString("ERROR:")),

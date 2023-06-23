@@ -32,8 +32,8 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
     public ApplicationInfo getApplicationInfo() {
         return new ApplicationInfo(
                 getApplicationID(),
-                getApplicationName(),
                 getApplicationVersion(),
+                getApplicationName(),
                 getApplicationVersionName()
         );
     }
@@ -86,10 +86,10 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
             android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(application.getPackageName(), 0);
             return pm.getApplicationLabel(ai).toString();
         } catch (PackageManager.NameNotFoundException e) {
-            // TODO: investigate if this runtime exception can actually happen since we just
-            // got the package name just before.  Current gut feeling says not possible, but
-            // those are famous last words.
-            throw new RuntimeException(e);
+            // We don't really expect this to ever happen since we just queried the platform
+            // for the application name and then immediately used it.  Since the code has
+            // this logical path, the best we can do is defer to the next in the chain.
+            return super.getApplicationInfo().getApplicationName();
         }
     }
 
@@ -102,10 +102,10 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
                 return String.valueOf(application.getPackageManager().getPackageInfo(application.getPackageName(), 0).versionCode);
             }
         } catch (PackageManager.NameNotFoundException e) {
-            // TODO: investigate if this runtime exception can actually happen since we just
-            // got the package name just before.  Current gut feeling says not possible, but
-            // those are famous last words.
-            throw new RuntimeException(e);
+            // We don't really expect this to ever happen since we just queried the platform
+            // for the application name and then immediately used it.  Since the code has
+            // this logical path, the best we can do is defer to the next in the chain.
+            return super.getApplicationInfo().getApplicationVersion();
         }
     }
 
@@ -115,8 +115,10 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
             PackageManager pm = application.getPackageManager();
             return pm.getPackageInfo(application.getPackageName(), 0).versionName;
         } catch (PackageManager.NameNotFoundException e) {
-            // TODO: figure out if there is a way to get around this exception more elegantly.
-            throw new RuntimeException(e);
+            // We don't really expect this to ever happen since we just queried the platform
+            // for the application name and then immediately used it.  Since the code has
+            // this logical path, the best we can do is defer to the next in the chain.
+            return super.getApplicationInfo().getApplicationVersionName();
         }
     }
 }

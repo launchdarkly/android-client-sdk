@@ -1,14 +1,19 @@
 package com.launchdarkly.sdk.android;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
 
 public class AutoEnvContextModifierTest {
+
+    @Rule
+    public LogCaptureRule logging = new LogCaptureRule();
 
     /**
      * Requirement 1.2.2.1 - Schema adherence
@@ -21,7 +26,8 @@ public class AutoEnvContextModifierTest {
         PersistentDataStoreWrapper wrapper = TestUtil.makeSimplePersistentDataStoreWrapper();
         AutoEnvContextModifier underTest = new AutoEnvContextModifier(
                 wrapper,
-                new EnvironmentReporterBuilder().build()
+                new EnvironmentReporterBuilder().build(),
+                LDLogger.none()
         );
 
         LDContext input = LDContext.builder(ContextKind.of("aKind"), "aKey")
@@ -54,14 +60,12 @@ public class AutoEnvContextModifierTest {
         LDContext expectedOutput = LDContext.multiBuilder().add(input).add(expectedAppContext).add(expectedDeviceContext).build();
 
         Assert.assertEquals(expectedOutput, output);
-
-        // TODO: Figure out how to set _meta
-        Assert.fail("_meta is not yet implemented.");
     }
 
     /**
      *  Requirement 1.2.2.6 - Don't add kind if already exists
      *  Requirement 1.2.5.1 - Doesn't change customer provided data
+     *  Requirement 1.2.7.1 - Log warning when kind already exists
      */
     @Test
     public void doesNotOverwriteCustomerDataTest() {
@@ -69,7 +73,8 @@ public class AutoEnvContextModifierTest {
         PersistentDataStoreWrapper wrapper = TestUtil.makeSimplePersistentDataStoreWrapper();
         AutoEnvContextModifier underTest = new AutoEnvContextModifier(
                 wrapper,
-                new EnvironmentReporterBuilder().build()
+                new EnvironmentReporterBuilder().build(),
+                logging.logger
         );
 
         LDContext input = LDContext.builder(ContextKind.of("ld_application"), "aKey")
@@ -93,9 +98,8 @@ public class AutoEnvContextModifierTest {
         LDContext expectedOutput = LDContext.multiBuilder().add(input).add(expectedDeviceContext).build();
 
         Assert.assertEquals(expectedOutput, output);
-
-        // TODO: Figure out how to set _meta
-        Assert.fail("_meta is not yet implemented.");
+        logging.assertWarnLogged("Unable to automatically add environment attributes for " +
+                "kind:ld_application. ld_application already exists.");
     }
 
     /**
@@ -107,7 +111,8 @@ public class AutoEnvContextModifierTest {
         PersistentDataStoreWrapper wrapper = TestUtil.makeSimplePersistentDataStoreWrapper();
         AutoEnvContextModifier underTest = new AutoEnvContextModifier(
                 wrapper,
-                new EnvironmentReporterBuilder().build()
+                new EnvironmentReporterBuilder().build(),
+                LDLogger.none()
         );
 
         LDContext input1 = LDContext.builder(ContextKind.of("ld_application"), "aKey")
@@ -119,9 +124,6 @@ public class AutoEnvContextModifierTest {
 
         // input and output should be the same
         Assert.assertEquals(multiContextInput, output);
-
-        // TODO: Figure out how to set _meta
-        //Assert.fail("_meta is not yet being checked.");
     }
 
     /**
@@ -132,7 +134,8 @@ public class AutoEnvContextModifierTest {
         PersistentDataStoreWrapper wrapper = TestUtil.makeSimplePersistentDataStoreWrapper();
         AutoEnvContextModifier underTest = new AutoEnvContextModifier(
                 wrapper,
-                new EnvironmentReporterBuilder().build()
+                new EnvironmentReporterBuilder().build(),
+                LDLogger.none()
         );
 
         LDContext input = LDContext.builder(ContextKind.of("aKind"), "aKey")

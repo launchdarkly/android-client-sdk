@@ -17,8 +17,8 @@ class SDKEnvironmentReporter extends EnvironmentReporterChainBase implements IEn
     public ApplicationInfo getApplicationInfo() {
         return new ApplicationInfo(
                 LDPackageConsts.SDK_NAME,
-                LDPackageConsts.SDK_NAME,
                 BuildConfig.VERSION_NAME,
+                LDPackageConsts.SDK_NAME,
                 BuildConfig.VERSION_NAME
         );
     }

@@ -10,23 +10,25 @@ import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
  * @since 4.1.0
  */
 public final class ApplicationInfo {
-    private String applicationId;
-    private String applicationName;
-    private String applicationVersion;
-    private String applicationVersionName;
+    private final String applicationId;
+    private final String applicationName;
+    private final String applicationVersion;
+    private final String applicationVersionName;
 
     /**
      * Used internally by the SDK to store application metadata.
      *
-     * @param applicationId the application ID
-     * @param applicationVersion the application version
+     * @param applicationId          the application ID
+     * @param applicationVersion     the application version
+     * @param applicationName        friendly name for the application
+     * @param applicationVersionName friendly name for the version
      * @see ApplicationInfoBuilder
      */
-    public ApplicationInfo(String applicationId, String applicationName,
-                           String applicationVersion, String applicationVersionName) {
+    public ApplicationInfo(String applicationId, String applicationVersion,
+                           String applicationName, String applicationVersionName) {
         this.applicationId = applicationId;
-        this.applicationName = applicationName;
         this.applicationVersion = applicationVersion;
+        this.applicationName = applicationName;
         this.applicationVersionName = applicationVersionName;
     }
 

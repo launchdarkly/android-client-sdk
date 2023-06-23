@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android;
 
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextBuilder;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.ContextMultiBuilder;
@@ -34,15 +35,18 @@ public class AutoEnvContextModifier implements IContextModifier {
 
     private final PersistentDataStoreWrapper persistentData;
     private final IEnvironmentReporter environmentReporter;
+    private final LDLogger logger;
 
     /**
      * @param persistentData for retrieving/storing generated context keys
      * @param environmentReporter for retrieving attributes
      */
     public AutoEnvContextModifier(PersistentDataStoreWrapper persistentData,
-                                  IEnvironmentReporter environmentReporter) {
+                                  IEnvironmentReporter environmentReporter,
+                                  LDLogger logger) {
         this.persistentData = persistentData;
         this.environmentReporter = environmentReporter;
+        this.logger = logger;
     }
 
     @Override
@@ -54,9 +58,10 @@ public class AutoEnvContextModifier implements IContextModifier {
         for (ContextRecipe recipe : makeRecipeList()) {
             if (context.getIndividualContext(recipe.kind) == null) {
                 builder.add(makeLDContextFromRecipe(recipe));
+            } else {
+                logger.warn("Unable to automatically add environment attributes for " +
+                        "kind:{}. {} already exists.", recipe.kind, recipe.kind);
             }
-
-            // TODO: log message when there is a collision
         }
 
         return builder.build();
