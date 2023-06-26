@@ -12,6 +12,8 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -46,8 +48,12 @@ public class LDClient implements LDClientInterface, Closeable {
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
     private static volatile PlatformState sharedPlatformState;
+    private static volatile IEnvironmentReporter environmentReporter;
     private static volatile TaskExecutor sharedTaskExecutor;
-    private static volatile ContextDecorator contextDecorator;
+
+    // TODO: sc-204374 - Support opt-in/out
+    private static volatile AutoEnvContextModifier autoEnvContextModifier;
+    private static volatile AnonymousKeyContextModifier anonymousKeyContextModifier;
 
     // A lock to ensure calls to `init()` are serialized.
     static Object initLock = new Object();
@@ -103,7 +109,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
         LDClient primaryClient;
-        LDContext actualContext;
+        LDContext modifiedContext;
 
         // Acquire the `initLock` to ensure that if `init()` is called multiple times, we will only
         // initialize the client(s) once.
@@ -116,6 +122,14 @@ public class LDClient implements LDClientInterface, Closeable {
             sharedTaskExecutor = new AndroidTaskExecutor(application, logger);
             sharedPlatformState = new AndroidPlatformState(application, sharedTaskExecutor, logger);
 
+            EnvironmentReporterBuilder reporterBuilder = new EnvironmentReporterBuilder();
+            reporterBuilder.setApplicationInfo(config.applicationInfo);
+
+            // TODO: sc-204374 - Support opt-in/out
+            // reporterBuilder.enableCollectionFromPlatform(application);
+
+            environmentReporter = reporterBuilder.build();
+
             PersistentDataStore store = config.getPersistentDataStore() == null ?
                     new SharedPreferencesPersistentDataStore(application, logger) :
                     config.getPersistentDataStore();
@@ -123,11 +137,15 @@ public class LDClient implements LDClientInterface, Closeable {
                     store,
                     logger
             );
-            contextDecorator = new ContextDecorator(persistentData, config.isGenerateAnonymousKeys());
+            // TODO: sc-204374 - Support opt-in/out
+            // autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter);
+            anonymousKeyContextModifier = new AnonymousKeyContextModifier(persistentData, config.isGenerateAnonymousKeys());
 
             Migration.migrateWhenNeeded(store, logger);
 
-            actualContext = contextDecorator.decorateContext(context, logger);
+            // TODO: sc-204374 - Support opt-in/out
+            // modifiedContext = autoEnvContextModifier.modifyContext(context);
+            modifiedContext = anonymousKeyContextModifier.modifyContext(context);
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
@@ -138,9 +156,10 @@ public class LDClient implements LDClientInterface, Closeable {
                 try {
                     final LDClient instance = new LDClient(
                             sharedPlatformState,
+                            environmentReporter,
                             sharedTaskExecutor,
                             persistentData.perEnvironmentData(mobileKey),
-                            actualContext,
+                            modifiedContext,
                             config,
                             mobileKey,
                             envName
@@ -179,7 +198,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // Start up all instances
         for (final LDClient instance : instances.values()) {
             if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                instance.eventProcessor.recordIdentifyEvent(actualContext);
+                instance.eventProcessor.recordIdentifyEvent(modifiedContext);
             }
         }
 
@@ -310,6 +329,7 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     protected LDClient(
             @NonNull final PlatformState platformState,
+            @NonNull final IEnvironmentReporter environmentReporter,
             @NonNull final TaskExecutor taskExecutor,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull LDContext initialContext,
@@ -332,7 +352,7 @@ public class LDClient implements LDClientInterface, Closeable {
         FeatureFetcher fetcher = null;
         if (config.dataSource instanceof ComponentsImpl.DataSourceRequiresFeatureFetcher) {
             ClientContextImpl minimalContext = ClientContextImpl.fromConfig(config, mobileKey,
-                    environmentName, null, initialContext, logger, platformState, taskExecutor
+                    environmentName, null, initialContext, logger, platformState, environmentReporter, taskExecutor
             );
             fetcher = new HttpFeatureFlagFetcher(minimalContext);
         }
@@ -344,6 +364,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 initialContext,
                 logger,
                 platformState,
+                environmentReporter,
                 taskExecutor
         );
 
@@ -393,7 +414,11 @@ public class LDClient implements LDClientInterface, Closeable {
             logger.warn("identify() was called with an invalid context: {}", context.getError());
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
-        return identifyInstances(contextDecorator.decorateContext(context, getSharedLogger()));
+
+        // TODO: sc-204374 - Support opt-in/out
+        // LDContext modifiedContext = autoEnvContextModifier.modifyContext(context);
+        LDContext modifiedContext = anonymousKeyContextModifier.modifyContext(context);
+        return identifyInstances(modifiedContext);
     }
 
     @Override

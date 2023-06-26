@@ -6,6 +6,8 @@ import static com.launchdarkly.sdk.android.TestUtil.requireValue;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
@@ -69,6 +71,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private final TaskExecutor taskExecutor = new SimpleTestTaskExecutor();
     private final MockPlatformState mockPlatformState = new MockPlatformState();
 
+    private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
+
     private PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final BlockingQueue<ClientContext> receivedClientContexts = new LinkedBlockingQueue<>();
     private final BlockingQueue<DataSource> startedDataSources = new LinkedBlockingQueue<>();
@@ -107,6 +111,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 CONTEXT,
                 logging.logger,
                 mockPlatformState,
+                environmentReporter,
                 taskExecutor
         );
 

@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import androidx.annotation.Nullable;
+
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.Logs;
@@ -57,6 +59,7 @@ public class LDConfig {
 
     final ServiceEndpoints serviceEndpoints;
 
+    @Nullable
     final ApplicationInfo applicationInfo;
     final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
@@ -597,7 +600,7 @@ public class LDConfig {
                             .createServiceEndpoints();
 
             ApplicationInfo applicationInfo = this.applicationInfoBuilder == null ?
-                    Components.applicationInfo().createApplicationInfo() :
+                    null :
                     applicationInfoBuilder.createApplicationInfo();
 
             return new LDConfig(

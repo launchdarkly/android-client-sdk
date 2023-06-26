@@ -26,7 +26,9 @@ import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
  */
 public final class ApplicationInfoBuilder {
     private String applicationId;
+    private String applicationName;
     private String applicationVersion;
+    private String applicationVersionName;
 
     /**
      * Create an empty ApplicationInfoBuilder.
@@ -51,6 +53,21 @@ public final class ApplicationInfoBuilder {
     }
 
     /**
+     * Sets a user friendly name for the application in which the LaunchDarkly SDK is running.
+     * <p>
+     * This can be specified as any string value as long as it only uses the following characters: ASCII
+     * letters, ASCII digits, period, hyphen, underscore. A string containing any other characters will be
+     * ignored.
+     *
+     * @param applicationName the user friendly name
+     * @return the builder
+     */
+    public ApplicationInfoBuilder applicationName(String applicationName) {
+        this.applicationName = applicationName;
+        return this;
+    }
+
+    /**
      * Sets a unique identifier representing the version of the application where the LaunchDarkly SDK
      * is running.
      * <p>
@@ -58,11 +75,26 @@ public final class ApplicationInfoBuilder {
      * letters, ASCII digits, period, hyphen, underscore. A string containing any other characters will be
      * ignored.
      *
-     * @param applicationVersion the application version
+     * @param version the application version
      * @return the builder
      */
-    public ApplicationInfoBuilder applicationVersion(String applicationVersion) {
-        this.applicationVersion = applicationVersion;
+    public ApplicationInfoBuilder applicationVersion(String version) {
+        this.applicationVersion = version;
+        return this;
+    }
+
+    /**
+     * Sets a user friendly name for the version of the application in which the LaunchDarkly SDK is running.
+     * <p>
+     * This can be specified as any string value as long as it only uses the following characters: ASCII
+     * letters, ASCII digits, period, hyphen, underscore. A string containing any other characters will be
+     * ignored.
+     *
+     * @param versionName the user friendly version name
+     * @return the builder
+     */
+    public ApplicationInfoBuilder applicationVersionName(String versionName) {
+        this.applicationVersionName = versionName;
         return this;
     }
 
@@ -72,6 +104,6 @@ public final class ApplicationInfoBuilder {
      * @return the configuration object
      */
     public ApplicationInfo createApplicationInfo() {
-        return new ApplicationInfo(applicationId, applicationVersion);
+        return new ApplicationInfo(applicationId, applicationVersion, applicationName, applicationVersionName);
     }
 }

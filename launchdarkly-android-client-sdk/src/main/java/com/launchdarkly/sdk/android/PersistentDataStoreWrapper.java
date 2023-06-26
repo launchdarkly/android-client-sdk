@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.json.SerializationException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -60,6 +61,9 @@ final class PersistentDataStoreWrapper {
 
     private final LDLogger logger;
     private final Object storeLock = new Object();
+
+    private Map<ContextKind, String> generatedKeysCache = new HashMap<>();
+
     private final AtomicBoolean loggedStorageError = new AtomicBoolean(false);
 
     public PersistentDataStoreWrapper(
@@ -83,17 +87,44 @@ final class PersistentDataStoreWrapper {
     }
 
     /**
-     * Returns the cached anonymous key, if any, for the specified context kind (used when
-     * {@link LDConfig.Builder#generateAnonymousKeys(boolean)} is enabled). This is not in
-     * {@link PerEnvironmentData} because these generated keys are per device+context kind, not
-     * per environment.
+     * Returns the cached generated key if one exists or generates and saves a key for the
+     * specified context kind.  This is not in {@link PerEnvironmentData} because these generated
+     * keys are per device+context kind, not per environment.
      *
      * @param contextKind a context kind
      * @return the cached key, or null if there is none
      */
-    public String getGeneratedContextKey(ContextKind contextKind) {
-        return tryGetValue(GLOBAL_NAMESPACE,
-                ANON_CONTEXT_KEY_PREFIX + contextKind.toString());
+    public String getOrGenerateContextKey(ContextKind contextKind) {
+        synchronized (generatedKeysCache) {
+            // do we have a generated key in the cache?
+            String cachedKey = generatedKeysCache.get(contextKind);
+            if (cachedKey != null) {
+                return cachedKey;
+            }
+
+            // do we have a generated key in persistence?
+            String persistedKey = tryGetValue(GLOBAL_NAMESPACE, ANON_CONTEXT_KEY_PREFIX + contextKind.toString());
+            if (persistedKey != null) {
+                generatedKeysCache.put(contextKind, persistedKey);
+                return persistedKey;
+            }
+
+            // don't have a key, so generate a key
+            final String generatedKey = UUID.randomUUID().toString();
+            generatedKeysCache.put(contextKind, generatedKey);
+
+            logger.info("Did not find a generated key for context kind \"{}\". Generating a new one: {}", contextKind, generatedKey);
+
+            // Updating persistent storage may be a blocking I/O call, so don't do it on the main
+            // thread. That part doesn't need to be done under this lock anyway - the fact that
+            // we've put it into the cachedGeneratedKey map already means any subsequent calls will
+            // get that value and not have to hit the persistent store.
+
+            new Thread(() -> trySetValue(GLOBAL_NAMESPACE,
+                    ANON_CONTEXT_KEY_PREFIX + contextKind.toString(), generatedKey)).run();
+
+            return generatedKey;
+        }
     }
 
     /**
@@ -161,7 +192,8 @@ final class PersistentDataStoreWrapper {
          *
          * @return a {@link ContextIndex} (never null; will be empty if none have been stored)
          */
-        @NonNull public ContextIndex getIndex() {
+        @NonNull
+        public ContextIndex getIndex() {
             String serializedData = tryGetValue(environmentNamespace, ENVIRONMENT_METADATA_KEY);
             try {
                 return serializedData == null ? new ContextIndex() :
@@ -185,7 +217,8 @@ final class PersistentDataStoreWrapper {
          *
          * @return a {@link SavedConnectionInfo} (never null; will be empty if none was stored)
          */
-        @NonNull public SavedConnectionInfo getConnectionInfo() {
+        @NonNull
+        public SavedConnectionInfo getConnectionInfo() {
             Long lastSuccessTime = tryGetValueAsLong(environmentNamespace, ENVIRONMENT_LAST_SUCCESS_TIME_KEY);
             Long lastFailureTime = tryGetValueAsLong(environmentNamespace, ENVIRONMENT_LAST_FAILURE_TIME_KEY);
             String lastFailureJson = tryGetValue(environmentNamespace, ENVIRONMENT_LAST_FAILURE_KEY);

@@ -7,6 +7,8 @@ import static org.junit.Assert.assertEquals;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
@@ -29,6 +31,8 @@ public class PollingDataSourceTest extends EasyMockSupport {
     private final MockComponents.MockDataSourceUpdateSink dataSourceUpdateSink = new MockComponents.MockDataSourceUpdateSink();
     private final MockFetcher fetcher = new MockFetcher();
     private final MockPlatformState platformState = new MockPlatformState();
+
+    private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
     private final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
 
     @Rule
@@ -37,7 +41,7 @@ public class PollingDataSourceTest extends EasyMockSupport {
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
                 EMPTY_CONFIG, "", "", fetcher, CONTEXT,
-                logging.logger, platformState, taskExecutor);
+                logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
