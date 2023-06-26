@@ -38,8 +38,9 @@ public class AutoEnvContextModifier implements IContextModifier {
     private final LDLogger logger;
 
     /**
-     * @param persistentData for retrieving/storing generated context keys
+     * @param persistentData      for retrieving/storing generated context keys
      * @param environmentReporter for retrieving attributes
+     * @param logger              for logging messages
      */
     public AutoEnvContextModifier(PersistentDataStoreWrapper persistentData,
                                   IEnvironmentReporter environmentReporter,
