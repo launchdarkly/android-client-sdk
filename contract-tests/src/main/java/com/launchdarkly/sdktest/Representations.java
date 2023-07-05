@@ -71,6 +71,7 @@ public abstract class Representations {
         LDUser initialUser;
         boolean evaluationReasons;
         boolean useReport;
+        boolean includeEnvironmentAttributes;
     }
 
     public static class CommandParams {

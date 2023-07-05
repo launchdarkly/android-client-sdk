@@ -50,10 +50,8 @@ public class LDClient implements LDClientInterface, Closeable {
     private static volatile PlatformState sharedPlatformState;
     private static volatile IEnvironmentReporter environmentReporter;
     private static volatile TaskExecutor sharedTaskExecutor;
-
-    // TODO: sc-204374 - Support opt-in/out
-    private static volatile AutoEnvContextModifier autoEnvContextModifier;
-    private static volatile AnonymousKeyContextModifier anonymousKeyContextModifier;
+    private static volatile IContextModifier autoEnvContextModifier;
+    private static volatile IContextModifier anonymousKeyContextModifier;
 
     // A lock to ensure calls to `init()` are serialized.
     static Object initLock = new Object();
@@ -122,14 +120,6 @@ public class LDClient implements LDClientInterface, Closeable {
             sharedTaskExecutor = new AndroidTaskExecutor(application, logger);
             sharedPlatformState = new AndroidPlatformState(application, sharedTaskExecutor, logger);
 
-            EnvironmentReporterBuilder reporterBuilder = new EnvironmentReporterBuilder();
-            reporterBuilder.setApplicationInfo(config.applicationInfo);
-
-            // TODO: sc-204374 - Support opt-in/out
-            // reporterBuilder.enableCollectionFromPlatform(application);
-
-            environmentReporter = reporterBuilder.build();
-
             PersistentDataStore store = config.getPersistentDataStore() == null ?
                     new SharedPreferencesPersistentDataStore(application, logger) :
                     config.getPersistentDataStore();
@@ -137,15 +127,23 @@ public class LDClient implements LDClientInterface, Closeable {
                     store,
                     logger
             );
-            // TODO: sc-204374 - Support opt-in/out
-            // autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter);
-            anonymousKeyContextModifier = new AnonymousKeyContextModifier(persistentData, config.isGenerateAnonymousKeys());
 
             Migration.migrateWhenNeeded(store, logger);
 
-            // TODO: sc-204374 - Support opt-in/out
-            // modifiedContext = autoEnvContextModifier.modifyContext(context);
-            modifiedContext = anonymousKeyContextModifier.modifyContext(context);
+            EnvironmentReporterBuilder reporterBuilder = new EnvironmentReporterBuilder();
+            reporterBuilder.setApplicationInfo(config.applicationInfo);
+            reporterBuilder.enableCollectionFromPlatform(application);
+            environmentReporter = reporterBuilder.build();
+
+            if (config.isIncludeEnvironmentAttributes()) {
+                autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter, logger);
+            } else {
+                autoEnvContextModifier = new NoOpContextModifier();
+            }
+            anonymousKeyContextModifier = new AnonymousKeyContextModifier(persistentData, config.isGenerateAnonymousKeys());
+
+            modifiedContext = autoEnvContextModifier.modifyContext(context);
+            modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext);
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
@@ -415,9 +413,8 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
 
-        // TODO: sc-204374 - Support opt-in/out
-        // LDContext modifiedContext = autoEnvContextModifier.modifyContext(context);
-        LDContext modifiedContext = anonymousKeyContextModifier.modifyContext(context);
+        LDContext modifiedContext = autoEnvContextModifier.modifyContext(context); // this may be a no-op modifier
+        modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext);
         return identifyInstances(modifiedContext);
     }
 
