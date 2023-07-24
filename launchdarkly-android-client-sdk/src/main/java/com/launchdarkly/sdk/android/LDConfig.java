@@ -181,7 +181,7 @@ public class LDConfig {
 
         private boolean generateAnonymousKeys;
 
-        private boolean includeEnvironmentAttributes = true;
+        private boolean includeEnvironmentAttributes = false;
 
         private PersistentDataStore persistentDataStore;
 
