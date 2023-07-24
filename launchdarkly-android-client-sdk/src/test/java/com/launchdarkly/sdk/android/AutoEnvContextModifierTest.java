@@ -38,15 +38,16 @@ public class AutoEnvContextModifierTest {
         // will be persistence side effects
         ContextKind applicationKind = ContextKind.of(AutoEnvContextModifier.LD_APPLICATION_KIND);
         LDContext expectedAppContext = LDContext.builder(applicationKind, wrapper.getOrGenerateContextKey(applicationKind))
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, "0.1")
                 .set(AutoEnvContextModifier.ATTR_ID, LDPackageConsts.SDK_NAME)
                 .set(AutoEnvContextModifier.ATTR_NAME, LDPackageConsts.SDK_NAME)
                 .set(AutoEnvContextModifier.ATTR_VERSION, BuildConfig.VERSION_NAME)
                 .set(AutoEnvContextModifier.ATTR_VERSION_NAME, BuildConfig.VERSION_NAME)
-                .set("_meta", "0.1")
                 .build();
 
         ContextKind deviceKind = ContextKind.of(AutoEnvContextModifier.LD_DEVICE_KIND);
         LDContext expectedDeviceContext = LDContext.builder(deviceKind, wrapper.getOrGenerateContextKey(deviceKind))
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, "0.1")
                 .set(AutoEnvContextModifier.ATTR_MANUFACTURER, "unknown")
                 .set(AutoEnvContextModifier.ATTR_MODEL, "unknown")
                 .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
@@ -54,7 +55,6 @@ public class AutoEnvContextModifierTest {
                         .put(AutoEnvContextModifier.ATTR_FAMILY, "unknown")
                         .put(AutoEnvContextModifier.ATTR_VERSION, "unknown")
                         .build())
-                .set("_meta", "0.1")
                 .build();
 
         LDContext expectedOutput = LDContext.multiBuilder().add(input).add(expectedAppContext).add(expectedDeviceContext).build();
@@ -85,6 +85,7 @@ public class AutoEnvContextModifierTest {
         // will be persistence side effects
         ContextKind deviceKind = ContextKind.of(AutoEnvContextModifier.LD_DEVICE_KIND);
         LDContext expectedDeviceContext = LDContext.builder(deviceKind, wrapper.getOrGenerateContextKey(deviceKind))
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, "0.1")
                 .set(AutoEnvContextModifier.ATTR_MANUFACTURER, "unknown")
                 .set(AutoEnvContextModifier.ATTR_MODEL, "unknown")
                 .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
@@ -92,7 +93,6 @@ public class AutoEnvContextModifierTest {
                         .put(AutoEnvContextModifier.ATTR_FAMILY, "unknown")
                         .put(AutoEnvContextModifier.ATTR_VERSION, "unknown")
                         .build())
-                .set("_meta", "0.1")
                 .build();
 
         LDContext expectedOutput = LDContext.multiBuilder().add(input).add(expectedDeviceContext).build();

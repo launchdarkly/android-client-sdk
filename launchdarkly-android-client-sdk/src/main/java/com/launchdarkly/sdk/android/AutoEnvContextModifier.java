@@ -117,7 +117,7 @@ public class AutoEnvContextModifier implements IContextModifier {
     private List<ContextRecipe> makeRecipeList() {
         ContextKind ldApplicationKind = ContextKind.of(LD_APPLICATION_KIND);
         Map<String, Callable<LDValue>> applicationCallables = new HashMap<>();
-        applicationCallables.put(ENV_ATTRIBUTES_VERSION, () -> LDValue.of(ENV_ATTRIBUTES_VERSION));
+        applicationCallables.put(ENV_ATTRIBUTES_VERSION, () -> LDValue.of(SPEC_VERSION));
         applicationCallables.put(ATTR_ID, () -> LDValue.of(environmentReporter.getApplicationInfo().getApplicationId()));
         applicationCallables.put(ATTR_NAME, () -> LDValue.of(environmentReporter.getApplicationInfo().getApplicationName()));
         applicationCallables.put(ATTR_VERSION, () -> LDValue.of(environmentReporter.getApplicationInfo().getApplicationVersion()));
@@ -125,7 +125,7 @@ public class AutoEnvContextModifier implements IContextModifier {
 
         ContextKind ldDeviceKind = ContextKind.of(LD_DEVICE_KIND);
         Map<String, Callable<LDValue>> deviceCallables = new HashMap<>();
-        deviceCallables.put(ENV_ATTRIBUTES_VERSION, () -> LDValue.of(ENV_ATTRIBUTES_VERSION));
+        deviceCallables.put(ENV_ATTRIBUTES_VERSION, () -> LDValue.of(SPEC_VERSION));
         deviceCallables.put(ATTR_MANUFACTURER, () -> LDValue.of(environmentReporter.getManufacturer()));
         deviceCallables.put(ATTR_MODEL, () -> LDValue.of(environmentReporter.getModel()));
         deviceCallables.put(ATTR_LOCALE, () -> LDValue.of(environmentReporter.getLocale()));
