@@ -140,7 +140,6 @@ public class LDConfig {
 
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
 
-    // TODO: revisit this naming
     public boolean isIncludeEnvironmentAttributes() {
         return includeEnvironmentAttributes;
     }
@@ -182,7 +181,7 @@ public class LDConfig {
 
         private boolean generateAnonymousKeys;
 
-        private boolean includeEnvironmentAttributes;
+        private boolean includeEnvironmentAttributes = true;
 
         private PersistentDataStore persistentDataStore;
 

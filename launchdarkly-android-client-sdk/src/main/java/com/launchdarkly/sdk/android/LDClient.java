@@ -132,7 +132,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
             EnvironmentReporterBuilder reporterBuilder = new EnvironmentReporterBuilder();
             reporterBuilder.setApplicationInfo(config.applicationInfo);
-            reporterBuilder.enableCollectionFromPlatform(application);
+            if (config.isIncludeEnvironmentAttributes()) {
+                reporterBuilder.enableCollectionFromPlatform(application);
+            }
             environmentReporter = reporterBuilder.build();
 
             if (config.isIncludeEnvironmentAttributes()) {
