@@ -69,6 +69,7 @@ public class LDConfig {
     private final boolean disableBackgroundUpdating;
     private final boolean evaluationReasons;
     private final boolean generateAnonymousKeys;
+    private final boolean includeEnvironmentAttributes;
     private final LDLogAdapter logAdapter;
     private final String loggerName;
     private final int maxCachedContexts;
@@ -87,6 +88,7 @@ public class LDConfig {
              boolean diagnosticOptOut,
              int maxCachedContexts,
              boolean generateAnonymousKeys,
+             boolean includeEnvironmentAttributes,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
              String loggerName) {
@@ -102,6 +104,7 @@ public class LDConfig {
         this.diagnosticOptOut = diagnosticOptOut;
         this.maxCachedContexts = maxCachedContexts;
         this.generateAnonymousKeys = generateAnonymousKeys;
+        this.includeEnvironmentAttributes = includeEnvironmentAttributes;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
@@ -136,6 +139,10 @@ public class LDConfig {
     }
 
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
+
+    public boolean isIncludeEnvironmentAttributes() {
+        return includeEnvironmentAttributes;
+    }
 
     PersistentDataStore getPersistentDataStore() { return persistentDataStore; }
 
@@ -173,6 +180,8 @@ public class LDConfig {
         private boolean evaluationReasons = false;
 
         private boolean generateAnonymousKeys;
+
+        private boolean includeEnvironmentAttributes = false;
 
         private PersistentDataStore persistentDataStore;
 
@@ -466,6 +475,11 @@ public class LDConfig {
             return this;
         }
 
+        public LDConfig.Builder includeMobileEnvironmentAttributes(boolean include) {
+            this.includeEnvironmentAttributes = include;
+            return this;
+        }
+
         /**
          * Specifies a custom data store. Deliberately package-private-- currently this is only
          * configurable for tests.
@@ -616,6 +630,7 @@ public class LDConfig {
                     diagnosticOptOut,
                     maxCachedContexts,
                     generateAnonymousKeys,
+                    includeEnvironmentAttributes,
                     persistentDataStore,
                     actualLogAdapter,
                     loggerName);

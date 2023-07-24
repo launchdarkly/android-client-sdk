@@ -312,6 +312,8 @@ public class SdkClientEntity {
             Components.httpConfiguration().useReport(params.clientSide.useReport)
     );
 
+    builder.includeMobileEnvironmentAttributes(params.clientSide.includeEnvironmentAttributes);
+
     if (params.tags != null) {
       ApplicationInfoBuilder ab = Components.applicationInfo();
       if (params.tags.applicationId != null) {
