@@ -41,6 +41,12 @@ public interface IEnvironmentReporter {
     String getOSFamily();
 
     /**
+     * @return the name of the OS that this application is running in
+     */
+    @NonNull
+    String getOSName();
+
+    /**
      * @return the version of the OS that this application is running in
      */
     @NonNull

@@ -70,6 +70,12 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
 
     @NonNull
     @Override
+    public String getOSName() {
+        return LDPackageConsts.SDK_PLATFORM_NAME + Build.VERSION.SDK_INT;
+    }
+
+    @NonNull
+    @Override
     public String getOSVersion() {
         return Build.VERSION.RELEASE;
     }

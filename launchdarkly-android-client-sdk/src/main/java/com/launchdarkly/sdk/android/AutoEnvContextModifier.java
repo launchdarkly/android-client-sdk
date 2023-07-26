@@ -131,6 +131,7 @@ public class AutoEnvContextModifier implements IContextModifier {
         deviceCallables.put(ATTR_LOCALE, () -> LDValue.of(environmentReporter.getLocale()));
         deviceCallables.put(ATTR_OS, () -> new ObjectBuilder()
                 .put(ATTR_FAMILY, environmentReporter.getOSFamily())
+                .put(ATTR_NAME, environmentReporter.getOSName())
                 .put(ATTR_VERSION, environmentReporter.getOSVersion())
                 .build());
 

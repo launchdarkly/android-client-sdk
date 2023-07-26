@@ -53,6 +53,7 @@ public class AutoEnvContextModifierTest {
                 .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
                 .set(AutoEnvContextModifier.ATTR_OS, new ObjectBuilder()
                         .put(AutoEnvContextModifier.ATTR_FAMILY, "unknown")
+                        .put(AutoEnvContextModifier.ATTR_NAME, "unknown")
                         .put(AutoEnvContextModifier.ATTR_VERSION, "unknown")
                         .build())
                 .build();
@@ -91,6 +92,7 @@ public class AutoEnvContextModifierTest {
                 .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
                 .set(AutoEnvContextModifier.ATTR_OS, new ObjectBuilder()
                         .put(AutoEnvContextModifier.ATTR_FAMILY, "unknown")
+                        .put(AutoEnvContextModifier.ATTR_NAME, "unknown")
                         .put(AutoEnvContextModifier.ATTR_VERSION, "unknown")
                         .build())
                 .build();
