@@ -52,6 +52,12 @@ class EnvironmentReporterChainBase implements IEnvironmentReporter {
 
     @NonNull
     @Override
+    public String getOSName() {
+        return next != null ? next.getOSName() : UNKNOWN;
+    }
+
+    @NonNull
+    @Override
     public String getOSVersion() {
         return next != null ? next.getOSVersion() : UNKNOWN;
     }
