@@ -5,6 +5,7 @@ import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -24,9 +25,10 @@ public class AutoEnvContextModifierTest {
     @Test
     public void adheresToSchemaTest() {
         PersistentDataStoreWrapper wrapper = TestUtil.makeSimplePersistentDataStoreWrapper();
+        IEnvironmentReporter reporter = new EnvironmentReporterBuilder().build();
         AutoEnvContextModifier underTest = new AutoEnvContextModifier(
                 wrapper,
-                new EnvironmentReporterBuilder().build(),
+                reporter,
                 LDLogger.none()
         );
 
@@ -37,20 +39,24 @@ public class AutoEnvContextModifierTest {
         // it is important that we create this expected context after the code runs because there
         // will be persistence side effects
         ContextKind applicationKind = ContextKind.of(AutoEnvContextModifier.LD_APPLICATION_KIND);
-        LDContext expectedAppContext = LDContext.builder(applicationKind, wrapper.getOrGenerateContextKey(applicationKind))
-                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, "0.1")
+        String expectedApplicationKey = LDUtil.urlSafeBase64Hash(
+                reporter.getApplicationInfo().getApplicationId() + ":"
+                        + reporter.getApplicationInfo().getApplicationVersion()
+        );
+        LDContext expectedAppContext = LDContext.builder(applicationKind, expectedApplicationKey)
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, AutoEnvContextModifier.SPEC_VERSION)
                 .set(AutoEnvContextModifier.ATTR_ID, LDPackageConsts.SDK_NAME)
                 .set(AutoEnvContextModifier.ATTR_NAME, LDPackageConsts.SDK_NAME)
                 .set(AutoEnvContextModifier.ATTR_VERSION, BuildConfig.VERSION_NAME)
                 .set(AutoEnvContextModifier.ATTR_VERSION_NAME, BuildConfig.VERSION_NAME)
+                .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
                 .build();
 
         ContextKind deviceKind = ContextKind.of(AutoEnvContextModifier.LD_DEVICE_KIND);
         LDContext expectedDeviceContext = LDContext.builder(deviceKind, wrapper.getOrGenerateContextKey(deviceKind))
-                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, "0.1")
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, AutoEnvContextModifier.SPEC_VERSION)
                 .set(AutoEnvContextModifier.ATTR_MANUFACTURER, "unknown")
                 .set(AutoEnvContextModifier.ATTR_MODEL, "unknown")
-                .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
                 .set(AutoEnvContextModifier.ATTR_OS, new ObjectBuilder()
                         .put(AutoEnvContextModifier.ATTR_FAMILY, "unknown")
                         .put(AutoEnvContextModifier.ATTR_NAME, "unknown")
@@ -86,10 +92,9 @@ public class AutoEnvContextModifierTest {
         // will be persistence side effects
         ContextKind deviceKind = ContextKind.of(AutoEnvContextModifier.LD_DEVICE_KIND);
         LDContext expectedDeviceContext = LDContext.builder(deviceKind, wrapper.getOrGenerateContextKey(deviceKind))
-                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, "0.1")
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, AutoEnvContextModifier.SPEC_VERSION)
                 .set(AutoEnvContextModifier.ATTR_MANUFACTURER, "unknown")
                 .set(AutoEnvContextModifier.ATTR_MODEL, "unknown")
-                .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
                 .set(AutoEnvContextModifier.ATTR_OS, new ObjectBuilder()
                         .put(AutoEnvContextModifier.ATTR_FAMILY, "unknown")
                         .put(AutoEnvContextModifier.ATTR_NAME, "unknown")
