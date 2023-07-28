@@ -33,7 +33,7 @@ public class AutoEnvContextModifier implements IContextModifier {
     static final String ATTR_OS = "os";
     static final String ATTR_FAMILY = "family";
     static final String ENV_ATTRIBUTES_VERSION = "envAttributesVersion";
-    static final String SPEC_VERSION = "0.1";
+    static final String SPEC_VERSION = "0.3";
 
     private final PersistentDataStoreWrapper persistentData;
     private final IEnvironmentReporter environmentReporter;
@@ -122,13 +122,13 @@ public class AutoEnvContextModifier implements IContextModifier {
         applicationCallables.put(ATTR_NAME, () -> LDValue.of(environmentReporter.getApplicationInfo().getApplicationName()));
         applicationCallables.put(ATTR_VERSION, () -> LDValue.of(environmentReporter.getApplicationInfo().getApplicationVersion()));
         applicationCallables.put(ATTR_VERSION_NAME, () -> LDValue.of(environmentReporter.getApplicationInfo().getApplicationVersionName()));
+        applicationCallables.put(ATTR_LOCALE, () -> LDValue.of(environmentReporter.getLocale()));
 
         ContextKind ldDeviceKind = ContextKind.of(LD_DEVICE_KIND);
         Map<String, Callable<LDValue>> deviceCallables = new HashMap<>();
         deviceCallables.put(ENV_ATTRIBUTES_VERSION, () -> LDValue.of(SPEC_VERSION));
         deviceCallables.put(ATTR_MANUFACTURER, () -> LDValue.of(environmentReporter.getManufacturer()));
         deviceCallables.put(ATTR_MODEL, () -> LDValue.of(environmentReporter.getModel()));
-        deviceCallables.put(ATTR_LOCALE, () -> LDValue.of(environmentReporter.getLocale()));
         deviceCallables.put(ATTR_OS, () -> new ObjectBuilder()
                 .put(ATTR_FAMILY, environmentReporter.getOSFamily())
                 .put(ATTR_NAME, environmentReporter.getOSName())
@@ -138,7 +138,10 @@ public class AutoEnvContextModifier implements IContextModifier {
         return Arrays.asList(
                 new ContextRecipe(
                         ldApplicationKind,
-                        () -> persistentData.getOrGenerateContextKey(ldApplicationKind),
+                        () -> LDUtil.urlSafeBase64Hash(
+                                environmentReporter.getApplicationInfo().getApplicationId() + ":"
+                                        + environmentReporter.getApplicationInfo().getApplicationVersion()
+                        ),
                         applicationCallables
                 ),
                 new ContextRecipe(
