@@ -1,6 +1,8 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import android.app.Application;
@@ -238,6 +240,70 @@ public class LDClientEventTest {
                 // Verify that only the first event was sent and other events were dropped
                 LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
                 assertIdentifyEvent(events[0], ldUser);
+            }
+        }
+    }
+
+    @Test
+    public void testEventContainsAutoEnvAttributesWhenEnabled() throws Exception {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            HttpUrl baseUrl = mockEventsServer.url("/");
+            LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+                    .mobileKey(mobileKey)
+                    .diagnosticOptOut(true)
+                    .serviceEndpoints(Components.serviceEndpoints()
+                            .events(baseUrl.uri())
+                            .streaming(baseUrl.uri())
+                            .polling(baseUrl.uri())
+                    )
+                    .build();
+
+            // Don't wait as we are not set offline
+            try (LDClient ldClient = LDClient.init(application, ldConfig, ldUser, 0)){
+                ldClient.track("test-event");
+                ldClient.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], customEvent = events[1];
+                assertIdentifyEvent(identifyEvent, ldUser);
+                assertTrue(customEvent.get("contextKeys").toString().contains("ld_application"));
+                assertTrue(customEvent.get("contextKeys").toString().contains("ld_device"));
+            }
+        }
+    }
+
+    @Test
+    public void testEventDoesNotContainAutoEnvAttributesWhenDisabled() throws Exception {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            HttpUrl baseUrl = mockEventsServer.url("/");
+            LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                    .mobileKey(mobileKey)
+                    .diagnosticOptOut(true)
+                    .serviceEndpoints(Components.serviceEndpoints()
+                            .events(baseUrl.uri())
+                            .streaming(baseUrl.uri())
+                            .polling(baseUrl.uri())
+                    )
+                    .build();
+
+            // Don't wait as we are not set offline
+            try (LDClient ldClient = LDClient.init(application, ldConfig, ldUser, 0)){
+                ldClient.track("test-event");
+                ldClient.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], customEvent = events[1];
+                assertIdentifyEvent(identifyEvent, ldUser);
+                assertFalse(customEvent.get("contextKeys").toString().contains("ld_application"));
+                assertFalse(customEvent.get("contextKeys").toString().contains("ld_device"));
             }
         }
     }
