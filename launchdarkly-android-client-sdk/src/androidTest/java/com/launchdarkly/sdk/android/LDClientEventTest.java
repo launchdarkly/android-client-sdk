@@ -12,6 +12,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -257,7 +258,7 @@ public class LDClientEventTest {
 
     private LDConfig.Builder baseConfigBuilder(MockWebServer server) {
         HttpUrl baseUrl = server.url("/");
-        return new LDConfig.Builder()
+        return new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(mobileKey)
                 .diagnosticOptOut(true)
                 .serviceEndpoints(Components.serviceEndpoints().events(baseUrl.uri()));

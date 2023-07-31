@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
@@ -46,7 +47,7 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
 
     protected ContextDataManager createDataManager(int maxCachedContexts) {
         ClientContext clientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder().build(),
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(),
                 "mobile-key",
                 "",
                 null,

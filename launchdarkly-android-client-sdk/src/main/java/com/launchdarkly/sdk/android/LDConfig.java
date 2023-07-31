@@ -69,7 +69,7 @@ public class LDConfig {
     private final boolean disableBackgroundUpdating;
     private final boolean evaluationReasons;
     private final boolean generateAnonymousKeys;
-    private final boolean includeEnvironmentAttributes;
+    private final boolean autoEnvAttributes;
     private final LDLogAdapter logAdapter;
     private final String loggerName;
     private final int maxCachedContexts;
@@ -88,7 +88,7 @@ public class LDConfig {
              boolean diagnosticOptOut,
              int maxCachedContexts,
              boolean generateAnonymousKeys,
-             boolean includeEnvironmentAttributes,
+             boolean autoEnvAttributes,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
              String loggerName) {
@@ -104,7 +104,7 @@ public class LDConfig {
         this.diagnosticOptOut = diagnosticOptOut;
         this.maxCachedContexts = maxCachedContexts;
         this.generateAnonymousKeys = generateAnonymousKeys;
-        this.includeEnvironmentAttributes = includeEnvironmentAttributes;
+        this.autoEnvAttributes = autoEnvAttributes;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
@@ -140,8 +140,8 @@ public class LDConfig {
 
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
 
-    public boolean isIncludeEnvironmentAttributes() {
-        return includeEnvironmentAttributes;
+    public boolean isAutoEnvAttributes() {
+        return autoEnvAttributes;
     }
 
     PersistentDataStore getPersistentDataStore() { return persistentDataStore; }
@@ -161,6 +161,26 @@ public class LDConfig {
      * </pre>
      */
     public static class Builder {
+
+        /**
+         Enable / disable options for Auto Environment Attributes functionality.  When enabled, the SDK will automatically
+         provide data about the mobile environment where the application is running. This data makes it simpler to target
+         your mobile customers based on application name or version, or on device characteristics including manufacturer,
+         model, operating system, locale, and so on. We recommend enabling this when you configure the SDK.  See TKTK
+         for more documentation.
+         For example, consider a “dark mode” feature being added to an app. Versions 10 through 14 contain early,
+         incomplete versions of the feature. These versions are available to all customers, but the “dark mode” feature is only
+         enabled for testers.  With version 15, the feature is considered complete. With Auto Environment Attributes enabled,
+         you can use targeting rules to enable "dark mode" for all customers who are using version 15 or greater, and ensure
+         that customers on previous versions don't use the earlier, unfinished version of the feature.
+         */
+        public enum AutoEnvAttributes {
+            // Enables the Auto EnvironmentAttributes functionality.
+            Enabled,
+            // Disables the Auto EnvironmentAttributes functionality.
+            Disabled
+        }
+
         private String mobileKey;
         private Map<String, String> secondaryMobileKeys;
 
@@ -181,7 +201,7 @@ public class LDConfig {
 
         private boolean generateAnonymousKeys;
 
-        private boolean includeEnvironmentAttributes = false;
+        private boolean autoEnvAttributes = false;
 
         private PersistentDataStore persistentDataStore;
 
@@ -190,12 +210,27 @@ public class LDConfig {
         private LDLogLevel logLevel = null;
 
         /**
+         * LDConfig.Builder constructor. Configurable values are all set to their default values. The client app can
+         * modify these values as desired.
+         *
+         * @param autoEnvAttributes - Enable / disable Auto Environment Attributes functionality.  When enabled, the SDK
+         *                          will automatically provide data about the mobile environment where the application is
+         *                          running. This data makes it simpler to target your mobile customers based on
+         *                          application name or version, or on device characteristics including manufacturer,
+         *                          model, operating system, locale, and so on. We recommend enabling this when you
+         *                          configure the SDK.  See TKTK for more documentation.
+         */
+        public Builder(AutoEnvAttributes autoEnvAttributes) {
+            this.autoEnvAttributes = autoEnvAttributes == AutoEnvAttributes.Enabled; // mapping enum to boolean
+        }
+
+        /**
          * Sets the key for authenticating with LaunchDarkly. This is required unless you're using the client in offline mode.
          *
          * @param mobileKey Get this from the LaunchDarkly web app under Team Settings.
          * @return the builder
          */
-        public LDConfig.Builder mobileKey(String mobileKey) {
+        public Builder mobileKey(String mobileKey) {
             if (secondaryMobileKeys != null && secondaryMobileKeys.containsValue(mobileKey)) {
                 throw new IllegalArgumentException("The primary environment key cannot be in the secondary mobile keys.");
             }
@@ -210,7 +245,7 @@ public class LDConfig {
          * @param secondaryMobileKeys A map of identifying names to unique mobile keys to access secondary environments
          * @return the builder
          */
-        public LDConfig.Builder secondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
+        public Builder secondaryMobileKeys(Map<String, String> secondaryMobileKeys) {
             if (secondaryMobileKeys == null) {
                 this.secondaryMobileKeys = null;
                 return this;
@@ -304,7 +339,7 @@ public class LDConfig {
          * @see Components#pollingDataSource()
          * @since 3.3.0
          */
-        public LDConfig.Builder dataSource(ComponentConfigurer<DataSource> dataSourceConfigurer) {
+        public Builder dataSource(ComponentConfigurer<DataSource> dataSourceConfigurer) {
             this.dataSource = dataSourceConfigurer;
             return this;
         }
@@ -337,7 +372,7 @@ public class LDConfig {
          * @see Components#sendEvents()
          * @see Components#noEvents()
          */
-        public LDConfig.Builder events(ComponentConfigurer<EventProcessor> eventsConfigurer) {
+        public Builder events(ComponentConfigurer<EventProcessor> eventsConfigurer) {
             this.events = eventsConfigurer;
             return this;
         }
@@ -370,7 +405,7 @@ public class LDConfig {
          * @param disableBackgroundUpdating true if the client should skip updating flags when in the background
          * @return the builder
          */
-        public LDConfig.Builder disableBackgroundUpdating(boolean disableBackgroundUpdating) {
+        public Builder disableBackgroundUpdating(boolean disableBackgroundUpdating) {
             this.disableBackgroundUpdating = disableBackgroundUpdating;
             return this;
         }
@@ -386,7 +421,7 @@ public class LDConfig {
          * @param offline true if the client should run in offline mode
          * @return the builder
          */
-        public LDConfig.Builder offline(boolean offline) {
+        public Builder offline(boolean offline) {
             this.offline = offline;
             return this;
         }
@@ -402,7 +437,7 @@ public class LDConfig {
          * @param evaluationReasons  true if detail/reason information should be made available
          * @return the builder
          */
-        public LDConfig.Builder evaluationReasons(boolean evaluationReasons) {
+        public Builder evaluationReasons(boolean evaluationReasons) {
             this.evaluationReasons = evaluationReasons;
             return this;
         }
@@ -419,7 +454,7 @@ public class LDConfig {
          * @param diagnosticOptOut true if you want to opt out of sending any diagnostics data.
          * @return the builder
          */
-        public LDConfig.Builder diagnosticOptOut(boolean diagnosticOptOut) {
+        public Builder diagnosticOptOut(boolean diagnosticOptOut) {
             this.diagnosticOptOut = diagnosticOptOut;
             return this;
         }
@@ -437,7 +472,7 @@ public class LDConfig {
          *                          values represent allowing an unlimited number of cached contexts
          * @return the builder
          */
-        public LDConfig.Builder maxCachedContexts(int maxCachedContexts) {
+        public Builder maxCachedContexts(int maxCachedContexts) {
             this.maxCachedContexts = maxCachedContexts;
             return this;
         }
@@ -470,13 +505,8 @@ public class LDConfig {
          * @return the same builder
          * @since 4.0.0
          */
-        public LDConfig.Builder generateAnonymousKeys(boolean generateAnonymousKeys) {
+        public Builder generateAnonymousKeys(boolean generateAnonymousKeys) {
             this.generateAnonymousKeys = generateAnonymousKeys;
-            return this;
-        }
-
-        public LDConfig.Builder includeMobileEnvironmentAttributes(boolean include) {
-            this.includeEnvironmentAttributes = include;
             return this;
         }
 
@@ -487,7 +517,7 @@ public class LDConfig {
          * @param persistentDataStore the store implementation
          * @return the same builder
          */
-        LDConfig.Builder persistentDataStore(PersistentDataStore persistentDataStore) {
+        Builder persistentDataStore(PersistentDataStore persistentDataStore) {
             this.persistentDataStore = persistentDataStore;
             return this;
         }
@@ -520,7 +550,7 @@ public class LDConfig {
          * @see LDAndroidLogging
          * @see com.launchdarkly.logging.Logs
          */
-        public LDConfig.Builder logAdapter(LDLogAdapter logAdapter) {
+        public Builder logAdapter(LDLogAdapter logAdapter) {
             this.logAdapter = logAdapter == null ? defaultLogAdapter() : logAdapter;
             return this;
         }
@@ -558,7 +588,7 @@ public class LDConfig {
          * @see #logAdapter(LDLogAdapter)
          * @see #loggerName(String)
          */
-        public LDConfig.Builder logLevel(LDLogLevel logLevel) {
+        public Builder logLevel(LDLogLevel logLevel) {
             this.logLevel = logLevel;
             return this;
         }
@@ -578,7 +608,7 @@ public class LDConfig {
          * @see #logAdapter(LDLogAdapter)
          * @see #logLevel(LDLogLevel) 
          */
-        public LDConfig.Builder loggerName(String loggerName) {
+        public Builder loggerName(String loggerName) {
             this.loggerName = loggerName == null ? DEFAULT_LOGGER_NAME : loggerName;
             return this;
         }
@@ -630,7 +660,7 @@ public class LDConfig {
                     diagnosticOptOut,
                     maxCachedContexts,
                     generateAnonymousKeys,
-                    includeEnvironmentAttributes,
+                    autoEnvAttributes,
                     persistentDataStore,
                     actualLogAdapter,
                     loggerName);

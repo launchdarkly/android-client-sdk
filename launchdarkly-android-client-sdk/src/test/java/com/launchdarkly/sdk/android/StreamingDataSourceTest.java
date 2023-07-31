@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.Callback;
@@ -34,7 +35,7 @@ public class StreamingDataSourceTest {
 
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder().build(), "", "", null, CONTEXT,
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", null, CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
@@ -51,7 +52,7 @@ public class StreamingDataSourceTest {
     // that has a fetcher
     private ClientContext makeClientContextWithFetcher() {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder().build(), "", "", makeFeatureFetcher(), CONTEXT,
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", makeFeatureFetcher(), CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
