@@ -1,10 +1,16 @@
 package com.launchdarkly.sdk.android;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -15,11 +21,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
 public class MultiEnvironmentLDClientTest {
@@ -38,7 +39,7 @@ public class MultiEnvironmentLDClientTest {
         secondaryKeys.put("test", "test");
         secondaryKeys.put("test1", "test1");
 
-        ldConfig = new LDConfig.Builder()
+        ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey("default-mobile-key")
                 .offline(true)
                 .secondaryMobileKeys(secondaryKeys)

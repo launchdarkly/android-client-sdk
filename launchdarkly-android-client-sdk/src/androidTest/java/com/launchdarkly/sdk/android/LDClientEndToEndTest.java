@@ -14,6 +14,7 @@ import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.junit.After;
@@ -71,7 +72,7 @@ public class LDClientEndToEndTest {
     }
 
     private LDConfig.Builder baseConfig() {
-        return new LDConfig.Builder()
+        return new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .persistentDataStore(store)
                 .diagnosticOptOut(true)

@@ -1,13 +1,13 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.TestData;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
@@ -153,7 +153,7 @@ public class TestDataTest {
 
     private void createAndStart() {
         ClientContext clientContext = new ClientContext("", null, LDLogger.none(),
-                new LDConfig.Builder().build(), updates, "", false,
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), updates, "", false,
                 initialUser, null, false, null, null, false);
         DataSource ds = td.build(clientContext);
         AwaitableCallback<Boolean> callback = new AwaitableCallback<>();

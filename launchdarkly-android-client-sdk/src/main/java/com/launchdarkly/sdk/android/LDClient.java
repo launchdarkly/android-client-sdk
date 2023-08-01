@@ -132,12 +132,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
             EnvironmentReporterBuilder reporterBuilder = new EnvironmentReporterBuilder();
             reporterBuilder.setApplicationInfo(config.applicationInfo);
-            if (config.isIncludeEnvironmentAttributes()) {
+            if (config.isAutoEnvAttributes()) {
                 reporterBuilder.enableCollectionFromPlatform(application);
             }
             environmentReporter = reporterBuilder.build();
 
-            if (config.isIncludeEnvironmentAttributes()) {
+            if (config.isAutoEnvAttributes()) {
                 autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter, logger);
             } else {
                 autoEnvContextModifier = new NoOpContextModifier();

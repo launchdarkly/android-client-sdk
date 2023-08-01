@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
@@ -33,7 +34,7 @@ public class DiagnosticConfigTest {
     private static final ScheduledExecutorService EXECUTOR = Executors.newSingleThreadScheduledExecutor();
     @Test
     public void defaultDiagnosticConfiguration() throws Exception {
-        LDConfig ldConfig = new LDConfig.Builder().build();
+        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled).build();
         LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
         ObjectBuilder expected = makeExpectedDefaults();
         Assert.assertEquals(expected.build(), diagnosticJson);
@@ -43,7 +44,7 @@ public class DiagnosticConfigTest {
     public void customDiagnosticConfigurationGeneral() throws Exception {
         HashMap<String, String> secondaryKeys = new HashMap<>(1);
         secondaryKeys.put("secondary", "key");
-        LDConfig ldConfig = new LDConfig.Builder()
+        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .serviceEndpoints(Components.serviceEndpoints()
                         .events("https://1.1.1.1")
                         .polling("https://1.1.1.1")
@@ -68,7 +69,7 @@ public class DiagnosticConfigTest {
 
     @Test
     public void customDiagnosticConfigurationEvents() throws Exception {
-        LDConfig ldConfig = new LDConfig.Builder()
+        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .events(
                         Components.sendEvents()
                                 .allAttributesPrivate(true)
@@ -89,7 +90,7 @@ public class DiagnosticConfigTest {
 
     @Test
     public void customDiagnosticConfigurationStreaming() throws Exception {
-        LDConfig ldConfig = new LDConfig.Builder()
+        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .dataSource(
                         Components.streamingDataSource()
                                 .backgroundPollIntervalMillis(900_000)
@@ -106,7 +107,7 @@ public class DiagnosticConfigTest {
 
     @Test
     public void customDiagnosticConfigurationPolling() throws Exception {
-        LDConfig ldConfig = new LDConfig.Builder()
+        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .dataSource(
                         Components.pollingDataSource()
                                 .backgroundPollIntervalMillis(900_000)
@@ -124,7 +125,7 @@ public class DiagnosticConfigTest {
 
     @Test
     public void customDiagnosticConfigurationHttp() throws Exception {
-        LDConfig ldConfig = new LDConfig.Builder()
+        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .http(
                         Components.httpConfiguration()
                                 .connectTimeoutMillis(5_000)

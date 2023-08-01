@@ -1,6 +1,8 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import android.app.Application;
@@ -12,6 +14,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -241,6 +244,70 @@ public class LDClientEventTest {
         }
     }
 
+    @Test
+    public void testEventContainsAutoEnvAttributesWhenEnabled() throws Exception {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            HttpUrl baseUrl = mockEventsServer.url("/");
+            LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+                    .mobileKey(mobileKey)
+                    .diagnosticOptOut(true)
+                    .serviceEndpoints(Components.serviceEndpoints()
+                            .events(baseUrl.uri())
+                            .streaming(baseUrl.uri())
+                            .polling(baseUrl.uri())
+                    )
+                    .build();
+
+            // Don't wait as we are not set offline
+            try (LDClient ldClient = LDClient.init(application, ldConfig, ldUser, 0)){
+                ldClient.track("test-event");
+                ldClient.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], customEvent = events[1];
+                assertIdentifyEvent(identifyEvent, ldUser);
+                assertTrue(customEvent.get("contextKeys").toString().contains("ld_application"));
+                assertTrue(customEvent.get("contextKeys").toString().contains("ld_device"));
+            }
+        }
+    }
+
+    @Test
+    public void testEventDoesNotContainAutoEnvAttributesWhenDisabled() throws Exception {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            HttpUrl baseUrl = mockEventsServer.url("/");
+            LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                    .mobileKey(mobileKey)
+                    .diagnosticOptOut(true)
+                    .serviceEndpoints(Components.serviceEndpoints()
+                            .events(baseUrl.uri())
+                            .streaming(baseUrl.uri())
+                            .polling(baseUrl.uri())
+                    )
+                    .build();
+
+            // Don't wait as we are not set offline
+            try (LDClient ldClient = LDClient.init(application, ldConfig, ldUser, 0)){
+                ldClient.track("test-event");
+                ldClient.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], customEvent = events[1];
+                assertIdentifyEvent(identifyEvent, ldUser);
+                assertFalse(customEvent.get("contextKeys").toString().contains("ld_application"));
+                assertFalse(customEvent.get("contextKeys").toString().contains("ld_device"));
+            }
+        }
+    }
+
     private LDValue[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws InterruptedException {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());
@@ -257,7 +324,7 @@ public class LDClientEventTest {
 
     private LDConfig.Builder baseConfigBuilder(MockWebServer server) {
         HttpUrl baseUrl = server.url("/");
-        return new LDConfig.Builder()
+        return new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(mobileKey)
                 .diagnosticOptOut(true)
                 .serviceEndpoints(Components.serviceEndpoints().events(baseUrl.uri()));
