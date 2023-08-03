@@ -3,7 +3,6 @@ package com.launchdarkly.sdktest;
 import com.google.gson.annotations.SerializedName;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 
 import java.util.Map;
@@ -68,7 +67,6 @@ public abstract class Representations {
 
     public static class SdkConfigClientSideParams {
         LDContext initialContext;
-        LDUser initialUser;
         boolean evaluationReasons;
         boolean useReport;
         boolean includeEnvironmentAttributes;
@@ -109,7 +107,6 @@ public abstract class Representations {
 
     public static class IdentifyEventParams {
         LDContext context;
-        LDUser user;
     }
 
     public static class CustomEventParams {

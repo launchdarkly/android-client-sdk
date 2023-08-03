@@ -50,7 +50,7 @@ public class LDConfigTest {
     }
 
     @Test
-    public void testBuilderMaxCachedUsers() {
+    public void testBuilderMaxCachedContexts() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).maxCachedContexts(0).build();
         assertEquals(0, config.getMaxCachedContexts());
         config = new LDConfig.Builder(AutoEnvAttributes.Disabled).maxCachedContexts(10).build();

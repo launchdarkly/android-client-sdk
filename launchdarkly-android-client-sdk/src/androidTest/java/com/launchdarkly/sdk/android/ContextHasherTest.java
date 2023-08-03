@@ -9,10 +9,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
 @RunWith(AndroidJUnit4.class)
-public class UserHasherTest {
+public class ContextHasherTest {
 
     @Test
-    public void testUserHasherReturnsUniqueResults(){
+    public void testContextHasherReturnsUniqueResults(){
         ContextHasher contextHasher1 = new ContextHasher();
 
         String input1 = "{'key':'userKey1'}";
@@ -22,7 +22,7 @@ public class UserHasherTest {
     }
 
     @Test
-    public void testDifferentUserHashersReturnSameResults(){
+    public void testDifferentContextHashersReturnSameResults(){
         ContextHasher contextHasher1 = new ContextHasher();
         ContextHasher contextHasher2 = new ContextHasher();
         ContextHasher contextHasher3 = new ContextHasher();

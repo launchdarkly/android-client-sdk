@@ -67,8 +67,8 @@ public abstract class HttpConfigurationBuilder implements ComponentConfigurer<Ht
      * Sets whether to use the HTTP REPORT method for feature flag requests.
      * <p>
      * By default, polling and streaming connections are made with the GET method, with the context
-     * data encoded into the request URI. Using REPORT allows the user data to be sent in the request
-     * body instead, which is somewhat more secure and efficient.
+     * data encoded into the request URI. Using REPORT allows the context data to be sent in the
+     * request body instead, which is somewhat more secure and efficient.
      * <p>
      * However, the REPORT method is not always supported by operating systems or network gateways.
      * Therefore it is disabled in the SDK by default. You can enable it if you know your code will

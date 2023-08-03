@@ -10,7 +10,6 @@ import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
@@ -80,7 +79,6 @@ public class LDClient implements LDClientInterface, Closeable {
      *                    about setting the context and optionally requesting a unique key for it
      * @return a {@link Future} which will complete once the client has been initialized
      * @see #init(Application, LDConfig, LDContext, int)
-     * @see #init(Application, LDConfig, LDUser)
      * @since 3.0.0
      */
     public static Future<LDClient> init(@NonNull Application application,
@@ -206,30 +204,6 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     /**
-     * Initializes the singleton/primary instance.
-     * <p>
-     * This is equivalent to {@link #init(Application, LDConfig, LDContext)}, but using the
-     * {@link LDUser} type instead of {@link LDContext}.
-     *
-     * @param application your Android application
-     * @param config      configuration used to set up the client
-     * @param user        the initial user attributes, which will be converted to an evaluation
-     *                    context; see {@link LDClient} for more information about setting the
-     *                    context and optionally requesting a unique key for it
-     * @return a {@link Future} which will complete once the client has been initialized
-     * @see #init(Application, LDConfig, LDUser, int)
-     * @see #init(Application, LDConfig, LDContext)
-     *
-     * @deprecated use {@link #init(Application, LDConfig, LDContext)} with {@link LDContext}
-     */
-    @Deprecated
-    public static Future<LDClient> init(@NonNull Application application,
-                                        @NonNull LDConfig config,
-                                        @NonNull LDUser user) {
-        return init(application, config, LDContext.fromUser(user));
-    }
-
-    /**
      * Initializes the singleton instance and blocks for up to <code>startWaitSeconds</code> seconds
      * until the client has been initialized. If the client does not initialize within
      * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
@@ -243,7 +217,6 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param startWaitSeconds maximum number of seconds to wait for the client to initialize
      * @return the primary LDClient instance
      * @see #init(Application, LDConfig, LDContext)
-     * @see #init(Application, LDConfig, LDUser, int)
      * @since 3.0.0
      */
     public static LDClient init(Application application, LDConfig config, LDContext context, int startWaitSeconds) {
@@ -259,32 +232,6 @@ public class LDClient implements LDClientInterface, Closeable {
             getSharedLogger().warn("Client did not successfully initialize within {} seconds. It could be taking longer than expected to start up", startWaitSeconds);
         }
         return instances.get(LDConfig.primaryEnvironmentName);
-    }
-
-    /**
-     * Initializes the singleton instance and blocks for up to <code>startWaitSeconds</code> seconds
-     * until the client has been initialized. If the client does not initialize within
-     * <code>startWaitSeconds</code> seconds, it is returned anyway and can be used, but may not
-     * have fetched the most recent feature flag values.
-     * <p>
-     * This is equivalent to {@link #init(Application, LDConfig, LDContext, int)}, but using the
-     * {@link LDUser} type instead of {@link LDContext}.
-     *
-     * @param application      your Android application
-     * @param config           configuration used to set up the client
-     * @param user             the initial user attributes, which will be converted to an evaluation
-     *                         context; see {@link LDClient} for more information about setting the
-     *                         context and optionally requesting a unique key for it
-     * @param startWaitSeconds maximum number of seconds to wait for the client to initialize
-     * @return the primary LDClient instance
-     * @see #init(Application, LDConfig, LDUser)
-     * @see #init(Application, LDConfig, LDContext, int)
-     *
-     * @deprecated use {@link #init(Application, LDConfig, LDContext, int)}  with {@link LDContext}
-     */
-    @Deprecated
-    public static LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
-        return init(application, config, LDContext.fromUser(user), startWaitSeconds);
     }
     
     /**
@@ -424,15 +371,6 @@ public class LDClient implements LDClientInterface, Closeable {
         LDContext modifiedContext = autoEnvContextModifier.modifyContext(context); // this may be a no-op modifier
         modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext);
         return identifyInstances(modifiedContext);
-    }
-
-    /**
-     * @deprecated use {@link #identify(LDContext)} with {@link LDContext}
-     */
-    @Deprecated
-    @Override
-    public Future<Void> identify(LDUser user) {
-        return identify(LDContext.fromUser(user));
     }
 
     private @NonNull Map<String, LDClient> getInstancesIfTheyIncludeThisClient() {
