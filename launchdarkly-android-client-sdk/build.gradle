@@ -109,6 +109,7 @@ task javadoc(type: Javadoc) {
     source android.sourceSets.main.java.srcDirs
     // Include common library sources
     source configurations.commonDoc.collect { zipTree(it) }
+    source "$buildDir/generated/source"
 
     include("**/*.java")
 

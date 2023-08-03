@@ -62,9 +62,7 @@ public class SdkClientEntity {
     long startWaitMs = params.configuration.startWaitTimeMs != null ?
             params.configuration.startWaitTimeMs.longValue() : 5000;
     Representations.SdkConfigClientSideParams clientSideParams = params.configuration.clientSide;
-    Future<LDClient> initFuture = clientSideParams.initialUser == null ?
-            LDClient.init(application, config, clientSideParams.initialContext) :
-            LDClient.init(application, config, clientSideParams.initialUser);
+    Future<LDClient> initFuture = LDClient.init(application, config, clientSideParams.initialContext);
     // Try to initialize client, but if it fails, keep going in case the test harness wants us to
     // work with an uninitialized client
     try {
@@ -184,11 +182,7 @@ public class SdkClientEntity {
 
   private void doIdentifyEvent(IdentifyEventParams params) {
     try {
-      if (params.user == null) {
-        client.identify(params.context).get();
-      } else {
-        client.identify(params.user).get();
-      }
+      client.identify(params.context).get();
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException("Error waiting for identify", e);
     }
@@ -254,7 +248,9 @@ public class SdkClientEntity {
   }
 
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
-    LDConfig.Builder builder = new LDConfig.Builder();
+    LDConfig.Builder builder = new LDConfig.Builder(params.clientSide.includeEnvironmentAttributes ?
+            LDConfig.Builder.AutoEnvAttributes.Enabled : LDConfig.Builder.AutoEnvAttributes.Disabled);
+
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
 

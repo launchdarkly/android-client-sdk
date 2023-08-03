@@ -13,6 +13,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 
@@ -171,7 +172,7 @@ public class LDClientEvaluationTest {
         ComponentConfigurer<DataSource> dataSourceConfig = clientContext ->
                 MockComponents.successfulDataSource(clientContext, data, ConnectionInformation.ConnectionMode.POLLING,
                         null, null);
-        LDConfig config = new LDConfig.Builder()
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(mobileKey)
                 .dataSource(dataSourceConfig)
                 .events(Components.noEvents())
