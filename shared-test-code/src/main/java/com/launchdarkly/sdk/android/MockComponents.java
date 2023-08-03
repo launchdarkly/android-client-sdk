@@ -1,13 +1,18 @@
 package com.launchdarkly.sdk.android;
 
 import static com.launchdarkly.sdk.android.AssertHelpers.requireValue;
+import static org.easymock.EasyMock.createMock;
+import static org.easymock.EasyMock.expect;
+import static org.easymock.EasyMock.mock;
+import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
+import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;

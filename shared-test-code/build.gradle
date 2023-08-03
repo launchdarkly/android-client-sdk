@@ -32,4 +32,5 @@ dependencies {
     implementation("androidx.annotation:annotation:${versions.androidAnnotation}")
     implementation("com.google.code.gson:gson:${versions.gson}")
     implementation("junit:junit:${versions.junit}")
+    implementation("org.easymock:easymock:4.3")
 }

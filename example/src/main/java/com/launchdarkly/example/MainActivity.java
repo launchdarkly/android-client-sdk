@@ -19,6 +19,7 @@ import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
 
@@ -68,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
         setupOfflineSwitch();
         setupListeners();
 
-        LDConfig ldConfig = new LDConfig.Builder()
+        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Enabled)
                 .mobileKey("MOBILE_KEY")
                 .http(
                         Components.httpConfiguration().useReport(false)

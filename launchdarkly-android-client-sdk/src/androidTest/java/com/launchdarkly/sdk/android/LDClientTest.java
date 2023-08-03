@@ -1,5 +1,10 @@
 package com.launchdarkly.sdk.android;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import android.app.Application;
 
 import androidx.test.core.app.ApplicationProvider;
@@ -8,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.junit.Before;
@@ -17,11 +23,6 @@ import org.junit.runner.RunWith;
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
 public class LDClientTest {
@@ -54,7 +55,7 @@ public class LDClientTest {
     @Test
     public void testOfflineClientUsesStoredFlags() throws Exception {
         PersistentDataStore store = new InMemoryPersistentDataStore();
-        LDConfig config = new LDConfig.Builder()
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(mobileKey)
                 .offline(true)
                 .persistentDataStore(store)
@@ -175,7 +176,7 @@ public class LDClientTest {
     }
 
     private LDConfig makeOfflineConfig() {
-        return new LDConfig.Builder()
+        return new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(mobileKey)
                 .offline(true)
                 .build();

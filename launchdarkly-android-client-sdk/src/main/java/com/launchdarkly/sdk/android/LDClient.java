@@ -12,6 +12,8 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -46,8 +48,10 @@ public class LDClient implements LDClientInterface, Closeable {
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
     private static volatile PlatformState sharedPlatformState;
+    private static volatile IEnvironmentReporter environmentReporter;
     private static volatile TaskExecutor sharedTaskExecutor;
-    private static volatile ContextDecorator contextDecorator;
+    private static volatile IContextModifier autoEnvContextModifier;
+    private static volatile IContextModifier anonymousKeyContextModifier;
 
     // A lock to ensure calls to `init()` are serialized.
     static Object initLock = new Object();
@@ -103,7 +107,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         final LDAwaitFuture<LDClient> resultFuture = new LDAwaitFuture<>();
         LDClient primaryClient;
-        LDContext actualContext;
+        LDContext modifiedContext;
 
         // Acquire the `initLock` to ensure that if `init()` is called multiple times, we will only
         // initialize the client(s) once.
@@ -123,11 +127,25 @@ public class LDClient implements LDClientInterface, Closeable {
                     store,
                     logger
             );
-            contextDecorator = new ContextDecorator(persistentData, config.isGenerateAnonymousKeys());
 
             Migration.migrateWhenNeeded(store, logger);
 
-            actualContext = contextDecorator.decorateContext(context, logger);
+            EnvironmentReporterBuilder reporterBuilder = new EnvironmentReporterBuilder();
+            reporterBuilder.setApplicationInfo(config.applicationInfo);
+            if (config.isAutoEnvAttributes()) {
+                reporterBuilder.enableCollectionFromPlatform(application);
+            }
+            environmentReporter = reporterBuilder.build();
+
+            if (config.isAutoEnvAttributes()) {
+                autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter, logger);
+            } else {
+                autoEnvContextModifier = new NoOpContextModifier();
+            }
+            anonymousKeyContextModifier = new AnonymousKeyContextModifier(persistentData, config.isGenerateAnonymousKeys());
+
+            modifiedContext = autoEnvContextModifier.modifyContext(context);
+            modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext);
 
             // Create, but don't start, every LDClient instance
             final Map<String, LDClient> newInstances = new HashMap<>();
@@ -138,9 +156,10 @@ public class LDClient implements LDClientInterface, Closeable {
                 try {
                     final LDClient instance = new LDClient(
                             sharedPlatformState,
+                            environmentReporter,
                             sharedTaskExecutor,
                             persistentData.perEnvironmentData(mobileKey),
-                            actualContext,
+                            modifiedContext,
                             config,
                             mobileKey,
                             envName
@@ -179,7 +198,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // Start up all instances
         for (final LDClient instance : instances.values()) {
             if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
-                instance.eventProcessor.recordIdentifyEvent(actualContext);
+                instance.eventProcessor.recordIdentifyEvent(modifiedContext);
             }
         }
 
@@ -310,6 +329,7 @@ public class LDClient implements LDClientInterface, Closeable {
     @VisibleForTesting
     protected LDClient(
             @NonNull final PlatformState platformState,
+            @NonNull final IEnvironmentReporter environmentReporter,
             @NonNull final TaskExecutor taskExecutor,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             @NonNull LDContext initialContext,
@@ -332,7 +352,7 @@ public class LDClient implements LDClientInterface, Closeable {
         FeatureFetcher fetcher = null;
         if (config.dataSource instanceof ComponentsImpl.DataSourceRequiresFeatureFetcher) {
             ClientContextImpl minimalContext = ClientContextImpl.fromConfig(config, mobileKey,
-                    environmentName, null, initialContext, logger, platformState, taskExecutor
+                    environmentName, null, initialContext, logger, platformState, environmentReporter, taskExecutor
             );
             fetcher = new HttpFeatureFlagFetcher(minimalContext);
         }
@@ -344,6 +364,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 initialContext,
                 logger,
                 platformState,
+                environmentReporter,
                 taskExecutor
         );
 
@@ -393,7 +414,10 @@ public class LDClient implements LDClientInterface, Closeable {
             logger.warn("identify() was called with an invalid context: {}", context.getError());
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
-        return identifyInstances(contextDecorator.decorateContext(context, getSharedLogger()));
+
+        LDContext modifiedContext = autoEnvContextModifier.modifyContext(context); // this may be a no-op modifier
+        modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext);
+        return identifyInstances(modifiedContext);
     }
 
     @Override

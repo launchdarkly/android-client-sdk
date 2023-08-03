@@ -13,8 +13,11 @@ import org.easymock.EasyMockSupport;
 import org.junit.Rule;
 import org.junit.Test;
 
+import static org.easymock.EasyMock.anyString;
+import static org.easymock.EasyMock.eq;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
+import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -205,38 +208,50 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     }
 
     @Test
-    public void getGeneratedContextKey() {
+    public void getOrGenerateContextKeyExisting() {
         expect(mockPersistentStore.getValue(EXPECTED_GLOBAL_NAMESPACE,
                 EXPECTED_GENERATED_CONTEXT_KEY_PREFIX + "user")).andReturn("key1");
         expect(mockPersistentStore.getValue(EXPECTED_GLOBAL_NAMESPACE,
                 EXPECTED_GENERATED_CONTEXT_KEY_PREFIX + "org")).andReturn("key2");
         replayAll();
 
-        assertEquals("key1", wrapper.getGeneratedContextKey(ContextKind.DEFAULT));
-        assertEquals("key2", wrapper.getGeneratedContextKey(ContextKind.of("org")));
+        assertEquals("key1", wrapper.getOrGenerateContextKey(ContextKind.DEFAULT));
+        assertEquals("key2", wrapper.getOrGenerateContextKey(ContextKind.of("org")));
         verifyAll();
         logging.assertNothingLogged();
     }
 
     @Test
-    public void getGeneratedContextKeyNotFound() {
+    public void getOrGenerateContextKeyNotFound() {
         expect(mockPersistentStore.getValue(EXPECTED_GLOBAL_NAMESPACE,
                 EXPECTED_GENERATED_CONTEXT_KEY_PREFIX + "user")).andReturn(null);
+        mockPersistentStore.setValue(
+                eq(EXPECTED_GLOBAL_NAMESPACE),
+                eq(EXPECTED_GENERATED_CONTEXT_KEY_PREFIX + "user"),
+                anyString()
+        );
+        expectLastCall();
         replayAll();
 
-        assertNull( wrapper.getGeneratedContextKey(ContextKind.DEFAULT));
+        assertNotNull( wrapper.getOrGenerateContextKey(ContextKind.DEFAULT));
         verifyAll();
-        logging.assertNothingLogged();
+        logging.assertInfoLogged("Did not find a generated key for context kind \"user\"");
     }
 
     @Test
-    public void getGeneratedContextKeyWhenStoreThrowsException() {
+    public void getOrGenerateContextKeyWhenStoreThrowsException() {
         expect(mockPersistentStore.getValue(EXPECTED_GLOBAL_NAMESPACE,
                 EXPECTED_GENERATED_CONTEXT_KEY_PREFIX + "user"))
                 .andThrow(makeException());
+        mockPersistentStore.setValue(
+                eq(EXPECTED_GLOBAL_NAMESPACE),
+                eq(EXPECTED_GENERATED_CONTEXT_KEY_PREFIX + "user"),
+                anyString()
+        );
+        expectLastCall();
         replayAll();
 
-        assertNull( wrapper.getGeneratedContextKey(ContextKind.DEFAULT));
+        assertNotNull( wrapper.getOrGenerateContextKey(ContextKind.DEFAULT));
         verifyAll();
         assertStoreErrorWasLogged();
     }

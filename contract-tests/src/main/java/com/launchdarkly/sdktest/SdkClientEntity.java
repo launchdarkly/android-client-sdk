@@ -254,7 +254,9 @@ public class SdkClientEntity {
   }
 
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
-    LDConfig.Builder builder = new LDConfig.Builder();
+    LDConfig.Builder builder = new LDConfig.Builder(params.clientSide.includeEnvironmentAttributes ?
+            LDConfig.Builder.AutoEnvAttributes.Enabled : LDConfig.Builder.AutoEnvAttributes.Disabled);
+
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
 

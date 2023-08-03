@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.TestData;
 
 import org.junit.Before;
@@ -26,7 +27,7 @@ public class TestDataWithLDClientTest {
     private Application application;
 
     public TestDataWithLDClientTest() {
-        config = new LDConfig.Builder().mobileKey("mobile-key")
+        config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey("mobile-key")
                 .dataSource(td)
                 .events(Components.noEvents())
                 .build();

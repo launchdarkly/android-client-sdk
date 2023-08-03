@@ -7,6 +7,9 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
@@ -20,6 +23,7 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
 
     protected final PersistentDataStore store;
     protected final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
+    protected final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
     protected final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
 
     @Rule
@@ -43,13 +47,14 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
 
     protected ContextDataManager createDataManager(int maxCachedContexts) {
         ClientContext clientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder().build(),
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(),
                 "mobile-key",
                 "",
                 null,
                 INITIAL_CONTEXT,
                 logging.logger,
                 null,
+                environmentReporter,
                 taskExecutor
         );
         return new ContextDataManager(

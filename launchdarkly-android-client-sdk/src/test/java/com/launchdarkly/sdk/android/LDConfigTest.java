@@ -1,5 +1,15 @@
 package com.launchdarkly.sdk.android;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.subsystems.ClientContext;
+
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -10,20 +20,12 @@ import java.util.Map;
 
 import okhttp3.Headers;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import com.launchdarkly.sdk.android.subsystems.ClientContext;
-
 public class LDConfigTest {
     @Rule public LogCaptureRule logging = new LogCaptureRule();
 
     @Test
     public void testBuilderDefaults() {
-        LDConfig config = new LDConfig.Builder().build();
+        LDConfig config = new LDConfig.Builder(LDConfig.Builder.AutoEnvAttributes.Disabled).build();
         assertFalse(config.isOffline());
 
         assertFalse(config.isDisableBackgroundPolling());
@@ -35,25 +37,25 @@ public class LDConfigTest {
 
     @Test
     public void testBuilderEvaluationReasons() {
-        LDConfig config = new LDConfig.Builder().evaluationReasons(true).build();
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).evaluationReasons(true).build();
 
         assertTrue(config.isEvaluationReasons());
     }
 
     @Test
     public void testBuilderDiagnosticOptOut() {
-        LDConfig config = new LDConfig.Builder().diagnosticOptOut(true).build();
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).diagnosticOptOut(true).build();
 
         assertTrue(config.getDiagnosticOptOut());
     }
 
     @Test
     public void testBuilderMaxCachedUsers() {
-        LDConfig config = new LDConfig.Builder().maxCachedContexts(0).build();
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).maxCachedContexts(0).build();
         assertEquals(0, config.getMaxCachedContexts());
-        config = new LDConfig.Builder().maxCachedContexts(10).build();
+        config = new LDConfig.Builder(AutoEnvAttributes.Disabled).maxCachedContexts(10).build();
         assertEquals(10, config.getMaxCachedContexts());
-        config = new LDConfig.Builder().maxCachedContexts(-1).build();
+        config = new LDConfig.Builder(AutoEnvAttributes.Disabled).maxCachedContexts(-1).build();
         assertEquals(-1, config.getMaxCachedContexts());
     }
 
@@ -71,13 +73,13 @@ public class LDConfigTest {
 
     @Test
     public void headersForEnvironment() {
-        LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey("test-key").build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
-                null, null, null, null, null);
+                null, null, null, null, new EnvironmentReporterBuilder().build(), null);
         Map<String, String> headers = headersToMap(
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
-        assertEquals(2, headers.size());
+        assertEquals(3, headers.size());
         assertEquals(LDUtil.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
         assertEquals("api_key test-key", headers.get("authorization"));
     }
@@ -85,7 +87,7 @@ public class LDConfigTest {
     @Test
     public void headersForEnvironmentWithTransform() {
         HashMap<String, String> expected = new HashMap<>();
-        LDConfig config = new LDConfig.Builder().mobileKey("test-key")
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey("test-key")
                 .http(Components.httpConfiguration().headerTransform(headers -> {
                     assertEquals(expected, headers);
                     headers.remove("User-Agent");
@@ -94,21 +96,24 @@ public class LDConfigTest {
                 }))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "test-key", "",
-                null, null, null, null, null);
+                null, null, null, null, new EnvironmentReporterBuilder().build(), null);
 
         expected.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
+        expected.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-version/" +
+                BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
         Map<String, String> headers = headersToMap(
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );
-        assertEquals(2, headers.size());
+
+        assertEquals(3, headers.size());
         assertEquals("api_key test-key, more", headers.get("authorization"));
         assertEquals("value", headers.get("new"));
     }
 
     @Test
     public void serviceEndpointsDefault() {
-        LDConfig config = new LDConfig.Builder().mobileKey("test-key").build();
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey("test-key").build();
         assertEquals(StandardEndpoints.DEFAULT_STREAMING_BASE_URI,
                 config.serviceEndpoints.getStreamingBaseUri());
         assertEquals(StandardEndpoints.DEFAULT_POLLING_BASE_URI,
@@ -119,7 +124,7 @@ public class LDConfigTest {
 
     @Test
     public void serviceEndpointsBuilderNullIsSameAsDefault() {
-        LDConfig config = new LDConfig.Builder().mobileKey("test-key")
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey("test-key")
                 .serviceEndpoints(
                         Components.serviceEndpoints().streaming("x")
                 )
@@ -135,7 +140,7 @@ public class LDConfigTest {
 
     @Test
     public void serviceEndpointsCustom() {
-        LDConfig config = new LDConfig.Builder().mobileKey("test-key")
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey("test-key")
                 .serviceEndpoints(
                         Components.serviceEndpoints().streaming("http://uri1")
                                 .polling("http://uri2")
