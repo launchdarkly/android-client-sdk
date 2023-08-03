@@ -30,7 +30,7 @@ import okhttp3.Headers;
 
 class LDUtil {
     static final String AUTH_SCHEME = "api_key ";
-    static final String USER_AGENT_HEADER_VALUE = "AndroidClient/" + BuildConfig.VERSION_NAME;
+    static final String USER_AGENT_HEADER_VALUE = LDPackageConsts.SDK_CLIENT_NAME + "/" + BuildConfig.VERSION_NAME;
 
     static <T> Callback<T> noOpCallback() {
         return new Callback<T>() {
@@ -57,6 +57,7 @@ class LDUtil {
         String[][] tags = {
                 {"applicationId", "application-id", applicationInfo.getApplicationId()},
                 {"applicationVersion", "application-version", applicationInfo.getApplicationVersion()},
+                {"applicationVersionName", "application-version-name", applicationInfo.getApplicationVersionName()}
         };
         List<String> parts = new ArrayList<>();
         for (String[] row : tags) {

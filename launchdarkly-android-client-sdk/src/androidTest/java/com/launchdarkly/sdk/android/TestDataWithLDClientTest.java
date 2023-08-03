@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.TestData;
 
 import org.junit.Before;
@@ -21,12 +22,12 @@ import org.junit.runner.RunWith;
 public class TestDataWithLDClientTest {
     private final TestData td = TestData.dataSource();
     private final LDConfig config;
-    private final LDContext user = LDContext.create("userkey");
+    private final LDContext context = LDContext.create("userkey");
 
     private Application application;
 
     public TestDataWithLDClientTest() {
-        config = new LDConfig.Builder().mobileKey("mobile-key")
+        config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey("mobile-key")
                 .dataSource(td)
                 .events(Components.noEvents())
                 .build();
@@ -38,7 +39,7 @@ public class TestDataWithLDClientTest {
     }
 
     private LDClient makeClient() throws Exception {
-        return LDClient.init(application, config, user, 5);
+        return LDClient.init(application, config, context, 5);
     }
 
     @Test
@@ -75,17 +76,17 @@ public class TestDataWithLDClientTest {
                 .variation(0)
                 .variationValueFunc(c -> c.getValue("favoriteColor"))
                 );
-        LDContext user1 = LDContext.create("user1");
-        LDContext user2 = LDContext.builder("user2").set("favoriteColor", "green").build();
-        LDContext user3 = LDContext.builder("user3").set("favoriteColor", "blue").build();
+        LDContext context1 = LDContext.create("user1");
+        LDContext context2 = LDContext.builder("user2").set("favoriteColor", "green").build();
+        LDContext context3 = LDContext.builder("user3").set("favoriteColor", "blue").build();
 
-        try (LDClient client = LDClient.init(application, config, user1, 5);) {
+        try (LDClient client = LDClient.init(application, config, context1, 5);) {
             assertEquals("red", client.stringVariation("flag", ""));
 
-            client.identify(user2).get();
+            client.identify(context2).get();
             assertEquals("green", client.stringVariation("flag", ""));
 
-            client.identify(user3).get();
+            client.identify(context3).get();
             assertEquals("blue", client.stringVariation("flag", ""));
         }
     }

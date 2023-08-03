@@ -4,6 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
+import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
@@ -26,12 +29,14 @@ public class StreamingDataSourceTest {
 
     private final MockComponents.MockDataSourceUpdateSink dataSourceUpdateSink = new MockComponents.MockDataSourceUpdateSink();
     private final MockPlatformState platformState = new MockPlatformState();
+
+    private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
     private final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
 
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder().build(), "", "", null, CONTEXT,
-                logging.logger, platformState, taskExecutor);
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", null, CONTEXT,
+                logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
@@ -47,8 +52,8 @@ public class StreamingDataSourceTest {
     // that has a fetcher
     private ClientContext makeClientContextWithFetcher() {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder().build(), "", "", makeFeatureFetcher(), CONTEXT,
-                logging.logger, platformState, taskExecutor);
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", makeFeatureFetcher(), CONTEXT,
+                logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,

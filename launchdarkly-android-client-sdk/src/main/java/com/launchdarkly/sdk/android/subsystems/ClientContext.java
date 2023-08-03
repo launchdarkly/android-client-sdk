@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android.subsystems;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
@@ -22,7 +23,7 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
  * @since 3.3.0
  */
 public class ClientContext {
-    private final ApplicationInfo applicationInfo;
+    private final IEnvironmentReporter environmentReporter;
     private final LDLogger baseLogger;
     private final LDConfig config;
     private final DataSourceUpdateSink dataSourceUpdateSink;
@@ -40,6 +41,7 @@ public class ClientContext {
      * Constructs an instance, specifying all properties.
      *
      * @param mobileKey see {@link #getMobileKey()}
+     * @param environmentReporter see {@link #getEnvironmentReporter()}
      * @param baseLogger see {@link #getBaseLogger()}
      * @param config see {@link #getConfig()}
      * @param dataSourceUpdateSink see {@link #getDataSourceUpdateSink()}
@@ -54,7 +56,7 @@ public class ClientContext {
      */
     public ClientContext(
             String mobileKey,
-            ApplicationInfo applicationInfo,
+            IEnvironmentReporter environmentReporter,
             LDLogger baseLogger,
             LDConfig config,
             DataSourceUpdateSink dataSourceUpdateSink,
@@ -68,7 +70,7 @@ public class ClientContext {
             boolean setOffline
     ) {
         this.mobileKey = mobileKey;
-        this.applicationInfo = applicationInfo;
+        this.environmentReporter = environmentReporter;
         this.baseLogger = baseLogger;
         this.config = config;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
@@ -82,102 +84,29 @@ public class ClientContext {
         this.setOffline = setOffline;
     }
 
-    /**
-     * Deprecated constructor overload.
-     *
-     * @param mobileKey see {@link #getMobileKey()}
-     * @param baseLogger see {@link #getBaseLogger()}
-     * @param config see {@link #getConfig()}
-     * @param dataSourceUpdateSink see {@link #getDataSourceUpdateSink()}
-     * @param environmentName see {@link #getEnvironmentName()}
-     * @param evaluationReasons see {@link #isEvaluationReasons()}
-     * @param evaluationContext see {@link #getEvaluationContext()}
-     * @param http see {@link #getHttp()}
-     * @param inBackground see {@link #isInBackground()}
-     * @param serviceEndpoints see {@link #getServiceEndpoints()}
-     * @param setOffline see {@link #isSetOffline()}
-     * @deprecated use newer constructor
-     */
-    @Deprecated
-    public ClientContext(
-            String mobileKey,
-            LDLogger baseLogger,
-            LDConfig config,
-            DataSourceUpdateSink dataSourceUpdateSink,
-            String environmentName,
-            boolean evaluationReasons,
-            LDContext evaluationContext,
-            HttpConfiguration http,
-            boolean inBackground,
-            Boolean previouslyInBackground,
-            ServiceEndpoints serviceEndpoints,
-            boolean setOffline
-    ) {
-        this(mobileKey, null, baseLogger, config, dataSourceUpdateSink, environmentName,
-                evaluationReasons, evaluationContext, http, inBackground, previouslyInBackground,
-                serviceEndpoints, setOffline);
-    }
-
-    /**
-     * Deprecated constructor overload.
-     *
-     * @param mobileKey see {@link #getMobileKey()}
-     * @param baseLogger see {@link #getBaseLogger()}
-     * @param config see {@link #getConfig()}
-     * @param dataSourceUpdateSink see {@link #getDataSourceUpdateSink()}
-     * @param environmentName see {@link #getEnvironmentName()}
-     * @param evaluationReasons see {@link #isEvaluationReasons()}
-     * @param evaluationContext see {@link #getEvaluationContext()}
-     * @param http see {@link #getHttp()}
-     * @param inBackground see {@link #isInBackground()}
-     * @param serviceEndpoints see {@link #getServiceEndpoints()}
-     * @param setOffline see {@link #isSetOffline()}
-     * @deprecated use newer constructor
-     */
-    @Deprecated
-    public ClientContext(
-            String mobileKey,
-            LDLogger baseLogger,
-            LDConfig config,
-            DataSourceUpdateSink dataSourceUpdateSink,
-            String environmentName,
-            boolean evaluationReasons,
-            LDContext evaluationContext,
-            HttpConfiguration http,
-            boolean inBackground,
-            ServiceEndpoints serviceEndpoints,
-            boolean setOffline
-    ) {
-        this(mobileKey, null, baseLogger, config, dataSourceUpdateSink, environmentName,
-                evaluationReasons, evaluationContext, http, inBackground,
-                null,
-                serviceEndpoints, setOffline);
-    }
-
-    protected ClientContext(ClientContext copyFrom) {
+    protected ClientContext(ClientContext copy) {
         this(
-                copyFrom.mobileKey,
-                copyFrom.applicationInfo,
-                copyFrom.baseLogger,
-                copyFrom.config,
-                copyFrom.dataSourceUpdateSink,
-                copyFrom.environmentName,
-                copyFrom.evaluationReasons,
-                copyFrom.evaluationContext,
-                copyFrom.http,
-                copyFrom.inBackground,
-                copyFrom.previouslyInBackground,
-                copyFrom.serviceEndpoints,
-                copyFrom.setOffline
+                copy.mobileKey,
+                copy.environmentReporter,
+                copy.baseLogger,
+                copy.config,
+                copy.dataSourceUpdateSink,
+                copy.environmentName,
+                copy.evaluationReasons,
+                copy.evaluationContext,
+                copy.http,
+                copy.inBackground,
+                copy.previouslyInBackground,
+                copy.serviceEndpoints,
+                copy.setOffline
         );
     }
 
     /**
-     * The application metadata object.
-     * @return the application metadata
+     * @return the {@link IEnvironmentReporter} for this client context
      */
-    public ApplicationInfo getApplicationInfo() {
-        return applicationInfo;
+    public IEnvironmentReporter getEnvironmentReporter() {
+        return environmentReporter;
     }
 
     /**

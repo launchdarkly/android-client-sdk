@@ -53,16 +53,14 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     protected Set<AttributeRef> privateAttributes;
 
     /**
-     * Sets whether or not all optional user attributes should be hidden from LaunchDarkly.
+     * Sets whether or not all optional context attributes should be hidden from LaunchDarkly.
      * <p>
-     * If this is {@code true}, all user attribute values (other than the key) will be private, not just
-     * the attributes specified in {@link #privateAttributes(String...)} or on a per-user basis with
-     * {@link com.launchdarkly.sdk.LDUser.Builder} methods. By default, it is {@code false}.
+     * If this is {@code true}, all context attribute values (other than the key) will be private, not just
+     * the attributes specified in {@link #privateAttributes(String...)}. By default, it is {@code false}.
      *
-     * @param allAttributesPrivate true if all user attributes should be private
+     * @param allAttributesPrivate true if all context attributes should be private
      * @return the builder
      * @see #privateAttributes(String...)
-     * @see com.launchdarkly.sdk.LDUser.Builder
      */
     public EventProcessorBuilder allAttributesPrivate(boolean allAttributesPrivate) {
         this.allAttributesPrivate = allAttributesPrivate;
@@ -122,7 +120,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * <p>
      * Any contexts sent to LaunchDarkly with this configuration active will have attributes with these
      * names removed. This is in addition to any attributes that were marked as private for an
-     * individual context with {@link com.launchdarkly.sdk.LDUser.Builder} methods.
+     * individual context with {@link com.launchdarkly.sdk.ContextBuilder} methods.
      * <p>
      * This method replaces any previous private attributes that were set on the same builder, rather
      * than adding to them.
@@ -130,7 +128,6 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * @param attributeNames a set of attribute names that will be removed from context data set to LaunchDarkly
      * @return the builder
      * @see #allAttributesPrivate(boolean)
-     * @see com.launchdarkly.sdk.LDUser.Builder
      */
     public EventProcessorBuilder privateAttributes(String... attributeNames) {
         privateAttributes = new HashSet<>();

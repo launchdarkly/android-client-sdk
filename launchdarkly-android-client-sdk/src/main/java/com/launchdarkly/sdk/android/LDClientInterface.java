@@ -4,7 +4,6 @@ import android.app.Application;
 
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 
 import java.io.Closeable;
@@ -129,28 +128,9 @@ public interface LDClientInterface extends Closeable {
      *   setting the context and optionally requesting a unique key for it
      * @return a Future whose success indicates the flag values for the new evaluation context have
      *   been stored locally and are ready for use
-     * @see #identify(LDUser)
      * @since 3.0.0
      */
     Future<Void> identify(LDContext context);
-
-    /**
-     * Changes the current evaluation context, requests flags for that context from LaunchDarkly if we are online,
-     * and generates an analytics event to tell LaunchDarkly about the context.
-     * <p>
-     * This is equivalent to {@link #identify(LDContext)}, but using the {@link LDUser} type
-     * instead of {@link LDContext}.
-     *
-     * @param user the new user attributes, which will be converted to an evaluation context; see
-     *   {@link LDClient} for more about setting the context and optionally requesting a unique key for it
-     * @return a Future whose success indicates the flag values for the new evaluation context have
-     *   been stored locally and are ready for use
-     * @see #identify(LDContext)
-     *
-     * @deprecated use {@link #identify(LDContext)} with {@link LDContext}
-     */
-    @Deprecated
-    Future<Void> identify(LDUser user);
 
     /**
      * Sends all pending events to LaunchDarkly.

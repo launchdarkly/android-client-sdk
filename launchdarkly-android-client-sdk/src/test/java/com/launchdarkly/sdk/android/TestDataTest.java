@@ -1,13 +1,13 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.TestData;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
@@ -20,7 +20,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class TestDataTest {
-    private static final LDContext initialUser = LDContext.create("user0");
+    private static final LDContext initialContext = LDContext.create("user0");
     private static final EvaluationReason defaultReason = EvaluationReason.fallthrough();
 
     private final TestData td = TestData.dataSource();
@@ -86,20 +86,20 @@ public class TestDataTest {
         verifyFlag(f -> f.variation(true), expectTrue);
         verifyFlag(f -> f.variation(false), expectFalse);
 
-        verifyFlag(f -> f.variation(false).variationForUser(initialUser.getKey(), true), expectTrue);
-        verifyFlag(f -> f.variation(true).variationForUser(initialUser.getKey(), false), expectFalse);
+        verifyFlag(f -> f.variation(false).variationForUser(initialContext.getKey(), true), expectTrue);
+        verifyFlag(f -> f.variation(true).variationForUser(initialContext.getKey(), false), expectFalse);
 
-        verifyFlag(f -> f.variation(false).variationForKey(null, initialUser.getKey(), true), expectTrue);
-        verifyFlag(f -> f.variation(false).variationForKey(ContextKind.DEFAULT, initialUser.getKey(), true), expectTrue);
-        verifyFlag(f -> f.variation(true).variationForKey(null, initialUser.getKey(), false), expectFalse);
-        verifyFlag(f -> f.variation(true).variationForKey(ContextKind.DEFAULT, initialUser.getKey(), false), expectFalse);
-        verifyFlag(f -> f.variation(true).variationForKey(ContextKind.of("other"), initialUser.getKey(), true), expectFalse);
+        verifyFlag(f -> f.variation(false).variationForKey(null, initialContext.getKey(), true), expectTrue);
+        verifyFlag(f -> f.variation(false).variationForKey(ContextKind.DEFAULT, initialContext.getKey(), true), expectTrue);
+        verifyFlag(f -> f.variation(true).variationForKey(null, initialContext.getKey(), false), expectFalse);
+        verifyFlag(f -> f.variation(true).variationForKey(ContextKind.DEFAULT, initialContext.getKey(), false), expectFalse);
+        verifyFlag(f -> f.variation(true).variationForKey(ContextKind.of("other"), initialContext.getKey(), true), expectFalse);
 
-        verifyFlag(f -> f.variation(false).variationFunc(c -> c.getKey().equals(initialUser.getKey())), expectTrue);
-        verifyFlag(f -> f.variation(true).variationFunc(c -> !c.getKey().equals(initialUser.getKey())), expectFalse);
+        verifyFlag(f -> f.variation(false).variationFunc(c -> c.getKey().equals(initialContext.getKey())), expectTrue);
+        verifyFlag(f -> f.variation(true).variationFunc(c -> !c.getKey().equals(initialContext.getKey())), expectFalse);
 
         // variationForUser/variationForKey takes precedence over variationFunc
-        verifyFlag(f -> f.variation(false).variationForUser(initialUser.getKey(), true)
+        verifyFlag(f -> f.variation(false).variationForUser(initialContext.getKey(), true)
                 .variationFunc(c -> false), expectTrue);
     }
 
@@ -114,16 +114,16 @@ public class TestDataTest {
         verifyFlag(f -> f.variations(ab).variation(aIndex), expectA);
         verifyFlag(f -> f.variations(ab).variation(bIndex), expectB);
 
-        verifyFlag(f -> f.variations(ab).variation(aIndex).variationForUser(initialUser.getKey(), bIndex), expectB);
-        verifyFlag(f -> f.variations(ab).variation(bIndex).variationForUser(initialUser.getKey(), aIndex), expectA);
+        verifyFlag(f -> f.variations(ab).variation(aIndex).variationForUser(initialContext.getKey(), bIndex), expectB);
+        verifyFlag(f -> f.variations(ab).variation(bIndex).variationForUser(initialContext.getKey(), aIndex), expectA);
 
         verifyFlag(f -> f.variations(ab).variation(aIndex)
-                .variationIndexFunc(c -> c.getKey().equals(initialUser.getKey()) ? bIndex : null), expectB);
+                .variationIndexFunc(c -> c.getKey().equals(initialContext.getKey()) ? bIndex : null), expectB);
         verifyFlag(f -> f.variations(ab).variation(bIndex)
-                .variationIndexFunc(c -> c.getKey().equals(initialUser.getKey()) ? aIndex : null), expectA);
+                .variationIndexFunc(c -> c.getKey().equals(initialContext.getKey()) ? aIndex : null), expectA);
 
         // VariationForUser takes precedence over VariationFunc
-        verifyFlag(f -> f.variations(ab).variation(aIndex).variationForUser(initialUser.getKey(), bIndex)
+        verifyFlag(f -> f.variations(ab).variation(aIndex).variationForUser(initialContext.getKey(), bIndex)
                 .variationIndexFunc(c -> aIndex), expectB);
     }
 
@@ -138,23 +138,23 @@ public class TestDataTest {
         verifyFlag(f -> f.variations(ab).variation(aVal), expectA);
         verifyFlag(f -> f.variations(ab).variation(bVal), expectB);
 
-        verifyFlag(f -> f.variations(ab).variation(aVal).variationForUser(initialUser.getKey(), bVal), expectB);
-        verifyFlag(f -> f.variations(ab).variation(bVal).variationForUser(initialUser.getKey(), aVal), expectA);
+        verifyFlag(f -> f.variations(ab).variation(aVal).variationForUser(initialContext.getKey(), bVal), expectB);
+        verifyFlag(f -> f.variations(ab).variation(bVal).variationForUser(initialContext.getKey(), aVal), expectA);
 
         verifyFlag(f -> f.variations(ab).variation(aIndex)
-                .variationIndexFunc(c -> c.getKey().equals(initialUser.getKey()) ? bIndex : null), expectB);
+                .variationIndexFunc(c -> c.getKey().equals(initialContext.getKey()) ? bIndex : null), expectB);
         verifyFlag(f -> f.variations(ab).variation(bIndex)
-                .variationIndexFunc(c -> c.getKey().equals(initialUser.getKey()) ? aIndex : null), expectA);
+                .variationIndexFunc(c -> c.getKey().equals(initialContext.getKey()) ? aIndex : null), expectA);
 
         // VariationForUser takes precedence over VariationFunc
-        verifyFlag(f -> f.variations(ab).variation(aIndex).variationForUser(initialUser.getKey(), bIndex)
+        verifyFlag(f -> f.variations(ab).variation(aIndex).variationForUser(initialContext.getKey(), bIndex)
                 .variationIndexFunc(c -> aIndex), expectB);
     }
 
     private void createAndStart() {
         ClientContext clientContext = new ClientContext("", null, LDLogger.none(),
-                new LDConfig.Builder().build(), updates, "", false,
-                initialUser, null, false, null, null, false);
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), updates, "", false,
+                initialContext, null, false, null, null, false);
         DataSource ds = td.build(clientContext);
         AwaitableCallback<Boolean> callback = new AwaitableCallback<>();
         ds.start(callback);

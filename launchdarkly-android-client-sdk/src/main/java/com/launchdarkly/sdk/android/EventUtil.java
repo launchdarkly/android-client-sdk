@@ -48,7 +48,7 @@ abstract class EventUtil {
                 .put("backgroundPollingDisabled", config.isDisableBackgroundPolling())
                 .put("evaluationReasonsRequested", config.isEvaluationReasons())
                 .put("mobileKeyCount", config.getMobileKeys().size())
-                .put("maxCachedUsers", config.getMaxCachedContexts());
+                .put("maxCachedUsers", config.getMaxCachedContexts()); // Caution: maxCachedUsers used in production
         mergeComponentProperties(configProperties, config.dataSource);
         mergeComponentProperties(configProperties, config.events);
         mergeComponentProperties(configProperties, config.http);
@@ -58,9 +58,9 @@ abstract class EventUtil {
         }
         return new DiagnosticStore.SdkDiagnosticParams(
                 mobileKey,
-                "android-client-sdk",
+                LDPackageConsts.SDK_NAME,
                 BuildConfig.VERSION_NAME,
-                "Android",
+                LDPackageConsts.SDK_PLATFORM_NAME,
                 LDValue.buildObject().put("androidSDKVersion", Build.VERSION.SDK_INT).build(),
                 headers,
                 Collections.singletonList(configProperties.build())
