@@ -27,7 +27,7 @@ import java.util.concurrent.Future;
 @RunWith(AndroidJUnit4.class)
 public class LDClientTest {
     private static final String mobileKey = "test-mobile-key";
-    private static final LDContext ldUser = LDContext.create("userKey");
+    private static final LDContext ldContext = LDContext.create("userKey");
 
     private Application application;
 
@@ -38,7 +38,7 @@ public class LDClientTest {
 
     @Test
     public void testOfflineClientReturnsDefaultsIfThereAreNoStoredFlags() throws Exception {
-        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser, 1)) {
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldContext, 1)) {
             assertTrue("client was not initialized", ldClient.isInitialized());
             assertTrue("client was offline", ldClient.isOffline());
 
@@ -63,9 +63,9 @@ public class LDClientTest {
 
         String flagKey = "flag-key", flagValue = "stored-value";
         Flag flag = new FlagBuilder(flagKey).version(1).value(LDValue.of(flagValue)).build();
-        TestUtil.writeFlagUpdateToStore(store, mobileKey, ldUser, flag);
+        TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
 
-        try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
             assertTrue("client was not initialized", ldClient.isInitialized());
             assertTrue("client was offline", ldClient.isOffline());
 
@@ -75,7 +75,7 @@ public class LDClientTest {
 
     @Test
     public void givenDefaultsAreNullAndTestOfflineClientReturnsDefaults() throws Exception {
-        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser, 1)) {
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldContext, 1)) {
             assertTrue(ldClient.isInitialized());
             assertTrue(ldClient.isOffline());
             assertNull(ldClient.stringVariation("stringFlag", null));
@@ -88,7 +88,7 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        Future<LDClient> ldClientFuture = LDClient.init(null, makeOfflineConfig(), ldUser);
+        Future<LDClient> ldClientFuture = LDClient.init(null, makeOfflineConfig(), ldContext);
 
         try {
             ldClientFuture.get();
@@ -108,7 +108,7 @@ public class LDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        Future<LDClient> ldClientFuture = LDClient.init(application, null, ldUser);
+        Future<LDClient> ldClientFuture = LDClient.init(application, null, ldContext);
 
         try {
             ldClientFuture.get();
@@ -147,7 +147,7 @@ public class LDClientTest {
 
     @Test
     public void testDoubleClose() throws IOException {
-        LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser, 1);
+        LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldContext, 1);
         ldClient.close();
         ldClient.close();
     }
@@ -156,7 +156,7 @@ public class LDClientTest {
     public void testInitBackgroundThread() throws Exception {
         Future<?> backgroundComplete = new BackgroundThreadExecutor().newFixedThreadPool(1).submit(() -> {
             try {
-                try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldUser).get()) {
+                try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldContext).get()) {
                     assertTrue(ldClient.isInitialized());
                     assertTrue(ldClient.isOffline());
 

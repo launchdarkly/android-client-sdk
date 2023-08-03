@@ -3,7 +3,6 @@ package com.launchdarkly.sdk.android.subsystems;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDUser;
 import com.launchdarkly.sdk.LDValue;
 
 import java.io.Closeable;

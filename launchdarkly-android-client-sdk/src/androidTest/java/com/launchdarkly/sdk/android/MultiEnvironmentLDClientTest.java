@@ -31,7 +31,7 @@ public class MultiEnvironmentLDClientTest {
     private LDClient ldClient;
     private Future<LDClient> ldClientFuture;
     private LDConfig ldConfig;
-    private LDContext ldUser;
+    private LDContext ldContext;
 
     @Before
     public void setUp() {
@@ -47,12 +47,12 @@ public class MultiEnvironmentLDClientTest {
                 .loggerName(logging.loggerName)
                 .build();
 
-        ldUser = LDContext.create("userKey");
+        ldContext = LDContext.create("userKey");
     }
 
     @Test
     public void testOfflineClientReturnsDefaults() {
-        ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldUser, 1);
+        ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldContext, 1);
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -68,7 +68,7 @@ public class MultiEnvironmentLDClientTest {
 
     @Test
     public void givenDefaultsAreNullAndTestOfflineClientReturnsDefaults() {
-        ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldUser, 1);
+        ldClient = LDClient.init(ApplicationProvider.getApplicationContext(), ldConfig, ldContext, 1);
 
         assertTrue(ldClient.isInitialized());
         assertTrue(ldClient.isOffline());
@@ -81,7 +81,7 @@ public class MultiEnvironmentLDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        ldClientFuture = LDClient.init(null, ldConfig, ldUser);
+        ldClientFuture = LDClient.init(null, ldConfig, ldContext);
 
         try {
             ldClientFuture.get();
@@ -102,7 +102,7 @@ public class MultiEnvironmentLDClientTest {
         ExecutionException actualFutureException = null;
         LaunchDarklyException actualProvidedException = null;
 
-        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), null, ldUser);
+        ldClientFuture = LDClient.init(ApplicationProvider.getApplicationContext(), null, ldContext);
 
         try {
             ldClientFuture.get();

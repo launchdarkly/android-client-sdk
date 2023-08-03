@@ -24,12 +24,12 @@ public class LDClientLoggingTest {
 
     private static final String mobileKey = "test-mobile-key";
     private Application application;
-    private LDContext ldUser;
+    private LDContext ldContext;
 
     @Before
     public void setUp() {
         application = ApplicationProvider.getApplicationContext();
-        ldUser = LDContext.create("key");
+        ldContext = LDContext.create("key");
     }
 
     @Test
@@ -37,7 +37,7 @@ public class LDClientLoggingTest {
         LogCapture logCapture = Logs.capture();
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey(mobileKey).offline(true)
                 .logAdapter(logCapture).build();
-        try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
             for (LogCapture.Message m: logCapture.getMessages()) {
                 assertNotEquals(LDLogLevel.DEBUG, m.getLevel());
             }
@@ -51,7 +51,7 @@ public class LDClientLoggingTest {
         LogCapture logCapture = Logs.capture();
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).mobileKey(mobileKey).offline(true)
                 .logAdapter(logCapture).logLevel(LDLogLevel.DEBUG).build();
-        try (LDClient ldClient = LDClient.init(application, config, ldUser, 1)) {
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
             logCapture.requireMessage(LDLogLevel.DEBUG, 2000);
         }
     }
