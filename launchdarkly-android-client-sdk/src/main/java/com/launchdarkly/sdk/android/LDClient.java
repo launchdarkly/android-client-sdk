@@ -200,7 +200,10 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return a {@link Future} which will complete once the client has been initialized
      * @see #init(Application, LDConfig, LDUser, int)
      * @see #init(Application, LDConfig, LDContext)
+     *
+     * @deprecated use {@link #init(Application, LDConfig, LDContext)} with {@link LDContext}
      */
+    @Deprecated
     public static Future<LDClient> init(@NonNull Application application,
                                         @NonNull LDConfig config,
                                         @NonNull LDUser user) {
@@ -257,7 +260,10 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return the primary LDClient instance
      * @see #init(Application, LDConfig, LDUser)
      * @see #init(Application, LDConfig, LDContext, int)
+     *
+     * @deprecated use {@link #init(Application, LDConfig, LDContext, int)}  with {@link LDContext}
      */
+    @Deprecated
     public static LDClient init(Application application, LDConfig config, LDUser user, int startWaitSeconds) {
         return init(application, config, LDContext.fromUser(user), startWaitSeconds);
     }
@@ -396,6 +402,10 @@ public class LDClient implements LDClientInterface, Closeable {
         return identifyInstances(contextDecorator.decorateContext(context, getSharedLogger()));
     }
 
+    /**
+     * @deprecated use {@link #identify(LDContext)} with {@link LDContext}
+     */
+    @Deprecated
     @Override
     public Future<Void> identify(LDUser user) {
         return identify(LDContext.fromUser(user));

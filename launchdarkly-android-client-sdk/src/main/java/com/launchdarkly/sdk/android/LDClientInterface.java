@@ -146,7 +146,10 @@ public interface LDClientInterface extends Closeable {
      * @return a Future whose success indicates the flag values for the new evaluation context have
      *   been stored locally and are ready for use
      * @see #identify(LDContext)
+     *
+     * @deprecated use {@link #identify(LDContext)} with {@link LDContext}
      */
+    @Deprecated
     Future<Void> identify(LDUser user);
 
     /**
