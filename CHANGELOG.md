@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.3.0] - 2023-08-03
+### Changed:
+- Deprecated LDUser and related functionality. Use LDContext instead. To learn more, read https://docs.launchdarkly.com/home/contexts.
+
 ## [4.2.3] - 2023-06-07
 ### Fixed:
 - Streaming data connection to a relax proxy now calls the callback correctly after fetching the flag data.
