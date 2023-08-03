@@ -33,7 +33,7 @@ public class AutoEnvContextModifier implements IContextModifier {
     static final String ATTR_OS = "os";
     static final String ATTR_FAMILY = "family";
     static final String ENV_ATTRIBUTES_VERSION = "envAttributesVersion";
-    static final String SPEC_VERSION = "0.3";
+    static final String SPEC_VERSION = "1.0";
 
     private final PersistentDataStoreWrapper persistentData;
     private final IEnvironmentReporter environmentReporter;
