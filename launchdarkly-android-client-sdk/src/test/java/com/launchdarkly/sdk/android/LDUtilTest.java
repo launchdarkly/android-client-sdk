@@ -20,6 +20,7 @@ public class LDUtilTest {
         Assert.assertNotNull(LDUtil.validateStringValue("#@$%^&"));
         Assert.assertNull(LDUtil.validateStringValue("a-Az-Z0-9._-"));
     }
+
     @Test
     public void testSanitizeSpaces() {
         Assert.assertEquals("", LDUtil.sanitizeSpaces(""));
