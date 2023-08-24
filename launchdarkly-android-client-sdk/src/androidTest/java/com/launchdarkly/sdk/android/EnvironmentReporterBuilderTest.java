@@ -47,6 +47,17 @@ public class EnvironmentReporterBuilderTest {
         Assert.assertEquals(LDPackageConsts.SDK_NAME, reporter.getApplicationInfo().getApplicationName());
         Assert.assertEquals(BuildConfig.VERSION_NAME, reporter.getApplicationInfo().getApplicationVersion());
         Assert.assertEquals(BuildConfig.VERSION_NAME, reporter.getApplicationInfo().getApplicationVersionName());
+    }
 
+    @Test
+    public void fallBackWhenIDMissing() {
+        EnvironmentReporterBuilder builder = new EnvironmentReporterBuilder();
+        ApplicationInfo manualInfoInput = new ApplicationInfoBuilder().applicationName("imNotAnID!").createApplicationInfo();
+        builder.setApplicationInfo(manualInfoInput);
+        IEnvironmentReporter reporter = builder.build();
+        Assert.assertEquals(LDPackageConsts.SDK_NAME, reporter.getApplicationInfo().getApplicationId());
+        Assert.assertEquals(LDPackageConsts.SDK_NAME, reporter.getApplicationInfo().getApplicationName());
+        Assert.assertEquals(BuildConfig.VERSION_NAME, reporter.getApplicationInfo().getApplicationVersion());
+        Assert.assertEquals(BuildConfig.VERSION_NAME, reporter.getApplicationInfo().getApplicationVersionName());
     }
 }

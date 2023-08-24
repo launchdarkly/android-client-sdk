@@ -21,8 +21,8 @@ public class HttpConfigurationBuilderTest {
         Map<String, String> ret = new HashMap<>();
         ret.put("Authorization", LDUtil.AUTH_SCHEME + MOBILE_KEY);
         ret.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
-        ret.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-version/" +
-                BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
+        ret.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-name/" + LDPackageConsts.SDK_NAME
+                + " application-version/" + BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
         return ret;
     }
 
@@ -71,7 +71,8 @@ public class HttpConfigurationBuilderTest {
                 null, null, null, "", false, null, null, false, null, null, false);
         HttpConfiguration hc = Components.httpConfiguration()
                 .build(contextWithTags);
-        assertEquals("application-id/" + LDPackageConsts.SDK_NAME + " application-version/" + BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME ,
+        assertEquals("application-id/" + LDPackageConsts.SDK_NAME + " application-name/" + LDPackageConsts.SDK_NAME
+                        + " application-version/" + BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME ,
                 toMap(hc.getDefaultHeaders()).get("X-LaunchDarkly-Tags"));
     }
 }

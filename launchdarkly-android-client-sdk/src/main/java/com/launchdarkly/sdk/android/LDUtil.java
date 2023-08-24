@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import android.util.Base64;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
@@ -28,7 +29,7 @@ import java.util.regex.Pattern;
 
 import okhttp3.Headers;
 
-class LDUtil {
+public class LDUtil {
     static final String AUTH_SCHEME = "api_key ";
     static final String USER_AGENT_HEADER_VALUE = LDPackageConsts.SDK_CLIENT_NAME + "/" + BuildConfig.VERSION_NAME;
 
@@ -44,8 +45,41 @@ class LDUtil {
         };
     }
 
-    // Tag values must not be empty, and only contain letters, numbers, `.`, `_`, or `-`.
-    private static Pattern TAG_VALUE_REGEX = Pattern.compile("^[-a-zA-Z0-9._]+$");
+    // Key, kind, tag, and several other system values must not be empty, contain only letters,
+    // numbers, `.`, `_`, or `-`.
+    private static final Pattern VALID_CHARS_REGEX = Pattern.compile("^[-a-zA-Z0-9._]+$");
+
+    /**
+     * @param s the string to validate
+     * @return null if valid, otherwise string describing issue
+     */
+    @Nullable
+    public static String validateStringValue(@NonNull String s) {
+        if (s.isEmpty()) {
+            return "Empty string.";
+        }
+
+        if (s.length() > 64) {
+            return "Longer than 64 characters.";
+        }
+
+        if (!VALID_CHARS_REGEX.matcher(s).matches()) {
+            return "Contains invalid characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Replaces spaces with hyphens.  In the future, if this function is made more generic,
+     * understand that customer data may already exist and changing this sanitization may
+     * have adverse consequences.
+     *
+     * @param s the string to sanitize
+     * @return the sanitized string
+     */
+    public static String sanitizeSpaces(String s) {
+        return s.replace(' ', '-');
+    }
 
     /**
      * Builds the "X-LaunchDarkly-Tags" HTTP header out of the configured application info.
@@ -56,6 +90,7 @@ class LDUtil {
     static String applicationTagHeader(ApplicationInfo applicationInfo, LDLogger logger) {
         String[][] tags = {
                 {"applicationId", "application-id", applicationInfo.getApplicationId()},
+                {"applicationName", "application-name", applicationInfo.getApplicationName()},
                 {"applicationVersion", "application-version", applicationInfo.getApplicationVersion()},
                 {"applicationVersionName", "application-version-name", applicationInfo.getApplicationVersionName()}
         };
@@ -67,12 +102,9 @@ class LDUtil {
             if (tagVal == null) {
                 continue;
             }
-            if (!TAG_VALUE_REGEX.matcher(tagVal).matches()) {
-                logger.warn("Value of ApplicationInfo.{} contained invalid characters and was discarded", javaKey);
-                continue;
-            }
-            if (tagVal.length() > 64) {
-                logger.warn("Value of ApplicationInfo.{} was longer than 64 characters and was discarded", javaKey);
+            String error = validateStringValue(tagVal);
+            if (error != null) {
+                logger.warn("Value of ApplicationInfo.{} was invalid. {}", javaKey, error);
                 continue;
             }
             parts.add(tagKey + "/" + tagVal);

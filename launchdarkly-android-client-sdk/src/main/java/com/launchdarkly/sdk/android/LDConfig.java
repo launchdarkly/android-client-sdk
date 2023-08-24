@@ -44,7 +44,6 @@ public class LDConfig {
      */
     public static final int MIN_BACKGROUND_POLL_INTERVAL_MILLIS = 900_000;
 
-    static final String DEFAULT_LOGGER_NAME = "LaunchDarklySdk";
     static final LDLogLevel DEFAULT_LOG_LEVEL = LDLogLevel.INFO;
 
     static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
@@ -205,7 +204,7 @@ public class LDConfig {
         private PersistentDataStore persistentDataStore;
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
-        private String loggerName = DEFAULT_LOGGER_NAME;
+        private String loggerName = LDPackageConsts.DEFAULT_LOGGER_NAME;
         private LDLogLevel logLevel = null;
 
         /**
@@ -607,7 +606,7 @@ public class LDConfig {
          * @see #logLevel(LDLogLevel) 
          */
         public Builder loggerName(String loggerName) {
-            this.loggerName = loggerName == null ? DEFAULT_LOGGER_NAME : loggerName;
+            this.loggerName = loggerName == null ? LDPackageConsts.DEFAULT_LOGGER_NAME : loggerName;
             return this;
         }
 

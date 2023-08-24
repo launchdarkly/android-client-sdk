@@ -7,6 +7,7 @@ import android.os.Build;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.android.LDPackageConsts;
+import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 
 import java.util.Locale;
@@ -30,12 +31,20 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
     @Override
     @NonNull
     public ApplicationInfo getApplicationInfo() {
-        return new ApplicationInfo(
-                getApplicationID(),
-                getApplicationVersion(),
-                getApplicationName(),
-                getApplicationVersionName()
-        );
+        // use a builder here since it has sanitization and validation built in
+        ApplicationInfoBuilder builder = new ApplicationInfoBuilder();
+        builder.applicationId(getApplicationID());
+        builder.applicationVersion(getApplicationVersion());
+        builder.applicationName(getApplicationName());
+        builder.applicationVersionName(getApplicationVersionName());
+        ApplicationInfo info = builder.createApplicationInfo();
+
+        // defer to super if required property applicationID is missing
+        if (info.getApplicationId() == null) {
+            info = super.getApplicationInfo();
+        }
+
+        return info;
     }
 
     @NonNull
@@ -80,12 +89,10 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
         return Build.VERSION.RELEASE;
     }
 
-    @NonNull
     private String getApplicationID() {
         return application.getPackageName();
     }
 
-    @NonNull
     private String getApplicationName() {
         try {
             PackageManager pm = application.getPackageManager();
@@ -99,7 +106,6 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
         }
     }
 
-    @NonNull
     private String getApplicationVersion() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -109,22 +115,23 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
             }
         } catch (PackageManager.NameNotFoundException e) {
             // We don't really expect this to ever happen since we just queried the platform
-            // for the application name and then immediately used it.  Since the code has
-            // this logical path, the best we can do is defer to the next in the chain.
-            return super.getApplicationInfo().getApplicationVersion();
+            // for the application name and then immediately used it.  It is best to set
+            // this to null, if enough properties are missing, we will fallback to the
+            // next source in the chain.
+            return null;
         }
     }
 
-    @NonNull
     private String getApplicationVersionName() {
         try {
             PackageManager pm = application.getPackageManager();
             return pm.getPackageInfo(application.getPackageName(), 0).versionName;
         } catch (PackageManager.NameNotFoundException e) {
             // We don't really expect this to ever happen since we just queried the platform
-            // for the application name and then immediately used it.  Since the code has
-            // this logical path, the best we can do is defer to the next in the chain.
-            return super.getApplicationInfo().getApplicationVersionName();
+            // for the application name and then immediately used it.  It is best to set
+            // this to null, if enough properties are missing, we will fallback to the
+            // next source in the chain.
+            return null;
         }
     }
 }

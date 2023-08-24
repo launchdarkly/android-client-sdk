@@ -1,6 +1,14 @@
 package com.launchdarkly.sdk.android.integrations;
 
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import androidx.core.util.Consumer;
+
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.Components;
+import com.launchdarkly.sdk.android.LDAndroidLogging;
+import com.launchdarkly.sdk.android.LDPackageConsts;
+import com.launchdarkly.sdk.android.LDUtil;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 
 /**
@@ -25,10 +33,17 @@ import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
  * @since 4.1.0
  */
 public final class ApplicationInfoBuilder {
+    @Nullable
     private String applicationId;
+    @Nullable
     private String applicationName;
+    @Nullable
     private String applicationVersion;
+    @Nullable
     private String applicationVersionName;
+
+    @VisibleForTesting
+    LDLogger logger = LDLogger.withAdapter(LDAndroidLogging.adapter(), ApplicationInfoBuilder.class.getName());
 
     /**
      * Create an empty ApplicationInfoBuilder.
@@ -48,7 +63,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationId(String applicationId) {
-        this.applicationId = applicationId;
+        validatedThenChange(this.logger, s -> this.applicationId = s, applicationId);
         return this;
     }
 
@@ -63,7 +78,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationName(String applicationName) {
-        this.applicationName = applicationName;
+        validatedThenChange(this.logger, s -> this.applicationName = s, applicationName);
         return this;
     }
 
@@ -79,7 +94,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationVersion(String version) {
-        this.applicationVersion = version;
+        validatedThenChange(this.logger, s -> this.applicationVersion = s, version);
         return this;
     }
 
@@ -94,7 +109,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationVersionName(String versionName) {
-        this.applicationVersionName = versionName;
+        validatedThenChange(this.logger, s -> this.applicationVersionName = s, versionName);
         return this;
     }
 
@@ -105,5 +120,27 @@ public final class ApplicationInfoBuilder {
      */
     public ApplicationInfo createApplicationInfo() {
         return new ApplicationInfo(applicationId, applicationVersion, applicationName, applicationVersionName);
+    }
+
+    /**
+     * @param propertySetter lambda for setting the property.  Java is fun and has predefined
+     *                       functional interfaces.
+     * @param input          the string that will be sanitized and validated then applied
+     */
+    private void validatedThenChange(LDLogger logger, Consumer<String> propertySetter, String input) {
+        if (input == null) {
+            propertySetter.accept(input);
+            return;
+        }
+
+        String sanitized = LDUtil.sanitizeSpaces(input);
+        String error = LDUtil.validateStringValue(sanitized);
+        if (error != null) {
+            // TODO: make sure log includes property name
+            logger.warn(LDPackageConsts.DEFAULT_LOGGER_NAME, propertySetter.toString() + error);
+            return;
+        }
+
+        propertySetter.accept(sanitized);
     }
 }

@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 
 /**
@@ -139,8 +140,8 @@ public class AutoEnvContextModifier implements IContextModifier {
                 new ContextRecipe(
                         ldApplicationKind,
                         () -> LDUtil.urlSafeBase64Hash(
-                                environmentReporter.getApplicationInfo().getApplicationId() + ":"
-                                        + environmentReporter.getApplicationInfo().getApplicationVersion()
+                                Objects.toString(environmentReporter.getApplicationInfo().getApplicationId(), "") + ":"
+                                        + Objects.toString(environmentReporter.getApplicationInfo().getApplicationVersion(), "")
                         ),
                         applicationCallables
                 ),
