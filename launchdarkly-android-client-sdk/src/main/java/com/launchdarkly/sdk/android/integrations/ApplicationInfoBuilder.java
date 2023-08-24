@@ -43,7 +43,7 @@ public final class ApplicationInfoBuilder {
     private String applicationVersionName;
 
     @VisibleForTesting
-    LDLogger logger = LDLogger.withAdapter(LDAndroidLogging.adapter(), ApplicationInfoBuilder.class.getName());
+    LDLogger logger = LDLogger.withAdapter(LDAndroidLogging.adapter(), ApplicationInfoBuilder.class.getSimpleName());
 
     /**
      * Create an empty ApplicationInfoBuilder.
