@@ -6,6 +6,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
+import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -155,5 +156,51 @@ public class AutoEnvContextModifierTest {
         String key2 = output2.getIndividualContext("ld_application").getKey();
 
         Assert.assertEquals(key1, key2);
+    }
+
+    /**
+     * Test that when only myID is supplied, hash is hash(myID:) and not hash(myId:null)
+     */
+    @Test
+    public void generatedApplicationKeyWithVersionMissing() {
+        PersistentDataStoreWrapper wrapper = TestUtil.makeSimplePersistentDataStoreWrapper();
+        ApplicationInfo info = new ApplicationInfo("myID", null, null, null);
+        EnvironmentReporterBuilder b = new EnvironmentReporterBuilder();
+        b.setApplicationInfo(info);
+        IEnvironmentReporter reporter = b.build();
+        AutoEnvContextModifier underTest = new AutoEnvContextModifier(
+                wrapper,
+                reporter,
+                LDLogger.none()
+        );
+
+        LDContext input = LDContext.builder(ContextKind.of("aKind"), "aKey").build();
+        LDContext output = underTest.modifyContext(input);
+
+        // it is important that we create this expected context after the code runs because there
+        // will be persistence side effects
+        ContextKind applicationKind = ContextKind.of(AutoEnvContextModifier.LD_APPLICATION_KIND);
+        String expectedApplicationKey = LDUtil.urlSafeBase64Hash(reporter.getApplicationInfo().getApplicationId() + ":");
+
+        LDContext expectedAppContext = LDContext.builder(applicationKind, expectedApplicationKey)
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, AutoEnvContextModifier.SPEC_VERSION)
+                .set(AutoEnvContextModifier.ATTR_ID, "myID")
+                .set(AutoEnvContextModifier.ATTR_LOCALE, "unknown")
+                .build();
+
+        ContextKind deviceKind = ContextKind.of(AutoEnvContextModifier.LD_DEVICE_KIND);
+        LDContext expectedDeviceContext = LDContext.builder(deviceKind, wrapper.getOrGenerateContextKey(deviceKind))
+                .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, AutoEnvContextModifier.SPEC_VERSION)
+                .set(AutoEnvContextModifier.ATTR_MANUFACTURER, "unknown")
+                .set(AutoEnvContextModifier.ATTR_MODEL, "unknown")
+                .set(AutoEnvContextModifier.ATTR_OS, new ObjectBuilder()
+                        .put(AutoEnvContextModifier.ATTR_FAMILY, "unknown")
+                        .put(AutoEnvContextModifier.ATTR_NAME, "unknown")
+                        .put(AutoEnvContextModifier.ATTR_VERSION, "unknown")
+                        .build())
+                .build();
+
+        LDContext expectedOutput = LDContext.multiBuilder().add(input).add(expectedAppContext).add(expectedDeviceContext).build();
+        Assert.assertEquals(expectedOutput, output);
     }
 }

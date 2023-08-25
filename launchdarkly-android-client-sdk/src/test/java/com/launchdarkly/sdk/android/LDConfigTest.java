@@ -100,8 +100,8 @@ public class LDConfigTest {
 
         expected.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
         expected.put("Authorization", "api_key test-key");
-        expected.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-version/" +
-                BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
+        expected.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-name/" + LDPackageConsts.SDK_NAME +
+                " application-version/" + BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
         Map<String, String> headers = headersToMap(
                 LDUtil.makeHttpProperties(clientContext).toHeadersBuilder().build()
         );

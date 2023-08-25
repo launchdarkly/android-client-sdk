@@ -59,6 +59,7 @@ configurations.all {
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
+    "androidAppcompat": "1.1.0",
     "eventsource": "3.0.0",
     "gson": "2.8.9",
     "jacksonCore": "2.10.5",
@@ -82,6 +83,7 @@ dependencies {
 
     implementation("com.google.code.gson:gson:${versions.gson}")
     implementation("androidx.annotation:annotation:${versions.androidAnnotation}")
+    implementation("androidx.appcompat:appcompat:${versions.androidAppcompat}")
     implementation("com.launchdarkly:launchdarkly-java-sdk-internal:${versions.launchdarklyJavaSdkInternal}")
     implementation("com.launchdarkly:okhttp-eventsource:${versions.eventsource}")
     implementation("com.squareup.okhttp3:okhttp:${versions.okhttp}")
