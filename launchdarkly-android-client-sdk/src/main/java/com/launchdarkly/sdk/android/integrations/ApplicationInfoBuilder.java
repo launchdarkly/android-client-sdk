@@ -7,7 +7,6 @@ import androidx.core.util.Consumer;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.LDAndroidLogging;
-import com.launchdarkly.sdk.android.LDPackageConsts;
 import com.launchdarkly.sdk.android.LDUtil;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 
@@ -63,7 +62,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationId(String applicationId) {
-        validatedThenChange(this.logger, s -> this.applicationId = s, applicationId);
+        validatedThenSet("applicationId", s -> this.applicationId = s, applicationId, this.logger);
         return this;
     }
 
@@ -78,7 +77,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationName(String applicationName) {
-        validatedThenChange(this.logger, s -> this.applicationName = s, applicationName);
+        validatedThenSet("applicationName", s -> this.applicationName = s, applicationName, this.logger);
         return this;
     }
 
@@ -94,7 +93,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationVersion(String version) {
-        validatedThenChange(this.logger, s -> this.applicationVersion = s, version);
+        validatedThenSet("applicationVersion", s -> this.applicationVersion = s, version, this.logger);
         return this;
     }
 
@@ -109,7 +108,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationVersionName(String versionName) {
-        validatedThenChange(this.logger, s -> this.applicationVersionName = s, versionName);
+        validatedThenSet("applicationVersionName", s -> this.applicationVersionName = s, versionName, this.logger);
         return this;
     }
 
@@ -123,11 +122,13 @@ public final class ApplicationInfoBuilder {
     }
 
     /**
+     * @param propertyName   the name of the property being set.  Used for logging.
      * @param propertySetter lambda for setting the property.  Java is fun and has predefined
      *                       functional interfaces.
      * @param input          the string that will be sanitized and validated then applied
+     * @param logger         use for logging.  Can you believe that!?
      */
-    private void validatedThenChange(LDLogger logger, Consumer<String> propertySetter, String input) {
+    private void validatedThenSet(String propertyName, Consumer<String> propertySetter, String input, LDLogger logger) {
         if (input == null) {
             propertySetter.accept(input);
             return;
@@ -136,8 +137,7 @@ public final class ApplicationInfoBuilder {
         String sanitized = LDUtil.sanitizeSpaces(input);
         String error = LDUtil.validateStringValue(sanitized);
         if (error != null) {
-            // TODO: make sure log includes property name
-            logger.warn(LDPackageConsts.DEFAULT_LOGGER_NAME, propertySetter.toString() + error);
+            logger.warn("Issue setting {} value '{}'. {}", propertyName, sanitized, error);
             return;
         }
 
