@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android.subsystems;
 
+import androidx.annotation.Nullable;
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 
 /**
@@ -10,9 +11,14 @@ import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
  * @since 4.1.0
  */
 public final class ApplicationInfo {
+
+    @Nullable
     private final String applicationId;
+    @Nullable
     private final String applicationName;
+    @Nullable
     private final String applicationVersion;
+    @Nullable
     private final String applicationVersionName;
 
     /**
@@ -37,6 +43,7 @@ public final class ApplicationInfo {
      *
      * @return the application identifier, or null
      */
+    @Nullable
     public String getApplicationId() {
         return applicationId;
     }
@@ -47,6 +54,7 @@ public final class ApplicationInfo {
      *
      * @return the application version, or null
      */
+    @Nullable
     public String getApplicationVersion() {
         return applicationVersion;
     }
@@ -56,6 +64,7 @@ public final class ApplicationInfo {
      *
      * @return the friendly name of the application, or null
      */
+    @Nullable
     public String getApplicationName() {
         return applicationName;
     }
@@ -65,6 +74,7 @@ public final class ApplicationInfo {
      *
      * @return the friendly name of the version, or null
      */
+    @Nullable
     public String getApplicationVersionName() {
         return applicationVersionName;
     }

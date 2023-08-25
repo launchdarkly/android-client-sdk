@@ -1,6 +1,13 @@
 package com.launchdarkly.sdk.android.integrations;
 
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import androidx.core.util.Consumer;
+
+import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.Components;
+import com.launchdarkly.sdk.android.LDAndroidLogging;
+import com.launchdarkly.sdk.android.LDUtil;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 
 /**
@@ -25,10 +32,17 @@ import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
  * @since 4.1.0
  */
 public final class ApplicationInfoBuilder {
+    @Nullable
     private String applicationId;
+    @Nullable
     private String applicationName;
+    @Nullable
     private String applicationVersion;
+    @Nullable
     private String applicationVersionName;
+
+    @VisibleForTesting
+    LDLogger logger = LDLogger.withAdapter(LDAndroidLogging.adapter(), ApplicationInfoBuilder.class.getSimpleName());
 
     /**
      * Create an empty ApplicationInfoBuilder.
@@ -48,7 +62,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationId(String applicationId) {
-        this.applicationId = applicationId;
+        validatedThenSet("applicationId", s -> this.applicationId = s, applicationId, this.logger);
         return this;
     }
 
@@ -63,7 +77,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationName(String applicationName) {
-        this.applicationName = applicationName;
+        validatedThenSet("applicationName", s -> this.applicationName = s, applicationName, this.logger);
         return this;
     }
 
@@ -79,7 +93,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationVersion(String version) {
-        this.applicationVersion = version;
+        validatedThenSet("applicationVersion", s -> this.applicationVersion = s, version, this.logger);
         return this;
     }
 
@@ -94,7 +108,7 @@ public final class ApplicationInfoBuilder {
      * @return the builder
      */
     public ApplicationInfoBuilder applicationVersionName(String versionName) {
-        this.applicationVersionName = versionName;
+        validatedThenSet("applicationVersionName", s -> this.applicationVersionName = s, versionName, this.logger);
         return this;
     }
 
@@ -105,5 +119,28 @@ public final class ApplicationInfoBuilder {
      */
     public ApplicationInfo createApplicationInfo() {
         return new ApplicationInfo(applicationId, applicationVersion, applicationName, applicationVersionName);
+    }
+
+    /**
+     * @param propertyName   the name of the property being set.  Used for logging.
+     * @param propertySetter lambda for setting the property.  Java is fun and has predefined
+     *                       functional interfaces.
+     * @param input          the string that will be sanitized and validated then applied
+     * @param logger         use for logging.  Can you believe that!?
+     */
+    private void validatedThenSet(String propertyName, Consumer<String> propertySetter, String input, LDLogger logger) {
+        if (input == null) {
+            propertySetter.accept(input);
+            return;
+        }
+
+        String sanitized = LDUtil.sanitizeSpaces(input);
+        String error = LDUtil.validateStringValue(sanitized);
+        if (error != null) {
+            logger.warn("Issue setting {} value '{}'. {}", propertyName, sanitized, error);
+            return;
+        }
+
+        propertySetter.accept(sanitized);
     }
 }

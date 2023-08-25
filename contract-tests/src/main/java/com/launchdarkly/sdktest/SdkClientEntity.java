@@ -313,8 +313,14 @@ public class SdkClientEntity {
       if (params.tags.applicationId != null) {
         ab.applicationId(params.tags.applicationId);
       }
+      if (params.tags.applicationName != null) {
+        ab.applicationName(params.tags.applicationName);
+      }
       if (params.tags.applicationVersion != null) {
         ab.applicationVersion(params.tags.applicationVersion);
+      }
+      if (params.tags.applicationVersionName != null) {
+        ab.applicationVersionName(params.tags.applicationVersionName);
       }
       builder.applicationInfo(ab);
     }

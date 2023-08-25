@@ -56,7 +56,9 @@ public abstract class Representations {
 
     public static class SdkConfigTagParams {
         String applicationId;
+        String applicationName;
         String applicationVersion;
+        String applicationVersionName;
     }
 
     public static class SdkConfigServiceEndpointParams {
