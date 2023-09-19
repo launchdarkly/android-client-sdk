@@ -40,10 +40,7 @@ public class AutoEnvContextModifierTest {
         // it is important that we create this expected context after the code runs because there
         // will be persistence side effects
         ContextKind applicationKind = ContextKind.of(AutoEnvContextModifier.LD_APPLICATION_KIND);
-        String expectedApplicationKey = LDUtil.urlSafeBase64Hash(
-                reporter.getApplicationInfo().getApplicationId() + ":"
-                        + reporter.getApplicationInfo().getApplicationVersion()
-        );
+        String expectedApplicationKey = LDUtil.urlSafeBase64Hash(reporter.getApplicationInfo().getApplicationId());
         LDContext expectedAppContext = LDContext.builder(applicationKind, expectedApplicationKey)
                 .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, AutoEnvContextModifier.SPEC_VERSION)
                 .set(AutoEnvContextModifier.ATTR_ID, LDPackageConsts.SDK_NAME)
@@ -180,7 +177,7 @@ public class AutoEnvContextModifierTest {
         // it is important that we create this expected context after the code runs because there
         // will be persistence side effects
         ContextKind applicationKind = ContextKind.of(AutoEnvContextModifier.LD_APPLICATION_KIND);
-        String expectedApplicationKey = LDUtil.urlSafeBase64Hash(reporter.getApplicationInfo().getApplicationId() + ":");
+        String expectedApplicationKey = LDUtil.urlSafeBase64Hash(reporter.getApplicationInfo().getApplicationId());
 
         LDContext expectedAppContext = LDContext.builder(applicationKind, expectedApplicationKey)
                 .set(AutoEnvContextModifier.ENV_ATTRIBUTES_VERSION, AutoEnvContextModifier.SPEC_VERSION)

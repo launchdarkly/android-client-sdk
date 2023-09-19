@@ -140,8 +140,7 @@ public class AutoEnvContextModifier implements IContextModifier {
                 new ContextRecipe(
                         ldApplicationKind,
                         () -> LDUtil.urlSafeBase64Hash(
-                                Objects.toString(environmentReporter.getApplicationInfo().getApplicationId(), "") + ":"
-                                        + Objects.toString(environmentReporter.getApplicationInfo().getApplicationVersion(), "")
+                                Objects.toString(environmentReporter.getApplicationInfo().getApplicationId(), "")
                         ),
                         applicationCallables
                 ),
