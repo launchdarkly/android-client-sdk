@@ -193,7 +193,7 @@ class ConnectivityManager {
         }
     }
 
-    private boolean updateDataSource(
+    private synchronized boolean updateDataSource(
             boolean mustReinitializeDataSource,
             @NonNull Callback<Void> onCompletion
     ) {
