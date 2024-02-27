@@ -22,6 +22,7 @@ import org.junit.runner.RunWith;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 @RunWith(AndroidJUnit4.class)
@@ -154,7 +155,7 @@ public class LDClientTest {
 
     @Test
     public void testInitBackgroundThread() throws Exception {
-        Future<?> backgroundComplete = new BackgroundThreadExecutor().newFixedThreadPool(1).submit(() -> {
+        Future<?> backgroundComplete = Executors.newSingleThreadExecutor().submit(() -> {
             try {
                 try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(), ldContext).get()) {
                     assertTrue(ldClient.isInitialized());

@@ -22,7 +22,6 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdk.json.SerializationException;
 
 import java.net.URI;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -63,7 +62,6 @@ final class StreamingDataSource implements DataSource {
     private final boolean streamEvenInBackground;
     private volatile boolean running = false;
     private boolean connection401Error = false;
-    private final ExecutorService executor;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
@@ -87,7 +85,6 @@ final class StreamingDataSource implements DataSource {
         this.streamEvenInBackground = streamEvenInBackground;
         this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
         this.logger = clientContext.getBaseLogger();
-        executor = new BackgroundThreadExecutor().newFixedThreadPool(2);
     }
 
     public void start(@NonNull Callback<Boolean> resultCallback) {
@@ -241,12 +238,22 @@ final class StreamingDataSource implements DataSource {
         logger.debug("Stopping.");
         // We do this in a separate thread because closing the stream involves a network
         // operation and we don't want to do a network operation on the main thread.
-        executor.execute(() -> {
+        // This code originally created a one-shot thread for shutting down the event source, but at some point
+        // an Executor was introduced.  A thread leak bug was introduced with that Executor because the Executor
+        // was not cleaned up.  The thread leak bug was brought to our attention in
+        // https://github.com/launchdarkly/android-client-sdk/issues/234 .  Over time, the code evolved to no longer
+        // need the Executor to be long lived.  Reverting to the one-shot thread approach is sufficient to address
+        // the bug.  A more appropriate fix would be to refactor/unify the various task executors in the code base
+        // and pass one of those executors in to be used for this purpose.  That refactoring is not without risk and
+        // will be reserved for a future major version.
+        new Thread(() -> {
+            // Moves the current Thread into the background.
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             stopSync();
             if (onCompleteListener != null) {
                 onCompleteListener.onSuccess(null);
             }
-        });
+        }).start();
     }
 
     @Override
