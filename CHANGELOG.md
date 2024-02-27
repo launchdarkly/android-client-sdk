@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.0.4] - 2024-02-27
+### Fixed:
+- Improved thread usage in streaming connections.
+
 ## [5.0.3] - 2024-02-02
 ### Fixed:
 - Fixes a bug in which a race condition between identify and network state change could result in a crash.
