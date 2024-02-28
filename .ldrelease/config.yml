@@ -18,6 +18,7 @@ jobs:
 
 branches:
   - name: main
+  - name: 4.x
   - name: 3.x
 
 documentation:
