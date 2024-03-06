@@ -39,6 +39,9 @@ public class EnvironmentReporterBuilder {
         this.application = application;
     }
 
+    /**
+     * @return the {@link IEnvironmentReporter}
+     */
     public IEnvironmentReporter build() {
         /**
          * Create chain of responsibility with the following priority order

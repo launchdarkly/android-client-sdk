@@ -27,7 +27,6 @@ import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
  *         )
  *         .build();
  * </code></pre>
- * <p>
  *
  * @since 4.1.0
  */

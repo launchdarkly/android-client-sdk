@@ -84,6 +84,9 @@ public class ClientContext {
         this.setOffline = setOffline;
     }
 
+    /**
+     * @param copy the {@link ClientContext} to copy
+     */
     protected ClientContext(ClientContext copy) {
         this(
                 copy.mobileKey,
@@ -127,6 +130,9 @@ public class ClientContext {
         return config;
     }
 
+    /**
+     * @return the {@link DataSourceUpdateSink}
+     */
     public DataSourceUpdateSink getDataSourceUpdateSink() {
         return dataSourceUpdateSink;
     }

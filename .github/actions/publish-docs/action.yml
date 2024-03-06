@@ -1,0 +1,24 @@
+name: Publish Documentation
+description: 'Publish the documentation to Github pages'
+inputs:
+  token:
+    description: 'Token to use for publishing.'
+    required: true
+  dry_run:
+    description: 'Is this a dry run. If so no docs will be published.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: launchdarkly/gh-actions/actions/publish-pages@publish-pages-v1.0.1
+      name: 'Publish to Github pages'
+      if: ${{ inputs.dry_run == 'false' }}
+      with:
+        docs_path: launchdarkly-android-client-sdk/build/docs/javadoc
+        github_token: ${{ inputs.token }} # For the shared action the token should be a GITHUB_TOKEN
+
+    - name: Dry Run Publish Docs
+      shell: bash
+      if: ${{ inputs.dry_run == 'true' }}
+      run: echo "Dry run. Not publishing docs."

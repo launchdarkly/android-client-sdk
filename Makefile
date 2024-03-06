@@ -1,4 +1,4 @@
-TEST_HARNESS_PARAMS= -skip "events/disabling"
+TEST_HARNESS_PARAMS= -skip "events/disabling" -status-timeout 60
 # can add temporary test skips etc. here
 # Currently we are skipping the "events/disabling" tests because the Android SDK has no way to
 # disable events. That wasn't an issue earlier because the "events/disabling" tests were getting

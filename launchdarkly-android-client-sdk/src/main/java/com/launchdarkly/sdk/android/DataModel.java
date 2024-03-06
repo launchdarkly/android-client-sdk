@@ -91,6 +91,11 @@ public abstract class DataModel {
             this(key, value, version, flagVersion, variation, reason, trackEvents, trackReason, debugEventsUntilDate, false);
         }
 
+        /**
+         * @param key of the flag
+         * @param version of the flag
+         * @return a placeholder {@link Flag} to represent a deleted flag
+         */
         public static Flag deletedItemPlaceholder(@NonNull String key, int version) {
             return new Flag(key, null, version, null, null, null, false, false, null, true);
         }
@@ -161,6 +166,12 @@ public abstract class DataModel {
             return false;
         }
 
+        /**
+         * Deserializes a flag from JSON to {@link Flag}
+         * @param json to convert
+         * @return the {@link Flag}
+         * @throws SerializationException if unable to deserialize
+         */
         public static Flag fromJson(String json) throws SerializationException {
             try {
                 return gsonInstance().fromJson(json, Flag.class);
@@ -169,6 +180,9 @@ public abstract class DataModel {
             }
         }
 
+        /**
+         * @return JSON serialization of the flag
+         */
         public String toJson() {
             return gsonInstance().toJson(this);
         }

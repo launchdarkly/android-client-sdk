@@ -46,10 +46,29 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      */
     public static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000;
 
+    /**
+     * All attributes should be treated as private
+     */
     protected boolean allAttributesPrivate = false;
+
+    /**
+     * The capacity of the event buffer
+     */
     protected int capacity = DEFAULT_CAPACITY;
+
+    /**
+     * The diagnostic interval in millis
+     */
     protected int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
+
+    /**
+     * The flush interval in millis
+     */
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
+
+    /**
+     * Set of attributes by reference that will be treated as private
+     */
     protected Set<AttributeRef> privateAttributes;
 
     /**

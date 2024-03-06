@@ -31,10 +31,29 @@ public abstract class HttpConfigurationBuilder implements ComponentConfigurer<Ht
      */
     public static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 10000;
 
+    /**
+     * Connection timeout in millis
+     */
     protected int connectTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
+
+    /**
+     * {@link LDHeaderUpdater} that will be applied to requests
+     */
     protected LDHeaderUpdater headerTransform;
+
+    /**
+     * Whether or not Http REPORT method will be used
+     */
     protected boolean useReport;
+
+    /**
+     * Name of the wrapping library
+     */
     protected String wrapperName;
+
+    /**
+     * Version of the wrapping library
+     */
     protected String wrapperVersion;
 
     /**

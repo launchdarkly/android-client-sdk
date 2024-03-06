@@ -279,6 +279,17 @@ public class LDClient implements LDClientInterface, Closeable {
         return instancesNow.get(keyName);
     }
 
+    /**
+     * @param platformState the platform state
+     * @param environmentReporter the environment reporter
+     * @param taskExecutor the task executor
+     * @param environmentStore the environment store
+     * @param initialContext initial context
+     * @param config the config
+     * @param mobileKey the mobile key
+     * @param environmentName the environment name
+     * @throws LaunchDarklyException if {@link LDClient} cannot be created
+     */
     @VisibleForTesting
     protected LDClient(
             @NonNull final PlatformState platformState,

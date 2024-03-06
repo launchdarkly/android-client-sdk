@@ -24,6 +24,10 @@ import timber.log.Timber.Tree;
  * @since 3.2.0
  */
 public abstract class LDTimberLogging {
+
+    /**
+     * @return an {@link LDLogAdapter} for Timber logging
+     */
     public static LDLogAdapter adapter() {
         return new Adapter(true);
     }

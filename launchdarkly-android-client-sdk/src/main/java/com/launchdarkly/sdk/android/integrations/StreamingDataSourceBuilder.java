@@ -28,8 +28,19 @@ public abstract class StreamingDataSourceBuilder implements ComponentConfigurer<
      */
     public static final int DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS = 1_000;
 
+    /**
+     * Background polling interval in millis
+     */
     protected int backgroundPollIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
+
+    /**
+     * The initial reconnection delay in millis
+     */
     protected int initialReconnectDelayMillis = DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS;
+
+    /**
+     * True if the data source will attempt to continue streaming when in the background
+     */
     protected boolean streamEvenInBackground = false;
 
     /**
