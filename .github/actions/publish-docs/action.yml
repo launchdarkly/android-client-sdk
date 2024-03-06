@@ -15,7 +15,7 @@ runs:
       name: 'Publish to Github pages'
       if: ${{ inputs.dry_run == 'false' }}
       with:
-        docs_path: launchdarkly-android-client-sdk/build/docs
+        docs_path: launchdarkly-android-client-sdk/build/docs/javadoc
         github_token: ${{ inputs.token }} # For the shared action the token should be a GITHUB_TOKEN
 
     - name: Dry Run Publish Docs

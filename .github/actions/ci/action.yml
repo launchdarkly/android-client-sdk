@@ -38,16 +38,22 @@ runs:
       shell: bash
       run: ./gradlew test
 
-#     TODO: Resolve emulator issue
-#    - name: Perform Instrumented Tests
-#      uses: reactivecircus/android-emulator-runner@v2
-#      with:
-#        api-level: ${{ inputs.android_api_level }}
-#        target: google_apis
-#        emulator-boot-timeout: 900
-#        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-#        disable-animations: true
-#        script: ./gradlew connectedDebugAndroidTest
+    - name: Build contract tests
+      shell: bash
+      run: make build-contract-tests
+
+    - name: Perform Instrumented Tests
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: ${{ inputs.android_api_level }}
+        target: google_apis
+        emulator-boot-timeout: 900
+        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        disable-animations: true
+        script: |
+          make start-contract-test-service
+          make run-contract-tests
+          ./gradlew connectedDebugAndroidTest
 
     - name: Build documentation
       uses: ./.github/actions/build-docs

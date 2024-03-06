@@ -14,7 +14,7 @@ jobs:
   ci-build:
     strategy:
       matrix:
-#        TODO: Resolve emulator issue and include full matrices
+#        TODO: Use full matrices
 #        android_api_level: ['21','25','30','34']
 #        java_version: ['11', '17']
         android_api_level: ['25']
