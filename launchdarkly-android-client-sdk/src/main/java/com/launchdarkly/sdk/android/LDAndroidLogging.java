@@ -21,6 +21,10 @@ import com.launchdarkly.logging.SimpleFormat;
  * @since 3.2.0
  */
 public abstract class LDAndroidLogging {
+
+    /**
+     * @return an {@link LDLogAdapter} for Android logging
+     */
     public static LDLogAdapter adapter() {
         return new AdapterImpl(false);
     }

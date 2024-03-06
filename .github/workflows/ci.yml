@@ -1,0 +1,29 @@
+name: Build and Test
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+    paths-ignore:
+      - '**.md' # Do not need to run CI for markdown changes.
+  pull_request:
+    branches: [ 'main' ]
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  ci-build:
+    strategy:
+      matrix:
+#        TODO: Resolve emulator issue and include full matrices
+#        android_api_level: ['21','25','30','34']
+#        java_version: ['11', '17']
+        android_api_level: ['25']
+        java_version: ['17']
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ci
+        with:
+          android_api_level: ${{ matrix.android_api_level }}
+          java_version: ${{ matrix.java_version }}

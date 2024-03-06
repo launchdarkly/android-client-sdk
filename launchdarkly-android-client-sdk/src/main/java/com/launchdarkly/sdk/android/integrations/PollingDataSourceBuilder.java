@@ -36,7 +36,14 @@ public abstract class PollingDataSourceBuilder implements ComponentConfigurer<Da
      */
     public static final int DEFAULT_POLL_INTERVAL_MILLIS = 300_000;
 
+    /**
+     * The background polling interval in millis
+     */
     protected int backgroundPollIntervalMillis = LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS;
+
+    /**
+     * The foreground polling interval in millis
+     */
     protected int pollIntervalMillis = DEFAULT_POLL_INTERVAL_MILLIS;
 
     /**

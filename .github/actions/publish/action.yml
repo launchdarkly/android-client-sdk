@@ -1,0 +1,28 @@
+name: Publish Package
+description: 'Publish the package to Sonatype'
+inputs:
+  code_signing_keyring:
+    description: 'The path of the code signing keyring.'
+    required: true
+  prerelease:
+    description: 'Is this a prerelease. If so then it will be published to the staging repository only.'
+    required: true
+  dry_run:
+    description: 'Is this a dry run. If so no package will be published.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Publish Library
+      shell: bash
+      if: ${{ inputs.dry_run == 'false' }}
+      env:
+        LD_RELEASE_IS_PRERELEASE: ${{ inputs.prerelease }}
+        SIGNING_SECRET_KEY_RING_FILE: ${{ inputs.code_signing_keyring }}
+      run: source $GITHUB_ACTION_PATH/publish.sh
+
+    - name: Dry Run Publish Library
+      shell: bash
+      if: ${{ inputs.dry_run == 'true' }}
+      run: echo "Dry run. Not publishing."

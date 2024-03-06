@@ -108,36 +108,63 @@ public class LDConfig {
         this.loggerName = loggerName;
     }
 
+    /**
+     * @return the mobile key
+     */
     public String getMobileKey() {
         return mobileKeys.get(primaryEnvironmentName);
     }
 
+    /**
+     * @return a map of mobile keys keyed by environment name
+     */
     public Map<String, String> getMobileKeys() {
         return mobileKeys;
     }
 
+    /**
+     * @return true if offline mode is enabled, false otherwise
+     */
     public boolean isOffline() {
         return offline;
     }
 
+    /**
+     * @return true if background polling is disabled, false otherwise
+     */
     public boolean isDisableBackgroundPolling() {
         return disableBackgroundUpdating;
     }
 
+    /**
+     * @return true if evaluation reasons are turned on, false otherwise
+     */
     public boolean isEvaluationReasons() {
         return evaluationReasons;
     }
 
+    /**
+     * @return true if opting out of diagnostics, false otherwise
+     */
     boolean getDiagnosticOptOut() {
         return diagnosticOptOut;
     }
 
+    /**
+     * @return the maximum number of contexts that will be cached locally
+     */
     int getMaxCachedContexts() {
         return maxCachedContexts;
     }
 
+    /**
+     * @return true if keys should be generated for anonymous contexts, false otherwise
+     */
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
 
+    /**
+     * @return true if automatic environment attributes should be included in contexts, false otherwise
+     */
     public boolean isAutoEnvAttributes() {
         return autoEnvAttributes;
     }
@@ -173,9 +200,14 @@ public class LDConfig {
          that customers on previous versions don't use the earlier, unfinished version of the feature.
          */
         public enum AutoEnvAttributes {
-            // Enables the Auto EnvironmentAttributes functionality.
+            /**
+             * Enables the Auto EnvironmentAttributes functionality.
+             */
             Enabled,
-            // Disables the Auto EnvironmentAttributes functionality.
+
+            /**
+             * Disables the Auto EnvironmentAttributes functionality.
+             */
             Disabled
         }
 

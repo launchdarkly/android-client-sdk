@@ -1,0 +1,15 @@
+{
+  "bootstrap-sha": "2b41c9120f53233bada7d1f1e858d5e42acd573a",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "bump-minor-pre-major": true,
+      "versioning": "default",
+      "include-v-in-tag": false,
+      "include-component-in-tag": false,
+      "extra-files": [
+        "src/LaunchDarkly.ClientSdk/LaunchDarkly.ClientSdk.csproj"
+      ]
+    }
+  }
+}

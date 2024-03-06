@@ -56,8 +56,20 @@ import java.net.URI;
  * @since 4.0.0
  */
 public abstract class ServiceEndpointsBuilder {
+
+    /**
+     * Base URI for streaming requests
+     */
     protected URI streamingBaseUri;
+
+    /**
+     * Base URI for polling requests
+     */
     protected URI pollingBaseUri;
+
+    /**
+     * Base URI for events
+     */
     protected URI eventsBaseUri;
 
     /**
