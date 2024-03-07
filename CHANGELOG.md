@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.0.5](https://github.com/launchdarkly/android-client-sdk/compare/5.0.4...5.0.5) (2024-03-07)
+
+
+### Bug Fixes
+
+* propagating NPE fix for ContextBuilder.fromContext bug ([#246](https://github.com/launchdarkly/android-client-sdk/issues/246)) ([3205005](https://github.com/launchdarkly/android-client-sdk/commit/320500539c56bdf2e9345c29dbc34b6e68ef8616))
+
 ## [5.0.4] - 2024-02-27
 ### Fixed:
 - Improved thread usage in streaming connections.
