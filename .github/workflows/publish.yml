@@ -51,8 +51,8 @@ jobs:
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
           ssm_parameter_pairs: '/production/common/releasing/sonatype/username = SONATYPE_USER_NAME,
-          /production/common/releasing/sonatype/password = SONATYPE_PASSWORD
-          /production/common/releasing/android_code_signing/private_key_id = SIGNING_KEY_ID
+          /production/common/releasing/sonatype/password = SONATYPE_PASSWORD,
+          /production/common/releasing/android_code_signing/private_key_id = SIGNING_KEY_ID,
           /production/common/releasing/android_code_signing/private_key_passphrase = SIGNING_KEY_PASSPHRASE'
           s3_path_pairs: 'launchdarkly-releaser/android/code-signing-keyring.gpg = code-signing-keyring.gpg'
 
@@ -61,7 +61,11 @@ jobs:
         with:
           dry_run: ${{ inputs.dry_run }}
           prerelease: ${{ inputs.prerelease }}
+          signing_key_id: ${{ env.SIGNING_KEY_ID }}
+          signing_key_passphrase: ${{ env.SIGNING_KEY_PASSPHRASE }}
           code_signing_keyring: 'code-signing-keyring.gpg'
+          sonatype_username: ${{ env.SONATYPE_USER_NAME }}
+          sonatype_password: ${{ env.SONATYPE_PASSWORD }}
 
       - name: Publish Documentation
         uses: ./.github/actions/publish-docs
