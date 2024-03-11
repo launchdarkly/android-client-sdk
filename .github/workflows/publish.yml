@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: read
+      contents: write # Needed in this case to write github pages.
     steps:
       # This enables hardware acceleration on large linux runners
       - name: Enable KVM group perms
