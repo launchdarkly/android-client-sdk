@@ -257,17 +257,14 @@ public class LDClientEventTest {
                     .diagnosticOptOut(true)
                     .serviceEndpoints(Components.serviceEndpoints()
                             .events(baseUrl.uri())
-                            .streaming(baseUrl.uri())
-                            .polling(baseUrl.uri())
                     )
                     .build();
-            
+
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
-                ldClient.boolVariation("this-flag-doesnt-exist", false);
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                LDValue identifyEvent = events[0], summaryEvent = events[1];
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                LDValue identifyEvent = events[0];
                 assertTrue(identifyEvent.get("context").toString().contains("ld_application"));
                 assertTrue(identifyEvent.get("context").toString().contains("ld_device"));
             }
@@ -287,17 +284,14 @@ public class LDClientEventTest {
                     .diagnosticOptOut(true)
                     .serviceEndpoints(Components.serviceEndpoints()
                             .events(baseUrl.uri())
-                            .streaming(baseUrl.uri())
-                            .polling(baseUrl.uri())
                     )
                     .build();
 
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
-                ldClient.boolVariation("this-flag-doesnt-exist", false);
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                LDValue identifyEvent = events[0], summaryEvent = events[1];
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                LDValue identifyEvent = events[0];
                 assertFalse(identifyEvent.get("context").toString().contains("ld_application"));
                 assertFalse(identifyEvent.get("context").toString().contains("ld_device"));
             }
