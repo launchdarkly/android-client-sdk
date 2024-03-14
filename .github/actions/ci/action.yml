@@ -53,7 +53,7 @@ runs:
         script: |
           make start-contract-test-service
           make run-contract-tests
-#          ./gradlew connectedDebugAndroidTest
+          ./gradlew connectedDebugAndroidTest
 
     - name: Build documentation
       uses: ./.github/actions/build-docs
