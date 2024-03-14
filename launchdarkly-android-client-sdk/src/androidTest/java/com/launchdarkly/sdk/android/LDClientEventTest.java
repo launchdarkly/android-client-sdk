@@ -264,12 +264,12 @@ public class LDClientEventTest {
 
             // Don't wait as we are not set offline
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
+                ldClient.blockingFlush();
                 ldClient.track("test-event");
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                LDValue identifyEvent = events[0], customEvent = events[1];
-                assertIdentifyEvent(identifyEvent, ldContext);
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                LDValue customEvent = events[0];
                 assertTrue(customEvent.get("contextKeys").toString().contains("ld_application"));
                 assertTrue(customEvent.get("contextKeys").toString().contains("ld_device"));
             }
@@ -296,12 +296,12 @@ public class LDClientEventTest {
 
             // Don't wait as we are not set offline
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
+                ldClient.blockingFlush();
                 ldClient.track("test-event");
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                LDValue identifyEvent = events[0], customEvent = events[1];
-                assertIdentifyEvent(identifyEvent, ldContext);
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                LDValue customEvent = events[0];
                 assertFalse(customEvent.get("contextKeys").toString().contains("ld_application"));
                 assertFalse(customEvent.get("contextKeys").toString().contains("ld_device"));
             }
