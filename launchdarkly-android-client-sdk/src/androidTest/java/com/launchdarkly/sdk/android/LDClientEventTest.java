@@ -261,17 +261,15 @@ public class LDClientEventTest {
                             .polling(baseUrl.uri())
                     )
                     .build();
-
-            // Don't wait as we are not set offline
+            
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
-                ldClient.blockingFlush();
-                ldClient.track("test-event");
+                ldClient.boolVariation("this-flag-doesnt-exist", false);
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
-                LDValue customEvent = events[0];
-                assertTrue(customEvent.get("contextKeys").toString().contains("ld_application"));
-                assertTrue(customEvent.get("contextKeys").toString().contains("ld_device"));
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], summaryEvent = events[1];
+                assertTrue(identifyEvent.get("context").toString().contains("ld_application"));
+                assertTrue(identifyEvent.get("context").toString().contains("ld_device"));
             }
         }
     }
@@ -294,16 +292,14 @@ public class LDClientEventTest {
                     )
                     .build();
 
-            // Don't wait as we are not set offline
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
-                ldClient.blockingFlush();
-                ldClient.track("test-event");
+                ldClient.boolVariation("this-flag-doesnt-exist", false);
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
-                LDValue customEvent = events[0];
-                assertFalse(customEvent.get("contextKeys").toString().contains("ld_application"));
-                assertFalse(customEvent.get("contextKeys").toString().contains("ld_device"));
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue identifyEvent = events[0], summaryEvent = events[1];
+                assertFalse(identifyEvent.get("context").toString().contains("ld_application"));
+                assertFalse(identifyEvent.get("context").toString().contains("ld_device"));
             }
         }
     }
