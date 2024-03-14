@@ -1,0 +1,7 @@
+com.launchdarkly.sdk
+com.launchdarkly.sdk.android
+com.launchdarkly.sdk.android.env
+com.launchdarkly.sdk.android.integrations
+com.launchdarkly.sdk.android.interfaces
+com.launchdarkly.sdk.android.subsystems
+com.launchdarkly.sdk.json
