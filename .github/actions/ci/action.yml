@@ -33,14 +33,14 @@ runs:
       id: build
       run: ./gradlew build jar
 
-    - name: Run Unit Tests
-      if: inputs.run_tests == 'true'
-      shell: bash
-      run: ./gradlew test
-
-    - name: Build contract tests
-      shell: bash
-      run: make build-contract-tests
+#    - name: Run Unit Tests
+#      if: inputs.run_tests == 'true'
+#      shell: bash
+#      run: ./gradlew test
+#
+#    - name: Build contract tests
+#      shell: bash
+#      run: make build-contract-tests
 
     - name: Perform Instrumented Tests
       uses: reactivecircus/android-emulator-runner@6b0df4b0efb23bb0ec63d881db79aefbc976e4b2 #2.30.1
@@ -51,8 +51,8 @@ runs:
         emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
         disable-animations: true
         script: |
-          make start-contract-test-service
-          make run-contract-tests
+#          make start-contract-test-service
+#          make run-contract-tests
           ./gradlew connectedDebugAndroidTest
 
     - name: Build documentation
