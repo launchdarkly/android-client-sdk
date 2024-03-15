@@ -51,8 +51,6 @@ runs:
         emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
         disable-animations: true
         script: |
-#          make start-contract-test-service
-#          make run-contract-tests
           ./gradlew connectedDebugAndroidTest
 
     - name: Build documentation
