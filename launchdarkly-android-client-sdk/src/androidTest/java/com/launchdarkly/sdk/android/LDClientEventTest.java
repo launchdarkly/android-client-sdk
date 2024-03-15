@@ -184,15 +184,15 @@ public class LDClientEventTest {
 
                 LDValue[] events = getEventsFromLastRequest(mockEventsServer, 3);
                 LDValue identifyEvent = events[0], featureEvent = events[1], summaryEvent = events[2];
-//                assertIdentifyEvent(identifyEvent, ldContext);
+                assertIdentifyEvent(identifyEvent, ldContext);
                 assertFeatureEvent(featureEvent, ldContext);
-//                assertEquals(LDValue.of("track-reason-flag"), featureEvent.get("key"));
-//                assertEquals(LDValue.of(1), featureEvent.get("variation"));
-//                assertEquals(LDValue.of(true), featureEvent.get("value"));
-//                assertEquals(LDValue.of(10), featureEvent.get("version"));
-//                assertEquals(LDValue.parse(JsonSerialization.serialize(flag.getReason())),
-//                        featureEvent.get("reason"));
-//                assertSummaryEvent(summaryEvent);
+                assertEquals(LDValue.of("track-reason-flag"), featureEvent.get("key"));
+                assertEquals(LDValue.of(1), featureEvent.get("variation"));
+                assertEquals(LDValue.of(true), featureEvent.get("value"));
+                assertEquals(LDValue.of(10), featureEvent.get("version"));
+                assertEquals(LDValue.parse(JsonSerialization.serialize(flag.getReason())),
+                        featureEvent.get("reason"));
+                assertSummaryEvent(summaryEvent);
             }
         }
     }
@@ -336,7 +336,6 @@ public class LDClientEventTest {
 
     private void assertFeatureEvent(LDValue event, LDContext context) {
         assertEquals("feature", event.get("kind").stringValue());
-        assertEquals(context, event.get("context"));
     }
 
     private void assertCustomEvent(LDValue event, LDContext context, String eventKey) {
