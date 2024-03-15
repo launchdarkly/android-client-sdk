@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.1.0](https://github.com/launchdarkly/android-client-sdk/compare/5.0.5...5.1.0) (2024-03-14)
+
+
+### Features
+
+* Always inline contexts for feature events ([2a88ef6](https://github.com/launchdarkly/android-client-sdk/commit/2a88ef66c878ef960d05ce23bb8d45a130207160))
+* Redact anonymous attributes within feature events ([2a88ef6](https://github.com/launchdarkly/android-client-sdk/commit/2a88ef66c878ef960d05ce23bb8d45a130207160))
+
+
+### Bug Fixes
+
+* Bump launchdarklyJavaSdkInternal to 1.3.0 ([#257](https://github.com/launchdarkly/android-client-sdk/issues/257)) ([2a88ef6](https://github.com/launchdarkly/android-client-sdk/commit/2a88ef66c878ef960d05ce23bb8d45a130207160))
+
 ## [5.0.5](https://github.com/launchdarkly/android-client-sdk/compare/5.0.4...5.0.5) (2024-03-07)
 
 
