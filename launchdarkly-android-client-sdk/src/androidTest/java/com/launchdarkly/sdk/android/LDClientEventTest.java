@@ -336,7 +336,7 @@ public class LDClientEventTest {
 
     private void assertFeatureEvent(LDValue event, LDContext context) {
         assertEquals("feature", event.get("kind").stringValue());
-        assertContextKeys(event, context);
+        assertEquals(context, event.get("context"));
     }
 
     private void assertCustomEvent(LDValue event, LDContext context, String eventKey) {
