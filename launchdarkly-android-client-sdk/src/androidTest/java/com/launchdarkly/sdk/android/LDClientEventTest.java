@@ -178,6 +178,9 @@ public class LDClientEventTest {
                     .persistentDataStore(store).build();
 
             try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+
+                Thread.sleep(200);
+
                 client.boolVariation("track-reason-flag", false);
                 client.blockingFlush();
 
