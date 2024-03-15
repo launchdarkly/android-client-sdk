@@ -177,7 +177,7 @@ public class LDClientEventTest {
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
                     .persistentDataStore(store).build();
 
-            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 5)) {
                 client.boolVariation("track-reason-flag", false);
                 client.blockingFlush();
 
