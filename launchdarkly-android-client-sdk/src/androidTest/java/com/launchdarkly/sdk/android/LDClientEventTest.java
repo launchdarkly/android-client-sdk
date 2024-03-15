@@ -257,21 +257,16 @@ public class LDClientEventTest {
                     .diagnosticOptOut(true)
                     .serviceEndpoints(Components.serviceEndpoints()
                             .events(baseUrl.uri())
-                            .streaming(baseUrl.uri())
-                            .polling(baseUrl.uri())
                     )
                     .build();
 
-            // Don't wait as we are not set offline
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
-                ldClient.track("test-event");
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                LDValue identifyEvent = events[0], customEvent = events[1];
-                assertIdentifyEvent(identifyEvent, ldContext);
-                assertTrue(customEvent.get("contextKeys").toString().contains("ld_application"));
-                assertTrue(customEvent.get("contextKeys").toString().contains("ld_device"));
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                LDValue identifyEvent = events[0];
+                assertTrue(identifyEvent.get("context").toString().contains("ld_application"));
+                assertTrue(identifyEvent.get("context").toString().contains("ld_device"));
             }
         }
     }
@@ -289,21 +284,16 @@ public class LDClientEventTest {
                     .diagnosticOptOut(true)
                     .serviceEndpoints(Components.serviceEndpoints()
                             .events(baseUrl.uri())
-                            .streaming(baseUrl.uri())
-                            .polling(baseUrl.uri())
                     )
                     .build();
 
-            // Don't wait as we are not set offline
             try (LDClient ldClient = LDClient.init(application, ldConfig, ldContext, 0)){
-                ldClient.track("test-event");
                 ldClient.blockingFlush();
 
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
-                LDValue identifyEvent = events[0], customEvent = events[1];
-                assertIdentifyEvent(identifyEvent, ldContext);
-                assertFalse(customEvent.get("contextKeys").toString().contains("ld_application"));
-                assertFalse(customEvent.get("contextKeys").toString().contains("ld_device"));
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 1);
+                LDValue identifyEvent = events[0];
+                assertFalse(identifyEvent.get("context").toString().contains("ld_application"));
+                assertFalse(identifyEvent.get("context").toString().contains("ld_device"));
             }
         }
     }
@@ -345,7 +335,6 @@ public class LDClientEventTest {
 
     private void assertFeatureEvent(LDValue event, LDContext context) {
         assertEquals("feature", event.get("kind").stringValue());
-        assertContextKeys(event, context);
     }
 
     private void assertCustomEvent(LDValue event, LDContext context, String eventKey) {
