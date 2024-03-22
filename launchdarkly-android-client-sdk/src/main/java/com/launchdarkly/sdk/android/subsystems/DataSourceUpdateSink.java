@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android.subsystems;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.DataModel;
 
@@ -19,7 +20,7 @@ public interface DataSourceUpdateSink {
      *
      * @param items a map of flag keys to flag evaluation results
      */
-    void init(@NonNull Map<String, DataModel.Flag> items);
+    void init(@NonNull LDContext context, @NonNull Map<String, DataModel.Flag> items);
 
     /**
      * Updates or inserts an item. If an item already exists with the same key, the operation will
@@ -30,7 +31,7 @@ public interface DataSourceUpdateSink {
      *
      * @param item the new evaluation result data (or a deleted item placeholder)
      */
-    void upsert(@NonNull DataModel.Flag item);
+    void upsert(@NonNull LDContext context, @NonNull DataModel.Flag item);
 
     /**
      * Informs the SDK of a change in the data source's status or the connection mode.

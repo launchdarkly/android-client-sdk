@@ -106,6 +106,29 @@ public class ClientContext {
     }
 
     /**
+     * Sets the evaluation context and returns a new instance of {@link ClientContext}
+     * @param context to now use as the evaluation context
+     * @return a new instance
+     */
+    protected ClientContext setEvaluationContext(LDContext context) {
+        return new ClientContext(
+                this.mobileKey,
+                this.environmentReporter,
+                this.baseLogger,
+                this.config,
+                this.dataSourceUpdateSink,
+                this.environmentName,
+                this.evaluationReasons,
+                context,
+                this.http,
+                this.inBackground,
+                this.previouslyInBackground,
+                this.serviceEndpoints,
+                this.setOffline
+        );
+    }
+
+    /**
      * @return the {@link IEnvironmentReporter} for this client context
      */
     public IEnvironmentReporter getEnvironmentReporter() {

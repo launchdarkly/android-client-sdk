@@ -44,7 +44,8 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.upsert(flag);
+        manager.switchToContext(CONTEXT);
+        manager.upsert(CONTEXT, flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
         assertEquals(flag.getKey(), allFlagsListener.expectUpdate(5, TimeUnit.SECONDS));
@@ -60,7 +61,8 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.upsert(flag);
+        manager.switchToContext(CONTEXT);
+        manager.upsert(CONTEXT, flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
         assertEquals(flag.getKey(), allFlagsListener.expectUpdate(5, TimeUnit.SECONDS));
@@ -78,7 +80,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerAllFlagsListener(allFlagsListener);
         manager.unregisterAllFlagsListener(allFlagsListener);
 
-        manager.upsert(flag);
+        manager.upsert(LDContext.builder("aKey").build(), flag);
 
         // Unfortunately we are testing that an asynchronous method is *not* called, we just have to
         // wait a bit to be sure.
@@ -91,7 +93,8 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
     @Test
     public void listenerIsCalledAfterInitData() {
 
-        LDContext context = LDContext.create("user");
+        LDContext context1 = LDContext.create("user1");
+        LDContext context2 = LDContext.create("user2");
         final String FLAG_KEY = "key";
         Flag flagState1 = new FlagBuilder(FLAG_KEY).value(LDValue.of(1)).build();
 
@@ -104,7 +107,8 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerAllFlagsListener(all1);
 
         // change the data
-        manager.upsert(flagState1);
+        manager.switchToContext(context1);
+        manager.upsert(context1, flagState1);
 
         // verify callbacks
         assertEquals(FLAG_KEY, specific1.expectUpdate(5, TimeUnit.SECONDS));
@@ -119,7 +123,8 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         // simulate switching context
         Flag flagState2 = new FlagBuilder(FLAG_KEY).value(LDValue.of(2)).build();
         EnvironmentData envData = new EnvironmentData().withFlagUpdatedOrAdded(flagState2);
-        manager.initData(context, envData);
+        manager.switchToContext(context2);
+        manager.initData(context2, envData);
 
         // verify callbacks
         assertEquals(FLAG_KEY, specific2.expectUpdate(5, TimeUnit.SECONDS));
@@ -136,7 +141,8 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.upsert(flag);
+        manager.switchToContext(CONTEXT);
+        manager.upsert(CONTEXT, flag);
 
         listener.expectUpdate(5, TimeUnit.SECONDS);
         allFlagsListener.expectUpdate(5, TimeUnit.SECONDS);

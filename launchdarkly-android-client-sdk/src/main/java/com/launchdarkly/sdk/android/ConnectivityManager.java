@@ -54,7 +54,6 @@ class ConnectivityManager {
     private final DataSourceUpdateSink dataSourceUpdateSink;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
-    private final ContextDataManager contextDataManager;
     private final EventProcessor eventProcessor;
     private final PlatformState.ForegroundChangeListener foregroundListener;
     private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
@@ -66,7 +65,7 @@ class ConnectivityManager {
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
-    private final AtomicReference<LDContext> currentEvaluationContext = new AtomicReference<>();
+    private final AtomicReference<LDContext> currentContext = new AtomicReference<>();
     private final AtomicReference<Boolean> previouslyInBackground = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
@@ -76,19 +75,23 @@ class ConnectivityManager {
     // data is stored; 2. to implement additional logic that does not depend on what kind of data
     // source we're using, like "if there was an error, update the ConnectionInformation."
     private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink {
+        private final ContextDataManager contextDataManager;
         private final AtomicReference<ConnectionMode> connectionMode = new AtomicReference<>(null);
         private final AtomicReference<LDFailure> lastFailure = new AtomicReference<>(null);
 
+        DataSourceUpdateSinkImpl(ContextDataManager contextDataManager) {
+            this.contextDataManager = contextDataManager;
+        }
+
         @Override
-        public void init(Map<String, DataModel.Flag> items) {
-            contextDataManager.initData(currentEvaluationContext.get(),
-                    EnvironmentData.usingExistingFlagsMap(items));
+        public void init(LDContext context, Map<String, DataModel.Flag> items) {
+            contextDataManager.initData(context, EnvironmentData.usingExistingFlagsMap(items));
             // Currently, contextDataManager is responsible for firing any necessary flag change events.
         }
 
         @Override
-        public void upsert(DataModel.Flag item) {
-            contextDataManager.upsert(item);
+        public void upsert(LDContext context, DataModel.Flag item) {
+            contextDataManager.upsert(context, item);
             // Currently, contextDataManager is responsible for firing any necessary flag change events.
         }
 
@@ -148,15 +151,14 @@ class ConnectivityManager {
     ) {
         this.baseClientContext = clientContext;
         this.dataSourceFactory = dataSourceFactory;
-        this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl();
+        this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl(contextDataManager);
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.eventProcessor = eventProcessor;
-        this.contextDataManager = contextDataManager;
         this.environmentStore = environmentStore;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
 
-        currentEvaluationContext.set(clientContext.getEvaluationContext());
+        currentContext.set(clientContext.getEvaluationContext());
         forcedOffline.set(clientContext.isSetOffline());
 
         LDConfig ldConfig = clientContext.getConfig();
@@ -172,20 +174,28 @@ class ConnectivityManager {
         foregroundListener = foreground -> {
             DataSource dataSource = currentDataSource.get();
             if (dataSource == null || dataSource.needsRefresh(!foreground,
-                    currentEvaluationContext.get())) {
+                    currentContext.get())) {
                 updateDataSource(true, LDUtil.noOpCallback());
             }
         };
         platformState.addForegroundChangeListener(foregroundListener);
     }
 
-    void setEvaluationContext(@NonNull LDContext newContext, @NonNull Callback<Void> onCompletion) {
+    /**
+     * Switches the {@link ConnectivityManager} to begin fetching/receiving information
+     * relevant to the context provided.  This is likely to result in the teardown of existing
+     * connections, but the timing of that is not guaranteed.
+     *
+     * @param context to swtich to
+     * @param onCompletion callback that indicates when the switching is done
+     */
+    void switchToContext(@NonNull LDContext context, @NonNull Callback<Void> onCompletion) {
         DataSource dataSource = currentDataSource.get();
-        LDContext oldContext = currentEvaluationContext.getAndSet(newContext);
-        if (oldContext == newContext || oldContext.equals(newContext)) {
+        LDContext oldContext = currentContext.getAndSet(context);
+        if (oldContext == context || oldContext.equals(context)) {
             onCompletion.onSuccess(null);
         } else {
-            if (dataSource == null || dataSource.needsRefresh(!platformState.isForeground(), newContext)) {
+            if (dataSource == null || dataSource.needsRefresh(!platformState.isForeground(), context)) {
                 updateDataSource(true, onCompletion);
             } else {
                 onCompletion.onSuccess(null);
@@ -204,7 +214,7 @@ class ConnectivityManager {
         boolean forceOffline = forcedOffline.get();
         boolean networkEnabled = platformState.isNetworkAvailable();
         boolean inBackground = !platformState.isForeground();
-        LDContext evaluationContext = currentEvaluationContext.get();
+        LDContext context = currentContext.get();
 
         eventProcessor.setOffline(forceOffline || !networkEnabled);
         eventProcessor.setInBackground(inBackground);
@@ -241,7 +251,7 @@ class ConnectivityManager {
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
-                evaluationContext,
+                context,
                 inBackground,
                 previouslyInBackground.get()
         );
@@ -357,13 +367,6 @@ class ConnectivityManager {
             return false;
         }
         initialized = false;
-
-        // Calling initFromStoredData updates the current flag state *if* stored flags exist for
-        // this context. If they don't, it has no effect. Currently we do *not* return early from
-        // initialization just because stored flags exist; we're just making them available in case
-        // initialization times out or otherwise fails.
-        contextDataManager.initFromStoredData(currentEvaluationContext.get());
-
         return updateDataSource(true, onCompletion);
     }
 
@@ -400,12 +403,12 @@ class ConnectivityManager {
 
     static void fetchAndSetData(
             FeatureFetcher fetcher,
-            LDContext currentContext,
+            LDContext contextToFetch,
             DataSourceUpdateSink dataSourceUpdateSink,
             Callback<Boolean> resultCallback,
             LDLogger logger
     ) {
-        fetcher.fetch(currentContext, new Callback<String>() {
+        fetcher.fetch(contextToFetch, new Callback<String>() {
             @Override
             public void onSuccess(String flagsJson) {
                 EnvironmentData data;
@@ -417,15 +420,15 @@ class ConnectivityManager {
                             e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     return;
                 }
-                dataSourceUpdateSink.init(data.getAll());
+                dataSourceUpdateSink.init(contextToFetch, data.getAll());
                 resultCallback.onSuccess(true);
             }
 
             @Override
             public void onError(Throwable e) {
                 logger.error("Error when attempting to get flag data: [{}] [{}]: {}",
-                        LDUtil.base64Url(currentContext),
-                        currentContext,
+                        LDUtil.base64Url(contextToFetch),
+                        contextToFetch,
                         LogValues.exceptionSummary(e));
                 resultCallback.onError(e);
             }

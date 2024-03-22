@@ -11,6 +11,7 @@ import static org.junit.Assert.assertNotNull;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.Callback;
@@ -61,7 +62,7 @@ public abstract class MockComponents {
         public final BlockingQueue<DataModel.Flag> upserts = new LinkedBlockingQueue<>();
 
         @Override
-        public void init(@NonNull Map<String, DataModel.Flag> items) {
+        public void init(@NonNull LDContext context, @NonNull Map<String, DataModel.Flag> items) {
             inits.add(items);
         }
 
@@ -70,7 +71,7 @@ public abstract class MockComponents {
         }
 
         @Override
-        public void upsert(@NonNull DataModel.Flag item) {
+        public void upsert(@NonNull LDContext context, @NonNull DataModel.Flag item) {
             upserts.add(item);
         }
 
@@ -115,7 +116,7 @@ public abstract class MockComponents {
             @Override
             public void start(@NonNull Callback<Boolean> resultCallback) {
                 new Thread(() -> {
-                    clientContext.getDataSourceUpdateSink().init(data.getAll());
+                    clientContext.getDataSourceUpdateSink().init(clientContext.getEvaluationContext(), data.getAll());
                     clientContext.getDataSourceUpdateSink().setStatus(connectionMode, null);
                     resultCallback.onSuccess(true);
                 }).start();

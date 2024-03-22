@@ -518,17 +518,17 @@ public final class TestData implements ComponentConfigurer<DataSource> {
     }
 
     private final class DataSourceImpl implements DataSource {
-        final LDContext currentContext;
+        final LDContext context;
         final DataSourceUpdateSink updates;
 
-        DataSourceImpl(LDContext currentContext, DataSourceUpdateSink updates) {
-            this.currentContext = currentContext;
+        DataSourceImpl(LDContext context, DataSourceUpdateSink updates) {
+            this.context = context;
             this.updates = updates;
         }
 
         @Override
         public void start(@NonNull Callback<Boolean> resultCallback) {
-            updates.init(makeInitData(currentContext));
+            updates.init(context, makeInitData(context));
             updates.setStatus(ConnectionInformation.ConnectionMode.STREAMING, null);
             resultCallback.onSuccess(true);
         }
@@ -539,8 +539,8 @@ public final class TestData implements ComponentConfigurer<DataSource> {
         }
 
         void doUpdate(FlagBuilder flagBuilder, int version) {
-            Flag flag = flagBuilder.createFlag(version ,currentContext);
-            updates.upsert(flag);
+            Flag flag = flagBuilder.createFlag(version , context);
+            updates.upsert(context, flag);
         }
     }
 }
