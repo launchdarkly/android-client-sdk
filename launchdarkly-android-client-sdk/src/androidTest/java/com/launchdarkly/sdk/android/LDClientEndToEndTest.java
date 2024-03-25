@@ -144,4 +144,38 @@ public class LDClientEndToEndTest {
             assertEquals(flagValue, client.stringVariation(flagKey, "default"));
         }
     }
+
+    @Test
+    public void identifyWhenPollingFailsAndCacheAlreadyExists() throws Exception {
+        // set up data store with flag data for ContextA and ContextB
+        // insert ContextA's flags
+        LDContext contextA = LDContext.create("ContextA");
+        String flagKeyA = "flag-keyA", flagValueA = "stored-valueA";
+        Flag flagA = new FlagBuilder(flagKeyA).version(1).value(LDValue.of(flagValueA)).build();
+        TestUtil.writeFlagUpdateToStore(store, MOBILE_KEY, contextA, flagA);
+        // insert contextB's flags
+        LDContext contextB = LDContext.create("ContextB");
+        String flagKeyB = "flag-keyB", flagValueB = "stored-valueB";
+        Flag flagB = new FlagBuilder(flagKeyB).version(1).value(LDValue.of(flagValueB)).build();
+        TestUtil.writeFlagUpdateToStore(store, MOBILE_KEY, contextB, flagB);
+
+        // response to initialization for ContextA
+        mockPollingServer.enqueue(new MockResponse().setResponseCode(401));
+
+        // response to contextB's identify
+        mockPollingServer.enqueue(new MockResponse().setResponseCode(401));
+
+        LDConfig config = baseConfig()
+                .dataSource(Components.pollingDataSource())
+                .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
+                .build();
+
+        LDClient client = LDClient.init(application, config, contextA, 1);
+        assertFalse("client should not have been initialized", client.isInitialized());
+        assertFalse("client was offline", client.isOffline());
+        assertEquals(flagValueA, client.stringVariation(flagKeyA, "defaultA"));
+
+        client.identify(contextB).get();
+        assertEquals(flagValueB, client.stringVariation(flagKeyB, "defaultB"));
+    }
 }
