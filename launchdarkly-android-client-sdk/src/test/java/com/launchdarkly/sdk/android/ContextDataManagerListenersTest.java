@@ -76,12 +76,16 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         AwaitableFlagListener allFlagsListener = new AwaitableFlagListener();
 
         manager.registerListener(flag.getKey(), listener);
-        manager.unregisterListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
+
+        manager.upsert(INITIAL_CONTEXT, flag);
+        assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
+        assertEquals(flag.getKey(), allFlagsListener.expectUpdate(5, TimeUnit.SECONDS));
+
+        manager.unregisterListener(flag.getKey(), listener);
         manager.unregisterAllFlagsListener(allFlagsListener);
 
-        manager.upsert(LDContext.builder("aKey").build(), flag);
-
+        manager.upsert(INITIAL_CONTEXT, flag);
         // Unfortunately we are testing that an asynchronous method is *not* called, we just have to
         // wait a bit to be sure.
         listener.expectNoUpdates(100, TimeUnit.MILLISECONDS);

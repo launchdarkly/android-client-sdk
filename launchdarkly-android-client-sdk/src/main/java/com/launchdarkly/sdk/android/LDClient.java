@@ -46,7 +46,7 @@ public class LDClient implements LDClientInterface, Closeable {
     // A map of each LDClient (one per environment), or null if `init` hasn't been called yet.
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
-    private static ClientContextImpl clientContextImpl;
+    private volatile ClientContextImpl clientContextImpl;
     private static IContextModifier autoEnvContextModifier;
     private static IContextModifier anonymousKeyContextModifier;
 
