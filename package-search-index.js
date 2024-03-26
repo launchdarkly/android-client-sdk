@@ -1,1 +1,0 @@
-packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"com.launchdarkly.sdk"},{"l":"com.launchdarkly.sdk.android"},{"l":"com.launchdarkly.sdk.android.env"},{"l":"com.launchdarkly.sdk.android.integrations"},{"l":"com.launchdarkly.sdk.android.interfaces"},{"l":"com.launchdarkly.sdk.android.subsystems"},{"l":"com.launchdarkly.sdk.json"}];updateSearchResults();
