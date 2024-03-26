@@ -494,9 +494,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.setCurrentContext(context2);
+        contextDataManager.switchToContext(context2);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
-        connectivityManager.setEvaluationContext(context2, done);
+        connectivityManager.switchToContext(context2, done);
         done.await();
 
         verifyAll(); // verifies eventProcessor calls
@@ -524,8 +524,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.setCurrentContext(context2);
-        connectivityManager.setEvaluationContext(context2, LDUtil.noOpCallback());
+        contextDataManager.switchToContext(context2);
+        connectivityManager.switchToContext(context2, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
@@ -552,8 +552,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.setCurrentContext(context2);
-        connectivityManager.setEvaluationContext(context2, LDUtil.noOpCallback());
+        contextDataManager.switchToContext(context2);
+        connectivityManager.switchToContext(context2, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();

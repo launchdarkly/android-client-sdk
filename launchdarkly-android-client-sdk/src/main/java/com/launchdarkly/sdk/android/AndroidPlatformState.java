@@ -160,7 +160,12 @@ final class AndroidPlatformState implements PlatformState {
     public void close() {
         connectivityChangeListeners.clear();
         foregroundChangeListeners.clear();
-        application.unregisterReceiver(connectivityReceiver);
+        try {
+            application.unregisterReceiver(connectivityReceiver);
+        } catch (IllegalArgumentException e) {
+            // getting here just means the receiver wasn't registered, which is our objective
+        }
+
         application.unregisterActivityLifecycleCallbacks(lifecycleCallbacks);
     }
 

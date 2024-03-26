@@ -123,6 +123,21 @@ final class ClientContextImpl extends ClientContext {
         );
     }
 
+    /**
+     * Sets the evaluation context and returns a new instance of {@link ClientContextImpl}
+     * @param context to now use as the evaluation context
+     * @return a new instance
+     */
+    public ClientContextImpl setEvaluationContext(LDContext context) {
+        return new ClientContextImpl(
+            super.setEvaluationContext(context),
+            this.diagnosticStore,
+            this.fetcher,
+            this.platformState,
+            this.taskExecutor
+        );
+    }
+
     public DiagnosticStore getDiagnosticStore() {
         return diagnosticStore;
     }

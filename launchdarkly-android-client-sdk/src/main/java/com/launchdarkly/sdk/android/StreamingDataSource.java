@@ -51,7 +51,7 @@ final class StreamingDataSource implements DataSource {
     // an expectation that the server will send heartbeats at a shorter interval than that
 
     private EventSource es;
-    private final LDContext currentContext;
+    private final LDContext context;
     private final HttpProperties httpProperties;
     private final boolean evaluationReasons;
     final int initialReconnectDelayMillis; // visible for testing
@@ -68,13 +68,13 @@ final class StreamingDataSource implements DataSource {
 
     StreamingDataSource(
             @NonNull ClientContext clientContext,
-            @NonNull LDContext currentContext,
+            @NonNull LDContext context,
             @NonNull DataSourceUpdateSink dataSourceUpdateSink,
             @NonNull FeatureFetcher fetcher,
             int initialReconnectDelayMillis,
             boolean streamEvenInBackground
     ) {
-        this.currentContext = currentContext;
+        this.context = context;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.fetcher = fetcher;
         this.streamUri = clientContext.getServiceEndpoints().getStreamingBaseUri();
@@ -121,7 +121,7 @@ final class StreamingDataSource implements DataSource {
                 public void onError(Throwable t) {
                     LDUtil.logExceptionAtErrorLevel(logger, t,
                             "Encountered EventStream error connecting to URI: {}",
-                            getUri(currentContext));
+                            getUri(context));
                     if (t instanceof UnsuccessfulResponseException) {
                         if (diagnosticStore != null) {
                             diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
@@ -146,7 +146,7 @@ final class StreamingDataSource implements DataSource {
                 }
             };
 
-            EventSource.Builder builder = new EventSource.Builder(handler, getUri(currentContext));
+            EventSource.Builder builder = new EventSource.Builder(handler, getUri(context));
             builder.reconnectTime(initialReconnectDelayMillis, TimeUnit.MILLISECONDS);
             builder.clientBuilderActions(new EventSource.Builder.ClientConfigurer() {
                 public void configure(OkHttpClient.Builder clientBuilder) {
@@ -163,7 +163,7 @@ final class StreamingDataSource implements DataSource {
 
             if (useReport) {
                 builder.method(METHOD_REPORT);
-                builder.body(getRequestBody(currentContext));
+                builder.body(getRequestBody(context));
             }
 
             builder.maxReconnectTime(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
@@ -214,7 +214,7 @@ final class StreamingDataSource implements DataSource {
                             e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
                     return;
                 }
-                dataSourceUpdateSink.init(data.getAll());
+                dataSourceUpdateSink.init(context, data.getAll());
                 resultCallback.onSuccess(true);
                 break;
             case PATCH:
@@ -224,7 +224,7 @@ final class StreamingDataSource implements DataSource {
                 applyDelete(eventData, resultCallback);
                 break;
             case PING:
-                ConnectivityManager.fetchAndSetData(fetcher, currentContext, dataSourceUpdateSink,
+                ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
                         resultCallback, logger);
                 break;
             default:
@@ -258,7 +258,7 @@ final class StreamingDataSource implements DataSource {
 
     @Override
     public boolean needsRefresh(boolean newInBackground, LDContext newEvaluationContext) {
-        return !newEvaluationContext.equals(currentContext) ||
+        return !newEvaluationContext.equals(context) ||
                 (newInBackground && !streamEvenInBackground);
     }
 
@@ -284,7 +284,7 @@ final class StreamingDataSource implements DataSource {
         if (flag == null) {
             return;
         }
-        dataSourceUpdateSink.upsert(flag);
+        dataSourceUpdateSink.upsert(context, flag);
         onCompleteListener.onSuccess(null);
     }
 
@@ -301,7 +301,7 @@ final class StreamingDataSource implements DataSource {
         if (deleteMessage == null) {
             return;
         }
-        dataSourceUpdateSink.upsert(Flag.deletedItemPlaceholder(deleteMessage.key, deleteMessage.version));
+        dataSourceUpdateSink.upsert(context, Flag.deletedItemPlaceholder(deleteMessage.key, deleteMessage.version));
         onCompleteListener.onSuccess(null);
     }
 

@@ -46,17 +46,14 @@ public class LDClient implements LDClientInterface, Closeable {
     // A map of each LDClient (one per environment), or null if `init` hasn't been called yet.
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
-    private static volatile PlatformState sharedPlatformState;
-    private static volatile IEnvironmentReporter environmentReporter;
-    private static volatile TaskExecutor sharedTaskExecutor;
-    private static volatile IContextModifier autoEnvContextModifier;
-    private static volatile IContextModifier anonymousKeyContextModifier;
+    private volatile ClientContextImpl clientContextImpl;
+    private static IContextModifier autoEnvContextModifier;
+    private static IContextModifier anonymousKeyContextModifier;
 
     // A lock to ensure calls to `init()` are serialized.
     static Object initLock = new Object();
 
     private static volatile LDLogger sharedLogger;
-
     private final LDConfig config;
     private final ContextDataManager contextDataManager;
     private final EventProcessor eventProcessor;
@@ -115,8 +112,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 return new LDSuccessFuture<>(instances.get(LDConfig.primaryEnvironmentName));
             }
 
-            sharedTaskExecutor = new AndroidTaskExecutor(application, logger);
-            sharedPlatformState = new AndroidPlatformState(application, sharedTaskExecutor, logger);
+            TaskExecutor sharedTaskExecutor = new AndroidTaskExecutor(application, logger);
+            PlatformState sharedPlatformState = new AndroidPlatformState(application, sharedTaskExecutor, logger);
 
             PersistentDataStore store = config.getPersistentDataStore() == null ?
                     new SharedPreferencesPersistentDataStore(application, logger) :
@@ -133,7 +130,7 @@ public class LDClient implements LDClientInterface, Closeable {
             if (config.isAutoEnvAttributes()) {
                 reporterBuilder.enableCollectionFromPlatform(application);
             }
-            environmentReporter = reporterBuilder.build();
+            IEnvironmentReporter environmentReporter = reporterBuilder.build();
 
             if (config.isAutoEnvAttributes()) {
                 autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter, logger);
@@ -320,7 +317,8 @@ public class LDClient implements LDClientInterface, Closeable {
             );
             fetcher = new HttpFeatureFlagFetcher(minimalContext);
         }
-        ClientContextImpl clientContext = ClientContextImpl.fromConfig(
+
+        clientContextImpl = ClientContextImpl.fromConfig(
                 config,
                 mobileKey,
                 environmentName,
@@ -333,15 +331,15 @@ public class LDClient implements LDClientInterface, Closeable {
         );
 
         this.contextDataManager = new ContextDataManager(
-                clientContext,
+                clientContextImpl,
                 environmentStore,
                 config.getMaxCachedContexts()
         );
 
-        eventProcessor = config.events.build(clientContext);
+        eventProcessor = config.events.build(clientContextImpl);
 
         connectivityManager = new ConnectivityManager(
-                clientContext,
+                clientContextImpl,
                 config.dataSource,
                 eventProcessor,
                 contextDataManager,
@@ -365,7 +363,7 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
-        eventProcessor.recordCustomEvent(contextDataManager.getCurrentContext(), eventName,
+        eventProcessor.recordCustomEvent(clientContextImpl.getEvaluationContext(), eventName,
                 data, metricValue);
     }
 
@@ -402,8 +400,15 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void identifyInternal(@NonNull LDContext context,
                                   Callback<Void> onCompleteListener) {
-        contextDataManager.setCurrentContext(context);
-        connectivityManager.setEvaluationContext(context, onCompleteListener);
+
+        clientContextImpl = clientContextImpl.setEvaluationContext(context);
+
+        // Calling initFromStoredData updates the current flag state *if* stored flags exist for
+        // this context. If they don't, it has no effect. Currently we do *not* return early from
+        // initialization just because stored flags exist; we're just making them available in case
+        // initialization times out or otherwise fails.
+        contextDataManager.switchToContext(context);
+        connectivityManager.switchToContext(context, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
 
@@ -497,18 +502,18 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
+        LDContext context = clientContextImpl.getEvaluationContext();
         Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
         EvaluationDetail<LDValue> result;
-        LDValue value = defaultValue;
 
         if (flag == null) {
             logger.info("Unknown feature flag \"{}\"; returning default value", key);
-            eventProcessor.recordEvaluationEvent(contextDataManager.getCurrentContext(), key,
+            eventProcessor.recordEvaluationEvent(context, key,
                     EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
                     null, defaultValue, false, null);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
-            value = flag.getValue();
+            LDValue value = flag.getValue();
             int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
             if (value.isNull()) {
                 logger.warn("Feature flag \"{}\" retrieved with no value; returning default value", key);
@@ -522,7 +527,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
             eventProcessor.recordEvaluationEvent(
-                    contextDataManager.getCurrentContext(),
+                    context,
                     key,
                     flag.getVersionForEvents(),
                     flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
@@ -534,8 +539,7 @@ public class LDClient implements LDClientInterface, Closeable {
             );
         }
 
-        logger.debug("returning variation: {} flagKey: {} context key: {}", result, key,
-                contextDataManager.getCurrentContext().getKey());
+        logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
         return result;
     }
 
@@ -549,15 +553,8 @@ public class LDClient implements LDClientInterface, Closeable {
         closeInstances();
 
         synchronized (initLock) {
-            if (sharedTaskExecutor != null) {
-                sharedTaskExecutor.close();
-            }
-            sharedTaskExecutor = null;
-
-            if (sharedPlatformState != null) {
-                sharedPlatformState.close();
-            }
-            sharedPlatformState = null;
+            clientContextImpl.getTaskExecutor().close();
+            clientContextImpl.getPlatformState().close();
         }
     }
 

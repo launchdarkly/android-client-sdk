@@ -23,9 +23,8 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
     public void initDataUpdatesStoredData() {
         EnvironmentData data = new DataSetBuilder().add(new FlagBuilder("flag1").build()).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, data);
-
-        assertSame(CONTEXT, manager.getCurrentContext());
         assertDataSetsEqual(data, createDataManager().getStoredData(CONTEXT));
     }
 
@@ -33,19 +32,18 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
     public void initFromStoredData() {
         EnvironmentData data = new DataSetBuilder().add(new FlagBuilder("flag1").build()).build();
         ContextDataManager manager1 = createDataManager();
+        manager1.switchToContext(CONTEXT);
         manager1.initData(CONTEXT, data);
 
         ContextDataManager manager2 = createDataManager();
-        assertTrue(manager2.initFromStoredData(CONTEXT));
+        manager2.switchToContext(CONTEXT);
         assertDataSetsEqual(data, manager2.getAllNonDeleted());
-        assertSame(CONTEXT, manager2.getCurrentContext());
     }
 
     @Test
     public void initFromStoredDataNotFound() {
         ContextDataManager manager = createDataManager();
-        assertFalse(manager.initFromStoredData(CONTEXT));
-        assertSame(INITIAL_CONTEXT, manager.getCurrentContext());
+        manager.switchToContext(CONTEXT);
     }
 
     @Test
@@ -67,6 +65,7 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
         Flag flag = new FlagBuilder("flag1").build();
         EnvironmentData data = new DataSetBuilder().add(flag).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, data);
 
         assertSame(flag, manager.getNonDeletedFlag(flag.getKey()));
@@ -107,6 +106,7 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
                 flag2 = new FlagBuilder("flag2").version(2).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).add(flag2).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
         EnvironmentData actualData = manager.getAllNonDeleted();
@@ -120,6 +120,7 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
                 deletedFlag = Flag.deletedItemPlaceholder("flag2", 2);
         EnvironmentData initialData = new DataSetBuilder().add(flag1).add(deletedFlag).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
         EnvironmentData expectedData = new DataSetBuilder().add(flag1).build();
@@ -132,9 +133,10 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
                 flag2 = new FlagBuilder("flag2").version(2).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
-        manager.upsert(flag2);
+        manager.upsert(CONTEXT, flag2);
 
         assertFlagsEqual(flag2, manager.getNonDeletedFlag(flag2.getKey()));
 
@@ -149,9 +151,10 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
                 flag1b = new FlagBuilder(flag1a.getKey()).version(2).value(false).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1a).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
-        manager.upsert(flag1b);
+        manager.upsert(CONTEXT, flag1b);
 
         assertFlagsEqual(flag1b, manager.getNonDeletedFlag(flag1a.getKey()));
 
@@ -183,9 +186,10 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
                 deletedFlag2 = Flag.deletedItemPlaceholder(flag2.getKey(), 2);
         EnvironmentData initialData = new DataSetBuilder().add(flag1).add(flag2).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
-        manager.upsert(deletedFlag2);
+        manager.upsert(CONTEXT, deletedFlag2);
 
         assertFlagsEqual(flag1, manager.getNonDeletedFlag(flag1.getKey()));
         assertNull(manager.getNonDeletedFlag(flag2.getKey()));
@@ -215,9 +219,10 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
     private void upsertDoesNotUpdateFlag(Flag initialFlag, Flag updatedFlag) {
         EnvironmentData initialData = new DataSetBuilder().add(initialFlag).build();
         ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
-        manager.upsert(updatedFlag);
+        manager.upsert(CONTEXT, updatedFlag);
 
         assertFlagsEqual(initialFlag, manager.getNonDeletedFlag(initialFlag.getKey()));
         assertDataSetsEqual(initialData, manager.getAllNonDeleted());

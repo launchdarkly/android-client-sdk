@@ -2,11 +2,11 @@ package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 
@@ -49,62 +49,55 @@ final class ContextDataManager {
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners =
             new CopyOnWriteArrayList<>();
     private final LDLogger logger;
-    private final Object writerLock = new Object();
+
+    /**
+     * This lock is to protect context, flag, and persistence operations.
+     */
+    private final Object lock = new Object();
 
     @NonNull private volatile LDContext currentContext;
     @NonNull private volatile EnvironmentData flags = new EnvironmentData();
     @NonNull private volatile ContextIndex index = null;
-    private volatile String flagsContextId = null;
 
     ContextDataManager(
             @NonNull ClientContext clientContext,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
             int maxCachedContexts
     ) {
-        this.currentContext = clientContext.getEvaluationContext();
         this.environmentStore = environmentStore;
         this.maxCachedContexts = maxCachedContexts;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
+        switchToContext(clientContext.getEvaluationContext());
     }
 
     /**
-     * Returns the current context.
+     * Switches to providing flag data for the provided context.
      * <p>
-     * This piece of state is shared between LDClient and other components. The current context is
-     * set at initialization time, and also whenever {@link LDClient#identify(LDContext)} is
-     * called. The fact that the current context has changed does NOT necessarily mean we have flag
-     * data for that context yet; that is updated separately by {@link #initData(LDContext, EnvironmentData)}.
+     * If the context provided is different than the current state, switches to internally
+     * stored flag data and notifies flag listeners.
      *
-     * @return the current context
+     * @param context the to switch to
      */
-    public @NonNull LDContext getCurrentContext() {
-        return currentContext;
-    }
+    public void switchToContext(@NonNull LDContext context) {
+        synchronized (lock) {
+            if (context.equals(currentContext)) {
+                return;
+            }
+            currentContext = context;
+        }
 
-    /**
-     * Sets the current context.
-     * <p>
-     * This piece of state is shared between LDClient and other components. Changing the current
-     * context affects only the return value of {@link #getCurrentContext()}. It does NOT mean we
-     * have flag data for that context yet; that is updated separately by
-     * {@link #initData(LDContext, EnvironmentData)}.
+        EnvironmentData storedData = getStoredData(currentContext);
+        if (storedData == null) {
+            logger.debug("No stored flag data is available for this context");
+            // here we return to not alter current in memory flag state as
+            // current flag state is better than empty flag state in most
+            // customer use cases.
+            return;
+        }
 
-     * @param newContext the new context
-     */
-    public void setCurrentContext(@NonNull LDContext newContext) {
-        currentContext = newContext;
-    }
-
-    /**
-     * Attempts to retrieve data for the specified context, if any, from the persistent store. This
-     * does not affect the current context/flags state.
-     *
-     * @param context the context
-     * @return that context's {@link EnvironmentData} from the persistent store, or null if none
-     */
-    public @Nullable EnvironmentData getStoredData(LDContext context) {
-        return environmentStore.getContextData(hashedContextId(context));
+        logger.debug("Using stored flag data for this context");
+        initDataInternal(context, storedData, false);
     }
 
     /**
@@ -122,26 +115,6 @@ final class ContextDataManager {
         initDataInternal(context, newData, true);
     }
 
-    /**
-     * Attempts to initialize the flag data state from the persistent store. If there was a set of
-     * stored flag data for this context, it updates the current flag state and returns true; also,
-     * the context is added to the list of stored contexts-- evicting old context data if necessary.
-     * If there was no stored data, it leaves the current flag state as is and returns false.
-     *
-     * @param context the new context
-     * @return true if successful
-     */
-    public boolean initFromStoredData(@NonNull LDContext context) {
-        EnvironmentData storedData = getStoredData(context);
-        if (storedData == null) {
-            logger.debug("No stored flag data is available for this context");
-            return false;
-        }
-        logger.debug("Using stored flag data for this context");
-        initDataInternal(context, storedData, false);
-        return true;
-    }
-
     private void initDataInternal(
             @NonNull LDContext context,
             @NonNull EnvironmentData newData,
@@ -152,8 +125,12 @@ final class ContextDataManager {
         EnvironmentData oldData;
         ContextIndex newIndex;
 
-        synchronized (writerLock) {
-            currentContext = context;
+        synchronized (lock) {
+            if (!context.equals(currentContext)) {
+                // if incoming new data is not for the current context, reject it.
+                return;
+            }
+
             oldData = flags;
             flags = newData;
             if (index == null) {
@@ -162,21 +139,21 @@ final class ContextDataManager {
             newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
                     .prune(maxCachedContexts, removedContextIds);
             index = newIndex;
-            flagsContextId = contextId;
+
+            for (String removedContextId: removedContextIds) {
+                environmentStore.removeContextData(removedContextId);
+                logger.debug("Removed flag data for context {} from persistent store", removedContextId);
+            }
+            if (writeFlagsToPersistentStore && maxCachedContexts != 0) {
+                environmentStore.setContextData(contextId, newData);
+                logger.debug("Updated flag data for context {} in persistent store", contextId);
+            }
+            environmentStore.setIndex(newIndex);
         }
 
-        for (String removedContextId: removedContextIds) {
-            environmentStore.removeContextData(removedContextId);
-            logger.debug("Removed flag data for context {} from persistent store", removedContextId);
-        }
-        if (writeFlagsToPersistentStore && maxCachedContexts != 0) {
-            environmentStore.setContextData(contextId, newData);
-            logger.debug("Updated flag data for context {} in persistent store", contextId);
-        }
         if (logger.isEnabled(LDLogLevel.DEBUG)) {
             logger.debug("Stored context index is now: {}", newIndex.toJson());
         }
-        environmentStore.setIndex(newIndex);
 
         // Determine which flags were updated and notify listeners, if any
         Set<String> updatedFlagKeys = new HashSet<>();
@@ -200,32 +177,6 @@ final class ContextDataManager {
         }
         notifyAllFlagsListeners(updatedFlagKeys);
         notifyFlagListeners(updatedFlagKeys);
-    }
-
-    /**
-     * Parses JSON flag data and, if successful, updates the current flag state from it and writes
-     * it to persistent storage; then calls the callback with a success or error result.
-     *
-     * @param context the new context
-     * @param newDataJson the new flag data as JSON
-     * @param onCompleteListener the listener to call on success or failure
-     */
-    public void initDataFromJson(
-        @NonNull LDContext context,
-        @NonNull String newDataJson,
-        Callback<Void> onCompleteListener
-    ) {
-        EnvironmentData data;
-        try {
-            data = EnvironmentData.fromJson(newDataJson);
-        } catch (Exception e) {
-            logger.debug("Received invalid JSON flag data: {}", newDataJson);
-            onCompleteListener.onError(new LDFailure("Invalid JSON received from flags endpoint",
-                    e, LDFailure.FailureType.INVALID_RESPONSE_BODY));
-            return;
-        }
-        initData(currentContext, data);
-        onCompleteListener.onSuccess(null);
     }
 
     /**
@@ -273,21 +224,26 @@ final class ContextDataManager {
      * implementations do not need to implement their own version checking.
      *
      * @param flag the updated flag data or deleted item placeholder
-     * @return true if the update was done; false if it was not done due to a too-low version
+     * @return true if the update was done; false if it was not done
      */
-    public boolean upsert(@NonNull Flag flag) {
+    public boolean upsert(@NonNull LDContext context, @NonNull Flag flag) {
         EnvironmentData updatedFlags;
-        String contextId;
-        synchronized (writerLock) {
+        synchronized (lock) {
+            if (!context.equals(currentContext)) {
+                // if incoming data is not for the current context, reject it.
+                return false;
+            }
+
             Flag oldFlag = flags.getFlag(flag.getKey());
             if (oldFlag != null && oldFlag.getVersion() >= flag.getVersion()) {
                 return false;
             }
             updatedFlags = flags.withFlagUpdatedOrAdded(flag);
             flags = updatedFlags;
-            contextId = flagsContextId;
+
+            String contextId = hashedContextId(context);
+            environmentStore.setContextData(contextId, updatedFlags);
         }
-        environmentStore.setContextData(contextId, updatedFlags);
 
         Collection<String> updatedFlag = Collections.singletonList(flag.getKey());
 
@@ -338,6 +294,18 @@ final class ContextDataManager {
 
     public static String hashedContextId(final LDContext context) {
         return HASHER.hash(context.getFullyQualifiedKey());
+    }
+
+    /**
+     * Attempts to retrieve data for the specified context, if any, from the persistent store. This
+     * does not affect the current context/flags state.
+     *
+     * @param context the context
+     * @return that context's {@link EnvironmentData} from the persistent store, or null if none
+     */
+    @VisibleForTesting
+    public @Nullable EnvironmentData getStoredData(LDContext context) {
+        return environmentStore.getContextData(hashedContextId(context));
     }
 
     private void notifyFlagListeners(Collection<String> updatedFlagKeys) {
