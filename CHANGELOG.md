@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.1.1](https://github.com/launchdarkly/android-client-sdk/compare/5.1.0...5.1.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* improved LDClient.identify(...) behavior when offline ([#261](https://github.com/launchdarkly/android-client-sdk/issues/261)) ([24ce942](https://github.com/launchdarkly/android-client-sdk/commit/24ce9422f8c10bc61be3159680c7600c0cd27df4))
+
 ## [5.1.0](https://github.com/launchdarkly/android-client-sdk/compare/5.0.5...5.1.0) (2024-03-14)
 
 
