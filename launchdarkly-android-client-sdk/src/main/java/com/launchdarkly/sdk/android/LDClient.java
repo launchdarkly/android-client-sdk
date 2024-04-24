@@ -43,6 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * context's {@code key}; see {@link LDConfig.Builder#generateAnonymousKeys(boolean)}.
  */
 public class LDClient implements LDClientInterface, Closeable {
+
     // A map of each LDClient (one per environment), or null if `init` hasn't been called yet.
     // Will only be set once, during initialization, and the map is considered immutable.
     static volatile Map<String, LDClient> instances = null;
@@ -59,6 +60,9 @@ public class LDClient implements LDClientInterface, Closeable {
     private final EventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final LDLogger logger;
+    // If 15 seconds or more is passed as a timeout to init, we will log a warning.
+    private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
+
 
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
@@ -77,7 +81,11 @@ public class LDClient implements LDClientInterface, Closeable {
      * @return a {@link Future} which will complete once the client has been initialized
      * @see #init(Application, LDConfig, LDContext, int)
      * @since 3.0.0
+     * @deprecated Initializing the {@link LDClient} without a timeout is no longer permitted to help prevent
+     * consumers from blocking their application execution by mistake when connectivity is poor.  Please use
+     * {@link #init(Application, LDConfig, LDContext, int)} and specify a timeout instead.
      */
+    @Deprecated()
     public static Future<LDClient> init(@NonNull Application application,
                                         @NonNull LDConfig config,
                                         @NonNull LDContext context) {
@@ -211,7 +219,11 @@ public class LDClient implements LDClientInterface, Closeable {
      * @param context          the initial evaluation context; see {@link LDClient} for more
      *                         information about setting the context and optionally requesting a
      *                         unique key for it
-     * @param startWaitSeconds maximum number of seconds to wait for the client to initialize
+     * @param startWaitSeconds maximum number of seconds to wait for the client to initialize.  Determines when this
+     *                         function will return if no flags have been fetched.  If you use a large timeout, then
+     *                         any network delays could cause your application to wait a long time before continuing
+     *                         execution.
+     *
      * @return the primary LDClient instance
      * @see #init(Application, LDConfig, LDContext)
      * @since 3.0.0
@@ -219,6 +231,10 @@ public class LDClient implements LDClientInterface, Closeable {
     public static LDClient init(Application application, LDConfig config, LDContext context, int startWaitSeconds) {
         initSharedLogger(config);
         getSharedLogger().info("Initializing Client and waiting up to {} for initialization to complete", startWaitSeconds);
+        if (startWaitSeconds >= EXCESSIVE_INIT_WAIT_SECONDS) {
+            getSharedLogger().warn("LDClient.init called with high start wait time parameter of {} seconds.", startWaitSeconds);
+        }
+
         Future<LDClient> initFuture = init(application, config, context);
         try {
             return initFuture.get(startWaitSeconds, TimeUnit.SECONDS);
@@ -226,7 +242,8 @@ public class LDClient implements LDClientInterface, Closeable {
             getSharedLogger().error("Exception during Client initialization: {}", LogValues.exceptionSummary(e));
             getSharedLogger().debug(LogValues.exceptionTrace(e));
         } catch (TimeoutException e) {
-            getSharedLogger().warn("Client did not successfully initialize within {} seconds. It could be taking longer than expected to start up", startWaitSeconds);
+            getSharedLogger().warn("Client did not successfully initialize within {} seconds. It could be taking longer than expected to fetch data." +
+                    " Client can be used immediately and will continue retrying in the background.", startWaitSeconds);
         }
         return instances.get(LDConfig.primaryEnvironmentName);
     }
