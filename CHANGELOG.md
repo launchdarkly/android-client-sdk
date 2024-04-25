@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.2.0](https://github.com/launchdarkly/android-client-sdk/compare/5.1.1...5.2.0) (2024-04-25)
+
+
+### Features
+
+* deprecating init without timeout ([1e46f0d](https://github.com/launchdarkly/android-client-sdk/commit/1e46f0de54d3595009fe6fc5c5b52d188231bcfc))
+
 ## [5.1.1](https://github.com/launchdarkly/android-client-sdk/compare/5.1.0...5.1.1) (2024-03-26)
 
 
