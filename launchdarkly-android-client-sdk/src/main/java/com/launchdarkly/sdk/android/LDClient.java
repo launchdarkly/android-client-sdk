@@ -232,7 +232,7 @@ public class LDClient implements LDClientInterface, Closeable {
         initSharedLogger(config);
         getSharedLogger().info("Initializing Client and waiting up to {} for initialization to complete", startWaitSeconds);
         if (startWaitSeconds >= EXCESSIVE_INIT_WAIT_SECONDS) {
-            getSharedLogger().warn("LDClient.init called with high start wait time parameter of {} seconds.", startWaitSeconds);
+            getSharedLogger().warn("LDClient.init called with start wait time parameter of {} seconds.  We recommend a timeout of less than {} seconds.", startWaitSeconds, EXCESSIVE_INIT_WAIT_SECONDS);
         }
 
         Future<LDClient> initFuture = init(application, config, context);
