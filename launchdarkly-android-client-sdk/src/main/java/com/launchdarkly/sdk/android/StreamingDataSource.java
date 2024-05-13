@@ -44,7 +44,7 @@ final class StreamingDataSource implements DataSource {
     private static final String PATCH = "patch";
     private static final String DELETE = "delete";
 
-    private static final long MAX_RECONNECT_TIME_MS = 3_600_000; // 1 hour
+    private static final long MAX_RECONNECT_TIME_MS = 300_000; // 5 minutes
 
     private static final long READ_TIMEOUT_MS = 300_000;
     // 5 minutes is the standard read timeout used for all LaunchDarkly stream connections, based on
