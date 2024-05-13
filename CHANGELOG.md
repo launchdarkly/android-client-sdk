@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.3.0](https://github.com/launchdarkly/android-client-sdk/compare/5.2.0...5.3.0) (2024-05-13)
+
+
+### Features
+
+* improved streaming behavior by decreasing maximum retry interval ([#268](https://github.com/launchdarkly/android-client-sdk/issues/268)) ([81f1912](https://github.com/launchdarkly/android-client-sdk/commit/81f19124b03c1520b016526c619eb4d9287a9de9))
+
 ## [5.2.0](https://github.com/launchdarkly/android-client-sdk/compare/5.1.1...5.2.0) (2024-04-25)
 
 
