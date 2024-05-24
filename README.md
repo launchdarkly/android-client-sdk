@@ -1,6 +1,5 @@
 # LaunchDarkly SDK for Android
-
-[![CircleCI](https://circleci.com/gh/launchdarkly/android-client-sdk.svg?style=svg)](https://circleci.com/gh/launchdarkly/android-client-sdk)
+![Actions Status](https://github.com/launchdarkly/android-client-sdk/actions/workflows/ci.yml/badge.svg)
 
 ## LaunchDarkly overview
 
