@@ -2,8 +2,12 @@ package com.launchdarkly.sdk.android;
 
 import static com.launchdarkly.sdk.android.TestUtil.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.TestUtil.requireValue;
+import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.expectLastCall;
+import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -28,6 +32,7 @@ import org.easymock.EasyMockSupport;
 import org.easymock.Mock;
 import org.easymock.MockType;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -491,16 +496,19 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
 
+        long connectionTimeBeforeSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
         LDContext context2 = LDContext.create("context2");
         contextDataManager.switchToContext(context2);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
         connectivityManager.switchToContext(context2, done);
         done.await();
+        long connectionTimeAfterSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
 
         verifyAll(); // verifies eventProcessor calls
         verifyDataSourceWasStopped();
         verifyForegroundDataSourceWasCreatedAndStarted(context2);
         verifyNoMoreDataSourcesWereCreated();
+        assertNotEquals(connectionTimeBeforeSwitch, connectionTimeAfterSwitch);
     }
 
     @Test
@@ -555,6 +563,43 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
+    }
+
+    @Test
+    public void notifyListenersWhenStatusChanges() throws Exception {
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+
+        awaitStartUp();
+
+        LDStatusListener mockListener = mock(LDStatusListener.class);
+        // expected initial connection
+        mockListener.onConnectionModeChanged(anyObject(ConnectionInformation.class));
+        // expected second connection after identify
+        mockListener.onConnectionModeChanged(anyObject(ConnectionInformation.class));
+        expectLastCall();
+        replayAll();
+
+        AwaitableCallback<Void> identifyListenersCalled = new AwaitableCallback<>();
+        connectivityManager.registerStatusListener(mockListener);
+        connectivityManager.registerStatusListener(new LDStatusListener() {
+            @Override
+            public void onConnectionModeChanged(ConnectionInformation connectionInformation) {
+                // since the callback system is on another thread, need to use awaitable callback
+                identifyListenersCalled.onSuccess(null);
+            }
+
+            @Override
+            public void onInternalFailure(LDFailure ldFailure) {
+                Assert.fail(); // unexpected
+            }
+        });
+
+        LDContext context2 = LDContext.create("context2");
+        contextDataManager.switchToContext(context2);
+        connectivityManager.switchToContext(context2, new AwaitableCallback<>());
+        identifyListenersCalled.await();
+
+        verifyAll();
     }
 
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {
