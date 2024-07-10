@@ -76,8 +76,6 @@ class ConnectivityManager {
     // source we're using, like "if there was an error, update the ConnectionInformation."
     private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink {
         private final ContextDataManager contextDataManager;
-        private final AtomicReference<ConnectionMode> connectionMode = new AtomicReference<>(null);
-        private final AtomicReference<LDFailure> lastFailure = new AtomicReference<>(null);
 
         DataSourceUpdateSinkImpl(ContextDataManager contextDataManager) {
             this.contextDataManager = contextDataManager;
@@ -97,40 +95,10 @@ class ConnectivityManager {
 
         @Override
         public void setStatus(ConnectionMode newConnectionMode, Throwable error) {
-            ConnectionMode oldConnectionMode = newConnectionMode == null ? null :
-                    connectionMode.getAndSet(newConnectionMode);
-            LDFailure failure = null;
-            if (error != null) {
-                if (error instanceof LDFailure) {
-                    failure = (LDFailure)error;
-                } else {
-                    failure = new LDFailure("Unknown failure", error, LDFailure.FailureType.UNKNOWN_ERROR);
-                }
-                lastFailure.set(failure);
-            }
-            boolean updated = false;
-            if (newConnectionMode != null && oldConnectionMode != newConnectionMode) {
-                if (failure == null && newConnectionMode.isConnectionActive()) {
-                    connectionInformation.setLastSuccessfulConnection(System.currentTimeMillis());
-                }
-                connectionInformation.setConnectionMode(newConnectionMode);
-                updated = true;
-            }
-            if (failure != null) {
-                connectionInformation.setLastFailedConnection(System.currentTimeMillis());
-                connectionInformation.setLastFailure(failure);
-                updated = true;
-            }
-            if (updated) {
-                try {
-                    saveConnectionInformation();
-                } catch (Exception ex) {
-                    LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
-                }
-                updateStatusListeners(connectionInformation);
-                if (failure != null) {
-                    updateListenersOnFailure(failure);
-                }
+            if (error == null) {
+                updateConnectionInfoForSuccess(newConnectionMode);
+            } else {
+                updateConnectionInfoForError(newConnectionMode, error);
             }
         }
 
@@ -263,11 +231,17 @@ class ConnectivityManager {
             @Override
             public void onSuccess(Boolean result) {
                 initialized = true;
+                // passing the current connection mode since we don't want to change the mode, just trigger
+                // the logic to update the last connection success.
+                updateConnectionInfoForSuccess(connectionInformation.getConnectionMode());
                 onCompletion.onSuccess(null);
             }
 
             @Override
             public void onError(Throwable error) {
+                // passing the current connection mode since we don't want to change the mode, just trigger
+                // the logic to update the last connection failure.
+                updateConnectionInfoForError(connectionInformation.getConnectionMode(), error);
                 onCompletion.onSuccess(null);
             }
         });
@@ -303,6 +277,52 @@ class ConnectivityManager {
         }
     }
 
+    private void updateConnectionInfoForSuccess(ConnectionMode connectionMode) {
+        boolean updated = false;
+        if (connectionInformation.getConnectionMode() != connectionMode) {
+            connectionInformation.setConnectionMode(connectionMode);
+            updated = true;
+        }
+
+        // even if connection mode doesn't change, it may be the case that the data source re-established its connection
+        // and so we should update the last successful connection time (e.g. connection drops and we reconnect,
+        // an identify occurs)
+        if (connectionMode.isConnectionActive()) {
+            connectionInformation.setLastSuccessfulConnection(System.currentTimeMillis());
+            updated = true;
+        }
+
+        if (updated) {
+            try {
+                saveConnectionInformation(connectionInformation);
+            } catch (Exception ex) {
+                LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
+            }
+            updateStatusListeners(connectionInformation);
+        }
+    }
+
+    private void updateConnectionInfoForError(ConnectionMode connectionMode, Throwable error) {
+        LDFailure failure = null;
+        if (error != null) {
+            if (error instanceof LDFailure) {
+                failure = (LDFailure)error;
+            } else {
+                failure = new LDFailure("Unknown failure", error, LDFailure.FailureType.UNKNOWN_ERROR);
+            }
+        }
+
+        connectionInformation.setConnectionMode(connectionMode);
+        connectionInformation.setLastFailedConnection(System.currentTimeMillis());
+        connectionInformation.setLastFailure(failure);
+        try {
+            saveConnectionInformation(connectionInformation);
+        } catch (Exception ex) {
+            LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
+        }
+        updateStatusListeners(connectionInformation);
+    }
+
     private void readStoredConnectionState() {
         PersistentDataStoreWrapper.SavedConnectionInfo savedConnectionInfo =
                 environmentStore.getConnectionInfo();
@@ -315,7 +335,7 @@ class ConnectivityManager {
         connectionInformation.setLastFailure(savedConnectionInfo.lastFailure);
     }
 
-    private synchronized void saveConnectionInformation() {
+    private synchronized void saveConnectionInformation(ConnectionInformation connectionInformation) {
         PersistentDataStoreWrapper.SavedConnectionInfo savedConnectionInfo =
                 new PersistentDataStoreWrapper.SavedConnectionInfo(
                         connectionInformation.getLastSuccessfulConnection(),

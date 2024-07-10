@@ -2,8 +2,12 @@ package com.launchdarkly.sdk.android;
 
 import static com.launchdarkly.sdk.android.TestUtil.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.TestUtil.requireValue;
+import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.expectLastCall;
+import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -28,6 +32,7 @@ import org.easymock.EasyMockSupport;
 import org.easymock.Mock;
 import org.easymock.MockType;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -54,8 +59,6 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private static final EnvironmentData DATA = new DataSetBuilder()
             .add("flag1", 1, LDValue.of(true), 0)
             .build();
-    private static final ConnectionMode EXPECTED_FOREGROUND_MODE = ConnectionMode.POLLING;
-    private static final ConnectionMode EXPECTED_BACKGROUND_MODE = ConnectionMode.BACKGROUND_POLLING;
 
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
@@ -241,7 +244,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isForcedOffline());
 
-        assertEquals(EXPECTED_FOREGROUND_MODE, connectivityManager.getConnectionInformation().getConnectionMode());
+        assertEquals(ConnectionMode.POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNull(connectivityManager.getConnectionInformation().getLastFailure());
         assertNull(connectivityManager.getConnectionInformation().getLastFailedConnection());
         assertNotNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
@@ -266,7 +269,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertTrue(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isForcedOffline());
 
-        assertEquals(EXPECTED_BACKGROUND_MODE, connectivityManager.getConnectionInformation().getConnectionMode());
+        assertEquals(ConnectionMode.BACKGROUND_POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         assertNull(connectivityManager.getConnectionInformation().getLastFailure());
         assertNull(connectivityManager.getConnectionInformation().getLastFailedConnection());
         assertNotNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
@@ -284,7 +287,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         final Throwable testError = new Throwable();
         final LDFailure testFailure = new LDFailure("failure", testError, LDFailure.FailureType.NETWORK_FAILURE);
         ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext ->
-                MockComponents.failingDataSource(clientContext, EXPECTED_FOREGROUND_MODE, testFailure);
+                MockComponents.failingDataSource(clientContext, ConnectionMode.POLLING, testFailure);
 
         createTestManager(false, false, dataSourceConfigurer);
 
@@ -293,7 +296,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         assertFalse(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isForcedOffline());
-        assertEquals(EXPECTED_FOREGROUND_MODE, connectivityManager.getConnectionInformation().getConnectionMode());
+        assertEquals(ConnectionMode.POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
         LDFailure failure = connectivityManager.getConnectionInformation().getLastFailure();
         assertNotNull(failure);
         assertEquals("failure", failure.getMessage());
@@ -311,7 +314,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         final Throwable testError = new Throwable();
         ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext ->
-                MockComponents.failingDataSource(clientContext, EXPECTED_FOREGROUND_MODE, testError);
+                MockComponents.failingDataSource(clientContext, ConnectionMode.POLLING, testError);
 
         createTestManager(false, false, dataSourceConfigurer);
 
@@ -342,7 +345,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         assertTrue(connectivityManager.isInitialized());
         assertFalse(connectivityManager.isForcedOffline());
-        assertEquals(EXPECTED_FOREGROUND_MODE, connectivityManager.getConnectionInformation().getConnectionMode());
+        assertEquals(ConnectionMode.POLLING, connectivityManager.getConnectionInformation().getConnectionMode());
 
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
         verifyNoMoreDataSourcesWereCreated();
@@ -356,7 +359,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         // We don't currently have a good way to wait for this state change to take effect, so we'll
         // poll for it.
-        ConnectionMode newConnectionMode = awaitConnectionModeChangedFrom(EXPECTED_FOREGROUND_MODE);
+        ConnectionMode newConnectionMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
         assertEquals(ConnectionMode.SET_OFFLINE, newConnectionMode);
         assertTrue(connectivityManager.isForcedOffline());
 
@@ -493,16 +496,19 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
 
+        long connectionTimeBeforeSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
         LDContext context2 = LDContext.create("context2");
         contextDataManager.switchToContext(context2);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
         connectivityManager.switchToContext(context2, done);
         done.await();
+        long connectionTimeAfterSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
 
         verifyAll(); // verifies eventProcessor calls
         verifyDataSourceWasStopped();
         verifyForegroundDataSourceWasCreatedAndStarted(context2);
         verifyNoMoreDataSourcesWereCreated();
+        assertNotEquals(connectionTimeBeforeSwitch, connectionTimeAfterSwitch);
     }
 
     @Test
@@ -559,6 +565,43 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyNoMoreDataSourcesWereCreated();
     }
 
+    @Test
+    public void notifyListenersWhenStatusChanges() throws Exception {
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+
+        awaitStartUp();
+
+        LDStatusListener mockListener = mock(LDStatusListener.class);
+        // expected initial connection
+        mockListener.onConnectionModeChanged(anyObject(ConnectionInformation.class));
+        // expected second connection after identify
+        mockListener.onConnectionModeChanged(anyObject(ConnectionInformation.class));
+        expectLastCall();
+        replayAll();
+
+        AwaitableCallback<Void> identifyListenersCalled = new AwaitableCallback<>();
+        connectivityManager.registerStatusListener(mockListener);
+        connectivityManager.registerStatusListener(new LDStatusListener() {
+            @Override
+            public void onConnectionModeChanged(ConnectionInformation connectionInformation) {
+                // since the callback system is on another thread, need to use awaitable callback
+                identifyListenersCalled.onSuccess(null);
+            }
+
+            @Override
+            public void onInternalFailure(LDFailure ldFailure) {
+                Assert.fail(); // unexpected
+            }
+        });
+
+        LDContext context2 = LDContext.create("context2");
+        contextDataManager.switchToContext(context2);
+        connectivityManager.switchToContext(context2, new AwaitableCallback<>());
+        identifyListenersCalled.await();
+
+        verifyAll();
+    }
+
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {
         return clientContext -> makeSuccessfulDataSource(clientContext);
     }
@@ -566,7 +609,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private DataSource makeSuccessfulDataSource(ClientContext clientContext) {
         receivedClientContexts.add(clientContext);
         return MockComponents.successfulDataSource(clientContext, DATA,
-                clientContext.isInBackground() ? EXPECTED_BACKGROUND_MODE : EXPECTED_FOREGROUND_MODE,
+                clientContext.isInBackground() ? ConnectionMode.BACKGROUND_POLLING : ConnectionMode.POLLING,
                 startedDataSources,
                 stoppedDataSources);
     }
