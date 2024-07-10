@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.3.1](https://github.com/launchdarkly/android-client-sdk/compare/5.3.0...5.3.1) (2024-07-10)
+
+
+### Bug Fixes
+
+* registered LDStatusListeners are now sent updates that result from a call to LDClient.identify(...) ([#274](https://github.com/launchdarkly/android-client-sdk/issues/274)) ([a648213](https://github.com/launchdarkly/android-client-sdk/commit/a648213dfd6b7f50a76f7a8160f07e62628aedbb))
+
 ## [5.3.0](https://github.com/launchdarkly/android-client-sdk/compare/5.2.0...5.3.0) (2024-05-13)
 
 
