@@ -41,6 +41,7 @@ import org.junit.rules.Timeout;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -568,24 +569,23 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void notifyListenersWhenStatusChanges() throws Exception {
         createTestManager(false, false, makeSuccessfulDataSourceFactory());
-
         awaitStartUp();
 
         LDStatusListener mockListener = mock(LDStatusListener.class);
-        // expected initial connection
+        // expected initial connection mode
         mockListener.onConnectionModeChanged(anyObject(ConnectionInformation.class));
-        // expected second connection after identify
+        // expected second connection mode after identify
         mockListener.onConnectionModeChanged(anyObject(ConnectionInformation.class));
         expectLastCall();
         replayAll();
 
-        AwaitableCallback<Void> identifyListenersCalled = new AwaitableCallback<>();
+        CountDownLatch latch = new CountDownLatch(2);
         connectivityManager.registerStatusListener(mockListener);
         connectivityManager.registerStatusListener(new LDStatusListener() {
             @Override
             public void onConnectionModeChanged(ConnectionInformation connectionInformation) {
                 // since the callback system is on another thread, need to use awaitable callback
-                identifyListenersCalled.onSuccess(null);
+                latch.countDown();
             }
 
             @Override
@@ -597,7 +597,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         LDContext context2 = LDContext.create("context2");
         contextDataManager.switchToContext(context2);
         connectivityManager.switchToContext(context2, new AwaitableCallback<>());
-        identifyListenersCalled.await();
+        latch.await(500, TimeUnit.MILLISECONDS);
 
         verifyAll();
     }
