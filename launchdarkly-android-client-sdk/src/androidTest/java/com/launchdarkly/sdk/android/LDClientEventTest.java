@@ -197,6 +197,48 @@ public class LDClientEventTest {
     }
 
     @Test
+    public void flagEvaluationWithPrereqProducesPrereqEvents() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            // Enqueue a successful empty response
+            mockEventsServer.enqueue(new MockResponse());
+
+            // Setup flag store with test flag
+            Flag flagA = new FlagBuilder("flagA").version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagAB = new FlagBuilder("flagAB").prerequisites(new String[]{"flagA"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagAC = new FlagBuilder("flagAC").prerequisites(new String[]{"flagA"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagABD = new FlagBuilder("flagABD").prerequisites(new String[]{"flagAB"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagA);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagAB);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagAC);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagABD);
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store).build();
+
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                assertTrue(client.boolVariation("flagA", false));
+                assertTrue(client.boolVariation("flagAB", false));
+                assertTrue(client.boolVariation("flagAC", false));
+                assertTrue(client.boolVariation("flagABD", false));
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue summaryEvent = events[1];
+                assertSummaryEvent(summaryEvent);
+                assertEquals(LDValue.of(4), summaryEvent.get("features").get("flagA").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(2), summaryEvent.get("features").get("flagAB").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagAC").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagABD").get("counters").get(0).get("count"));
+            }
+        }
+    }
+
+    @Test
     public void additionalHeadersIncludedInEventsRequest() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();

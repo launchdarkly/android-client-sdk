@@ -35,7 +35,8 @@ public class TestService extends NanoHTTPD {
             "tags",
             "auto-env-attributes",
             "inline-context",
-            "anonymous-redaction"
+            "anonymous-redaction",
+            "client-prereq-events"
     };
     private static final String MIME_JSON = "application/json";
     static final Gson gson = new GsonBuilder()

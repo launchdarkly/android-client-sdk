@@ -83,7 +83,7 @@ final class EnvironmentData {
             if (f.getKey() == null) {
                 f = new Flag(e.getKey(), f.getValue(), f.getVersion(), f.getFlagVersion(),
                         f.getVariation(), f.isTrackEvents(), f.isTrackReason(), f.getDebugEventsUntilDate(),
-                        f.getReason());
+                        f.getReason(), f.getPrerequisites());
                 dataMap.put(e.getKey(), f);
             }
         }

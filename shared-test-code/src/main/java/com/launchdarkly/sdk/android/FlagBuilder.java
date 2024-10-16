@@ -17,6 +17,7 @@ public final class FlagBuilder {
     private boolean trackReason = false;
     private Long debugEventsUntilDate = null;
     private EvaluationReason reason = null;
+    private String[] prerequisites = null;
 
     public FlagBuilder(@NonNull String key) {
         this.key = key;
@@ -66,7 +67,12 @@ public final class FlagBuilder {
         return this;
     }
 
+    public FlagBuilder prerequisites(String[] prerequisites) {
+        this.prerequisites = prerequisites;
+        return this;
+    }
+
     public Flag build() {
-        return new Flag(key, value, version, flagVersion, variation, trackEvents, trackReason, debugEventsUntilDate, reason);
+        return new Flag(key, value, version, flagVersion, variation, trackEvents, trackReason, debugEventsUntilDate, reason, prerequisites);
     }
 }
