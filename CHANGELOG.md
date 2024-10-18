@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.4.0](https://github.com/launchdarkly/android-client-sdk/compare/5.3.1...5.4.0) (2024-10-18)
+
+
+### Features
+
+* Adds support for client-side prerequisite events ([#279](https://github.com/launchdarkly/android-client-sdk/issues/279)) ([8d59b96](https://github.com/launchdarkly/android-client-sdk/commit/8d59b9605560724df26598961e9b69fc1bd1820c))
+
 ## [5.3.1](https://github.com/launchdarkly/android-client-sdk/compare/5.3.0...5.3.1) (2024-07-10)
 
 
