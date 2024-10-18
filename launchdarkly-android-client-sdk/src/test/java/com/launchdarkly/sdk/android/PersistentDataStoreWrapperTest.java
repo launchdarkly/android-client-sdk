@@ -36,7 +36,7 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     private static final String EXPECTED_INDEX_KEY = "index";
     private static final String EXPECTED_GENERATED_CONTEXT_KEY_PREFIX = "anonKey_";
     private static final Flag FLAG = new Flag("flagkey", LDValue.of(true), 1,
-            null, 0, false, false, null, null);
+            null, 0, false, false, null, null, null);
 
     private final PersistentDataStore mockPersistentStore;
     private final PersistentDataStoreWrapper wrapper;

@@ -39,6 +39,7 @@ public abstract class DataModel {
         private final Boolean trackEvents;
         private final Boolean trackReason;
         private final Long debugEventsUntilDate;
+        private final String[] prerequisites;
         private final Boolean deleted;
 
         private Flag(
@@ -51,6 +52,7 @@ public abstract class DataModel {
                 boolean trackEvents,
                 boolean trackReason,
                 Long debugEventsUntilDate,
+                String[] prerequisites,
                 boolean deleted
         ) {
             this.key = key;
@@ -62,6 +64,7 @@ public abstract class DataModel {
             this.trackEvents = trackEvents ? Boolean.TRUE : null;
             this.trackReason = trackReason ? Boolean.TRUE : null;
             this.debugEventsUntilDate = debugEventsUntilDate;
+            this.prerequisites = prerequisites;
             this.deleted = deleted ? Boolean.TRUE : null;
         }
 
@@ -76,6 +79,7 @@ public abstract class DataModel {
          * @param trackReason true if events must include evaluation reasons
          * @param debugEventsUntilDate non-null if debugging is enabled
          * @param reason evaluation reason of the result, or null if not available
+         * @param prerequisites flag keys of prerequisites
          */
         public Flag(
                 @NonNull String key,
@@ -86,9 +90,10 @@ public abstract class DataModel {
                 boolean trackEvents,
                 boolean trackReason,
                 @Nullable Long debugEventsUntilDate,
-                @Nullable EvaluationReason reason
+                @Nullable EvaluationReason reason,
+                @Nullable String[] prerequisites
         ) {
-            this(key, value, version, flagVersion, variation, reason, trackEvents, trackReason, debugEventsUntilDate, false);
+            this(key, value, version, flagVersion, variation, reason, trackEvents, trackReason, debugEventsUntilDate, prerequisites, false);
         }
 
         /**
@@ -97,7 +102,7 @@ public abstract class DataModel {
          * @return a placeholder {@link Flag} to represent a deleted flag
          */
         public static Flag deletedItemPlaceholder(@NonNull String key, int version) {
-            return new Flag(key, null, version, null, null, null, false, false, null, true);
+            return new Flag(key, null, version, null, null, null, false, false, null, null, true);
         }
 
         String getKey() {
@@ -122,6 +127,7 @@ public abstract class DataModel {
             return variation;
         }
 
+        @Nullable
         EvaluationReason getReason() {
             return reason;
         }
@@ -132,12 +138,18 @@ public abstract class DataModel {
 
         boolean isTrackReason() { return trackReason != null && trackReason.booleanValue(); }
 
+        @Nullable
         Long getDebugEventsUntilDate() {
             return debugEventsUntilDate;
         }
 
         int getVersionForEvents() {
             return flagVersion == null ? version : flagVersion.intValue();
+        }
+
+        @Nullable
+        String[] getPrerequisites() {
+            return prerequisites;
         }
 
         boolean isDeleted() {
@@ -161,6 +173,7 @@ public abstract class DataModel {
                         trackEvents == o.trackEvents &&
                         trackReason == o.trackReason &&
                         Objects.equals(debugEventsUntilDate, o.debugEventsUntilDate) &&
+                        Objects.equals(prerequisites, o.prerequisites) &&
                         deleted == o.deleted;
             }
             return false;

@@ -509,7 +509,7 @@ public final class TestData implements ComponentConfigurer<DataSource> {
             EvaluationReason reason = targetedVariation == null ? EvaluationReason.fallthrough() :
                     EvaluationReason.targetMatch();
             return new Flag(key, value, version, null, variation,
-                    false, false, null, reason);
+                    false, false, null, reason, null);
         }
 
         private static int variationForBoolean(boolean value) {

@@ -518,6 +518,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return EvaluationDetail.fromValue(converter.toType(detail.getValue()), detail.getVariationIndex(), detail.getReason());
     }
 
+    // TODO: when implementing hooks support in the future, verify prerequisite evaluations do not trigger the evaluation hooks
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
         LDContext context = clientContextImpl.getEvaluationContext();
         Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
@@ -530,6 +531,13 @@ public class LDClient implements LDClientInterface, Closeable {
                     null, defaultValue, false, null);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
+            if (flag.getPrerequisites() != null) {
+                // recurse on prerequisites to emulate prereq evaluations occurring with desirable side effects such as events for prereqs
+                for (String prereqKey : flag.getPrerequisites()) {
+                    variationDetailInternal(prereqKey, LDValue.ofNull(), false, false);
+                }
+            }
+
             LDValue value = flag.getValue();
             int variation = flag.getVariation() == null ? EvaluationDetail.NO_VARIATION : flag.getVariation();
             if (value.isNull()) {

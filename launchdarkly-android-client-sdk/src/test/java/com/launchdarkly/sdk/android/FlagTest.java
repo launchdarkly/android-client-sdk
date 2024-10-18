@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -20,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -204,6 +206,23 @@ public class FlagTest {
         final String jsonStr = "{\"version\": 99}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
         assertFalse(r.isTrackReason());
+    }
+
+    @Test
+    public void prerequisitesIsSerialized() {
+        final Flag r = new FlagBuilder("flag").prerequisites(new String[]{"flagB", "flagC"}).build();
+        final JsonObject json = gson.toJsonTree(r).getAsJsonObject();
+        final JsonArray array = json.getAsJsonArray("prerequisites");
+        assertEquals(2, array.size());
+        assertEquals("flagB", array.get(0).getAsString());
+        assertEquals("flagC", array.get(1).getAsString());
+    }
+
+    @Test
+    public void prerequisitesIsDeserialized() {
+        final String jsonStr = "{\"version\": 99, \"prerequisites\": [\"flagA\",\"flagB\"]}";
+        final Flag r = gson.fromJson(jsonStr, Flag.class);
+        assertArrayEquals(new String[]{"flagA","flagB"}, r.getPrerequisites());
     }
 
     @Test

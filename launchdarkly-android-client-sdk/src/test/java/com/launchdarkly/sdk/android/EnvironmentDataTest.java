@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.android.AssertHelpers.assertJsonEqual;
 import static org.hamcrest.CoreMatchers.hasItems;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -54,6 +55,7 @@ public class EnvironmentDataTest {
                 .trackEvents(true)
                 .trackReason(true)
                 .debugEventsUntilDate(1000L)
+                .prerequisites(new String[]{"flagA", "flagB"})
                 .build();
         Flag flag2 = new FlagBuilder("flag2").version(200).value(false).build();
         EnvironmentData data = new DataSetBuilder().add(flag1).add(flag2).build();
@@ -61,7 +63,7 @@ public class EnvironmentDataTest {
 
         String expectedJson = "{" +
                 "\"flag1\":{\"key\":\"flag1\",\"version\":100,\"flagVersion\":222,\"value\":true," +
-                "\"variation\":1,\"reason\":{\"kind\":\"OFF\"},\"trackEvents\":true," +
+                "\"variation\":1,\"prerequisites\":[\"flagA\",\"flagB\"],\"reason\":{\"kind\":\"OFF\"},\"trackEvents\":true," +
                 "\"trackReason\":true,\"debugEventsUntilDate\":1000}," +
                 "\"flag2\":{\"key\":\"flag2\",\"version\":200,\"value\":false}" +
                 "}";
@@ -72,7 +74,7 @@ public class EnvironmentDataTest {
     public void fromJson() throws Exception {
         String json = "{" +
                 "\"flag1\":{\"key\":\"flag1\",\"version\":100,\"flagVersion\":222,\"value\":true," +
-                "\"variation\":1,\"reason\":{\"kind\":\"OFF\"},\"trackEvents\":true," +
+                "\"variation\":1,\"prerequisites\":[\"flagA\",\"flagB\"],\"reason\":{\"kind\":\"OFF\"},\"trackEvents\":true," +
                 "\"trackReason\":true,\"debugEventsUntilDate\":1000}," +
                 "\"flag2\":{\"key\":\"flag2\",\"version\":200,\"value\":false}" +
                 "}";
@@ -87,6 +89,7 @@ public class EnvironmentDataTest {
         assertEquals(Integer.valueOf(222), flag1.getFlagVersion());
         assertEquals(LDValue.of(true), flag1.getValue());
         assertEquals(Integer.valueOf(1), flag1.getVariation());
+        assertArrayEquals(new String[]{"flagA", "flagB"}, flag1.getPrerequisites());
         assertTrue(flag1.isTrackEvents());
         assertTrue(flag1.isTrackReason());
         assertEquals(Long.valueOf(1000), flag1.getDebugEventsUntilDate());

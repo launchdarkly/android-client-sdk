@@ -24,7 +24,7 @@ public final class DataSetBuilder {
 
     public DataSetBuilder add(String flagKey, int version, LDValue value, int variation) {
         return add(new Flag(flagKey, value, version, null, variation,
-                false, false, null, null));
+                false, false, null, null, null));
     }
 
     public DataSetBuilder add(String flagKey, LDValue value, int variation) {
