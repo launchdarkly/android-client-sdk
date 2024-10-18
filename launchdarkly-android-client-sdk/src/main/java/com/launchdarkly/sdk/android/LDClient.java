@@ -518,6 +518,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return EvaluationDetail.fromValue(converter.toType(detail.getValue()), detail.getVariationIndex(), detail.getReason());
     }
 
+    // TODO: when implementing hooks support in the future, verify prerequisite evaluations do not trigger the evaluation hooks
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
         LDContext context = clientContextImpl.getEvaluationContext();
         Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
