@@ -243,6 +243,12 @@ final class ContextDataManager {
 
             String contextId = hashedContextId(context);
             environmentStore.setContextData(contextId, updatedFlags);
+
+            if (index == null) {
+                index = environmentStore.getIndex();
+            }
+            index = index.updateTimestamp(contextId, System.currentTimeMillis());
+            environmentStore.setIndex(index);
         }
 
         Collection<String> updatedFlag = Collections.singletonList(flag.getKey());

@@ -116,7 +116,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 logging.logger,
                 mockPlatformState,
                 environmentReporter,
-                taskExecutor
+                taskExecutor,
+                environmentStore
         );
 
         contextDataManager = new ContextDataManager(

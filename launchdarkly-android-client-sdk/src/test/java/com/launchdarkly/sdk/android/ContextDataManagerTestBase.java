@@ -55,7 +55,8 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
                 logging.logger,
                 null,
                 environmentReporter,
-                taskExecutor
+                taskExecutor,
+                environmentStore
         );
         return new ContextDataManager(
                 clientContext,

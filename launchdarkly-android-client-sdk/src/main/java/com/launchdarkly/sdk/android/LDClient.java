@@ -330,7 +330,7 @@ public class LDClient implements LDClientInterface, Closeable {
         FeatureFetcher fetcher = null;
         if (config.dataSource instanceof ComponentsImpl.DataSourceRequiresFeatureFetcher) {
             ClientContextImpl minimalContext = ClientContextImpl.fromConfig(config, mobileKey,
-                    environmentName, null, initialContext, logger, platformState, environmentReporter, taskExecutor
+                    environmentName, null, initialContext, logger, platformState, environmentReporter, taskExecutor, environmentStore
             );
             fetcher = new HttpFeatureFlagFetcher(minimalContext);
         }
@@ -344,7 +344,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 logger,
                 platformState,
                 environmentReporter,
-                taskExecutor
+                taskExecutor,
+                environmentStore
         );
 
         this.contextDataManager = new ContextDataManager(

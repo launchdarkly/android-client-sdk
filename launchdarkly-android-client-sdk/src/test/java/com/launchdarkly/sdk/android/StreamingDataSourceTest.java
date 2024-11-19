@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -23,20 +24,24 @@ public class StreamingDataSourceTest {
     // the tests here cover other aspects of how the streaming data source component behaves.
 
     private static final LDContext CONTEXT = LDContext.create("context-key");
-
+    private static final String MOBILE_KEY = "test-mobile-key";
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
-
     private final MockComponents.MockDataSourceUpdateSink dataSourceUpdateSink = new MockComponents.MockDataSourceUpdateSink();
     private final MockPlatformState platformState = new MockPlatformState();
-
     private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
     private final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
+    private PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
+
+    @Before
+    public void before() {
+        perEnvironmentData = TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData(MOBILE_KEY);
+    }
 
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
                 new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", null, CONTEXT,
-                logging.logger, platformState, environmentReporter, taskExecutor);
+                logging.logger, platformState, environmentReporter, taskExecutor, perEnvironmentData);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
@@ -53,7 +58,7 @@ public class StreamingDataSourceTest {
     private ClientContext makeClientContextWithFetcher() {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
                 new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", makeFeatureFetcher(), CONTEXT,
-                logging.logger, platformState, environmentReporter, taskExecutor);
+                logging.logger, platformState, environmentReporter, taskExecutor, perEnvironmentData);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
