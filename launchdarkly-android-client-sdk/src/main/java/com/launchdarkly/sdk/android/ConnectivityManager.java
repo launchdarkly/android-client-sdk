@@ -447,7 +447,7 @@ class ConnectivityManager {
             @Override
             public void onError(Throwable e) {
                 logger.error("Error when attempting to get flag data: [{}] [{}]: {}",
-                        LDUtil.base64Url(contextToFetch),
+                        LDUtil.urlSafeBase64(contextToFetch),
                         contextToFetch,
                         LogValues.exceptionSummary(e));
                 resultCallback.onError(e);

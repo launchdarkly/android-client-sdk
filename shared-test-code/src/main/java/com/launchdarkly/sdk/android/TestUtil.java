@@ -48,9 +48,9 @@ public class TestUtil {
     ) {
         PersistentDataStoreWrapper.PerEnvironmentData environmentStore =
                 new PersistentDataStoreWrapper(store, LDLogger.none()).perEnvironmentData(mobileKey);
-        EnvironmentData data = environmentStore.getContextData(ContextDataManager.hashedContextId(context));
+        EnvironmentData data = environmentStore.getContextData(LDUtil.urlSafeBase64HashedContextId(context));
         EnvironmentData newData = (data == null ? new EnvironmentData() : data).withFlagUpdatedOrAdded(flag);
-        environmentStore.setContextData(ContextDataManager.hashedContextId(context), newData);
+        environmentStore.setContextData(LDUtil.urlSafeBase64HashedContextId(context), LDUtil.urlSafeBase64Hash(context), newData);
     }
 
     public static void doSynchronouslyOnNewThread(Runnable action) {

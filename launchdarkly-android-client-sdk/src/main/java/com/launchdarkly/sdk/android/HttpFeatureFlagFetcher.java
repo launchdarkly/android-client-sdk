@@ -138,7 +138,7 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         // and methods like Uri.withAppendedPath, simply to minimize the amount of code that relies on
         // Android-specific APIs so our components are more easily unit-testable.
         URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_GET_BASE_PATH);
-        uri = HttpHelpers.concatenateUriPath(uri, LDUtil.base64Url(ldContext));
+        uri = HttpHelpers.concatenateUriPath(uri, LDUtil.urlSafeBase64(ldContext));
         if (evaluationReasons) {
             uri = URI.create(uri.toString() + "?withReasons=true");
         }

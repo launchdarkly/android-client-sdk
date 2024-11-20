@@ -190,7 +190,7 @@ final class StreamingDataSource implements DataSource {
                 StandardEndpoints.STREAMING_REQUEST_BASE_PATH);
 
         if (!useReport && context != null) {
-            uri = HttpHelpers.concatenateUriPath(uri, LDUtil.base64Url(context));
+            uri = HttpHelpers.concatenateUriPath(uri, LDUtil.urlSafeBase64(context));
         }
 
         if (evaluationReasons) {

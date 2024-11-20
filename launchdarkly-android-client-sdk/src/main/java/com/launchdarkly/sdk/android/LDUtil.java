@@ -145,7 +145,15 @@ public class LDUtil {
         }
     }
 
-    static String base64Url(final LDContext context) {
+    public static String urlSafeBase64HashedContextId(LDContext context) {
+        return urlSafeBase64Hash(context.getFullyQualifiedKey());
+    }
+
+    static String urlSafeBase64Hash(LDContext context) {
+        return urlSafeBase64Hash(JsonSerialization.serialize(context));
+    }
+
+    static String urlSafeBase64(LDContext context) {
         return Base64.encodeToString(JsonSerialization.serialize(context).getBytes(),
                 Base64.URL_SAFE + Base64.NO_WRAP);
     }

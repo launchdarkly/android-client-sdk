@@ -15,7 +15,6 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 
-import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -136,9 +135,12 @@ public class PollingDataSourceTest {
         assertEquals(0, ds1.initialDelayMillis);
 
         // simulate successful update of context index timestamp
-        String hash = new ContextHasher().hash(CONTEXT.getFullyQualifiedKey());
-        ContextIndex newIndex = clientContext.getPerEnvironmentData().getIndex().updateTimestamp(hash, System.currentTimeMillis());
-        clientContext.getPerEnvironmentData().setIndex(newIndex);
+        String hashedContextId = LDUtil.urlSafeBase64HashedContextId(CONTEXT);
+        String fingerPrint = LDUtil.urlSafeBase64Hash(CONTEXT);
+        PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData = clientContext.getPerEnvironmentData();
+        perEnvironmentData.setContextData(hashedContextId, fingerPrint, new EnvironmentData());
+        ContextIndex newIndex = perEnvironmentData.getIndex().updateTimestamp(hashedContextId, System.currentTimeMillis());
+        perEnvironmentData.setIndex(newIndex);
 
         // second build should have a non-zero delay due to simulated response storing a recent timestamp
         PollingDataSource ds2 = (PollingDataSource) builder.build(clientContext);

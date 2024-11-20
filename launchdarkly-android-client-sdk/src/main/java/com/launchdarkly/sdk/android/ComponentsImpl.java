@@ -261,14 +261,13 @@ abstract class ComponentsImpl {
                 // the first background poll interval.
                 initialDelayMillis = backgroundPollIntervalMillis;
             } else {
-                // TODO: refactor context hashing calls to use a common util
-                String hashed = new ContextHasher().hash(clientContextImpl.getEvaluationContext().getFullyQualifiedKey());
-
-                long lastUpdated = 0; // assume last updated is beginning of time
-                for (ContextIndex.IndexEntry entry : clientContextImpl.getPerEnvironmentData().getIndex().data) {
-                    if (entry.contextId.equals(hashed)) {
-                        lastUpdated = entry.timestamp;
-                    }
+                // get the last updated timestamp for this context
+                PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData = clientContextImpl.getPerEnvironmentData();
+                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(clientContextImpl.getEvaluationContext());
+                String fingerprint = LDUtil.urlSafeBase64Hash(clientContextImpl.getEvaluationContext());
+                Long lastUpdated = perEnvironmentData.getLastUpdated(hashedContextId, fingerprint);
+                if (lastUpdated == null) {
+                    lastUpdated = 0L; // default to beginning of time
                 }
 
                 // To avoid unnecessarily frequent polling requests due to process or application lifecycle, we have added

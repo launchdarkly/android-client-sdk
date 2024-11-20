@@ -32,6 +32,7 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     private static final String EXPECTED_ENVIRONMENT_NAMESPACE = "LaunchDarkly_" + MOBILE_KEY_HASH;
     private static final String CONTEXT_KEY = "context-key";
     private static final String CONTEXT_KEY_HASH = LDUtil.urlSafeBase64Hash(CONTEXT_KEY);
+    private static final String CONTEXT_FINGERPRINT = "mock-context-fingerprint";
     private static final String EXPECTED_CONTEXT_FLAGS_KEY = "flags_" + CONTEXT_KEY_HASH;
     private static final String EXPECTED_INDEX_KEY = "index";
     private static final String EXPECTED_GENERATED_CONTEXT_KEY_PREFIX = "anonKey_";
@@ -103,7 +104,7 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
         expectLastCall();
         replayAll();
 
-        envWrapper.setContextData(CONTEXT_KEY_HASH, data);
+        envWrapper.setContextData(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT, data);
         verifyAll();
         logging.assertNothingLogged();
     }
@@ -116,7 +117,7 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
         expectLastCall().andThrow(makeException());
         replayAll();
 
-        envWrapper.setContextData(CONTEXT_KEY_HASH, data);
+        envWrapper.setContextData(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT, data);
         verifyAll();
         assertStoreErrorWasLogged();
     }

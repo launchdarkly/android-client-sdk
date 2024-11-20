@@ -39,8 +39,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * deferred listener calls are done via the {@link TaskExecutor} abstraction.
  */
 final class ContextDataManager {
-    static final ContextHasher HASHER = new ContextHasher();
-
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final int maxCachedContexts;
     private final TaskExecutor taskExecutor;
@@ -57,7 +55,7 @@ final class ContextDataManager {
 
     @NonNull private volatile LDContext currentContext;
     @NonNull private volatile EnvironmentData flags = new EnvironmentData();
-    @NonNull private volatile ContextIndex index = null;
+    @NonNull private volatile ContextIndex index;
 
     ContextDataManager(
             @NonNull ClientContext clientContext,
@@ -65,6 +63,7 @@ final class ContextDataManager {
             int maxCachedContexts
     ) {
         this.environmentStore = environmentStore;
+        this.index = environmentStore.getIndex();
         this.maxCachedContexts = maxCachedContexts;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
@@ -121,7 +120,8 @@ final class ContextDataManager {
             boolean writeFlagsToPersistentStore
     ) {
         List<String> removedContextIds = new ArrayList<>();
-        String contextId = hashedContextId(context);
+        String contextId = LDUtil.urlSafeBase64HashedContextId(context);
+        String fingerprint = LDUtil.urlSafeBase64Hash(context);
         EnvironmentData oldData;
         ContextIndex newIndex;
 
@@ -133,9 +133,6 @@ final class ContextDataManager {
 
             oldData = flags;
             flags = newData;
-            if (index == null) {
-                index = environmentStore.getIndex();
-            }
             newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
                     .prune(maxCachedContexts, removedContextIds);
             index = newIndex;
@@ -145,7 +142,7 @@ final class ContextDataManager {
                 logger.debug("Removed flag data for context {} from persistent store", removedContextId);
             }
             if (writeFlagsToPersistentStore && maxCachedContexts != 0) {
-                environmentStore.setContextData(contextId, newData);
+                environmentStore.setContextData(contextId, fingerprint, newData);
                 logger.debug("Updated flag data for context {} in persistent store", contextId);
             }
             environmentStore.setIndex(newIndex);
@@ -241,13 +238,10 @@ final class ContextDataManager {
             updatedFlags = flags.withFlagUpdatedOrAdded(flag);
             flags = updatedFlags;
 
-            String contextId = hashedContextId(context);
-            environmentStore.setContextData(contextId, updatedFlags);
-
-            if (index == null) {
-                index = environmentStore.getIndex();
-            }
-            index = index.updateTimestamp(contextId, System.currentTimeMillis());
+            String hashedContextId = LDUtil.urlSafeBase64HashedContextId(context);
+            String fingerprint = LDUtil.urlSafeBase64Hash(context);
+            environmentStore.setContextData(hashedContextId, fingerprint, updatedFlags);
+            index = index.updateTimestamp(hashedContextId, System.currentTimeMillis());
             environmentStore.setIndex(index);
         }
 
@@ -298,10 +292,6 @@ final class ContextDataManager {
         return res == null ? new HashSet<>() : res;
     }
 
-    public static String hashedContextId(final LDContext context) {
-        return HASHER.hash(context.getFullyQualifiedKey());
-    }
-
     /**
      * Attempts to retrieve data for the specified context, if any, from the persistent store. This
      * does not affect the current context/flags state.
@@ -311,7 +301,7 @@ final class ContextDataManager {
      */
     @VisibleForTesting
     public @Nullable EnvironmentData getStoredData(LDContext context) {
-        return environmentStore.getContextData(hashedContextId(context));
+        return environmentStore.getContextData(LDUtil.urlSafeBase64HashedContextId(context));
     }
 
     private void notifyFlagListeners(Collection<String> updatedFlagKeys) {

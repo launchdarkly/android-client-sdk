@@ -70,7 +70,7 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
     }
 
     protected void assertContextIsCached(LDContext context, EnvironmentData expectedData) {
-        String contextHash = ContextDataManager.hashedContextId(context);
+        String contextHash = LDUtil.urlSafeBase64HashedContextId(context);
         EnvironmentData data = environmentStore.getContextData(contextHash);
         assertNotNull("flag data for context " + contextHash + " not found in store", data);
         assertDataSetsEqual(expectedData, data);
@@ -86,7 +86,7 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
     }
 
     protected void assertContextIsNotCached(LDContext context) {
-        String contextHash = ContextDataManager.hashedContextId(context);
+        String contextHash = LDUtil.urlSafeBase64HashedContextId(context);
         assertNull("flag data for " + context.getKey() + " should not have been in store",
                 environmentStore.getContextData(contextHash));
 
