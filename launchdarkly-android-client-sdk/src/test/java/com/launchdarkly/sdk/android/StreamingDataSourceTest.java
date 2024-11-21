@@ -112,19 +112,6 @@ public class StreamingDataSourceTest {
     }
 
     @Test
-    public void pollingDataSourceHasInitialDelayWhenTransitioningToBackground() {
-        ClientContext clientContext = makeClientContext(true, false);
-        DataSource ds = Components.streamingDataSource()
-                .backgroundPollIntervalMillis(999999)
-                .build(clientContext);
-
-        assertEquals(PollingDataSource.class, ds.getClass());
-
-        assertEquals(999999L, ((PollingDataSource)ds).pollIntervalMillis);
-        assertEquals(999999L, ((PollingDataSource)ds).initialDelayMillis);
-    }
-
-    @Test
     public void builderCreatesStreamingDataSourceWhenStartingInBackgroundWithOverride() {
         ClientContext clientContext = makeClientContext(true, null);
         DataSource ds = Components.streamingDataSource()

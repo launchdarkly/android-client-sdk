@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * ComponentsImpl.PollingDataSourceBuilderImpl and ComponentsImpl.StreamingDataSourceBuilderImpl.
  */
 final class PollingDataSource implements DataSource {
-    private final LDContext currentContext;
+    private final LDContext context;
     private final DataSourceUpdateSink dataSourceUpdateSink;
     final long initialDelayMillis; // visible for testing
     final long pollIntervalMillis; // visible for testing
@@ -29,8 +29,20 @@ final class PollingDataSource implements DataSource {
     private final AtomicReference<ScheduledFuture<?>> currentPollTask =
             new AtomicReference<>();
 
+    /**
+     * @param context              that this data source will fetch data for
+     * @param dataSourceUpdateSink to send data to
+     * @param initialDelayMillis   delays when the data source begins polling. If this is greater than 0, the polling data
+     *                             source will report success immediately as it is now running even if data has not been
+     *                             fetched.
+     * @param pollIntervalMillis   interval in millis between each polling request
+     * @param fetcher              that will be used for each fetch
+     * @param platformState        used for making decisions based on platform state
+     * @param taskExecutor         that will be used to schedule the polling tasks
+     * @param logger               for logging
+     */
     PollingDataSource(
-            LDContext currentContext,
+            LDContext context,
             DataSourceUpdateSink dataSourceUpdateSink,
             long initialDelayMillis,
             long pollIntervalMillis,
@@ -39,7 +51,7 @@ final class PollingDataSource implements DataSource {
             TaskExecutor taskExecutor,
             LDLogger logger
     ) {
-        this.currentContext = currentContext;
+        this.context = context;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.initialDelayMillis = initialDelayMillis;
         this.pollIntervalMillis = pollIntervalMillis;
@@ -51,15 +63,16 @@ final class PollingDataSource implements DataSource {
 
     @Override
     public void start(final Callback<Boolean> resultCallback) {
-        Runnable trigger = new Runnable() {
-            @Override
-            public void run() {
-                triggerPoll(resultCallback);
-            }
-        };
+
+        if (initialDelayMillis > 0) {
+            // if there is an initial delay, we will immediately report the successful start of the data source
+            resultCallback.onSuccess(true);
+        }
+
+        Runnable pollRunnable = () -> poll(resultCallback);
         logger.debug("Scheduling polling task with interval of {}ms, starting after {}ms",
                 pollIntervalMillis, initialDelayMillis);
-        ScheduledFuture<?> task = taskExecutor.startRepeatingTask(trigger,
+        ScheduledFuture<?> task = taskExecutor.startRepeatingTask(pollRunnable,
                 initialDelayMillis, pollIntervalMillis);
         currentPollTask.set(task);
     }
@@ -73,8 +86,8 @@ final class PollingDataSource implements DataSource {
         completionCallback.onSuccess(null);
     }
 
-    private void triggerPoll(Callback<Boolean> resultCallback) {
-        ConnectivityManager.fetchAndSetData(fetcher, currentContext, dataSourceUpdateSink,
+    private void poll(Callback<Boolean> resultCallback) {
+        ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
                 resultCallback, logger);
     }
 }

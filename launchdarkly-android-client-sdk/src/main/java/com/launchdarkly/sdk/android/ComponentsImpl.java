@@ -254,28 +254,20 @@ abstract class ComponentsImpl {
             int pollInterval = clientContextImpl.isInBackground() ? backgroundPollIntervalMillis :
                     pollIntervalMillis;
 
-            long initialDelayMillis;
-            if (clientContext.isInBackground() && Boolean.FALSE.equals(clientContext.getPreviouslyInBackground())) {
-                // If we're transitioning from foreground to background, then we don't want to do a
-                // poll right away because we already have recent flag data. Start polling *after*
-                // the first background poll interval.
-                initialDelayMillis = backgroundPollIntervalMillis;
-            } else {
-                // get the last updated timestamp for this context
-                PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData = clientContextImpl.getPerEnvironmentData();
-                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(clientContextImpl.getEvaluationContext());
-                String fingerprint = LDUtil.urlSafeBase64Hash(clientContextImpl.getEvaluationContext());
-                Long lastUpdated = perEnvironmentData.getLastUpdated(hashedContextId, fingerprint);
-                if (lastUpdated == null) {
-                    lastUpdated = 0L; // default to beginning of time
-                }
-
-                // To avoid unnecessarily frequent polling requests due to process or application lifecycle, we have added
-                // this initial delay logic. Calculate how much time has passed since the last update, if that is less than
-                // the polling interval, delay by the difference, otherwise 0 delay.
-                long elapsedSinceUpdate = System.currentTimeMillis() - lastUpdated;
-                initialDelayMillis = Math.max(pollInterval - elapsedSinceUpdate, 0);
+            // get the last updated timestamp for this context
+            PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData = clientContextImpl.getPerEnvironmentData();
+            String hashedContextId = LDUtil.urlSafeBase64HashedContextId(clientContextImpl.getEvaluationContext());
+            String fingerprint = LDUtil.urlSafeBase64Hash(clientContextImpl.getEvaluationContext());
+            Long lastUpdated = perEnvironmentData.getLastUpdated(hashedContextId, fingerprint);
+            if (lastUpdated == null) {
+                lastUpdated = 0L; // default to beginning of time
             }
+
+            // To avoid unnecessarily frequent polling requests due to process or application lifecycle, we have added
+            // this initial delay logic. Calculate how much time has passed since the last update, if that is less than
+            // the polling interval, delay by the difference, otherwise 0 delay.
+            long elapsedSinceUpdate = System.currentTimeMillis() - lastUpdated;
+            long initialDelayMillis = Math.max(pollInterval - elapsedSinceUpdate, 0);
 
             return new PollingDataSource(
                     clientContextImpl.getEvaluationContext(),

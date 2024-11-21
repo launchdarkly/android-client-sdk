@@ -148,29 +148,6 @@ public class PollingDataSourceTest {
     }
 
     @Test
-    public void firstPollHappensAfterBackgroundPollingIntervalWhenTransitioningToBackground() throws Exception {
-        ClientContext clientContext = makeClientContext(true, false);
-        PollingDataSourceBuilder builder = Components.pollingDataSource()
-                .pollIntervalMillis(100000);
-        ((ComponentsImpl.PollingDataSourceBuilderImpl)builder).backgroundPollIntervalMillisNoMinimum(200);
-        DataSource ds = builder.build(clientContext);
-        fetcher.setupSuccessResponse("{}");
-
-        try {
-            ds.start(LDUtil.noOpCallback());
-
-            requireNoMoreValues(fetcher.receivedContexts, 10, TimeUnit.MILLISECONDS);
-
-            Thread.sleep(300);
-
-            LDContext context = requireValue(fetcher.receivedContexts, 100, TimeUnit.MILLISECONDS);
-            assertEquals(CONTEXT, context);
-        } finally {
-            ds.stop(LDUtil.noOpCallback());
-        }
-    }
-
-    @Test
     public void pollsAreRepeatedAtBackgroundPollIntervalInBackground() throws Exception {
         ClientContext clientContext = makeClientContext(true, null);
         PollingDataSourceBuilder builder = Components.pollingDataSource()
