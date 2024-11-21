@@ -210,6 +210,15 @@ final class PersistentDataStoreWrapper {
         }
 
         /**
+         * Updates the list of contexts that have stored flag data for this environment.
+         *
+         * @param contextIndex the context index
+         */
+        public void setIndex(@NonNull ContextIndex contextIndex) {
+            trySetValue(environmentNamespace, ENVIRONMENT_METADATA_KEY, contextIndex.toJson());
+        }
+
+        /**
          * @param hashedContextId the hashed canonical key of the context
          * @param fingerprint that is unique for the given context and considers all attributes as part of its calculation
          * @return the timestamp in millis that the context data was last updated, null if no data is stored for the fingerprint
@@ -230,15 +239,6 @@ final class PersistentDataStoreWrapper {
 
             // no match found
             return null;
-        }
-
-        /**
-         * Updates the list of contexts that have stored flag data for this environment.
-         *
-         * @param contextIndex the context index
-         */
-        public void setIndex(@NonNull ContextIndex contextIndex) {
-            trySetValue(environmentNamespace, ENVIRONMENT_METADATA_KEY, contextIndex.toJson());
         }
 
         /**

@@ -50,18 +50,16 @@ final class ClientContextImpl extends ClientContext {
         this.perEnvironmentData = perEnvironmentData;
     }
 
-    // TODO: consider re-ordering so perEnvironmentData is earlier in list of params
     static ClientContextImpl fromConfig(
             LDConfig config,
             String mobileKey,
             String environmentName,
-            FeatureFetcher fetcher,
+            PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData, FeatureFetcher fetcher,
             LDContext initialContext,
             LDLogger logger,
             PlatformState platformState,
             IEnvironmentReporter environmentReporter,
-            TaskExecutor taskExecutor,
-            PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData
+            TaskExecutor taskExecutor
     ) {
         boolean initiallyInBackground = platformState != null && !platformState.isForeground();
         ClientContext minimalContext = new ClientContext(mobileKey, environmentReporter, logger, config,

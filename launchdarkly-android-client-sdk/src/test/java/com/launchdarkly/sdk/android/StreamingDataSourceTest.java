@@ -40,8 +40,8 @@ public class StreamingDataSourceTest {
 
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", null, CONTEXT,
-                logging.logger, platformState, environmentReporter, taskExecutor, perEnvironmentData);
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", perEnvironmentData, null, CONTEXT,
+                logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
@@ -57,8 +57,8 @@ public class StreamingDataSourceTest {
     // that has a fetcher
     private ClientContext makeClientContextWithFetcher() {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", makeFeatureFetcher(), CONTEXT,
-                logging.logger, platformState, environmentReporter, taskExecutor, perEnvironmentData);
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", perEnvironmentData, makeFeatureFetcher(), CONTEXT,
+                logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,

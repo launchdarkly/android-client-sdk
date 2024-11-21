@@ -48,8 +48,8 @@ public class PollingDataSourceTest {
 
     private ClientContextImpl makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContextImpl baseClientContext = ClientContextImpl.fromConfig(
-                EMPTY_CONFIG, "", "", fetcher, CONTEXT,
-                logging.logger, platformState, environmentReporter, taskExecutor, perEnvironmentData);
+                EMPTY_CONFIG, "", "", perEnvironmentData, fetcher, CONTEXT,
+                logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,

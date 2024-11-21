@@ -6,6 +6,7 @@ import static com.launchdarkly.sdk.android.AssertHelpers.assertDataSetsEqual;
 import static com.launchdarkly.sdk.android.AssertHelpers.assertFlagsEqual;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -161,6 +162,23 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
         EnvironmentData expectedData = new DataSetBuilder().add(flag1b).build();
         assertDataSetsEqual(expectedData, manager.getAllNonDeleted());
         assertDataSetsEqual(expectedData, manager.getStoredData(CONTEXT));
+    }
+
+    @Test
+    public void upsertUpdatesIndexTimestamp() throws Exception {
+        Flag flag1a = new FlagBuilder("flag1").version(1).value(true).build(),
+                flag1b = new FlagBuilder(flag1a.getKey()).version(2).value(false).build();
+        EnvironmentData initialData = new DataSetBuilder().add(flag1a).build();
+        ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
+        manager.initData(CONTEXT, initialData);
+        long firstTimestamp = environmentStore.getLastUpdated(LDUtil.urlSafeBase64HashedContextId(CONTEXT), LDUtil.urlSafeBase64Hash(CONTEXT));
+
+        Thread.sleep(2); // sleep for an amount that is greater than precision of System.currentTimeMillis so the change can be detected
+
+        manager.upsert(CONTEXT, flag1b);
+        long secondTimestamp = environmentStore.getLastUpdated(LDUtil.urlSafeBase64HashedContextId(CONTEXT), LDUtil.urlSafeBase64Hash(CONTEXT));
+        assertNotEquals(firstTimestamp, secondTimestamp);
     }
 
     @Test

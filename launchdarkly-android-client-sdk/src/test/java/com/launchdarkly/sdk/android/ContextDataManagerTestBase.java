@@ -50,13 +50,12 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
                 new LDConfig.Builder(AutoEnvAttributes.Disabled).build(),
                 "mobile-key",
                 "",
-                null,
+                environmentStore, null,
                 INITIAL_CONTEXT,
                 logging.logger,
                 null,
                 environmentReporter,
-                taskExecutor,
-                environmentStore
+                taskExecutor
         );
         return new ContextDataManager(
                 clientContext,

@@ -17,10 +17,10 @@ import static org.easymock.EasyMock.anyString;
 import static org.easymock.EasyMock.eq;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
-import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     // This verifies non-platform-dependent behavior, such as what keys we store particular
@@ -213,6 +213,41 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
         envWrapper.setIndex(index);
         verifyAll();
         assertStoreErrorWasLogged();
+    }
+
+    @Test
+    public void getLastUpdated() {
+        ContextIndex expectedIndex = new ContextIndex().updateTimestamp(CONTEXT_KEY_HASH, 1000);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY)).andReturn(CONTEXT_FINGERPRINT);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_INDEX_KEY))
+                .andReturn(expectedIndex.toJson());
+        replayAll();
+
+        long lastUpdated = envWrapper.getLastUpdated(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT);
+        verifyAll();
+        assertEquals(lastUpdated, 1000);
+    }
+
+    @Test
+    public void getLastUpdatedNoMatchingHashedContextId() {
+        ContextIndex expectedIndex = new ContextIndex().updateTimestamp("ImABogusContextHash", 1000);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY)).andReturn(CONTEXT_FINGERPRINT);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_INDEX_KEY))
+                .andReturn(expectedIndex.toJson());
+        replayAll();
+
+        assertNull(envWrapper.getLastUpdated(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT));
+    }
+
+    @Test
+    public void getLastUpdatedNoMatchingFingerprint() {
+        ContextIndex expectedIndex = new ContextIndex().updateTimestamp(CONTEXT_KEY_HASH, 1000);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY)).andReturn(null);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_INDEX_KEY))
+                .andReturn(expectedIndex.toJson());
+        replayAll();
+
+        assertNull(envWrapper.getLastUpdated(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT));
     }
 
     @Test

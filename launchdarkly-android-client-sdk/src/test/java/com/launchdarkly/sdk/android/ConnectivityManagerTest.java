@@ -4,7 +4,6 @@ import static com.launchdarkly.sdk.android.TestUtil.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.TestUtil.requireValue;
 import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.expectLastCall;
-import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -111,13 +110,12 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 config,
                 MOBILE_KEY,
                 "",
-                null,
+                environmentStore, null,
                 CONTEXT,
                 logging.logger,
                 mockPlatformState,
                 environmentReporter,
-                taskExecutor,
-                environmentStore
+                taskExecutor
         );
 
         contextDataManager = new ContextDataManager(

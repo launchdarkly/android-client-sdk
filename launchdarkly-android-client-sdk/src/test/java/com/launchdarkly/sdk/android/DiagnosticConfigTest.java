@@ -142,7 +142,7 @@ public class DiagnosticConfigTest {
 
     private static LDValue makeDiagnosticJson(LDConfig config) throws Exception {
         ClientContext clientContext = ClientContextImpl.fromConfig(config, "", "",
-                null, null, LDLogger.none(), null, new EnvironmentReporterBuilder().build(), null, null);
+                null, null, null, LDLogger.none(), null, new EnvironmentReporterBuilder().build(), null);
         DiagnosticStore.SdkDiagnosticParams params = EventUtil.makeDiagnosticParams(clientContext);
         DiagnosticStore diagnosticStore = new DiagnosticStore(params);
         MockDiagnosticEventSender mockSender = new MockDiagnosticEventSender();
