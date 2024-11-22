@@ -244,30 +244,36 @@ abstract class ComponentsImpl {
             implements DiagnosticDescription, DataSourceRequiresFeatureFetcher {
         @Override
         public DataSource build(ClientContext clientContext) {
-            clientContext.getDataSourceUpdateSink().setStatus(
-                    clientContext.isInBackground() ? ConnectionInformation.ConnectionMode.BACKGROUND_POLLING :
+            ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
+            clientContextImpl.getDataSourceUpdateSink().setStatus(
+                    clientContextImpl.isInBackground() ? ConnectionInformation.ConnectionMode.BACKGROUND_POLLING :
                             ConnectionInformation.ConnectionMode.POLLING,
                     null
             );
-            int actualPollIntervalMillis = clientContext.isInBackground() ? backgroundPollIntervalMillis :
+
+            int pollInterval = clientContextImpl.isInBackground() ? backgroundPollIntervalMillis :
                     pollIntervalMillis;
-            int initialDelayMillis;
-            if (clientContext.isInBackground() && Boolean.FALSE.equals(clientContext.getPreviouslyInBackground())) {
-                // If we're transitioning from foreground to background, then we don't want to do a
-                // poll right away because we already have recent flag data. Start polling *after*
-                // the first background poll interval.
-                initialDelayMillis = backgroundPollIntervalMillis;
-            } else {
-                // If we're in the foreground-- or, if we're in the background but we started out
-                // that way rather than transitioning-- then we should do the first poll right away.
-                initialDelayMillis = 0;
+
+            // get the last updated timestamp for this context
+            PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData = clientContextImpl.getPerEnvironmentData();
+            String hashedContextId = LDUtil.urlSafeBase64HashedContextId(clientContextImpl.getEvaluationContext());
+            String fingerprint = LDUtil.urlSafeBase64Hash(clientContextImpl.getEvaluationContext());
+            Long lastUpdated = perEnvironmentData.getLastUpdated(hashedContextId, fingerprint);
+            if (lastUpdated == null) {
+                lastUpdated = 0L; // default to beginning of time
             }
-            ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
+
+            // To avoid unnecessarily frequent polling requests due to process or application lifecycle, we have added
+            // this initial delay logic. Calculate how much time has passed since the last update, if that is less than
+            // the polling interval, delay by the difference, otherwise 0 delay.
+            long elapsedSinceUpdate = System.currentTimeMillis() - lastUpdated;
+            long initialDelayMillis = Math.max(pollInterval - elapsedSinceUpdate, 0);
+
             return new PollingDataSource(
-                    clientContext.getEvaluationContext(),
-                    clientContext.getDataSourceUpdateSink(),
+                    clientContextImpl.getEvaluationContext(),
+                    clientContextImpl.getDataSourceUpdateSink(),
                     initialDelayMillis,
-                    actualPollIntervalMillis,
+                    pollInterval,
                     clientContextImpl.getFetcher(),
                     clientContextImpl.getPlatformState(),
                     clientContextImpl.getTaskExecutor(),

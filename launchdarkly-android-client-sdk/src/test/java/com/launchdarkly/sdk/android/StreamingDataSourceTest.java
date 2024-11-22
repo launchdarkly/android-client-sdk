@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -23,19 +24,23 @@ public class StreamingDataSourceTest {
     // the tests here cover other aspects of how the streaming data source component behaves.
 
     private static final LDContext CONTEXT = LDContext.create("context-key");
-
+    private static final String MOBILE_KEY = "test-mobile-key";
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
-
     private final MockComponents.MockDataSourceUpdateSink dataSourceUpdateSink = new MockComponents.MockDataSourceUpdateSink();
     private final MockPlatformState platformState = new MockPlatformState();
-
     private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
     private final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
+    private PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
+
+    @Before
+    public void before() {
+        perEnvironmentData = TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData(MOBILE_KEY);
+    }
 
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", null, CONTEXT,
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", perEnvironmentData, null, CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
@@ -52,7 +57,7 @@ public class StreamingDataSourceTest {
     // that has a fetcher
     private ClientContext makeClientContextWithFetcher() {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", makeFeatureFetcher(), CONTEXT,
+                new LDConfig.Builder(AutoEnvAttributes.Disabled).build(), "", "", perEnvironmentData, makeFeatureFetcher(), CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
@@ -104,19 +109,6 @@ public class StreamingDataSourceTest {
 
         // no initial delay because the data source is starting for the very first time
         assertEquals(0L, ((PollingDataSource)ds).initialDelayMillis);
-    }
-
-    @Test
-    public void pollingDataSourceHasInitialDelayWhenTransitioningToBackground() {
-        ClientContext clientContext = makeClientContext(true, false);
-        DataSource ds = Components.streamingDataSource()
-                .backgroundPollIntervalMillis(999999)
-                .build(clientContext);
-
-        assertEquals(PollingDataSource.class, ds.getClass());
-
-        assertEquals(999999L, ((PollingDataSource)ds).pollIntervalMillis);
-        assertEquals(999999L, ((PollingDataSource)ds).initialDelayMillis);
     }
 
     @Test

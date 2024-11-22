@@ -17,10 +17,10 @@ import static org.easymock.EasyMock.anyString;
 import static org.easymock.EasyMock.eq;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
-import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     // This verifies non-platform-dependent behavior, such as what keys we store particular
@@ -32,7 +32,9 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     private static final String EXPECTED_ENVIRONMENT_NAMESPACE = "LaunchDarkly_" + MOBILE_KEY_HASH;
     private static final String CONTEXT_KEY = "context-key";
     private static final String CONTEXT_KEY_HASH = LDUtil.urlSafeBase64Hash(CONTEXT_KEY);
+    private static final String CONTEXT_FINGERPRINT = "mock-context-fingerprint";
     private static final String EXPECTED_CONTEXT_FLAGS_KEY = "flags_" + CONTEXT_KEY_HASH;
+    private static final String EXPECTED_CONTEXT_FINGERPRINT_KEY = "contextFingerprint_" + CONTEXT_KEY_HASH;
     private static final String EXPECTED_INDEX_KEY = "index";
     private static final String EXPECTED_GENERATED_CONTEXT_KEY_PREFIX = "anonKey_";
     private static final Flag FLAG = new Flag("flagkey", LDValue.of(true), 1,
@@ -100,10 +102,12 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
         EnvironmentData data = new DataSetBuilder().add(FLAG).build();
         mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE,
                 EXPECTED_CONTEXT_FLAGS_KEY, data.toJson());
+        mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE,
+                EXPECTED_CONTEXT_FINGERPRINT_KEY, CONTEXT_FINGERPRINT);
         expectLastCall();
         replayAll();
 
-        envWrapper.setContextData(CONTEXT_KEY_HASH, data);
+        envWrapper.setContextData(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT, data);
         verifyAll();
         logging.assertNothingLogged();
     }
@@ -113,10 +117,12 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
         EnvironmentData data = new DataSetBuilder().add(FLAG).build();
         mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE,
                 EXPECTED_CONTEXT_FLAGS_KEY, data.toJson());
+        mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE,
+                EXPECTED_CONTEXT_FINGERPRINT_KEY, CONTEXT_FINGERPRINT);
         expectLastCall().andThrow(makeException());
         replayAll();
 
-        envWrapper.setContextData(CONTEXT_KEY_HASH, data);
+        envWrapper.setContextData(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT, data);
         verifyAll();
         assertStoreErrorWasLogged();
     }
@@ -124,6 +130,7 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     @Test
     public void removeContextData() {
         mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FLAGS_KEY, null);
+        mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY, null);
         expectLastCall();
         replayAll();
 
@@ -135,6 +142,7 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
     @Test
     public void removeContextDataWhenStoreThrowsException() {
         mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FLAGS_KEY, null);
+        mockPersistentStore.setValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY, null);
         expectLastCall().andThrow(makeException());
         replayAll();
 
@@ -205,6 +213,41 @@ public class PersistentDataStoreWrapperTest extends EasyMockSupport {
         envWrapper.setIndex(index);
         verifyAll();
         assertStoreErrorWasLogged();
+    }
+
+    @Test
+    public void getLastUpdated() {
+        ContextIndex expectedIndex = new ContextIndex().updateTimestamp(CONTEXT_KEY_HASH, 1000);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY)).andReturn(CONTEXT_FINGERPRINT);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_INDEX_KEY))
+                .andReturn(expectedIndex.toJson());
+        replayAll();
+
+        long lastUpdated = envWrapper.getLastUpdated(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT);
+        verifyAll();
+        assertEquals(lastUpdated, 1000);
+    }
+
+    @Test
+    public void getLastUpdatedNoMatchingHashedContextId() {
+        ContextIndex expectedIndex = new ContextIndex().updateTimestamp("ImABogusContextHash", 1000);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY)).andReturn(CONTEXT_FINGERPRINT);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_INDEX_KEY))
+                .andReturn(expectedIndex.toJson());
+        replayAll();
+
+        assertNull(envWrapper.getLastUpdated(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT));
+    }
+
+    @Test
+    public void getLastUpdatedNoMatchingFingerprint() {
+        ContextIndex expectedIndex = new ContextIndex().updateTimestamp(CONTEXT_KEY_HASH, 1000);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_CONTEXT_FINGERPRINT_KEY)).andReturn(null);
+        expect(mockPersistentStore.getValue(EXPECTED_ENVIRONMENT_NAMESPACE, EXPECTED_INDEX_KEY))
+                .andReturn(expectedIndex.toJson());
+        replayAll();
+
+        assertNull(envWrapper.getLastUpdated(CONTEXT_KEY_HASH, CONTEXT_FINGERPRINT));
     }
 
     @Test

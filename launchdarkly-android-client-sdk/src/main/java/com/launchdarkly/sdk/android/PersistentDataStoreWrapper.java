@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.ContextKind;
@@ -11,6 +12,7 @@ import com.launchdarkly.sdk.json.SerializationException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -53,6 +55,7 @@ final class PersistentDataStoreWrapper {
     private static final String ANON_CONTEXT_KEY_PREFIX = "anonKey_";
     private static final String ENVIRONMENT_METADATA_KEY = "index";
     private static final String ENVIRONMENT_CONTEXT_DATA_KEY_PREFIX = "flags_";
+    private static final String ENVIRONMENT_CONTEXT_FINGERPRINT_KEY_PREFIX = "contextFingerprint_";
     private static final String ENVIRONMENT_LAST_SUCCESS_TIME_KEY = "lastSuccessfulConnection";
     private static final String ENVIRONMENT_LAST_FAILURE_TIME_KEY = "lastFailedConnection";
     private static final String ENVIRONMENT_LAST_FAILURE_KEY = "lastFailure";
@@ -155,7 +158,7 @@ final class PersistentDataStoreWrapper {
         /**
          * Returns the stored flag data, if any, for a specific context.
          *
-         * @param hashedContextId the hashed key of the context
+         * @param hashedContextId the hashed canonical key of the context
          * @return the {@link EnvironmentData}, or null if not found
          */
         public EnvironmentData getContextData(String hashedContextId) {
@@ -171,20 +174,23 @@ final class PersistentDataStoreWrapper {
         /**
          * Stores flag data for a specific context, overwriting any previous data for that context.
          *
-         * @param hashedContextId the hashed key of the context
+         * @param hashedContextId the hashed canonical key of the context
+         * @param fingerprint that is unique for the given context and considers all attributes as part of its calculation
          * @param allData the flag data
          */
-        public void setContextData(String hashedContextId, EnvironmentData allData) {
+        public void setContextData(String hashedContextId, String fingerprint, EnvironmentData allData) {
             trySetValue(environmentNamespace, keyForContextId(hashedContextId), allData.toJson());
+            trySetValue(environmentNamespace, keyForContextFingerprint(hashedContextId), fingerprint);
         }
 
         /**
          * Removes the stored flag data, if any, for a specific context.
          *
-         * @param hashedContextId the hashed key of the context
+         * @param hashedContextId the hashed canonical key of the context
          */
         public void removeContextData(String hashedContextId) {
             trySetValue(environmentNamespace, keyForContextId(hashedContextId), null);
+            trySetValue(environmentNamespace, keyForContextFingerprint(hashedContextId), null);
         }
 
         /**
@@ -210,6 +216,29 @@ final class PersistentDataStoreWrapper {
          */
         public void setIndex(@NonNull ContextIndex contextIndex) {
             trySetValue(environmentNamespace, ENVIRONMENT_METADATA_KEY, contextIndex.toJson());
+        }
+
+        /**
+         * @param hashedContextId the hashed canonical key of the context
+         * @param fingerprint that is unique for the given context and considers all attributes as part of its calculation
+         * @return the timestamp in millis that the context data was last updated, null if no data is stored for the fingerprint
+         */
+        @Nullable
+        public Long getLastUpdated(String hashedContextId, String fingerprint) {
+            String storedFingerprint = tryGetValue(environmentNamespace, keyForContextFingerprint(hashedContextId));
+            if (!Objects.equals(storedFingerprint, fingerprint)) {
+                // we don't a timestamp stored for this fingerprint
+                return null;
+            }
+
+            for (ContextIndex.IndexEntry entry : getIndex().data) {
+                if (entry.contextId.equals(hashedContextId)) {
+                    return entry.timestamp;
+                }
+            }
+
+            // no match found
+            return null;
         }
 
         /**
@@ -250,6 +279,10 @@ final class PersistentDataStoreWrapper {
 
     private String keyForContextId(String hashedContextId) {
         return ENVIRONMENT_CONTEXT_DATA_KEY_PREFIX + hashedContextId;
+    }
+
+    private String keyForContextFingerprint(String hashedContextId) {
+        return ENVIRONMENT_CONTEXT_FINGERPRINT_KEY_PREFIX + hashedContextId;
     }
 
     private String tryGetValue(String namespace, String key) {

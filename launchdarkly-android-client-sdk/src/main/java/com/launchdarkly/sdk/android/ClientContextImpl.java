@@ -32,26 +32,29 @@ final class ClientContextImpl extends ClientContext {
     private final FeatureFetcher fetcher;
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
+    private final PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
 
     ClientContextImpl(
             ClientContext base,
             DiagnosticStore diagnosticStore,
             FeatureFetcher fetcher,
             PlatformState platformState,
-            TaskExecutor taskExecutor
+            TaskExecutor taskExecutor,
+            PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData
     ) {
         super(base);
         this.diagnosticStore = diagnosticStore;
         this.fetcher = fetcher;
         this.platformState = platformState;
         this.taskExecutor = taskExecutor;
+        this.perEnvironmentData = perEnvironmentData;
     }
 
     static ClientContextImpl fromConfig(
             LDConfig config,
             String mobileKey,
             String environmentName,
-            FeatureFetcher fetcher,
+            PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData, FeatureFetcher fetcher,
             LDContext initialContext,
             LDLogger logger,
             PlatformState platformState,
@@ -82,14 +85,14 @@ final class ClientContextImpl extends ClientContext {
         if (!config.getDiagnosticOptOut()) {
             diagnosticStore = new DiagnosticStore(EventUtil.makeDiagnosticParams(baseClientContext));
         }
-        return new ClientContextImpl(baseClientContext, diagnosticStore, fetcher, platformState, taskExecutor);
+        return new ClientContextImpl(baseClientContext, diagnosticStore, fetcher, platformState, taskExecutor, perEnvironmentData);
     }
 
     public static ClientContextImpl get(ClientContext context) {
         if (context instanceof ClientContextImpl) {
             return (ClientContextImpl)context;
         }
-        return new ClientContextImpl(context, null, null, null, null);
+        return new ClientContextImpl(context, null, null, null, null, null);
     }
 
     public static ClientContextImpl forDataSource(
@@ -119,7 +122,8 @@ final class ClientContextImpl extends ClientContext {
                 baseContextImpl.getDiagnosticStore(),
                 baseContextImpl.getFetcher(),
                 baseContextImpl.getPlatformState(),
-                baseContextImpl.getTaskExecutor()
+                baseContextImpl.getTaskExecutor(),
+                baseContextImpl.getPerEnvironmentData()
         );
     }
 
@@ -134,7 +138,8 @@ final class ClientContextImpl extends ClientContext {
             this.diagnosticStore,
             this.fetcher,
             this.platformState,
-            this.taskExecutor
+            this.taskExecutor,
+            this.perEnvironmentData
         );
     }
 
@@ -152,6 +157,10 @@ final class ClientContextImpl extends ClientContext {
 
     public TaskExecutor getTaskExecutor() {
         return throwExceptionIfNull(taskExecutor);
+    }
+
+    public PersistentDataStoreWrapper.PerEnvironmentData getPerEnvironmentData() {
+        return throwExceptionIfNull(perEnvironmentData);
     }
 
     private static <T> T throwExceptionIfNull(T o) {

@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireValue;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -14,7 +15,7 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 
-import org.easymock.EasyMockSupport;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -24,8 +25,9 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-public class PollingDataSourceTest extends EasyMockSupport {
+public class PollingDataSourceTest {
     private static final LDContext CONTEXT = LDContext.create("context-key");
+    private static final String MOBILE_KEY = "test-mobile-key";
     private static final LDConfig EMPTY_CONFIG = new LDConfig.Builder(AutoEnvAttributes.Disabled).build();
 
     private final MockComponents.MockDataSourceUpdateSink dataSourceUpdateSink = new MockComponents.MockDataSourceUpdateSink();
@@ -34,13 +36,19 @@ public class PollingDataSourceTest extends EasyMockSupport {
 
     private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
     private final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
+    private PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
 
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
 
-    private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
-        ClientContext baseClientContext = ClientContextImpl.fromConfig(
-                EMPTY_CONFIG, "", "", fetcher, CONTEXT,
+    @Before
+    public void before() {
+        perEnvironmentData = TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData(MOBILE_KEY);
+    }
+
+    private ClientContextImpl makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
+        ClientContextImpl baseClientContext = ClientContextImpl.fromConfig(
+                EMPTY_CONFIG, "", "", perEnvironmentData, fetcher, CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
         return ClientContextImpl.forDataSource(
                 baseClientContext,
@@ -116,26 +124,27 @@ public class PollingDataSourceTest extends EasyMockSupport {
     }
 
     @Test
-    public void firstPollHappensAfterBackgroundPollingIntervalWhenTransitioningToBackground() throws Exception {
-        ClientContext clientContext = makeClientContext(true, false);
+    public void pollingIntervalHonoredAcrossMultipleBuildCalls() throws Exception {
+        ClientContextImpl clientContext = makeClientContext(true, null);
         PollingDataSourceBuilder builder = Components.pollingDataSource()
-                .pollIntervalMillis(100000);
-        ((ComponentsImpl.PollingDataSourceBuilderImpl)builder).backgroundPollIntervalMillisNoMinimum(200);
-        DataSource ds = builder.build(clientContext);
-        fetcher.setupSuccessResponse("{}");
+                .pollIntervalMillis(100000)
+                .backgroundPollIntervalMillis(100000);
 
-        try {
-            ds.start(LDUtil.noOpCallback());
+        // first build should have no delay
+        PollingDataSource ds1 = (PollingDataSource) builder.build(clientContext);
+        assertEquals(0, ds1.initialDelayMillis);
 
-            requireNoMoreValues(fetcher.receivedContexts, 10, TimeUnit.MILLISECONDS);
+        // simulate successful update of context index timestamp
+        String hashedContextId = LDUtil.urlSafeBase64HashedContextId(CONTEXT);
+        String fingerPrint = LDUtil.urlSafeBase64Hash(CONTEXT);
+        PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData = clientContext.getPerEnvironmentData();
+        perEnvironmentData.setContextData(hashedContextId, fingerPrint, new EnvironmentData());
+        ContextIndex newIndex = perEnvironmentData.getIndex().updateTimestamp(hashedContextId, System.currentTimeMillis());
+        perEnvironmentData.setIndex(newIndex);
 
-            Thread.sleep(300);
-
-            LDContext context = requireValue(fetcher.receivedContexts, 100, TimeUnit.MILLISECONDS);
-            assertEquals(CONTEXT, context);
-        } finally {
-            ds.stop(LDUtil.noOpCallback());
-        }
+        // second build should have a non-zero delay due to simulated response storing a recent timestamp
+        PollingDataSource ds2 = (PollingDataSource) builder.build(clientContext);
+        assertNotEquals(0, ds2.initialDelayMillis);
     }
 
     @Test
