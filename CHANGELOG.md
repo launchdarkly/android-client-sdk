@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.5.0](https://github.com/launchdarkly/android-client-sdk/compare/5.4.0...5.5.0) (2024-11-22)
+
+
+### Features
+
+* honor polling interval across process restarts ([#282](https://github.com/launchdarkly/android-client-sdk/issues/282)) ([9b3ca70](https://github.com/launchdarkly/android-client-sdk/commit/9b3ca7002394a14641929974ceb7b2d2c0f34952))
+
 ## [5.4.0](https://github.com/launchdarkly/android-client-sdk/compare/5.3.1...5.4.0) (2024-10-18)
 
 
