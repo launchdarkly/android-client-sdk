@@ -119,7 +119,7 @@ final class ContextDataManager {
             @NonNull EnvironmentData newData,
             boolean writeFlagsToPersistentStore
     ) {
-        List<String> removedContextIds = new ArrayList<>();
+
         String contextId = LDUtil.urlSafeBase64HashedContextId(context);
         String fingerprint = LDUtil.urlSafeBase64Hash(context);
         EnvironmentData oldData;
@@ -133,23 +133,27 @@ final class ContextDataManager {
 
             oldData = flags;
             flags = newData;
-            newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
-                    .prune(maxCachedContexts, removedContextIds);
-            index = newIndex;
 
-            for (String removedContextId: removedContextIds) {
-                environmentStore.removeContextData(removedContextId);
-                logger.debug("Removed flag data for context {} from persistent store", removedContextId);
-            }
-            if (writeFlagsToPersistentStore && maxCachedContexts != 0) {
+            if (writeFlagsToPersistentStore) {
+                List<String> removedContextIds = new ArrayList<>();
+                newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
+                        .prune(maxCachedContexts, removedContextIds);
+                index = newIndex;
+
+                for (String removedContextId: removedContextIds) {
+                    environmentStore.removeContextData(removedContextId);
+                    logger.debug("Removed flag data for context {} from persistent store", removedContextId);
+                }
+
                 environmentStore.setContextData(contextId, fingerprint, newData);
+                environmentStore.setIndex(newIndex);
+
+                if (logger.isEnabled(LDLogLevel.DEBUG)) {
+                    logger.debug("Stored context index is now: {}", newIndex.toJson());
+                }
+
                 logger.debug("Updated flag data for context {} in persistent store", contextId);
             }
-            environmentStore.setIndex(newIndex);
-        }
-
-        if (logger.isEnabled(LDLogLevel.DEBUG)) {
-            logger.debug("Stored context index is now: {}", newIndex.toJson());
         }
 
         // Determine which flags were updated and notify listeners, if any

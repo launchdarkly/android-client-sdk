@@ -38,7 +38,7 @@ public class LDClientEndToEndTest {
     private Application application;
     private MockWebServer mockPollingServer;
     private URI mockPollingServerUri;
-    private final PersistentDataStore store = new InMemoryPersistentDataStore();
+    private PersistentDataStore store;
 
     @Rule
     public final ActivityScenarioRule<TestActivity> testScenario =
@@ -63,6 +63,11 @@ public class LDClientEndToEndTest {
                     }
                     mockPollingServerUri = mockPollingServer.url("/").uri();
                 });
+    }
+
+    @Before
+    public void before() {
+        store = new InMemoryPersistentDataStore();
     }
 
     @After

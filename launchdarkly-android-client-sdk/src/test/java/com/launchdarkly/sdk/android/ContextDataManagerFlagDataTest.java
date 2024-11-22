@@ -165,6 +165,23 @@ public class ContextDataManagerFlagDataTest extends ContextDataManagerTestBase {
     }
 
     @Test
+    public void switchDoesNotUpdateIndexTimestamp() throws Exception {
+        EnvironmentData data = new DataSetBuilder().add(new FlagBuilder("flag1").build()).build();
+        ContextDataManager manager1 = createDataManager();
+        manager1.switchToContext(INITIAL_CONTEXT);
+        manager1.initData(INITIAL_CONTEXT, data);
+        Long firstTimestamp = environmentStore.getLastUpdated(LDUtil.urlSafeBase64HashedContextId(INITIAL_CONTEXT), LDUtil.urlSafeBase64Hash(INITIAL_CONTEXT));
+
+        Thread.sleep(2); // sleep for an amount that is greater than precision of System.currentTimeMillis so the change can be detected
+
+        manager1.switchToContext(CONTEXT);
+        manager1.switchToContext(INITIAL_CONTEXT);
+        Long secondTimestamp = environmentStore.getLastUpdated(LDUtil.urlSafeBase64HashedContextId(INITIAL_CONTEXT), LDUtil.urlSafeBase64Hash(INITIAL_CONTEXT));
+
+        assertEquals(firstTimestamp, secondTimestamp);
+    }
+
+    @Test
     public void upsertUpdatesIndexTimestamp() throws Exception {
         Flag flag1a = new FlagBuilder("flag1").version(1).value(true).build(),
                 flag1b = new FlagBuilder(flag1a.getKey()).version(2).value(false).build();
