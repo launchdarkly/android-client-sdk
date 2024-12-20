@@ -47,6 +47,13 @@ public abstract class PollingDataSourceBuilder implements ComponentConfigurer<Da
     protected int pollIntervalMillis = DEFAULT_POLL_INTERVAL_MILLIS;
 
     /**
+     * If true, the polling data source will make at most one poll attempt to get
+     * feature flag updates. The one shot poll may be blocked by rate limiting logic
+     * and will not be retried if that occurs.
+     */
+    protected boolean oneShot = false;
+
+    /**
      * Sets the interval between feature flag updates when the application is running in the background.
      * <p>
      * This is normally a longer interval than the foreground polling interval ({@link #pollIntervalMillis(int)}).
@@ -78,6 +85,17 @@ public abstract class PollingDataSourceBuilder implements ComponentConfigurer<Da
     public PollingDataSourceBuilder pollIntervalMillis(int pollIntervalMillis) {
         this.pollIntervalMillis = pollIntervalMillis <= DEFAULT_POLL_INTERVAL_MILLIS ?
                 DEFAULT_POLL_INTERVAL_MILLIS : pollIntervalMillis;
+        return this;
+    }
+
+    /**
+     * Sets the data source to make one and only one attempt to get feature flag updates.  The one shot
+     * poll may be blocked by rate limiting logic and will not be retried if that occurs.
+     *
+     * @return the builder
+     */
+    public PollingDataSourceBuilder oneShot() {
+        this.oneShot = true;
         return this;
     }
 }
