@@ -17,11 +17,16 @@ import java.util.concurrent.Future;
  */
 public interface LDClientInterface extends Closeable {
     /**
-     * Checks whether the client is ready to return feature flag values. This is true if either
-     * the client has successfully connected to LaunchDarkly and received feature flags, or the
-     * client has been put into offline mode (in which case it will return only default flag values).
+     * Returns true if the client has successfully connected to LaunchDarkly and received feature flags after
+     * {@link LDClient#init(Application, LDConfig, LDContext, int)} was called.  Also returns true if the SDK is
+     * set to offline mode.
      *
-     * @return true if the client is initialized or offline
+     * Otherwise this returns false until the client is able to retrieve latest feature flag data from
+     * LaunchDarkly services. This includes not connecting to LaunchDarkly within the start wait time provided to
+     * {@link LDClient#init(Application, LDConfig, LDContext, int)} even if the SDK has cached feature flags.
+     *
+     * @return true if the client is able to retrieve flag data from LaunchDarkly or offline, false if the client has been
+     * unable to up to this point.
      */
     boolean isInitialized();
 

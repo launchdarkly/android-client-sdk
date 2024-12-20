@@ -22,6 +22,8 @@ final class PollingDataSource implements DataSource {
     private final DataSourceUpdateSink dataSourceUpdateSink;
     final long initialDelayMillis; // visible for testing
     final long pollIntervalMillis; // visible for testing
+    private final int maxNumberOfPolls;
+    int numberOfPollsRemaining; // visible for testing
     private final FeatureFetcher fetcher;
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
@@ -36,6 +38,7 @@ final class PollingDataSource implements DataSource {
      *                             source will report success immediately as it is now running even if data has not been
      *                             fetched.
      * @param pollIntervalMillis   interval in millis between each polling request
+     * @param maxNumberOfPolls     the maximum number of polling attempts, unlimited if negative is provided
      * @param fetcher              that will be used for each fetch
      * @param platformState        used for making decisions based on platform state
      * @param taskExecutor         that will be used to schedule the polling tasks
@@ -46,6 +49,7 @@ final class PollingDataSource implements DataSource {
             DataSourceUpdateSink dataSourceUpdateSink,
             long initialDelayMillis,
             long pollIntervalMillis,
+            int maxNumberOfPolls,
             FeatureFetcher fetcher,
             PlatformState platformState,
             TaskExecutor taskExecutor,
@@ -55,6 +59,8 @@ final class PollingDataSource implements DataSource {
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.initialDelayMillis = initialDelayMillis;
         this.pollIntervalMillis = pollIntervalMillis;
+        this.maxNumberOfPolls = maxNumberOfPolls;
+        this.numberOfPollsRemaining = maxNumberOfPolls;
         this.fetcher = fetcher;
         this.platformState = platformState;
         this.taskExecutor = taskExecutor;
@@ -63,15 +69,16 @@ final class PollingDataSource implements DataSource {
 
     @Override
     public void start(final Callback<Boolean> resultCallback) {
-
-        if (initialDelayMillis > 0) {
-            // if there is an initial delay, we will immediately report the successful start of the data source
+        if (maxNumberOfPolls == 0) {
+            // If there are no polls to be made, we will immediately report the successful start of the data source.  This
+            // may seem strange, but one can think of this data source as behaving like a no-op in this configuration.
             resultCallback.onSuccess(true);
+            return;
         }
 
         Runnable pollRunnable = () -> poll(resultCallback);
-        logger.debug("Scheduling polling task with interval of {}ms, starting after {}ms",
-                pollIntervalMillis, initialDelayMillis);
+        logger.debug("Scheduling polling task with interval of {}ms, starting after {}ms, with max number of polls of {}",
+                pollIntervalMillis, initialDelayMillis, maxNumberOfPolls);
         ScheduledFuture<?> task = taskExecutor.startRepeatingTask(pollRunnable,
                 initialDelayMillis, pollIntervalMillis);
         currentPollTask.set(task);
@@ -87,7 +94,19 @@ final class PollingDataSource implements DataSource {
     }
 
     private void poll(Callback<Boolean> resultCallback) {
-        ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
-                resultCallback, logger);
+        // poll if there is no max (negative number) or there are polls remaining
+        if (maxNumberOfPolls < 0 || numberOfPollsRemaining > 0) {
+            ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
+                    resultCallback, logger);
+            numberOfPollsRemaining--; // decrementing even when we have unlimited polls has no consequence
+        }
+
+        // terminate if we have a max number of polls and no polls remaining
+        if (maxNumberOfPolls >= 0 && numberOfPollsRemaining <= 0) {
+            ScheduledFuture<?> task = currentPollTask.getAndSet(null);
+            if (task != null) {
+                task.cancel(true);
+            }
+        }
     }
 }
