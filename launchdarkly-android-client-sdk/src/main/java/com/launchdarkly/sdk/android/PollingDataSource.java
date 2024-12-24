@@ -28,8 +28,7 @@ final class PollingDataSource implements DataSource {
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
     private final LDLogger logger;
-    private final AtomicReference<ScheduledFuture<?>> currentPollTask =
-            new AtomicReference<>();
+    final AtomicReference<ScheduledFuture<?>> currentPollTask = new AtomicReference<>(); // visible for testing
 
     /**
      * @param context              that this data source will fetch data for

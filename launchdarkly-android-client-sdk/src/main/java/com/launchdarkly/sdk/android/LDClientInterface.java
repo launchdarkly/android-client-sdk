@@ -18,8 +18,10 @@ import java.util.concurrent.Future;
 public interface LDClientInterface extends Closeable {
     /**
      * Returns true if the client has successfully connected to LaunchDarkly and received feature flags after
-     * {@link LDClient#init(Application, LDConfig, LDContext, int)} was called.  Also returns true if the SDK is
-     * set to offline mode.
+     * {@link LDClient#init(Application, LDConfig, LDContext, int)} was called.
+     *
+     * Also returns true if the SDK knows it will never be able to fetch flag data (such as when the client is set
+     * to offline mode or if in one shot configuration, the one shot fails).
      *
      * Otherwise this returns false until the client is able to retrieve latest feature flag data from
      * LaunchDarkly services. This includes not connecting to LaunchDarkly within the start wait time provided to
