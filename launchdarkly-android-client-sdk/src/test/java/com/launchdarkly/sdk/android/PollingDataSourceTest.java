@@ -3,7 +3,9 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireValue;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -23,6 +25,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class PollingDataSourceTest {
@@ -82,7 +85,7 @@ public class PollingDataSourceTest {
         ClientContext clientContext = makeClientContext(false, null);
         PollingDataSourceBuilder builder = Components.pollingDataSource()
                 .backgroundPollIntervalMillis(100000);
-        ((ComponentsImpl.PollingDataSourceBuilderImpl)builder).pollIntervalMillisNoMinimum(200);
+        ((ComponentsImpl.PollingDataSourceBuilderImpl) builder).pollIntervalMillisNoMinimum(200);
         DataSource ds = builder.build(clientContext);
 
         fetcher.setupSuccessResponse("{}");
@@ -148,11 +151,45 @@ public class PollingDataSourceTest {
     }
 
     @Test
+    public void oneShotPollingSetsMaxNumberOfPollsTo1() throws Exception {
+        ClientContextImpl clientContext = makeClientContext(true, null);
+        PollingDataSourceBuilder builder = Components.pollingDataSource().oneShot();
+
+        PollingDataSource ds = (PollingDataSource) builder.build(clientContext);
+        assertEquals(1, ds.numberOfPollsRemaining);
+    }
+
+    @Test
+    public void oneShotIsPreventByRateLimiting() throws Exception {
+        ClientContextImpl clientContext = makeClientContext(true, null);
+        PollingDataSourceBuilder builder = Components.pollingDataSource()
+                .pollIntervalMillis(100000).oneShot();
+
+        // first build should have no delay
+        PollingDataSource ds1 = (PollingDataSource) builder.build(clientContext);
+        assertEquals(1, ds1.numberOfPollsRemaining);
+        assertEquals(0, ds1.initialDelayMillis);
+
+        // simulate successful update of context index timestamp
+        String hashedContextId = LDUtil.urlSafeBase64HashedContextId(CONTEXT);
+        String fingerPrint = LDUtil.urlSafeBase64Hash(CONTEXT);
+        PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData = clientContext.getPerEnvironmentData();
+        perEnvironmentData.setContextData(hashedContextId, fingerPrint, new EnvironmentData());
+        ContextIndex newIndex = perEnvironmentData.getIndex().updateTimestamp(hashedContextId, System.currentTimeMillis());
+        perEnvironmentData.setIndex(newIndex);
+
+        // second build should have a non-zero delay and so one shot is prevented by max number of polls being 0.
+        PollingDataSource ds2 = (PollingDataSource) builder.build(clientContext);
+        assertEquals(0, ds2.numberOfPollsRemaining);
+        assertNotEquals(0, ds2.initialDelayMillis);
+    }
+
+    @Test
     public void pollsAreRepeatedAtBackgroundPollIntervalInBackground() throws Exception {
         ClientContext clientContext = makeClientContext(true, null);
         PollingDataSourceBuilder builder = Components.pollingDataSource()
                 .pollIntervalMillis(100000);
-        ((ComponentsImpl.PollingDataSourceBuilderImpl)builder).backgroundPollIntervalMillisNoMinimum(200);
+        ((ComponentsImpl.PollingDataSourceBuilderImpl) builder).backgroundPollIntervalMillisNoMinimum(200);
         DataSource ds = builder.build(clientContext);
 
         fetcher.setupSuccessResponse("{}");
@@ -180,7 +217,7 @@ public class PollingDataSourceTest {
         ClientContext clientContext = makeClientContext(false, null);
         PollingDataSourceBuilder builder = Components.pollingDataSource()
                 .backgroundPollIntervalMillis(100000);
-        ((ComponentsImpl.PollingDataSourceBuilderImpl)builder).pollIntervalMillisNoMinimum(200);
+        ((ComponentsImpl.PollingDataSourceBuilderImpl) builder).pollIntervalMillisNoMinimum(200);
         DataSource ds = builder.build(clientContext);
 
         EnvironmentData data1 = new DataSetBuilder()
@@ -208,6 +245,43 @@ public class PollingDataSourceTest {
 
             Map<String, DataModel.Flag> receivedData2 = dataSourceUpdateSink.expectInit();
             assertEquals(data2.getAll(), receivedData2);
+        } finally {
+            ds.stop(LDUtil.noOpCallback());
+        }
+    }
+
+    @Test
+    public void terminatesAfterMaxNumberOfPolls() throws Exception {
+        ClientContextImpl clientContext = makeClientContext(false, null);
+        PollingDataSource ds = new PollingDataSource(
+                clientContext.getEvaluationContext(),
+                clientContext.getDataSourceUpdateSink(),
+                0,
+                50,
+                2, // maximum number of requests is 2
+                clientContext.getFetcher(),
+                clientContext.getPlatformState(),
+                clientContext.getTaskExecutor(),
+                clientContext.getBaseLogger()
+        );
+
+        fetcher.setupSuccessResponse("{}");
+        fetcher.setupSuccessResponse("{}");
+        fetcher.setupSuccessResponse("{}"); // need a third response to detect if the third request is sent which is a failure
+
+        try {
+            ds.start(LDUtil.noOpCallback());
+            ScheduledFuture pollTask = ds.currentPollTask.get();
+            assertFalse(pollTask.isCancelled());
+
+            LDContext context1 = requireValue(fetcher.receivedContexts, 5, TimeUnit.MILLISECONDS);
+            Thread.sleep(50);
+
+            LDContext context2 = requireValue(fetcher.receivedContexts, 5, TimeUnit.MILLISECONDS);
+
+            // if a third request is sent, this will fail here
+            requireNoMoreValues(fetcher.receivedContexts, 100, TimeUnit.MILLISECONDS);
+            assertTrue(pollTask.isCancelled());
         } finally {
             ds.stop(LDUtil.noOpCallback());
         }
