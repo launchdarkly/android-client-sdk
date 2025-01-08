@@ -22,12 +22,12 @@ final class PollingDataSource implements DataSource {
     private final DataSourceUpdateSink dataSourceUpdateSink;
     final long initialDelayMillis; // visible for testing
     final long pollIntervalMillis; // visible for testing
+    long numberOfPollsRemaining; // visible for testing
     private final FeatureFetcher fetcher;
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
     private final LDLogger logger;
-    private final AtomicReference<ScheduledFuture<?>> currentPollTask =
-            new AtomicReference<>();
+    final AtomicReference<ScheduledFuture<?>> currentPollTask = new AtomicReference<>(); // visible for testing
 
     /**
      * @param context              that this data source will fetch data for
@@ -36,6 +36,7 @@ final class PollingDataSource implements DataSource {
      *                             source will report success immediately as it is now running even if data has not been
      *                             fetched.
      * @param pollIntervalMillis   interval in millis between each polling request
+     * @param maxNumberOfPolls     the maximum number of polling attempts, use Long.MAX for effectively unlimited.
      * @param fetcher              that will be used for each fetch
      * @param platformState        used for making decisions based on platform state
      * @param taskExecutor         that will be used to schedule the polling tasks
@@ -46,6 +47,7 @@ final class PollingDataSource implements DataSource {
             DataSourceUpdateSink dataSourceUpdateSink,
             long initialDelayMillis,
             long pollIntervalMillis,
+            long maxNumberOfPolls,
             FeatureFetcher fetcher,
             PlatformState platformState,
             TaskExecutor taskExecutor,
@@ -55,6 +57,7 @@ final class PollingDataSource implements DataSource {
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.initialDelayMillis = initialDelayMillis;
         this.pollIntervalMillis = pollIntervalMillis;
+        this.numberOfPollsRemaining = maxNumberOfPolls;
         this.fetcher = fetcher;
         this.platformState = platformState;
         this.taskExecutor = taskExecutor;
@@ -63,15 +66,16 @@ final class PollingDataSource implements DataSource {
 
     @Override
     public void start(final Callback<Boolean> resultCallback) {
-
-        if (initialDelayMillis > 0) {
-            // if there is an initial delay, we will immediately report the successful start of the data source
+        if (numberOfPollsRemaining <= 0) {
+            // If there are no polls to be made, we will immediately report the successful start of the data source.  This
+            // may seem strange, but one can think of this data source as behaving like a no-op in this configuration.
             resultCallback.onSuccess(true);
+            return;
         }
 
         Runnable pollRunnable = () -> poll(resultCallback);
-        logger.debug("Scheduling polling task with interval of {}ms, starting after {}ms",
-                pollIntervalMillis, initialDelayMillis);
+        logger.debug("Scheduling polling task with interval of {}ms, starting after {}ms, with number of polls {}",
+                pollIntervalMillis, initialDelayMillis, numberOfPollsRemaining);
         ScheduledFuture<?> task = taskExecutor.startRepeatingTask(pollRunnable,
                 initialDelayMillis, pollIntervalMillis);
         currentPollTask.set(task);
@@ -87,7 +91,17 @@ final class PollingDataSource implements DataSource {
     }
 
     private void poll(Callback<Boolean> resultCallback) {
-        ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
-                resultCallback, logger);
+        // poll if there are polls remaining
+        if (numberOfPollsRemaining > 0) {
+            numberOfPollsRemaining--;
+            ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
+                    resultCallback, logger);
+        } else {
+            // terminate if we have no polls remaining
+            ScheduledFuture<?> task = currentPollTask.getAndSet(null);
+            if (task != null) {
+                task.cancel(true);
+            }
+        }
     }
 }

@@ -264,16 +264,27 @@ abstract class ComponentsImpl {
             }
 
             // To avoid unnecessarily frequent polling requests due to process or application lifecycle, we have added
-            // this initial delay logic. Calculate how much time has passed since the last update, if that is less than
-            // the polling interval, delay by the difference, otherwise 0 delay.
+            // this rate limiting logic. Calculate how much time has passed since the last update, if that is less than
+            // the polling interval, delay to when the next poll would have occurred, otherwise 0 delay.
             long elapsedSinceUpdate = System.currentTimeMillis() - lastUpdated;
             long initialDelayMillis = Math.max(pollInterval - elapsedSinceUpdate, 0);
+
+            long maxNumPolls = Long.MAX_VALUE; // effectively unlimited number of polls
+            if (oneShot) {
+                if (initialDelayMillis > 0) {
+                    clientContext.getBaseLogger().info("One shot polling attempt will be blocked by rate limiting.");
+                    maxNumPolls = 0; // one shot was blocked by rate limiting logic, so never poll
+                } else {
+                    maxNumPolls = 1; // one shot was not blocked by rate limiting logic
+                }
+            }
 
             return new PollingDataSource(
                     clientContextImpl.getEvaluationContext(),
                     clientContextImpl.getDataSourceUpdateSink(),
                     initialDelayMillis,
                     pollInterval,
+                    maxNumPolls,
                     clientContextImpl.getFetcher(),
                     clientContextImpl.getPlatformState(),
                     clientContextImpl.getTaskExecutor(),

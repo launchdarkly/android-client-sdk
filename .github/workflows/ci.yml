@@ -19,7 +19,7 @@ jobs:
 #        java_version: ['11', '17']
         android_api_level: ['25']
         java_version: ['17']
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       # This enables hardware acceleration on large linux runners
