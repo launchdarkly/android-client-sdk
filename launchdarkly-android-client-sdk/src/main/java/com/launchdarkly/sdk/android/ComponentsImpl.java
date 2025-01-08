@@ -269,11 +269,11 @@ abstract class ComponentsImpl {
             long elapsedSinceUpdate = System.currentTimeMillis() - lastUpdated;
             long initialDelayMillis = Math.max(pollInterval - elapsedSinceUpdate, 0);
 
-            int maxNumPolls = -1; // negative for unlimited number of polls
+            long maxNumPolls = Long.MAX_VALUE; // effectively unlimited number of polls
             if (oneShot) {
                 if (initialDelayMillis > 0) {
                     clientContext.getBaseLogger().info("One shot polling attempt will be blocked by rate limiting.");
-                    maxNumPolls = 0; // one shot was blocked by rate limiting logic
+                    maxNumPolls = 0; // one shot was blocked by rate limiting logic, so never poll
                 } else {
                     maxNumPolls = 1; // one shot was not blocked by rate limiting logic
                 }
