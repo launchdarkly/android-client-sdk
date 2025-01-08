@@ -2,6 +2,18 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.6.0](https://github.com/launchdarkly/android-client-sdk/compare/5.5.0...5.6.0) (2025-01-08)
+
+
+### Features
+
+* polling data source now supports one shot configuration ([a995a4e](https://github.com/launchdarkly/android-client-sdk/commit/a995a4e0fae91552e563e4235970f933292d7be8))
+
+
+### Bug Fixes
+
+* polling data source no longer reports initialized=true incorrectly when rate limiting delays first poll ([a995a4e](https://github.com/launchdarkly/android-client-sdk/commit/a995a4e0fae91552e563e4235970f933292d7be8))
+
 ## [5.5.0](https://github.com/launchdarkly/android-client-sdk/compare/5.4.0...5.5.0) (2024-11-22)
 
 
