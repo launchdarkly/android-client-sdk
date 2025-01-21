@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.6.1](https://github.com/launchdarkly/android-client-sdk/compare/5.6.0...5.6.1) (2025-01-21)
+
+
+### Bug Fixes
+
+* correcting protocol parsing logic that may lead to incorrect sanitization of an incoming message from LD servers ([#288](https://github.com/launchdarkly/android-client-sdk/issues/288)) ([9969148](https://github.com/launchdarkly/android-client-sdk/commit/996914893f84422de55681d3a4e065c528cdaffd))
+
 ## [5.6.0](https://github.com/launchdarkly/android-client-sdk/compare/5.5.0...5.6.0) (2025-01-08)
 
 
