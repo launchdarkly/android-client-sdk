@@ -78,13 +78,13 @@ final class EnvironmentData {
         // Normalize the data set to ensure that the flag keys are present not only as map keys,
         // but also in each Flag object. That is normally the case in data sent by LD, even though
         // it's redundant, but if for any reason it isn't we can transparently fix it.
-        for (Map.Entry<String, Flag> e: dataMap.entrySet()) {
-            Flag f = e.getValue();
+        for (Map.Entry<String, Flag> entry: dataMap.entrySet()) {
+            Flag f = entry.getValue();
             if (f.getKey() == null) {
-                f = new Flag(e.getKey(), f.getValue(), f.getVersion(), f.getFlagVersion(),
+                f = new Flag(entry.getKey(), f.getValue(), f.getVersion(), f.getFlagVersion(),
                         f.getVariation(), f.isTrackEvents(), f.isTrackReason(), f.getDebugEventsUntilDate(),
                         f.getReason(), f.getPrerequisites());
-                dataMap.put(e.getKey(), f);
+                entry.setValue(f);
             }
         }
         return new EnvironmentData(dataMap);
