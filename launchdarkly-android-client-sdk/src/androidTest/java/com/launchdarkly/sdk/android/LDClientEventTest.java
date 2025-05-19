@@ -9,6 +9,7 @@ import android.app.Application;
 
 import androidx.test.core.app.ApplicationProvider;
 
+import com.launchdarkly.sdk.ArrayBuilder;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -366,13 +367,22 @@ public class LDClientEventTest {
         assertEquals("identify", event.get("kind").stringValue());
     }
 
-    private void assertContextKeys(LDValue event, LDContext context) {
-        ObjectBuilder o = LDValue.buildObject();
+    private void assertContexts(LDValue event, LDContext context) {
+        ArrayBuilder a = LDValue.buildArray();
         for (int i = 0; i < context.getIndividualContextCount(); i++) {
-            o.put(context.getIndividualContext(i).getKind().toString(),
-                    context.getIndividualContext(i).getKey());
+            LDContext individualContext = context.getIndividualContext(i);
+            ObjectBuilder objContext = LDValue.buildObject();
+            objContext.put("anonymous", individualContext.isAnonymous());
+            objContext.put("context_key", individualContext.getKey());
+            objContext.put("context_kind", individualContext.getKind().toString());
+            ObjectBuilder objCustom = LDValue.buildObject();
+            for (String customAttributeName : individualContext.getCustomAttributeNames()) {
+                objCustom.put(customAttributeName, individualContext.getValue(customAttributeName));
+            }
+            objContext.put("attributes_json", objCustom.build());
+            a.add(objContext.build());
         }
-        assertEquals(o.build(), event.get("contextKeys"));
+        assertEquals(a.build(), event.get("contexts"));
     }
 
     private void assertFeatureEvent(LDValue event, LDContext context) {
@@ -381,7 +391,7 @@ public class LDClientEventTest {
 
     private void assertCustomEvent(LDValue event, LDContext context, String eventKey) {
         assertEquals("custom", event.get("kind").stringValue());
-        assertContextKeys(event, context);
+        assertContexts(event, context);
         assertEquals(eventKey, event.get("key").stringValue());
     }
 
