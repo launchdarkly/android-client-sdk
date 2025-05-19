@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -9,7 +10,6 @@ import android.app.Application;
 
 import androidx.test.core.app.ApplicationProvider;
 
-import com.launchdarkly.sdk.ArrayBuilder;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -367,22 +367,10 @@ public class LDClientEventTest {
         assertEquals("identify", event.get("kind").stringValue());
     }
 
-    private void assertContexts(LDValue event, LDContext context) {
-        ArrayBuilder a = LDValue.buildArray();
-        for (int i = 0; i < context.getIndividualContextCount(); i++) {
-            LDContext individualContext = context.getIndividualContext(i);
-            ObjectBuilder objContext = LDValue.buildObject();
-            objContext.put("anonymous", individualContext.isAnonymous());
-            objContext.put("context_key", individualContext.getKey());
-            objContext.put("context_kind", individualContext.getKind().toString());
-            ObjectBuilder objCustom = LDValue.buildObject();
-            for (String customAttributeName : individualContext.getCustomAttributeNames()) {
-                objCustom.put(customAttributeName, individualContext.getValue(customAttributeName));
-            }
-            objContext.put("attributes_json", objCustom.build());
-            a.add(objContext.build());
-        }
-        assertEquals(a.build(), event.get("contexts"));
+    private void assertContext(LDValue event, LDContext context) {
+        assertNotNull(event.get("context"));
+        assertEquals(context.getKind().toString(), event.get("context").get("kind").stringValue());
+        assertEquals(context.getKey(), event.get("context").get("key").stringValue());
     }
 
     private void assertFeatureEvent(LDValue event, LDContext context) {
@@ -391,7 +379,7 @@ public class LDClientEventTest {
 
     private void assertCustomEvent(LDValue event, LDContext context, String eventKey) {
         assertEquals("custom", event.get("kind").stringValue());
-        assertContexts(event, context);
+        assertContext(event, context);
         assertEquals(eventKey, event.get("key").stringValue());
     }
 
