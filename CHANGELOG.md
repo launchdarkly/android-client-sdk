@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.7.0](https://github.com/launchdarkly/android-client-sdk/compare/5.6.1...5.7.0) (2025-05-19)
+
+
+### Features
+
+* Add support for inline contexts for custom events ([#296](https://github.com/launchdarkly/android-client-sdk/issues/296)) ([7ea838f](https://github.com/launchdarkly/android-client-sdk/commit/7ea838ff3f55c2b511c0ed5ffbbcb8112bf48fa8))
+
 ## [5.6.1](https://github.com/launchdarkly/android-client-sdk/compare/5.6.0...5.6.1) (2025-01-21)
 
 
