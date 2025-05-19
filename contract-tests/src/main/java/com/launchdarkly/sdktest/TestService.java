@@ -34,7 +34,7 @@ public class TestService extends NanoHTTPD {
             "strongly-typed",
             "tags",
             "auto-env-attributes",
-            "inline-context",
+            "inline-context-all",
             "anonymous-redaction",
             "client-prereq-events"
     };
