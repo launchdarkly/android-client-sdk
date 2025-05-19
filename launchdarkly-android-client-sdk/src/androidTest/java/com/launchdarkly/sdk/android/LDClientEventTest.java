@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -366,13 +367,10 @@ public class LDClientEventTest {
         assertEquals("identify", event.get("kind").stringValue());
     }
 
-    private void assertContextKeys(LDValue event, LDContext context) {
-        ObjectBuilder o = LDValue.buildObject();
-        for (int i = 0; i < context.getIndividualContextCount(); i++) {
-            o.put(context.getIndividualContext(i).getKind().toString(),
-                    context.getIndividualContext(i).getKey());
-        }
-        assertEquals(o.build(), event.get("contextKeys"));
+    private void assertContext(LDValue event, LDContext context) {
+        assertNotNull(event.get("context"));
+        assertEquals(context.getKind().toString(), event.get("context").get("kind").stringValue());
+        assertEquals(context.getKey(), event.get("context").get("key").stringValue());
     }
 
     private void assertFeatureEvent(LDValue event, LDContext context) {
@@ -381,7 +379,7 @@ public class LDClientEventTest {
 
     private void assertCustomEvent(LDValue event, LDContext context, String eventKey) {
         assertEquals("custom", event.get("kind").stringValue());
-        assertContextKeys(event, context);
+        assertContext(event, context);
         assertEquals(eventKey, event.get("key").stringValue());
     }
 
