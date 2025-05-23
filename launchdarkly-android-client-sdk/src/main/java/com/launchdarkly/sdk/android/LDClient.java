@@ -440,6 +440,7 @@ public class LDClient implements LDClientInterface, Closeable {
         final Map<String, LDClient> instancesNow = getInstancesIfTheyIncludeThisClient();
         final AtomicInteger identifyCounter = new AtomicInteger(instancesNow.size());
 
+        // TODO: If timeout support for identify is added, pass the timeout value here instead of null
         HookRunner.AfterIdentifyMethod afterIdentify = hookRunner.identify(context, null);
 
         Callback<Void> completeWhenCounterZero = new Callback<Void>() {
