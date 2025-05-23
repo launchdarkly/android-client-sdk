@@ -1,10 +1,15 @@
 package com.launchdarkly.sdktest;
 
 import com.google.gson.annotations.SerializedName;
+import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
+import com.launchdarkly.sdk.android.integrations.TrackSeriesContext;
 
+import java.net.URI;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,6 +38,7 @@ public abstract class Representations {
         SdkConfigTagParams tags;
         SdkConfigClientSideParams clientSide;
         SdkConfigServiceEndpointParams serviceEndpoints;
+        SdkConfigHookParams hooks;
     }
 
     public static class SdkConfigStreamParams {
@@ -74,6 +80,28 @@ public abstract class Representations {
         boolean includeEnvironmentAttributes;
     }
 
+    public static class SdkConfigHookParams {
+        List<HookConfig> hooks;
+    }
+
+    public static class HookConfig {
+        String name;
+        URI callbackUri;
+        HookData data;
+        HookErrors errors;
+    }
+
+    public static class HookData {
+        Map<String, Object> beforeEvaluation;
+        Map<String, Object> afterEvaluation;
+    }
+
+    public static class HookErrors {
+        String beforeEvaluation;
+        String afterEvaluation;
+        String afterTrack;
+    }
+
     public static class CommandParams {
         String command;
         EvaluateFlagParams evaluate;
@@ -105,6 +133,18 @@ public abstract class Representations {
 
     public static class EvaluateAllFlagsResponse {
         Map<String, LDValue> state;
+    }
+
+    public static class EvaluationSeriesCallbackParams {
+        EvaluationSeriesContext evaluationSeriesContext;
+        Map<String, Object> evaluationSeriesData;
+        EvaluationDetail<LDValue> evaluationDetail;
+        String stage;
+    }
+
+    public static class TrackSeriesCallbackParams {
+        TrackSeriesContext trackSeriesContext;
+        String stage;
     }
 
     public static class IdentifyEventParams {

@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
@@ -179,5 +180,24 @@ public abstract class Components {
      */
     public static StreamingDataSourceBuilder streamingDataSource() {
         return new ComponentsImpl.StreamingDataSourceBuilderImpl();
+    }
+
+    /**
+     * Returns a builder for configuring hooks.
+     * Passing this to {@link LDConfig.Builder#hooks(com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder)},
+     * after setting any desired hooks on the builder, applies this configuration to the SDK.
+     * <pre><code>
+     *     List hooks = myCreateHooksFunc();
+     *     LDConfig config = new LDConfig.Builder()
+     *         .hooks(
+     *             Components.hooks()
+     *                 .setHooks(hooks)
+     *         )
+     *         .build();
+     * </code></pre>
+     * @return a {@link HooksConfigurationBuilder} that can be used for customization
+     */
+    public static HooksConfigurationBuilder hooks() {
+        return new ComponentsImpl.HooksConfigurationBuilderImpl();
     }
 }

@@ -15,6 +15,7 @@ import com.launchdarkly.sdk.android.LDConfig;
 
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
@@ -31,12 +32,17 @@ import com.launchdarkly.sdktest.Representations.EvaluateAllFlagsParams;
 import com.launchdarkly.sdktest.Representations.EvaluateAllFlagsResponse;
 import com.launchdarkly.sdktest.Representations.EvaluateFlagParams;
 import com.launchdarkly.sdktest.Representations.EvaluateFlagResponse;
+import com.launchdarkly.sdktest.Representations.HookConfig;
+import com.launchdarkly.sdktest.Representations.HookData;
+import com.launchdarkly.sdktest.Representations.HookErrors;
 import com.launchdarkly.sdktest.Representations.IdentifyEventParams;
 import com.launchdarkly.sdktest.Representations.SdkConfigParams;
 
 import android.app.Application;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.Map;
@@ -336,8 +342,33 @@ public class SdkClientEntity {
         endpoints.events(params.serviceEndpoints.events);
       }
     }
-
     builder.serviceEndpoints(endpoints);
+
+    if (params.hooks != null && params.hooks.hooks != null) {
+      List<Hook> hookList = new ArrayList<>();
+      for (HookConfig hookConfig : params.hooks.hooks) {
+        HookCallbackService callbackService = new HookCallbackService(hookConfig.callbackUri);
+
+        HookData data = new HookData();
+        data.beforeEvaluation = hookConfig.data != null ? hookConfig.data.beforeEvaluation : null;
+        data.afterEvaluation = hookConfig.data != null ? hookConfig.data.afterEvaluation : null;
+
+        HookErrors errors = new HookErrors();
+        errors.beforeEvaluation = hookConfig.errors != null ? hookConfig.errors.beforeEvaluation : null;
+        errors.afterEvaluation = hookConfig.errors != null ? hookConfig.errors.afterEvaluation : null;
+        errors.afterTrack = hookConfig.errors != null ? hookConfig.errors.afterTrack : null;
+
+        TestHook testHook = new TestHook(
+          hookConfig.name,
+          callbackService,
+          data,
+          errors
+        );
+
+        hookList.add(testHook);
+      }
+      builder.hooks(Components.hooks().setHooks(hookList));
+    }
 
     return builder.build();
   }
