@@ -5,6 +5,7 @@ import android.app.Application;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.Hook;
 
 import java.io.Closeable;
 import java.util.Map;
@@ -391,4 +392,14 @@ public interface LDClientInterface extends Closeable {
      * @since 2.7.0
      */
     String getVersion();
+
+    /**
+     * Add a hook to the client. In order to register a hook before the client
+     * starts, please use the `hooks` method of {@link LDConfig.Builder}.
+     * <p>
+     * Hooks provide entry points which allow for observation of SDK functions.
+     *
+     * @param hook The hook to add.
+     */
+    void addHook(Hook hook);
 }

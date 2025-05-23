@@ -8,12 +8,14 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
+import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HookConfiguration;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
@@ -61,6 +63,7 @@ public class LDConfig {
     final ApplicationInfo applicationInfo;
     final ComponentConfigurer<DataSource> dataSource;
     final ComponentConfigurer<EventProcessor> events;
+    final HookConfiguration hooks;
     final ComponentConfigurer<HttpConfiguration> http;
 
     private final boolean diagnosticOptOut;
@@ -79,6 +82,7 @@ public class LDConfig {
              ApplicationInfo applicationInfo,
              ComponentConfigurer<DataSource> dataSource,
              ComponentConfigurer<EventProcessor> events,
+             HookConfiguration hooks,
              ComponentConfigurer<HttpConfiguration> http,
              boolean offline,
              boolean disableBackgroundUpdating,
@@ -95,6 +99,7 @@ public class LDConfig {
         this.applicationInfo = applicationInfo;
         this.dataSource = dataSource;
         this.events = events;
+        this.hooks = hooks;
         this.http = http;
         this.offline = offline;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
@@ -219,6 +224,7 @@ public class LDConfig {
         private ApplicationInfoBuilder applicationInfoBuilder = null;
         private ComponentConfigurer<DataSource> dataSource = null;
         private ComponentConfigurer<EventProcessor> events = null;
+        private HooksConfigurationBuilder hooksConfigurationBuilder = null;
         private ComponentConfigurer<HttpConfiguration> http = null;
 
         private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
@@ -404,6 +410,21 @@ public class LDConfig {
          */
         public Builder events(ComponentConfigurer<EventProcessor> eventsConfigurer) {
             this.events = eventsConfigurer;
+            return this;
+        }
+
+        /**
+         * Sets the SDK's hooks configuration, using a builder. This is normally a obtained from
+         * <p>
+         * {@link Components#hooks()} ()}, which has methods for setting individual other hook
+         * related properties.
+         *
+         * @param hooksConfiguration the hooks configuration builder
+         * @return the main configuration builder
+         * @see Components#hooks()
+         */
+        public Builder hooks(HooksConfigurationBuilder hooksConfiguration) {
+            this.hooksConfigurationBuilder = hooksConfiguration;
             return this;
         }
 
@@ -682,6 +703,7 @@ public class LDConfig {
                     applicationInfo,
                     this.dataSource == null ? Components.streamingDataSource() : this.dataSource,
                     this.events == null ? Components.sendEvents() : this.events,
+                    (this.hooksConfigurationBuilder == null ? Components.hooks() : this.hooksConfigurationBuilder).build(),
                     this.http == null ? Components.httpConfiguration() : this.http,
                     offline,
                     disableBackgroundUpdating,

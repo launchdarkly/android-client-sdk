@@ -13,6 +13,8 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
+import com.launchdarkly.sdk.android.integrations.Hook;
+import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -60,6 +62,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final EventProcessor eventProcessor;
     private final ConnectivityManager connectivityManager;
     private final LDLogger logger;
+    private final HookRunner hookRunner;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
 
@@ -362,6 +365,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 contextDataManager,
                 environmentStore
         );
+
+        hookRunner = new HookRunner(logger, config.hooks.getHooks());
     }
 
     @Override
@@ -382,6 +387,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private void trackInternal(String eventName, LDValue data, Double metricValue) {
         eventProcessor.recordCustomEvent(clientContextImpl.getEvaluationContext(), eventName,
                 data, metricValue);
+        hookRunner.afterTrack(eventName, clientContextImpl.getEvaluationContext(), data, metricValue);
     }
 
     @Override
@@ -433,16 +439,21 @@ public class LDClient implements LDClientInterface, Closeable {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
         final Map<String, LDClient> instancesNow = getInstancesIfTheyIncludeThisClient();
         final AtomicInteger identifyCounter = new AtomicInteger(instancesNow.size());
+
+        HookRunner.AfterIdentifyMethod afterIdentify = hookRunner.identify(context, null);
+
         Callback<Void> completeWhenCounterZero = new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (identifyCounter.decrementAndGet() == 0) {
+                    afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED));
                     resultFuture.set(null);
                 }
             }
 
             @Override
             public void onError(Throwable e) {
+                afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.ERROR));
                 resultFuture.setException(e);
             }
         };
@@ -466,59 +477,130 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean boolVariation(@NonNull String key, boolean defaultValue) {
-        return variationDetailInternal(key, LDValue.of(defaultValue), true, false).getValue().booleanValue();
+        return hookRunner.withEvaluation(
+            "LDClient.boolVariation",
+            key,
+            clientContextImpl.getEvaluationContext(),
+            LDValue.of(defaultValue),
+            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
+        ).getValue().booleanValue();
     }
 
     @Override
     public EvaluationDetail<Boolean> boolVariationDetail(@NonNull String key, boolean defaultValue) {
-        return convertDetailType(variationDetailInternal(key, LDValue.of(defaultValue), true, true), LDValue.Convert.Boolean);
+        return convertDetailType(
+            hookRunner.withEvaluation(
+                "LDClient.boolVariationDetail",
+                key,
+                clientContextImpl.getEvaluationContext(),
+                LDValue.of(defaultValue),
+                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
+            ),
+            LDValue.Convert.Boolean
+        );
     }
 
     @Override
     public int intVariation(@NonNull String key, int defaultValue) {
-        return variationDetailInternal(key, LDValue.of(defaultValue), true, false).getValue().intValue();
+        return hookRunner.withEvaluation(
+            "LDClient.intVariation",
+            key,
+            clientContextImpl.getEvaluationContext(),
+            LDValue.of(defaultValue),
+            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
+        ).getValue().intValue();
     }
 
     @Override
     public EvaluationDetail<Integer> intVariationDetail(@NonNull String key, int defaultValue) {
-        return convertDetailType(variationDetailInternal(key, LDValue.of(defaultValue), true, true), LDValue.Convert.Integer);
+        return convertDetailType(
+            hookRunner.withEvaluation(
+                "LDClient.intVariationDetail",
+                key,
+                clientContextImpl.getEvaluationContext(),
+                LDValue.of(defaultValue),
+                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
+            ),
+            LDValue.Convert.Integer
+        );
     }
 
     @Override
-    public double doubleVariation(String flagKey, double defaultValue) {
-        return variationDetailInternal(flagKey, LDValue.of(defaultValue), true, false).getValue().doubleValue();
+    public double doubleVariation(@NonNull String key, double defaultValue) {
+        return hookRunner.withEvaluation(
+            "LDClient.doubleVariation",
+            key,
+            clientContextImpl.getEvaluationContext(),
+            LDValue.of(defaultValue),
+            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
+        ).getValue().doubleValue();
     }
 
     @Override
-    public EvaluationDetail<Double> doubleVariationDetail(String flagKey, double defaultValue) {
-        return convertDetailType(variationDetailInternal(flagKey, LDValue.of(defaultValue), true, true), LDValue.Convert.Double);
+    public EvaluationDetail<Double> doubleVariationDetail(@NonNull String key, double defaultValue) {
+        return convertDetailType(
+            hookRunner.withEvaluation(
+                "LDClient.doubleVariationDetail",
+                key,
+                clientContextImpl.getEvaluationContext(),
+                LDValue.of(defaultValue),
+                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
+            ),
+            LDValue.Convert.Double
+        );
     }
 
     @Override
     public String stringVariation(@NonNull String key, String defaultValue) {
-        return variationDetailInternal(key, LDValue.of(defaultValue), true, false).getValue().stringValue();
+        return hookRunner.withEvaluation(
+            "LDClient.stringVariation",
+            key,
+            clientContextImpl.getEvaluationContext(),
+            LDValue.of(defaultValue),
+            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
+        ).getValue().stringValue();
     }
 
     @Override
     public EvaluationDetail<String> stringVariationDetail(@NonNull String key, String defaultValue) {
-        return convertDetailType(variationDetailInternal(key, LDValue.of(defaultValue), true, true), LDValue.Convert.String);
+        return convertDetailType(
+            hookRunner.withEvaluation(
+                "LDClient.stringVariationDetail",
+                key,
+                clientContextImpl.getEvaluationContext(),
+                LDValue.of(defaultValue),
+                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
+            ),
+            LDValue.Convert.String
+        );
     }
 
     @Override
     public LDValue jsonValueVariation(@NonNull String key, LDValue defaultValue) {
-        return variationDetailInternal(key, LDValue.normalize(defaultValue), false, false).getValue();
+        return hookRunner.withEvaluation(
+            "LDClient.jsonValueVariation",
+            key,
+            clientContextImpl.getEvaluationContext(),
+            LDValue.normalize(defaultValue),
+            () -> variationDetailInternal(key, LDValue.normalize(defaultValue), false, false)
+        ).getValue();
     }
 
     @Override
     public EvaluationDetail<LDValue> jsonValueVariationDetail(@NonNull String key, LDValue defaultValue) {
-        return variationDetailInternal(key, LDValue.normalize(defaultValue), false, true);
+        return hookRunner.withEvaluation(
+            "LDClient.jsonValueVariationDetail",
+            key,
+            clientContextImpl.getEvaluationContext(),
+            LDValue.normalize(defaultValue),
+            () -> variationDetailInternal(key, LDValue.normalize(defaultValue), false, true)
+        );
     }
 
     private <T> EvaluationDetail<T> convertDetailType(EvaluationDetail<LDValue> detail, LDValue.Converter<T> converter) {
         return EvaluationDetail.fromValue(converter.toType(detail.getValue()), detail.getVariationIndex(), detail.getReason());
     }
 
-    // TODO: when implementing hooks support in the future, verify prerequisite evaluations do not trigger the evaluation hooks
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
         LDContext context = clientContextImpl.getEvaluationContext();
         Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
@@ -709,5 +791,10 @@ public class LDClient implements LDClientInterface, Closeable {
             return logger;
         }
         return LDLogger.none();
+    }
+
+    @Override
+    public void addHook(Hook hook) {
+        hookRunner.addHook(hook);
     }
 }
