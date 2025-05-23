@@ -9,12 +9,9 @@ import java.util.Map;
  * A Hook is a set of user-defined callbacks that are executed by the SDK at various points of interest. To create
  * your own hook with customized logic, implement the {@link Hook} interface.
  * <p>
- * Hook currently defines an "evaluation" series, which is composed of two stages: "beforeEvaluation" and
- * "afterEvaluation".  These are executed by the SDK before and after the evaluation of a feature flag.
- * <p>
- * Multiple hooks may be configured in the SDK. By default, the SDK will execute each hook's beforeEvaluation
- * stage in the order they were configured, and afterEvaluation in reverse order. (i.e. myHook1.beforeEvaluation,
- * myHook2.beforeEvaluation, myHook2.afterEvaluation, myHook1.afterEvaluation)
+ * Multiple hooks may be configured in the SDK. By default, the SDK will execute each hook's before
+ * stages in the order they were configured, and each hook's after stages in reverse order. (i.e.
+ * myHook1.beforeEvaluation, myHook2.beforeEvaluation, myHook2.afterEvaluation, myHook1.afterEvaluation)
  */
 public abstract class Hook {
 

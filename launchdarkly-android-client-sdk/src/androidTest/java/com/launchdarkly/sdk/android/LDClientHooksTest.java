@@ -73,6 +73,9 @@ public class LDClientHooksTest {
 
             assertEquals(1, testHook.afterTrackCalls.size());
             assertEquals(trackSeriesContext, testHook.afterTrackCalls.get(0).get("seriesContext"));
+
+            logging.assertNoWarningsLogged();
+            logging.assertNoErrorsLogged();
         }
     }
 
@@ -111,6 +114,9 @@ public class LDClientHooksTest {
 
             assertEquals(1, addedHook.afterTrackCalls.size());
             assertEquals(trackSeriesContext, addedHook.afterTrackCalls.get(0).get("seriesContext"));
+
+            logging.assertNoWarningsLogged();
+            logging.assertNoErrorsLogged();
         }
     }
 
@@ -164,6 +170,9 @@ public class LDClientHooksTest {
 
             assertEquals(1, addedHook.afterTrackCalls.size());
             assertEquals(trackSeriesContext, addedHook.afterTrackCalls.get(0).get("seriesContext"));
+
+            logging.assertNoWarningsLogged();
+            logging.assertNoErrorsLogged();
         }
     }
 
