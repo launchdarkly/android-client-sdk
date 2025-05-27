@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -439,6 +440,7 @@ public class LDClient implements LDClientInterface, Closeable {
         final LDAwaitFuture<Void> resultFuture = new LDAwaitFuture<>();
         final Map<String, LDClient> instancesNow = getInstancesIfTheyIncludeThisClient();
         final AtomicInteger identifyCounter = new AtomicInteger(instancesNow.size());
+        final AtomicBoolean identifyErrorOccurred = new AtomicBoolean(false);
 
         // TODO: If timeout support for identify is added, pass the timeout value here instead of null
         HookRunner.AfterIdentifyMethod afterIdentify = hookRunner.identify(context, null);
@@ -454,7 +456,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
             @Override
             public void onError(Throwable e) {
-                afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.ERROR));
+                if (identifyErrorOccurred.compareAndSet(false, true)) {
+                    afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.ERROR));
+                }
                 resultFuture.setException(e);
             }
         };
