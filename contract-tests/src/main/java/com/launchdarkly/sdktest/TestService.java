@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 import fi.iki.elonen.NanoHTTPD;
+import okhttp3.OkHttpClient;
 
 public class TestService extends NanoHTTPD {
     private static final int PORT = 8001;
@@ -36,12 +37,16 @@ public class TestService extends NanoHTTPD {
             "auto-env-attributes",
             "inline-context-all",
             "anonymous-redaction",
-            "client-prereq-events"
+            "client-prereq-events",
+            "evaluation-hooks",
+            "track-hooks"
     };
     private static final String MIME_JSON = "application/json";
     static final Gson gson = new GsonBuilder()
             .registerTypeAdapterFactory(LDGson.typeAdapters())
             .create();
+
+    static final OkHttpClient client = new OkHttpClient();
 
     private final Router router = new Router();
     private final Application application;

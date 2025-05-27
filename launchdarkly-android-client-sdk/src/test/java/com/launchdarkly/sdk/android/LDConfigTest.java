@@ -3,11 +3,16 @@ package com.launchdarkly.sdk.android;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import static org.easymock.EasyMock.createMock;
+
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
+import com.launchdarkly.sdk.android.integrations.Hook;
+import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 
 import org.junit.Rule;
@@ -33,6 +38,8 @@ public class LDConfigTest {
         assertNull(config.getMobileKey());
         assertFalse(config.isEvaluationReasons());
         assertFalse(config.getDiagnosticOptOut());
+
+        assertEquals(0, config.hooks.getHooks().size());
     }
 
     @Test
@@ -153,5 +160,17 @@ public class LDConfigTest {
                 config.serviceEndpoints.getPollingBaseUri());
         assertEquals(URI.create("http://uri3"),
                 config.serviceEndpoints.getEventsBaseUri());
+    }
+
+    @Test
+    public void hooks() {
+        Hook mockHook = createMock(Hook.class);
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+            .hooks(
+                Components.hooks().setHooks(List.of(mockHook))
+            )
+            .build();
+        assertEquals(1, config.hooks.getHooks().size());
+        assertSame(mockHook, config.hooks.getHooks().get(0));
     }
 }
