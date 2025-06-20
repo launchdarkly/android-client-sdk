@@ -13,8 +13,12 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
+import com.launchdarkly.sdk.android.integrations.EnvironmentMetadata;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
+import com.launchdarkly.sdk.android.integrations.Plugin;
+import com.launchdarkly.sdk.android.integrations.SdkMetadata;
+import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -24,7 +28,9 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -64,6 +70,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ConnectivityManager connectivityManager;
     private final LDLogger logger;
     private final HookRunner hookRunner;
+    private final List<Plugin> plugins;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
 
@@ -116,6 +123,9 @@ public class LDClient implements LDClientInterface, Closeable {
         LDClient primaryClient;
         LDContext modifiedContext;
 
+        // used for plugin registration after instances are created
+        final Map<LDClient, EnvironmentMetadata> instanceMetadatas = new HashMap<>();
+
         // Acquire the `initLock` to ensure that if `init()` is called multiple times, we will only
         // initialize the client(s) once.
         synchronized (initLock) {
@@ -143,6 +153,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 reporterBuilder.enableCollectionFromPlatform(application);
             }
             IEnvironmentReporter environmentReporter = reporterBuilder.build();
+            ApplicationInfo applicationInfo = environmentReporter.getApplicationInfo();
+            SdkMetadata sdkMetadata = new SdkMetadata(LDPackageConsts.SDK_NAME, BuildConfig.VERSION_NAME);
 
             if (config.isAutoEnvAttributes()) {
                 autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter, logger);
@@ -154,12 +166,13 @@ public class LDClient implements LDClientInterface, Closeable {
             modifiedContext = autoEnvContextModifier.modifyContext(context);
             modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext);
 
+            Set<Map.Entry<String, String>> envAndMobileKeys = config.getMobileKeys().entrySet();
             // Create, but don't start, every LDClient instance
-            final Map<String, LDClient> newInstances = new HashMap<>();
+            final Map<String, LDClient> newInstances = new HashMap<>(envAndMobileKeys.size());
 
             LDClient createdPrimaryClient = null;
-            for (Map.Entry<String, String> mobileKeys : config.getMobileKeys().entrySet()) {
-                String envName = mobileKeys.getKey(), mobileKey = mobileKeys.getValue();
+            for (Map.Entry<String, String> entry : envAndMobileKeys) {
+                String envName = entry.getKey(), mobileKey = entry.getValue();
                 try {
                     final LDClient instance = new LDClient(
                             sharedPlatformState,
@@ -175,6 +188,10 @@ public class LDClient implements LDClientInterface, Closeable {
                     if (mobileKey.equals(config.getMobileKey())) {
                         createdPrimaryClient = instance;
                     }
+
+                    // metadata created per environment since mobile key varies
+                    instanceMetadatas.put(instance, new EnvironmentMetadata(applicationInfo, sdkMetadata, mobileKey));
+
                 } catch (LaunchDarklyException e) {
                     resultFuture.setException(e);
                     return resultFuture;
@@ -185,6 +202,27 @@ public class LDClient implements LDClientInterface, Closeable {
             // it within an inner class below, since it is "effectively final"
 
             instances = newInstances;
+        }
+
+        // after instances have been created, set up hooks for each plugin of the instance and call register
+        for (Map.Entry<LDClient, EnvironmentMetadata> entry : instanceMetadatas.entrySet()) {
+            LDClient instance = entry.getKey();
+            EnvironmentMetadata metadata = entry.getValue();
+
+            for (Plugin plugin : instance.plugins) {
+                // try is for each plugin so that if one plugin has an issue, the others will have an opportunity to be used
+                try {
+                    List<Hook> pluginHooks = plugin.getHooks();
+                    for (Hook hook : pluginHooks) {
+                        instance.hookRunner.addHook(hook);
+                    }
+
+                } catch (Exception e) {
+                    logger.error("Exception thrown getting hooks for plugin " + plugin.getMetadata().getName() + ". Unable to get hooks, plugin may not operate correctly.");
+                }
+
+                plugin.register(instance, metadata);
+            }
         }
 
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
@@ -368,6 +406,7 @@ public class LDClient implements LDClientInterface, Closeable {
         );
 
         hookRunner = new HookRunner(logger, config.hooks.getHooks());
+        plugins = config.pluginsConfig.getPlugins();
     }
 
     @Override

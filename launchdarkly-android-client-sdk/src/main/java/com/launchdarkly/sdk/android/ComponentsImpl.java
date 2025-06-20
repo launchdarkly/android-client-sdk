@@ -7,6 +7,7 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
+import com.launchdarkly.sdk.android.integrations.PluginsConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
@@ -18,6 +19,7 @@ import com.launchdarkly.sdk.android.subsystems.DiagnosticDescription;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HookConfiguration;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.android.subsystems.PluginsConfiguration;
 import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
 import com.launchdarkly.sdk.internal.events.DefaultEventSender;
 import com.launchdarkly.sdk.internal.events.Event;
@@ -362,6 +364,14 @@ abstract class ComponentsImpl {
         @Override
         public HookConfiguration build() {
             return new HookConfiguration(hooks);
+        }
+    }
+
+    static final class PluginsConfigurationBuilderImpl extends PluginsConfigurationBuilder {
+
+        @Override
+        public PluginsConfiguration build() {
+            return new PluginsConfiguration(plugins);
         }
     }
 

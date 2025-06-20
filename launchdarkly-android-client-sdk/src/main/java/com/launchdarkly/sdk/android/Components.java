@@ -4,6 +4,7 @@ import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
+import com.launchdarkly.sdk.android.integrations.PluginsConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
@@ -199,5 +200,12 @@ public abstract class Components {
      */
     public static HooksConfigurationBuilder hooks() {
         return new ComponentsImpl.HooksConfigurationBuilderImpl();
+    }
+
+    // TODO: add experimental comment from other SDKs // A list of plugins to be used with the SDK.
+	//
+	// Plugin support is currently experimental and subject to change.
+    public static PluginsConfigurationBuilder plugins() {
+        return new ComponentsImpl.PluginsConfigurationBuilderImpl();
     }
 }
