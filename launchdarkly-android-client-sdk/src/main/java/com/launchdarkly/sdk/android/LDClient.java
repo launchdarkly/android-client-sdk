@@ -70,7 +70,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ConnectivityManager connectivityManager;
     private final LDLogger logger;
     private final HookRunner hookRunner;
-    private final List<Plugin> plugins;
+    private List<Plugin> plugins;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
 
@@ -154,7 +154,7 @@ public class LDClient implements LDClientInterface, Closeable {
             }
             IEnvironmentReporter environmentReporter = reporterBuilder.build();
             ApplicationInfo applicationInfo = environmentReporter.getApplicationInfo();
-            SdkMetadata sdkMetadata = new SdkMetadata(LDPackageConsts.SDK_NAME, BuildConfig.VERSION_NAME);
+            SdkMetadata sdkMetadata = new SdkMetadata(LDPackageConsts.SDK_CLIENT_NAME, BuildConfig.VERSION_NAME);
 
             if (config.isAutoEnvAttributes()) {
                 autoEnvContextModifier = new AutoEnvContextModifier(persistentData, environmentReporter, logger);
@@ -184,6 +184,8 @@ public class LDClient implements LDClientInterface, Closeable {
                             mobileKey,
                             envName
                     );
+                    instance.plugins = config.pluginsConfig.getPlugins();
+
                     newInstances.put(envName, instance);
                     if (mobileKey.equals(config.getMobileKey())) {
                         createdPrimaryClient = instance;
@@ -212,16 +214,15 @@ public class LDClient implements LDClientInterface, Closeable {
             for (Plugin plugin : instance.plugins) {
                 // try is for each plugin so that if one plugin has an issue, the others will have an opportunity to be used
                 try {
-                    List<Hook> pluginHooks = plugin.getHooks();
+                    List<Hook> pluginHooks = plugin.getHooks(metadata);
                     for (Hook hook : pluginHooks) {
                         instance.hookRunner.addHook(hook);
                     }
 
+                    plugin.register(instance, metadata);
                 } catch (Exception e) {
-                    logger.error("Exception thrown getting hooks for plugin " + plugin.getMetadata().getName() + ". Unable to get hooks, plugin may not operate correctly.");
+                    logger.error("Exception thrown getting hooks for plugin " + plugin.getMetadata().getName() + ". Unable to get hooks, plugin will not be registered.");
                 }
-
-                plugin.register(instance, metadata);
             }
         }
 
@@ -406,7 +407,6 @@ public class LDClient implements LDClientInterface, Closeable {
         );
 
         hookRunner = new HookRunner(logger, config.hooks.getHooks());
-        plugins = config.pluginsConfig.getPlugins();
     }
 
     @Override
