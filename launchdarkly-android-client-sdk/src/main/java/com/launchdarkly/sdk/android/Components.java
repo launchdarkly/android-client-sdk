@@ -202,9 +202,22 @@ public abstract class Components {
         return new ComponentsImpl.HooksConfigurationBuilderImpl();
     }
 
-    // TODO: add experimental comment from other SDKs // A list of plugins to be used with the SDK.
-	//
-	// Plugin support is currently experimental and subject to change.
+    /**
+     * Returns a builder for configuring plugins.
+     * Passing this to {@link LDConfig.Builder#plugins(com.launchdarkly.sdk.android.integrations.PluginsConfigurationBuilder)},
+     * after setting any desired plugins on the builder, applies this configuration to the SDK.
+     * <pre><code>
+     *     List plugins = getPluginsFunc();
+     *     LDConfig config = new LDConfig.Builder()
+     *         .plugins(
+     *             Components.plugins()
+     *                 .setPlugins(plugins)
+     *         )
+     *         .build();
+     * </code></pre>
+     *
+     * @return a {@link PluginsConfigurationBuilder} for plugins configuration
+     */
     public static PluginsConfigurationBuilder plugins() {
         return new ComponentsImpl.PluginsConfigurationBuilderImpl();
     }

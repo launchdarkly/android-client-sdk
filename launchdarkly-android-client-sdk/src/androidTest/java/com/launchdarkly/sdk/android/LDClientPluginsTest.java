@@ -142,7 +142,13 @@ public class LDClientPluginsTest {
         @NonNull
         @Override
         public PluginMetadata getMetadata() {
-            return new PluginMetadata("mock-plugin");
+            return new PluginMetadata() {
+                @NonNull
+                @Override
+                public String getName() {
+                    return "mock-plugin";
+                }
+            };
         }
 
         @Override

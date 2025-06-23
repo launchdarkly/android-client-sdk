@@ -1,44 +1,35 @@
 package com.launchdarkly.sdk.android.integrations;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
+/**
+ * Metadata about the LaunchDarkly SDK.
+ */
 public final class SdkMetadata {
 
     @NonNull
     private final String name;
     @NonNull
     private final String version;
-    @Nullable
-    private final String wrapperName;
-    @Nullable
-    private final String wrapperVersion;
 
-    public SdkMetadata(String name, String version) {
+    public SdkMetadata(@NonNull String name, @NonNull String version) {
         this.name = name;
         this.version = version;
-        // TODO: can these be removed?
-        this.wrapperName = "";
-        this.wrapperVersion = "";
     }
 
+    /**
+     * @return name of the SDK for informational purposes such as logging
+     */
     @NonNull
     public String getName() {
         return name;
     }
 
+    /**
+     * @return version of the SDK for informational purposes such as logging
+     */
     @NonNull
     public String getVersion() {
         return version;
-    }
-
-    @Nullable
-    public String getWrapperName() {
-        return wrapperName;
-    }
-
-    @Nullable
-    public String getWrapperVersion() {
-        return wrapperVersion;
     }
 }

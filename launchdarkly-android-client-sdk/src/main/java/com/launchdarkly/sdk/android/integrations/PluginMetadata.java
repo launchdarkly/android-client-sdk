@@ -1,15 +1,9 @@
 package com.launchdarkly.sdk.android.integrations;
 
-// TODO: figure out usage of sealed class here
-public class PluginMetadata {
+import androidx.annotation.NonNull;
 
-    private final String name;
+public abstract class PluginMetadata {
 
-    public PluginMetadata(String name) {
-        this.name = name;
-    }
-
-    public String getName() {
-        return name;
-    }
+    @NonNull
+    public abstract String getName();
 }
