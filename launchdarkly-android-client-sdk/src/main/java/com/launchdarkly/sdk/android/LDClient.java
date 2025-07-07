@@ -218,10 +218,16 @@ public class LDClient implements LDClientInterface, Closeable {
                     for (Hook hook : pluginHooks) {
                         instance.hookRunner.addHook(hook);
                     }
-
-                    plugin.register(instance, metadata);
                 } catch (Exception e) {
                     logger.error("Exception thrown getting hooks for plugin " + plugin.getMetadata().getName() + ". Unable to get hooks, plugin will not be registered.");
+                }
+            }
+
+            for (Plugin plugin : instance.plugins) {
+                try {
+                    plugin.register(instance, metadata);
+                } catch (Exception e) {
+                    logger.error("Exception thrown registering plugin " + plugin.getMetadata().getName() + ".");
                 }
             }
         }
