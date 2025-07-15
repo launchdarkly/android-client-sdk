@@ -435,6 +435,9 @@ public class LDConfig {
         }
 
         /**
+         * This is an experimental API and may be removed/changed in the future without notice. It is
+         * marked as deprecated as Java does not have built in support for an experimental annotation.
+         * 
          * Sets the SDK's plugins configuration, using a builder. This is normally a obtained from
          * <p>
          * {@link Components#plugins()} ()}, which has methods for setting individual plugin
@@ -444,6 +447,7 @@ public class LDConfig {
          * @return the main configuration builder
          * @see Components#plugins()
          */
+        @Deprecated()
         public Builder plugins(PluginsConfigurationBuilder pluginsConfiguration) {
             this.pluginsConfigurationBuilder = pluginsConfiguration;
             return this;
