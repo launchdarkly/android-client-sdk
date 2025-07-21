@@ -89,7 +89,7 @@ public class LDClientPluginsTest {
                 .logAdapter(logging.logAdapter);
         LDConfig config = builder.build();
 
-        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 10)) {
             ldClient.boolVariation("test-flag", false);
             assertEquals(2, testPlugin.getHooksCalls.size());
             assertEquals(2, testPlugin.registerCalls.size());
@@ -100,7 +100,7 @@ public class LDClientPluginsTest {
             assertEquals(2, testHook.beforeEvaluationCalls.size());
             assertEquals(2, testHook.afterEvaluationCalls.size());
 
-            for (Map<String, Object> hookCall: testPlugin.getHooksCalls) {
+            for (Map<String, Object> hookCall: testPlugin.registerCalls) {
                 LDClient instance = (LDClient) hookCall.get("client");
 
                 if (instance.equals(LDClient.get())) {
