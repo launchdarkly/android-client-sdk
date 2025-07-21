@@ -314,6 +314,13 @@ final class ContextDataManager {
         }
         final Map<String, Set<FeatureFlagChangeListener>> listenersToCall = new HashMap<>();
         for (String flagKey: updatedFlagKeys) {
+
+            // TODO: SDK-1040. This conditional is a short term mitigation for a rare issue where a
+            // null flag key is encountered.
+            if (flagKey == null) {
+                continue;
+            }
+
             Set<FeatureFlagChangeListener> flagListeners = listeners.get(flagKey);
             if (flagListeners != null && !flagListeners.isEmpty()) {
                 listenersToCall.put(flagKey, flagListeners);
