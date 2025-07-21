@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.9.0](https://github.com/launchdarkly/android-client-sdk/compare/5.8.0...5.9.0) (2025-07-16)
+
+
+### Features
+
+* adds experimental plugin functionality ([#305](https://github.com/launchdarkly/android-client-sdk/issues/305)) ([2bca41b](https://github.com/launchdarkly/android-client-sdk/commit/2bca41b1ca93d35900b024a5083129b894d1017d))
+
 ## [5.8.0](https://github.com/launchdarkly/android-client-sdk/compare/5.7.0...5.8.0) (2025-05-27)
 
 
