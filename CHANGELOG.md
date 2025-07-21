@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.9.1](https://github.com/launchdarkly/android-client-sdk/compare/5.9.0...5.9.1) (2025-07-21)
+
+
+### Bug Fixes
+
+* prevent flag change listener from being invoked with null flag key ([#307](https://github.com/launchdarkly/android-client-sdk/issues/307)) ([feada66](https://github.com/launchdarkly/android-client-sdk/commit/feada66ffde8834ad03d471a2d805888bed38908))
+
 ## [5.9.0](https://github.com/launchdarkly/android-client-sdk/compare/5.8.0...5.9.0) (2025-07-16)
 
 
