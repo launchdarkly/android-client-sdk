@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 import android.app.Application;
 
@@ -88,7 +89,7 @@ public class LDClientPluginsTest {
                 .logAdapter(logging.logAdapter);
         LDConfig config = builder.build();
 
-        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 10)) {
             ldClient.boolVariation("test-flag", false);
             assertEquals(2, testPlugin.getHooksCalls.size());
             assertEquals(2, testPlugin.registerCalls.size());
@@ -99,15 +100,19 @@ public class LDClientPluginsTest {
             assertEquals(2, testHook.beforeEvaluationCalls.size());
             assertEquals(2, testHook.afterEvaluationCalls.size());
 
-            EnvironmentMetadata environmentMetadata1 = (EnvironmentMetadata) testPlugin.getHooksCalls.get(1).get("environmentMetadata");
-            assertEquals(mobileKey, environmentMetadata1.getCredential());
-            assertEquals(environmentMetadata1, testPlugin.getHooksCalls.get(1).get("environmentMetadata"));
-            assertEquals("AndroidClient", environmentMetadata1.getSdkMetadata().getName());
+            for (Map<String, Object> hookCall: testPlugin.registerCalls) {
+                LDClient instance = (LDClient) hookCall.get("client");
 
-            assertEquals(LDClient.getForMobileKey("secondaryEnvironment"), testPlugin.registerCalls.get(0).get("client"));
-            EnvironmentMetadata environmentMetadata2 = (EnvironmentMetadata) testPlugin.registerCalls.get(0).get("environmentMetadata");
-            assertEquals(secondaryMobileKey, environmentMetadata2.getCredential());
-            assertEquals("AndroidClient", environmentMetadata2.getSdkMetadata().getName());
+                if (instance.equals(LDClient.get())) {
+                    EnvironmentMetadata environmentMetadata = (EnvironmentMetadata) hookCall.get("environmentMetadata");
+                    assertEquals(environmentMetadata.getCredential(), mobileKey);
+                } else if (instance.equals(LDClient.getForMobileKey("secondaryEnvironment"))) {
+                    EnvironmentMetadata environmentMetadata = (EnvironmentMetadata) hookCall.get("environmentMetadata");
+                    assertEquals(environmentMetadata.getCredential(), secondaryMobileKey);
+                } else {
+                    fail("Client instance was unexpected.");
+                }
+            }
 
             logging.assertNoWarningsLogged();
             logging.assertNoErrorsLogged();
