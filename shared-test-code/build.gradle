@@ -11,7 +11,7 @@ version = version
 ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
-    "gson": "2.8.9",
+    "gson": "2.13.2",
     "junit": "4.13",
     "launchdarklyLogging": "1.1.1",
 ]
@@ -24,6 +24,11 @@ android {
         minSdkVersion(21)
         targetSdkVersion(30)
     }
+}
+
+configurations.all {
+    // Exclude error_prone_annotations as it's compile-time only and causes dexing issues
+    exclude group: 'com.google.errorprone', module: 'error_prone_annotations'
 }
 
 dependencies {

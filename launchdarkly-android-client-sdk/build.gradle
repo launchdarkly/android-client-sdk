@@ -54,6 +54,9 @@ configurations {
 configurations.all {
     // allows snapshot dependencies to be updated
     resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+    
+    // Exclude error_prone_annotations as it's compile-time only and causes dexing issues
+    exclude group: 'com.google.errorprone', module: 'error_prone_annotations'
 }
 
 ext {}
@@ -61,7 +64,7 @@ ext.versions = [
     "androidAnnotation": "1.2.0",
     "androidAppcompat": "1.1.0",
     "eventsource": "3.0.0",
-    "gson": "2.8.9",
+    "gson": "2.13.2",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
