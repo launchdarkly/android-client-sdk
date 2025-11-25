@@ -17,12 +17,12 @@ ext.versions = [
 ]
 
 android {
- compileSdkVersion(30)
-    buildToolsVersion = "30.0.3"
+    namespace "com.launchdarkly.sdk.android.sharedtest"
+    compileSdk = 34
 
     defaultConfig {
-        minSdkVersion(21)
-        targetSdkVersion(30)
+        minSdk = 21
+        targetSdk = 34
     }
 }
 
