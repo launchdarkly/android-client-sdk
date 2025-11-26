@@ -75,4 +75,8 @@ subprojects { subproject ->
         // enable deprecation checks
         options.compilerArgs += "-Xlint:deprecation"
     }
+    tasks.withType(Test).configureEach {
+        // Allow EasyMock/CGLIB to use reflection on Java base classes when running on newer JDKs.
+        jvmArgs += ["--add-opens", "java.base/java.lang=ALL-UNNAMED"]
+    }
 }

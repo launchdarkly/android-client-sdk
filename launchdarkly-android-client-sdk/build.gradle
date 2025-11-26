@@ -125,20 +125,30 @@ def androidJavadoc = tasks.register("javadoc", Javadoc) {
     // Include common library sources
     source configurations.commonDoc.collect { zipTree(it) }
     source "$buildDir/generated/source"
+    // Ensure generated BuildConfig is present before javadoc runs.
+    dependsOn("generateDebugBuildConfig", "generateReleaseBuildConfig")
 
     include("**/*.java")
+
+    if (options instanceof StandardJavadocDocletOptions) {
+        options.source = "8"
+    }
 
     doFirst {
         // Include classpaths for dependencies
         classpath += files(android.libraryVariants.collect { variant ->
             variant.javaCompileProvider.get().classpath.files
         })
+        // Add Android boot classpath for references to Android OS classes.
+        def bootClasspath = files(android.bootClasspath)
+        classpath += bootClasspath
+        if (options instanceof StandardJavadocDocletOptions) {
+            options.bootClasspath = bootClasspath.files.toList()
+        }
     }
     // Include classpath for commonClasses configuration so Javadoc won't complain about java-sdk-common classes that
     // internally reference Jackson, which we don't use directly
     classpath += project.files(configurations.commonClasses.resolve())
-    // Add Android boot classpath for references to Android OS classes.
-    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
 }
 
 def sourcesJar = tasks.register("sourcesJar", Jar) {
