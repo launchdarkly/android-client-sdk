@@ -110,13 +110,13 @@ dependencies {
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
     androidTestImplementation(project(":shared-test-code"))
 
-    androidTestImplementation("androidx.test:core:1.4.0")
-    androidTestImplementation("androidx.test:runner:1.4.0")
-    androidTestImplementation("androidx.test:rules:1.4.0")
-    androidTestImplementation("androidx.test.ext:junit:1.1.3")
+    androidTestImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:rules:1.5.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("org.easymock:easymock:4.3")
 
-    androidTestUtil("androidx.test:orchestrator:1.4.1")
+    androidTestUtil("androidx.test:orchestrator:1.4.2")
 }
 
 def androidJavadoc = tasks.register("javadoc", Javadoc) {

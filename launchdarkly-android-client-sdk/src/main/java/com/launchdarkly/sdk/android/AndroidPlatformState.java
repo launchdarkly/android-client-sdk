@@ -59,7 +59,13 @@ final class AndroidPlatformState implements PlatformState {
 
         connectivityReceiver = new ConnectivityReceiver();
         IntentFilter filter = new IntentFilter(ConnectivityReceiver.CONNECTIVITY_CHANGE);
-        application.registerReceiver(connectivityReceiver, filter);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ requires specifying exported state when registering receivers
+            application.registerReceiver(connectivityReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            application.registerReceiver(connectivityReceiver, filter);
+        }
 
         // When we are first starting up, we can't use the ActivityLifecycleCallbacks mechanism to
         // determine whether we're in the foreground or not, because the last foreground or
