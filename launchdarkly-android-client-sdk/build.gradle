@@ -10,12 +10,12 @@ group = "com.launchdarkly"
 version = version
 
 android {
-    compileSdkVersion(30)
-    buildToolsVersion = "30.0.3"
+    namespace "com.launchdarkly.sdk.android"
+    compileSdk = 34
 
     defaultConfig {
-        minSdkVersion(21)
-        targetSdkVersion(30)
+        minSdk = 21
+        targetSdk = 34
         // at some point between android gradle 3.1.0 and 4.x.x the versionName field in this dsl
         // stopped generating the BuildConfig::VERSION_NAME field in the end java
         // classpath. put this here to bring back that field
@@ -33,8 +33,18 @@ android {
         execution = "ANDROIDX_TEST_ORCHESTRATOR"
     }
 
-    packagingOptions {
-        exclude("META-INF/**")
+    buildFeatures {
+        buildConfig = true
+    }
+
+    publishing {
+        singleVariant("release")
+    }
+
+    packaging {
+        resources {
+            excludes += ["META-INF/**"]
+        }
     }
 
     useLibrary("android.test.runner")
@@ -100,45 +110,56 @@ dependencies {
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
     androidTestImplementation(project(":shared-test-code"))
 
-    androidTestImplementation("androidx.test:core:1.4.0")
-    androidTestImplementation("androidx.test:runner:1.4.0")
-    androidTestImplementation("androidx.test:rules:1.4.0")
-    androidTestImplementation("androidx.test.ext:junit:1.1.3")
+    androidTestImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:rules:1.5.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("org.easymock:easymock:4.3")
 
-    androidTestUtil("androidx.test:orchestrator:1.4.1")
+    androidTestUtil("androidx.test:orchestrator:1.4.2")
 }
 
-task javadoc(type: Javadoc) {
+def androidJavadoc = tasks.register("javadoc", Javadoc) {
     // Include SDK sources
     source android.sourceSets.main.java.srcDirs
     // Include common library sources
     source configurations.commonDoc.collect { zipTree(it) }
     source "$buildDir/generated/source"
+    // Ensure generated BuildConfig is present before javadoc runs.
+    dependsOn("generateDebugBuildConfig", "generateReleaseBuildConfig")
 
     include("**/*.java")
 
-    // Include classpaths for dependencies
-    afterEvaluate {
+    if (options instanceof StandardJavadocDocletOptions) {
+        options.source = "8"
+    }
+
+    doFirst {
+        // Include classpaths for dependencies
         classpath += files(android.libraryVariants.collect { variant ->
             variant.javaCompileProvider.get().classpath.files
         })
+        // Add Android boot classpath for references to Android OS classes.
+        def bootClasspath = files(android.bootClasspath)
+        classpath += bootClasspath
+        if (options instanceof StandardJavadocDocletOptions) {
+            options.bootClasspath = bootClasspath.files.toList()
+        }
     }
     // Include classpath for commonClasses configuration so Javadoc won't complain about java-sdk-common classes that
     // internally reference Jackson, which we don't use directly
     classpath += project.files(configurations.commonClasses.resolve())
-    // Add Android boot classpath for references to Android OS classes.
-    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
 }
 
-task sourcesJar(type: Jar) {
-    classifier = "sources"
+def sourcesJar = tasks.register("sourcesJar", Jar) {
+    archiveClassifier.set("sources")
     from android.sourceSets.main.java.srcDirs
 }
 
-task javadocJar(type: Jar, dependsOn: javadoc) {
-    classifier = "javadoc"
-    from javadoc.destinationDir
+def javadocJar = tasks.register("javadocJar", Jar) {
+    dependsOn(androidJavadoc)
+    archiveClassifier.set("javadoc")
+    from(androidJavadoc.map { it.destinationDir })
 }
 
 tasks.withType(Javadoc) {
@@ -152,19 +173,20 @@ tasks.withType(Javadoc) {
 }
 
 artifacts {
-    archives sourcesJar, javadocJar
+    add("archives", sourcesJar.get())
+    add("archives", javadocJar.get())
 }
 
 afterEvaluate {
     publishing {
         publications {
             release(MavenPublication) {
-                from components.release
+                from components["release"]
 
                 artifactId = "launchdarkly-android-client-sdk"
 
-                artifact(sourcesJar)
-                artifact(javadocJar)
+                artifact(sourcesJar.get())
+                artifact(javadocJar.get())
 
                 pom {
                     name = "LaunchDarkly SDK for Android"
