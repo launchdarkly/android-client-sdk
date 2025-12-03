@@ -17,6 +17,7 @@ import com.launchdarkly.sdk.android.integrations.EnvironmentMetadata;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.Plugin;
+import com.launchdarkly.sdk.android.integrations.PluginFinalizer;
 import com.launchdarkly.sdk.android.integrations.SdkMetadata;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.Callback;
@@ -198,7 +199,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     resultFuture.setException(e);
                     return resultFuture;
                 }
-            };
+            }
             primaryClient = createdPrimaryClient;
             // this indirect way of setting primaryClient is simply to make it easier to reference
             // it within an inner class below, since it is "effectively final"
@@ -228,6 +229,16 @@ public class LDClient implements LDClientInterface, Closeable {
                     plugin.register(instance, metadata);
                 } catch (Exception e) {
                     logger.error("Exception thrown registering plugin " + plugin.getMetadata().getName() + ".");
+                }
+            }
+
+            for (Plugin plugin : instance.plugins) {
+                if (plugin instanceof PluginFinalizer) {
+                    try {
+                        ((PluginFinalizer) plugin).onPluginsReady(instance.plugins, metadata, instance);
+                    } catch (Exception e) {
+                        logger.error("Exception thrown finalizing plugin " + plugin.getMetadata().getName() + ".");
+                    }
                 }
             }
         }
@@ -822,6 +833,10 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public String getVersion() {
         return BuildConfig.VERSION_NAME;
+    }
+
+    public List<Plugin> getPlugins() {
+        return plugins;
     }
 
     private static LDLogger initSharedLogger(LDConfig config) {

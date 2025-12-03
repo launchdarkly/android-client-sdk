@@ -6,4 +6,7 @@ public abstract class PluginMetadata {
 
     @NonNull
     public abstract String getName();
+
+    @NonNull
+    public abstract String getVersion();
 }
