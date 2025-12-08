@@ -26,7 +26,7 @@ public abstract class Plugin {
      * the SDK is configured with multiple environments. Use the metadata to distinguish
      * environments.
      *
-     * @param client for the plugin to use
+     * @param client   for the plugin to use
      * @param metadata metadata about the environment where the plugin is running.
      */
     public abstract void register(LDClient client, EnvironmentMetadata metadata);
@@ -40,11 +40,15 @@ public abstract class Plugin {
      * environments.
      *
      * @param metadata metadata about the environment where the plugin is running.
-     * @return
+     * @return a non-null, possibly empty, list of {@link Hook} instances
      */
     @NonNull
     public List<Hook> getHooks(EnvironmentMetadata metadata) {
         // default impl
         return Collections.emptyList();
+    }
+
+    public void onPluginsReady(RegistrationCompleteResult result, EnvironmentMetadata metadata) {
+        // default: do nothing
     }
 }

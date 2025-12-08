@@ -151,7 +151,13 @@ public class LDClientPluginsTest {
                 @NonNull
                 @Override
                 public String getName() {
-                    return "mock-plugin";
+                    return "mock-plugin-name";
+                }
+
+                @NonNull
+                @Override
+                public String getVersion() {
+                    return "mock-plugin-version";
                 }
             };
         }
