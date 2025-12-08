@@ -243,7 +243,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 try {
                     plugin.onPluginsReady(pluginsRegistrationResult, metadata);
                 } catch (Exception e) {
-                    logger.error("Exception thrown registering plugin " + plugin.getMetadata().getName() + ".");
+                    logger.error("Exception thrown executing onPluginsReady for plugin " + plugin.getMetadata().getName() + ".");
                 }
             }
         }
