@@ -3,6 +3,7 @@ plugins {
     id("signing")
     id("maven-publish")
     id("com.getkeepsafe.dexcount")
+    id 'org.jetbrains.kotlin.android'
 }
 
 group = "com.launchdarkly"

@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     // make sure this line comes *after* you apply the Android plugin
     id("com.getkeepsafe.dexcount")
+    id 'org.jetbrains.kotlin.android'
 }
 
 android {

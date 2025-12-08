@@ -1,9 +1,13 @@
-import java.time.Duration
 import com.android.build.gradle.BaseExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
+    ext {
+        kotlin_version = '2.2.0'
+    }
     repositories {
         mavenCentral()
         google()
@@ -14,6 +18,7 @@ buildscript {
         // For displaying method/field counts when building with Gradle:
         // https://github.com/KeepSafe/dexcount-gradle-plugin
         classpath("com.getkeepsafe.dexcount:dexcount-gradle-plugin:4.0.0")
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files
@@ -70,6 +75,11 @@ subprojects { subproject ->
     }
     plugins.withId("com.android.library") {
         configureAndroidModule(subproject)
+    }
+    tasks.withType(KotlinCompile).configureEach {
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_1_8
+        }
     }
     tasks.withType(JavaCompile).configureEach {
         // enable deprecation checks
