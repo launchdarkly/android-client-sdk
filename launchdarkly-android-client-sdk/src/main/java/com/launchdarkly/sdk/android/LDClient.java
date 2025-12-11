@@ -11,21 +11,23 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.integrations.EnvironmentMetadata;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.Plugin;
+import com.launchdarkly.sdk.android.integrations.RegistrationCompleteResult;
 import com.launchdarkly.sdk.android.integrations.SdkMetadata;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.Callback;
-import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -198,7 +200,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     resultFuture.setException(e);
                     return resultFuture;
                 }
-            };
+            }
             primaryClient = createdPrimaryClient;
             // this indirect way of setting primaryClient is simply to make it easier to reference
             // it within an inner class below, since it is "effectively final"
@@ -223,11 +225,25 @@ public class LDClient implements LDClientInterface, Closeable {
                 }
             }
 
+            List<RegistrationCompleteResult.Failure.PluginFailure> pluginFailures = new ArrayList<>();
             for (Plugin plugin : instance.plugins) {
                 try {
                     plugin.register(instance, metadata);
                 } catch (Exception e) {
+                    pluginFailures.add(new RegistrationCompleteResult.Failure.PluginFailure(plugin.getMetadata().getName(), e.getMessage(), e));
                     logger.error("Exception thrown registering plugin " + plugin.getMetadata().getName() + ".");
+                }
+            }
+
+            RegistrationCompleteResult pluginsRegistrationResult = pluginFailures.isEmpty()
+                    ? RegistrationCompleteResult.success()
+                    : RegistrationCompleteResult.failure(pluginFailures);
+
+            for (Plugin plugin : instance.plugins) {
+                try {
+                    plugin.onPluginsReady(pluginsRegistrationResult, metadata);
+                } catch (Exception e) {
+                    logger.error("Exception thrown executing onPluginsReady for plugin " + plugin.getMetadata().getName() + ".");
                 }
             }
         }
