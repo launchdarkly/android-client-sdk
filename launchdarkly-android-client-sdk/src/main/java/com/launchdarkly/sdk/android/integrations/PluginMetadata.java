@@ -5,8 +5,15 @@ import androidx.annotation.NonNull;
 public abstract class PluginMetadata {
 
     @NonNull
+    public String getId() {
+        return "";
+    }
+
+    @NonNull
     public abstract String getName();
 
     @NonNull
-    public abstract String getVersion();
+    public String getVersion() {
+        return "";
+    }
 }
