@@ -111,14 +111,16 @@ abstract class ComponentsImpl {
                             LDUtil.makeHttpProperties(clientContext),
                             StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
                             StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
-                            0, // use default retry delay
+                            0L, // use default retry delay
+                            false, // disable gzip compression for Android
                             clientContext.getBaseLogger()),
                     1, // eventSendingThreadPoolSize
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     flushIntervalMillis,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
-                    privateAttributes
+                    privateAttributes,
+                    true // perContextSummarization - enable for client SDK
             );
             return new DefaultEventProcessorWrapper(new DefaultEventProcessor(
                     eventsConfig,
