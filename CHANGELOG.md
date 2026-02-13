@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.11.0](https://github.com/launchdarkly/android-client-sdk/compare/5.10.0...5.11.0) (2026-02-13)
+
+
+### Features
+
+* Add support for per-context summary events. ([#320](https://github.com/launchdarkly/android-client-sdk/issues/320)) ([c5f078f](https://github.com/launchdarkly/android-client-sdk/commit/c5f078fd62df7dea367510f64c975eef4f06d208))
+
 ## [5.10.0](https://github.com/launchdarkly/android-client-sdk/compare/5.9.2...5.10.0) (2025-12-11)
 
 
