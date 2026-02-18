@@ -6,11 +6,14 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
+import com.launchdarkly.sdk.android.subsystems.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -74,7 +77,7 @@ class ConnectivityManager {
     // This has two purposes: 1. to decouple the data source implementation from the details of how
     // data is stored; 2. to implement additional logic that does not depend on what kind of data
     // source we're using, like "if there was an error, update the ConnectionInformation."
-    private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink {
+    private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink, DataSourceUpdateSinkV2 {
         private final ContextDataManager contextDataManager;
 
         DataSourceUpdateSinkImpl(ContextDataManager contextDataManager) {
@@ -91,6 +94,18 @@ class ConnectivityManager {
         public void upsert(LDContext context, DataModel.Flag item) {
             contextDataManager.upsert(context, item);
             // Currently, contextDataManager is responsible for firing any necessary flag change events.
+        }
+
+        @Override
+        public void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet) {
+            contextDataManager.apply(context, changeSet);
+            // Currently, contextDataManager is responsible for firing any necessary flag change events.
+        }
+
+        @Override
+        @NonNull
+        public Selector getSelector() {
+            return contextDataManager.getSelector();
         }
 
         @Override
