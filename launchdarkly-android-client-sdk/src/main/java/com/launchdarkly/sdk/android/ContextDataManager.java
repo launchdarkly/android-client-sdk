@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.ChangeSetType;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
 
@@ -41,7 +42,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * implementation of PersistentDataStore was used to create the PersistentDataStoreWrapper, and
  * deferred listener calls are done via the {@link TaskExecutor} abstraction.
  */
-final class ContextDataManager {
+final class ContextDataManager implements TransactionalDataStore {
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final int maxCachedContexts;
     private final TaskExecutor taskExecutor;
@@ -92,7 +93,7 @@ final class ContextDataManager {
             currentContext = context;
         }
 
-        EnvironmentData storedData = getStoredData(currentContext);
+        EnvironmentData storedData = getStoredData(context);
         if (storedData == null) {
             logger.debug("No stored flag data is available for this context");
             // here we return to not alter current in memory flag state as
@@ -102,7 +103,8 @@ final class ContextDataManager {
         }
 
         logger.debug("Using stored flag data for this context");
-        applyFullData(storedData.getAll(), false);
+        // when we switch context, we don't have a selector because we don't currently support persisting the selector.
+        applyFullData(context, Selector.EMPTY, storedData.getAll(), false);
     }
 
     /**
@@ -117,10 +119,8 @@ final class ContextDataManager {
             @NonNull EnvironmentData newData
     ) {
         logger.debug("Initializing with new flag data for this context");
-        if (!context.equals(currentContext)) {
-            return;
-        }
-        applyFullData(newData.getAll(), true);
+        // init data is called in the FDv1 path, which does not have a selector
+        applyFullData(context, Selector.EMPTY, newData.getAll(), true);
     }
 
     /**
@@ -203,26 +203,14 @@ final class ContextDataManager {
         return true;
     }
 
-    /**
-     * Applies the given changeset to in-memory state and persistence if required.
-     *
-     * @param context   the context that was used by the data source to get the changeset
-     * @param changeSet the changeset to apply
-     */
+    @Override
     public void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet) {
-        if (!context.equals(currentContext)) {
-            return;
-        }
-        if (!changeSet.getSelector().isEmpty()) {
-            currentSelector = changeSet.getSelector();
-        }
-
         switch (changeSet.getType()) {
             case Full:
-                applyFullData(changeSet.getItems(), changeSet.shouldPersist());
+                applyFullData(context, changeSet.getSelector(), changeSet.getItems(), changeSet.shouldPersist());
                 break;
             case Partial:
-                applyPartialData(changeSet.getItems(), changeSet.shouldPersist());
+                applyPartialData(context, changeSet.getSelector(), changeSet.getItems(), changeSet.shouldPersist());
                 break;
             case None:
             default:
@@ -230,20 +218,30 @@ final class ContextDataManager {
         }
     }
 
-    private void applyFullData(Map<String, Flag> items, boolean shouldPersist) {
+    private void applyFullData(
+            @NonNull LDContext context,
+            @NonNull Selector selector,
+            Map<String, Flag> items,
+            boolean shouldPersist
+    ) {
         EnvironmentData newData = EnvironmentData.usingExistingFlagsMap(items);
         EnvironmentData oldData;
-        ContextIndex newIndex = index;
 
         synchronized (lock) {
+            if (!context.equals(currentContext)) {
+                return;
+            }
+            if (!selector.isEmpty()) {
+                currentSelector = selector;
+            }
             oldData = flags;
             flags = newData;
 
             if (shouldPersist) {
-                String contextId = LDUtil.urlSafeBase64HashedContextId(currentContext);
-                String fingerprint = LDUtil.urlSafeBase64Hash(currentContext);
+                String contextId = LDUtil.urlSafeBase64HashedContextId(context);
+                String fingerprint = LDUtil.urlSafeBase64Hash(context);
                 List<String> removedContextIds = new ArrayList<>();
-                newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
+                ContextIndex newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
                         .prune(maxCachedContexts, removedContextIds);
                 index = newIndex;
 
@@ -285,11 +283,22 @@ final class ContextDataManager {
         notifyFlagListeners(updatedFlagKeys);
     }
 
-    private void applyPartialData(Map<String, Flag> items, boolean shouldPersist) {
+    private void applyPartialData(
+            @NonNull LDContext context,
+            @NonNull Selector selector,
+            Map<String, Flag> items,
+            boolean shouldPersist
+    ) {
         EnvironmentData updatedFlags;
         Set<String> updatedFlagKeys = new HashSet<>();
 
         synchronized (lock) {
+            if (!context.equals(currentContext)) {
+                return;
+            }
+            if (!selector.isEmpty()) {
+                currentSelector = selector;
+            }
             Map<String, Flag> merged = new HashMap<>(flags.getAll());
             for (Map.Entry<String, Flag> entry : items.entrySet()) {
                 String key = entry.getKey();
@@ -304,8 +313,8 @@ final class ContextDataManager {
             flags = updatedFlags;
 
             if (shouldPersist) {
-                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(currentContext);
-                String fingerprint = LDUtil.urlSafeBase64Hash(currentContext);
+                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(context);
+                String fingerprint = LDUtil.urlSafeBase64Hash(context);
                 environmentStore.setContextData(hashedContextId, fingerprint, updatedFlags);
                 index = index.updateTimestamp(hashedContextId, System.currentTimeMillis());
                 environmentStore.setIndex(index);
@@ -316,12 +325,7 @@ final class ContextDataManager {
         notifyFlagListeners(updatedFlagKeys);
     }
 
-    /**
-     * Returns the current selector from the last applied changeset that carried one.
-     * In-memory only; not persisted.
-     *
-     * @return the current selector, or {@link Selector#EMPTY} if none had been set yet.
-     */
+    @Override
     @NonNull
     public Selector getSelector() {
         return currentSelector;

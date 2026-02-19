@@ -100,12 +100,6 @@ public abstract class MockComponents {
         }
 
         @Override
-        @NonNull
-        public Selector getSelector() {
-            return lastSelector;
-        }
-
-        @Override
         public void setStatus(@NonNull ConnectionInformation.ConnectionMode connectionMode, @Nullable Throwable failure) {
 
         }

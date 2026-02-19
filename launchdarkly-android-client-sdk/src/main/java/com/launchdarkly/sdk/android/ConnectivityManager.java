@@ -103,12 +103,6 @@ class ConnectivityManager {
         }
 
         @Override
-        @NonNull
-        public Selector getSelector() {
-            return contextDataManager.getSelector();
-        }
-
-        @Override
         public void setStatus(ConnectionMode newConnectionMode, Throwable error) {
             if (error == null) {
                 updateConnectionInfoForSuccess(newConnectionMode);

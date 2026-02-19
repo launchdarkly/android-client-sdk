@@ -158,10 +158,11 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         assertTrue(manager.getSelector().isEmpty());
 
         Selector selector = Selector.make(42, "state-42");
+        Flag flag = new FlagBuilder("flag1").version(1).build();
         ChangeSet changeSet = new ChangeSet(
-                ChangeSetType.None,
+                ChangeSetType.Full,
                 selector,
-                Collections.emptyMap(),
+                Collections.singletonMap(flag.getKey(), flag),
                 null,
                 false
         );
@@ -177,12 +178,13 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         ContextDataManager manager = createDataManager();
         manager.switchToContext(CONTEXT);
         Selector first = Selector.make(1, "state1");
+        Flag flag = new FlagBuilder("flag1").version(1).build();
         manager.apply(CONTEXT, new ChangeSet(
-                ChangeSetType.None, first, Collections.emptyMap(), null, false));
+                ChangeSetType.Full, first, Collections.singletonMap(flag.getKey(), flag), null, false));
         assertEquals(1, manager.getSelector().getVersion());
 
         manager.apply(CONTEXT, new ChangeSet(
-                ChangeSetType.None, Selector.EMPTY, Collections.emptyMap(), null, false));
+                ChangeSetType.Full, Selector.EMPTY, Collections.singletonMap(flag.getKey(), flag), null, false));
         assertEquals(1, manager.getSelector().getVersion());
     }
 
@@ -219,8 +221,6 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         assertNotNull(DataSourceUpdateSink.class.cast(mock));
         DataSourceUpdateSinkV2 v2 = DataSourceUpdateSinkV2.class.cast(mock);
         assertNotNull(v2);
-        assertNotNull(v2.getSelector());
-        assertTrue(v2.getSelector().isEmpty());
         v2.apply(CONTEXT, new ChangeSet(
                 ChangeSetType.None, Selector.EMPTY, Collections.emptyMap(), null, false));
         assertNotNull(mock.expectApply());
