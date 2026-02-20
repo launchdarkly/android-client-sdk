@@ -62,7 +62,7 @@ final class ContextDataManager implements TransactionalDataStore {
     @NonNull private volatile ContextIndex index;
 
     /** Selector from the last applied changeset that carried one; in-memory only, not persisted. */
-    @NonNull private volatile Selector currentSelector = Selector.EMPTY;
+    @NonNull private Selector currentSelector = Selector.EMPTY;
 
     ContextDataManager(
             @NonNull ClientContext clientContext,
@@ -231,9 +231,7 @@ final class ContextDataManager implements TransactionalDataStore {
             if (!context.equals(currentContext)) {
                 return;
             }
-            if (!selector.isEmpty()) {
-                currentSelector = selector;
-            }
+            currentSelector = selector;
             oldData = flags;
             flags = newData;
 
@@ -296,9 +294,7 @@ final class ContextDataManager implements TransactionalDataStore {
             if (!context.equals(currentContext)) {
                 return;
             }
-            if (!selector.isEmpty()) {
-                currentSelector = selector;
-            }
+            currentSelector = selector;
             Map<String, Flag> merged = new HashMap<>(flags.getAll());
             for (Map.Entry<String, Flag> entry : items.entrySet()) {
                 String key = entry.getKey();
@@ -328,7 +324,9 @@ final class ContextDataManager implements TransactionalDataStore {
     @Override
     @NonNull
     public Selector getSelector() {
-        return currentSelector;
+        synchronized (lock) {
+            return currentSelector;
+        }
     }
 
     public void registerListener(String key, FeatureFlagChangeListener listener) {

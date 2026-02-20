@@ -174,7 +174,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
     }
 
     @Test
-    public void applyWithEmptySelectorDoesNotOverwriteStoredSelector() {
+    public void applyFullWithEmptySelectorClearsStoredSelector() {
         ContextDataManager manager = createDataManager();
         manager.switchToContext(CONTEXT);
         Selector first = Selector.make(1, "state1");
@@ -185,7 +185,24 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
 
         manager.apply(CONTEXT, new ChangeSet(
                 ChangeSetType.Full, Selector.EMPTY, Collections.singletonMap(flag.getKey(), flag), null, false));
+        assertTrue(manager.getSelector().isEmpty());
+    }
+
+    @Test
+    public void applyPartialWithEmptySelectorClearsStoredSelector() {
+        ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
+        Selector first = Selector.make(1, "state1");
+        Flag flag = new FlagBuilder("flag1").version(1).build();
+        manager.apply(CONTEXT, new ChangeSet(
+                ChangeSetType.Full, first, Collections.singletonMap(flag.getKey(), flag), null, false));
         assertEquals(1, manager.getSelector().getVersion());
+
+        Flag flag2 = new FlagBuilder("flag2").version(1).build();
+        manager.apply(CONTEXT, new ChangeSet(
+                ChangeSetType.Partial, Selector.EMPTY,
+                Collections.singletonMap(flag2.getKey(), flag2), null, false));
+        assertTrue(manager.getSelector().isEmpty());
     }
 
     @Test
