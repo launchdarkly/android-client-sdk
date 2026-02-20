@@ -7,8 +7,12 @@ import androidx.annotation.VisibleForTesting;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.subsystems.ChangeSet;
+import com.launchdarkly.sdk.android.subsystems.ChangeSetType;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -38,7 +42,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * implementation of PersistentDataStore was used to create the PersistentDataStoreWrapper, and
  * deferred listener calls are done via the {@link TaskExecutor} abstraction.
  */
-final class ContextDataManager {
+final class ContextDataManager implements TransactionalDataStore {
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final int maxCachedContexts;
     private final TaskExecutor taskExecutor;
@@ -56,6 +60,9 @@ final class ContextDataManager {
     @NonNull private volatile LDContext currentContext;
     @NonNull private volatile EnvironmentData flags = new EnvironmentData();
     @NonNull private volatile ContextIndex index;
+
+    /** Selector from the last applied changeset that carried one; in-memory only, not persisted. */
+    @NonNull private Selector currentSelector = Selector.EMPTY;
 
     ContextDataManager(
             @NonNull ClientContext clientContext,
@@ -86,7 +93,7 @@ final class ContextDataManager {
             currentContext = context;
         }
 
-        EnvironmentData storedData = getStoredData(currentContext);
+        EnvironmentData storedData = getStoredData(context);
         if (storedData == null) {
             logger.debug("No stored flag data is available for this context");
             // here we return to not alter current in memory flag state as
@@ -96,7 +103,8 @@ final class ContextDataManager {
         }
 
         logger.debug("Using stored flag data for this context");
-        initDataInternal(context, storedData, false);
+        // when we switch context, we don't have a selector because we don't currently support persisting the selector.
+        applyFullData(context, Selector.EMPTY, storedData.getAll(), false);
     }
 
     /**
@@ -111,73 +119,8 @@ final class ContextDataManager {
             @NonNull EnvironmentData newData
     ) {
         logger.debug("Initializing with new flag data for this context");
-        initDataInternal(context, newData, true);
-    }
-
-    private void initDataInternal(
-            @NonNull LDContext context,
-            @NonNull EnvironmentData newData,
-            boolean writeFlagsToPersistentStore
-    ) {
-
-        String contextId = LDUtil.urlSafeBase64HashedContextId(context);
-        String fingerprint = LDUtil.urlSafeBase64Hash(context);
-        EnvironmentData oldData;
-        ContextIndex newIndex;
-
-        synchronized (lock) {
-            if (!context.equals(currentContext)) {
-                // if incoming new data is not for the current context, reject it.
-                return;
-            }
-
-            oldData = flags;
-            flags = newData;
-
-            if (writeFlagsToPersistentStore) {
-                List<String> removedContextIds = new ArrayList<>();
-                newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
-                        .prune(maxCachedContexts, removedContextIds);
-                index = newIndex;
-
-                for (String removedContextId: removedContextIds) {
-                    environmentStore.removeContextData(removedContextId);
-                    logger.debug("Removed flag data for context {} from persistent store", removedContextId);
-                }
-
-                environmentStore.setContextData(contextId, fingerprint, newData);
-                environmentStore.setIndex(newIndex);
-
-                if (logger.isEnabled(LDLogLevel.DEBUG)) {
-                    logger.debug("Stored context index is now: {}", newIndex.toJson());
-                }
-
-                logger.debug("Updated flag data for context {} in persistent store", contextId);
-            }
-        }
-
-        // Determine which flags were updated and notify listeners, if any
-        Set<String> updatedFlagKeys = new HashSet<>();
-        for (Flag newFlag: newData.values()) {
-            Flag oldFlag = oldData.getFlag(newFlag.getKey());
-            if (oldFlag == null || !oldFlag.getValue().equals(newFlag.getValue())) {
-                // if the flag is new or the value has changed, notify.  This logic can be run if
-                // the context changes, which can result in an evaluation change even if the version
-                // of the flag stays the same.  You will notice this logic slightly differs from
-                // upsert.  Upsert should only be calling to listeners if the value has changed,
-                // but we left upsert alone out of fear of that we'd uncover bugs in customer code
-                // if we added conditionals in upsert
-                updatedFlagKeys.add(newFlag.getKey());
-            }
-        }
-        for (Flag oldFlag: oldData.values()) {
-            // if old flag is no longer appearing, notify
-            if (newData.getFlag(oldFlag.getKey()) == null) {
-                updatedFlagKeys.add(oldFlag.getKey());
-            }
-        }
-        notifyAllFlagsListeners(updatedFlagKeys);
-        notifyFlagListeners(updatedFlagKeys);
+        // init data is called in the FDv1 path, which does not have a selector
+        applyFullData(context, Selector.EMPTY, newData.getAll(), true);
     }
 
     /**
@@ -258,6 +201,132 @@ final class ContextDataManager {
         notifyFlagListeners(updatedFlag);
 
         return true;
+    }
+
+    @Override
+    public void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet) {
+        switch (changeSet.getType()) {
+            case Full:
+                applyFullData(context, changeSet.getSelector(), changeSet.getItems(), changeSet.shouldPersist());
+                break;
+            case Partial:
+                applyPartialData(context, changeSet.getSelector(), changeSet.getItems(), changeSet.shouldPersist());
+                break;
+            case None:
+            default:
+                break;
+        }
+    }
+
+    private void applyFullData(
+            @NonNull LDContext context,
+            @NonNull Selector selector,
+            Map<String, Flag> items,
+            boolean shouldPersist
+    ) {
+        EnvironmentData newData = EnvironmentData.usingExistingFlagsMap(items);
+        EnvironmentData oldData;
+
+        synchronized (lock) {
+            if (!context.equals(currentContext)) {
+                return;
+            }
+            currentSelector = selector;
+            oldData = flags;
+            flags = newData;
+
+            if (shouldPersist) {
+                String contextId = LDUtil.urlSafeBase64HashedContextId(context);
+                String fingerprint = LDUtil.urlSafeBase64Hash(context);
+                List<String> removedContextIds = new ArrayList<>();
+                ContextIndex newIndex = index.updateTimestamp(contextId, System.currentTimeMillis())
+                        .prune(maxCachedContexts, removedContextIds);
+                index = newIndex;
+
+                for (String removedContextId : removedContextIds) {
+                    environmentStore.removeContextData(removedContextId);
+                    logger.debug("Removed flag data for context {} from persistent store", removedContextId);
+                }
+
+                environmentStore.setContextData(contextId, fingerprint, newData);
+                environmentStore.setIndex(newIndex);
+
+                if (logger.isEnabled(LDLogLevel.DEBUG)) {
+                    logger.debug("Stored context index is now: {}", newIndex.toJson());
+                }
+                logger.debug("Updated flag data for context {} in persistent store", contextId);
+            }
+        }
+
+        // Determine which flags were updated and notify listeners, if any.
+        // If the flag is new or the value has changed, notify. This logic can be run if
+        // the context changes, which can result in an evaluation change even if the version
+        // of the flag stays the same. You will notice this logic slightly differs from
+        // upsert. Upsert should only be calling to listeners if the value has changed,
+        // but we left upsert alone out of fear that we'd uncover bugs in customer code
+        // if we added conditionals in upsert.
+        Set<String> updatedFlagKeys = new HashSet<>();
+        for (Flag newFlag : newData.values()) {
+            Flag oldFlag = oldData.getFlag(newFlag.getKey());
+            if (oldFlag == null || !oldFlag.getValue().equals(newFlag.getValue())) {
+                updatedFlagKeys.add(newFlag.getKey());
+            }
+        }
+        for (Flag oldFlag : oldData.values()) {
+            if (newData.getFlag(oldFlag.getKey()) == null) {
+                updatedFlagKeys.add(oldFlag.getKey());
+            }
+        }
+        notifyAllFlagsListeners(updatedFlagKeys);
+        notifyFlagListeners(updatedFlagKeys);
+    }
+
+    private void applyPartialData(
+            @NonNull LDContext context,
+            @NonNull Selector selector,
+            Map<String, Flag> items,
+            boolean shouldPersist
+    ) {
+        EnvironmentData updatedFlags;
+        Set<String> updatedFlagKeys = new HashSet<>();
+
+        synchronized (lock) {
+            if (!context.equals(currentContext)) {
+                return;
+            }
+            currentSelector = selector;
+            Map<String, Flag> merged = new HashMap<>(flags.getAll());
+            for (Map.Entry<String, Flag> entry : items.entrySet()) {
+                String key = entry.getKey();
+                Flag incoming = entry.getValue();
+                Flag existing = merged.get(key);
+                if (existing == null || existing.getVersion() < incoming.getVersion()) {
+                    merged.put(key, incoming);
+                    updatedFlagKeys.add(key);
+                }
+            }
+            updatedFlags = EnvironmentData.usingExistingFlagsMap(merged);
+            flags = updatedFlags;
+
+            if (shouldPersist) {
+                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(context);
+                String fingerprint = LDUtil.urlSafeBase64Hash(context);
+                environmentStore.setContextData(hashedContextId, fingerprint, updatedFlags);
+                index = index.updateTimestamp(hashedContextId, System.currentTimeMillis());
+                environmentStore.setIndex(index);
+            }
+        }
+
+        notifyAllFlagsListeners(updatedFlagKeys);
+        notifyFlagListeners(updatedFlagKeys);
+    }
+
+    @Override
+    @NonNull
+    public Selector getSelector() {
+        synchronized (lock) {
+            return currentSelector;
+        }
     }
 
     public void registerListener(String key, FeatureFlagChangeListener listener) {

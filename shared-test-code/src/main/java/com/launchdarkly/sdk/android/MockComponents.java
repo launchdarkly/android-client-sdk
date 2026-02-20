@@ -17,8 +17,11 @@ import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
+import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
 
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
@@ -57,9 +60,12 @@ public abstract class MockComponents {
         }
     }
 
-    public static class MockDataSourceUpdateSink implements DataSourceUpdateSink {
+    public static class MockDataSourceUpdateSink implements DataSourceUpdateSink, DataSourceUpdateSinkV2 {
         public final BlockingQueue<Map<String, DataModel.Flag>> inits = new LinkedBlockingQueue<>();
         public final BlockingQueue<DataModel.Flag> upserts = new LinkedBlockingQueue<>();
+        public final BlockingQueue<ChangeSet> appliedChangeSets = new LinkedBlockingQueue<>();
+
+        private volatile Selector lastSelector = Selector.EMPTY;
 
         @Override
         public void init(@NonNull LDContext context, @NonNull Map<String, DataModel.Flag> items) {
@@ -79,6 +85,18 @@ public abstract class MockComponents {
             DataModel.Flag flag = requireValue(upserts, 1, TimeUnit.SECONDS);
             assertEquals(flagKey, flag.getKey());
             return flag;
+        }
+
+        @Override
+        public void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet) {
+            appliedChangeSets.add(changeSet);
+            if (!changeSet.getSelector().isEmpty()) {
+                lastSelector = changeSet.getSelector();
+            }
+        }
+
+        public ChangeSet expectApply() {
+            return requireValue(appliedChangeSets, 1, TimeUnit.SECONDS);
         }
 
         @Override
