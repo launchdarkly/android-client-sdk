@@ -74,16 +74,17 @@ final class CachingDns implements Dns {
 
         try {
             List<InetAddress> addresses = delegate.lookup(hostname);
-            cache.put(hostname, new CacheEntry(addresses, now + ttlMs));
-            if (cache.size() > MAX_ENTRIES) {
-                evictExpired(now);
+            long afterLookup = System.currentTimeMillis();
+            if (cache.size() >= MAX_ENTRIES) {
+                evictExpired(afterLookup);
             }
+            cache.put(hostname, new CacheEntry(addresses, afterLookup + ttlMs));
             return addresses;
         } catch (UnknownHostException e) {
             if (entry != null) {
                 logger.warn(
                         "DNS lookup failed for {}, falling back to cached address (age {}ms)",
-                        hostname, now - (entry.expiresAtMs - ttlMs)
+                        hostname, System.currentTimeMillis() - (entry.expiresAtMs - ttlMs)
                 );
                 return entry.addresses;
             }
