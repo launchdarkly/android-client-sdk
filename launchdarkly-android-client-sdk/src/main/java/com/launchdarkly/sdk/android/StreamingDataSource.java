@@ -24,6 +24,8 @@ import com.launchdarkly.sdk.json.SerializationException;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.ConnectionPool;
+import okhttp3.Dns;
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
 
@@ -65,6 +67,8 @@ final class StreamingDataSource implements DataSource {
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
+    private final Dns dns;
+    private final ConnectionPool connectionPool;
 
     StreamingDataSource(
             @NonNull ClientContext clientContext,
@@ -72,7 +76,9 @@ final class StreamingDataSource implements DataSource {
             @NonNull DataSourceUpdateSink dataSourceUpdateSink,
             @NonNull FeatureFetcher fetcher,
             int initialReconnectDelayMillis,
-            boolean streamEvenInBackground
+            boolean streamEvenInBackground,
+            @NonNull Dns dns,
+            @NonNull ConnectionPool connectionPool
     ) {
         this.context = context;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
@@ -85,6 +91,8 @@ final class StreamingDataSource implements DataSource {
         this.streamEvenInBackground = streamEvenInBackground;
         this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
         this.logger = clientContext.getBaseLogger();
+        this.dns = dns;
+        this.connectionPool = connectionPool;
     }
 
     public void start(@NonNull Callback<Boolean> resultCallback) {
@@ -152,6 +160,9 @@ final class StreamingDataSource implements DataSource {
                 public void configure(OkHttpClient.Builder clientBuilder) {
                     httpProperties.applyToHttpClientBuilder(clientBuilder);
                     clientBuilder.readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                    clientBuilder.dns(dns);
+                    clientBuilder.connectionPool(connectionPool);
+                    clientBuilder.retryOnConnectionFailure(true);
                 }
             });
 
