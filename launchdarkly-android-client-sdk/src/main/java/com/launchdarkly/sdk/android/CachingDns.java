@@ -29,6 +29,8 @@ final class CachingDns implements Dns {
 
     @VisibleForTesting
     static final long DEFAULT_TTL_MS = 10 * 60 * 1000; // 10 minutes
+    @VisibleForTesting
+    static final int MAX_ENTRIES = 30;
 
     private final Dns delegate;
     private final long ttlMs;
@@ -71,6 +73,9 @@ final class CachingDns implements Dns {
         try {
             List<InetAddress> addresses = delegate.lookup(hostname);
             cache.put(hostname, new CacheEntry(addresses, now + ttlMs));
+            if (cache.size() > MAX_ENTRIES) {
+                evictExpired(now);
+            }
             return addresses;
         } catch (UnknownHostException e) {
             if (entry != null) {
@@ -82,6 +87,15 @@ final class CachingDns implements Dns {
             }
             throw e;
         }
+    }
+
+    private void evictExpired(long now) {
+        cache.entrySet().removeIf(e -> e.getValue().isExpired(now));
+    }
+
+    @VisibleForTesting
+    int cacheSize() {
+        return cache.size();
     }
 
     @VisibleForTesting

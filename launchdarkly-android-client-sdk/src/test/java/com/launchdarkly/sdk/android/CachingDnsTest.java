@@ -120,6 +120,43 @@ public class CachingDnsTest {
     }
 
     @Test
+    public void evictsExpiredEntriesWhenCacheExceedsMax() throws Exception {
+        InetAddress addr = InetAddress.getByName("127.0.0.1");
+        List<InetAddress> addrs = Collections.singletonList(addr);
+        AtomicInteger lookups = new AtomicInteger();
+
+        // TTL of 0 means every entry expires immediately
+        CachingDns dns = new CachingDns(counting(addrs, lookups), 0, logger);
+
+        // Fill beyond MAX_ENTRIES with distinct hostnames; each previous entry
+        // is already expired by the time the next lookup runs.
+        for (int i = 0; i <= CachingDns.MAX_ENTRIES; i++) {
+            dns.lookup("host-" + i + ".example.com");
+        }
+
+        // The last put should have triggered eviction of all expired entries,
+        // leaving only the most recent (non-expired at the instant it was stored).
+        assertEquals(1, dns.cacheSize());
+    }
+
+    @Test
+    public void retainsNonExpiredEntriesAcrossEviction() throws Exception {
+        InetAddress addr = InetAddress.getByName("127.0.0.1");
+        List<InetAddress> addrs = Collections.singletonList(addr);
+        AtomicInteger lookups = new AtomicInteger();
+
+        // Long TTL so nothing expires during the test
+        CachingDns dns = new CachingDns(counting(addrs, lookups), 600_000, logger);
+
+        for (int i = 0; i <= CachingDns.MAX_ENTRIES; i++) {
+            dns.lookup("host-" + i + ".example.com");
+        }
+
+        // Nothing is expired, so eviction can't remove anything
+        assertEquals(CachingDns.MAX_ENTRIES + 1, dns.cacheSize());
+    }
+
+    @Test
     public void cacheEntryRecordsExpiration() {
         InetAddress loopback = InetAddress.getLoopbackAddress();
         List<InetAddress> addrs = Collections.singletonList(loopback);
