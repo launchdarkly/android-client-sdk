@@ -25,8 +25,6 @@ import com.launchdarkly.sdk.internal.events.DefaultEventSender;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 
-import android.os.Build;
-
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -336,11 +334,6 @@ abstract class ComponentsImpl {
                 new ConnectionPool(1, 5, TimeUnit.MINUTES);
 
         private Dns getOrCreateDns(LDLogger logger) {
-            // API 34+ has native stale-DNS support in the platform resolver,
-            // so we only need our CachingDns fallback on older versions.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                return Dns.SYSTEM;
-            }
             CachingDns dns = sharedDns;
             if (dns == null) {
                 synchronized (this) {

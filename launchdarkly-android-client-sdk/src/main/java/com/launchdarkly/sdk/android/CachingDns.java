@@ -18,10 +18,10 @@ import okhttp3.Dns;
  * entries when a fresh resolution fails. This is particularly useful on mobile
  * networks where DNS can be unreliable during network transitions.
  * <p>
- * On API 34+ Android provides native stale-DNS support via
- * {@code DnsOptions.StaleDnsOptions}, so this class is only used on older
- * platform versions. See {@code ComponentsImpl.StreamingDataSourceBuilderImpl}
- * for the conditional wiring.
+ * Although Android API 34+ exposes {@code DnsOptions.StaleDnsOptions} in
+ * {@code DnsResolver}, OkHttp's {@code Dns.SYSTEM} uses
+ * {@code InetAddress.getAllByName} which does not opt into that mechanism.
+ * This class is therefore used on all API levels.
  * <p>
  * Instances of this class are thread-safe and designed to be shared across
  * multiple OkHttpClient instances so that the cache persists even when the
