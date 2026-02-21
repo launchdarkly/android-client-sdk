@@ -93,7 +93,12 @@ final class CachingDns implements Dns {
     }
 
     private void evictExpired(long now) {
-        cache.entrySet().removeIf(e -> e.getValue().isExpired(now));
+        java.util.Iterator<java.util.Map.Entry<String, CacheEntry>> it = cache.entrySet().iterator();
+        while (it.hasNext()) {
+            if (it.next().getValue().isExpired(now)) {
+                it.remove();
+            }
+        }
     }
 
     @VisibleForTesting
