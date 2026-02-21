@@ -6,6 +6,8 @@ import com.launchdarkly.logging.LDLogger;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,7 +44,7 @@ final class CachingDns implements Dns {
         final long expiresAtMs;
 
         CacheEntry(List<InetAddress> addresses, long expiresAtMs) {
-            this.addresses = addresses;
+            this.addresses = Collections.unmodifiableList(new ArrayList<>(addresses));
             this.expiresAtMs = expiresAtMs;
         }
 
