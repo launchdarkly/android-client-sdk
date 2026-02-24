@@ -28,6 +28,10 @@ import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.ConnectionPool;
+import okhttp3.Dns;
 
 /**
  * This class contains the package-private implementations of component factories and builders whose
@@ -322,6 +326,27 @@ abstract class ComponentsImpl {
 
     static final class StreamingDataSourceBuilderImpl extends StreamingDataSourceBuilder
             implements DiagnosticDescription, DataSourceRequiresFeatureFetcher {
+
+        // Shared across StreamingDataSource instances so that DNS cache and pooled
+        // connections survive data-source restarts (context switches, network transitions).
+        private volatile CachingDns sharedDns;
+        private final ConnectionPool sharedConnectionPool =
+                new ConnectionPool(1, 5, TimeUnit.MINUTES);
+
+        private Dns getOrCreateDns(LDLogger logger) {
+            CachingDns dns = sharedDns;
+            if (dns == null) {
+                synchronized (this) {
+                    dns = sharedDns;
+                    if (dns == null) {
+                        dns = new CachingDns(logger);
+                        sharedDns = dns;
+                    }
+                }
+            }
+            return dns;
+        }
+
         @Override
         public DataSource build(ClientContext clientContext) {
             // Even though this is called StreamingDataSourceBuilder, it doesn't always create a
@@ -342,7 +367,9 @@ abstract class ComponentsImpl {
                     clientContext.getDataSourceUpdateSink(),
                     clientContextImpl.getFetcher(),
                     initialReconnectDelayMillis,
-                    streamEvenInBackground
+                    streamEvenInBackground,
+                    getOrCreateDns(clientContext.getBaseLogger()),
+                    sharedConnectionPool
             );
         }
 
