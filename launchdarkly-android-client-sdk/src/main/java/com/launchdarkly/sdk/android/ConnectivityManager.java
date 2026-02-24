@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.android.subsystems.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -109,6 +110,11 @@ class ConnectivityManager {
             } else {
                 updateConnectionInfoForError(newConnectionMode, error);
             }
+        }
+
+        @Override
+        public void setStatus(@NonNull DataSourceState state, Throwable failure) {
+            // TODO: SDK-1820 DataSource status handling
         }
 
         @Override
