@@ -3,7 +3,11 @@ package com.launchdarkly.sdk.android.subsystems;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
+import com.launchdarkly.sdk.android.DataModel;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.Selector;
+
+import java.util.Map;
 
 /**
  * Interface for a data store that holds feature flags and related data received by the SDK.
@@ -25,7 +29,7 @@ public interface TransactionalDataStore {
      * @param context   the context that was used to obtain the changeset (e.g. for staleness checks)
      * @param changeSet the changeset to apply
      */
-    void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet);
+    void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet);
 
     /**
      * Returns the selector for the currently stored data. The selector will be non-null but may be empty.

@@ -3,6 +3,8 @@ package com.launchdarkly.sdk.android;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
+import com.launchdarkly.sdk.fdv2.SourceResultType;
+import com.launchdarkly.sdk.fdv2.SourceSignal;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,11 +55,11 @@ final class FDv2DataSourceConditions {
 
         @Override
         public void inform(@NonNull FDv2SourceResult result) {
-            if (result.getResultType() == FDv2SourceResult.ResultType.CHANGE_SET) {
+            if (result.getResultType() == SourceResultType.CHANGE_SET) {
                 cancel();
-            } else if (result.getResultType() == FDv2SourceResult.ResultType.STATUS
+            } else if (result.getResultType() == SourceResultType.STATUS
                     && result.getStatus() != null
-                    && result.getStatus().getState() == FDv2SourceResult.State.INTERRUPTED) {
+                    && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
                 if (timerFuture == null) {
                     timerFuture = executor.schedule(
                             () -> resultFuture.set(ConditionType.FALLBACK),

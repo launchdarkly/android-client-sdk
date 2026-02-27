@@ -10,18 +10,19 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
-import com.launchdarkly.sdk.android.subsystems.ChangeSet;
-import com.launchdarkly.sdk.android.subsystems.ChangeSetType;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
-import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
+import com.launchdarkly.sdk.fdv2.Selector;
 
 import org.junit.After;
 import org.junit.Before;
@@ -115,14 +116,14 @@ public class FDv2DataSourceTest {
     }
 
     /** A ChangeSet with a non-empty selector (signals completion of initialization). */
-    private static ChangeSet makeChangeSet(boolean withSelector) {
+    private static ChangeSet<Map<String, DataModel.Flag>> makeChangeSet(boolean withSelector) {
         Selector selector = withSelector ? Selector.make(1, "test-state") : Selector.EMPTY;
-        return new ChangeSet(ChangeSetType.Full, selector, new HashMap<>(), null, true);
+        return new ChangeSet<>(ChangeSetType.Full, selector, new HashMap<>(), null, true);
     }
 
     /** A ChangeSet carrying actual flag data. */
-    private static ChangeSet makeFullChangeSet(Map<String, DataModel.Flag> items) {
-        return new ChangeSet(
+    private static ChangeSet<Map<String, DataModel.Flag>> makeFullChangeSet(Map<String, DataModel.Flag> items) {
+        return new ChangeSet<>(
                 ChangeSetType.Full,
                 Selector.EMPTY,
                 items != null ? items : new HashMap<>(),
@@ -280,10 +281,10 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(2000));
 
-        ChangeSet applied = sink.expectApply();
+        ChangeSet<Map<String, DataModel.Flag>> applied = sink.expectApply();
         assertNotNull(applied);
-        assertEquals(1, applied.getItems().size());
-        assertTrue(applied.getItems().containsKey("flag1"));
+        assertEquals(1, applied.getData().size());
+        assertTrue(applied.getData().containsKey("flag1"));
     }
 
     @Test
@@ -381,9 +382,9 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(2000));
 
-        ChangeSet applied = sink.expectApply();
+        ChangeSet<Map<String, DataModel.Flag>> applied = sink.expectApply();
         assertNotNull(applied);
-        assertEquals(1, applied.getItems().size());
+        assertEquals(1, applied.getData().size());
     }
 
     @Test
@@ -417,9 +418,9 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(2000));
 
-        ChangeSet applied = sink.expectApply();
+        ChangeSet<Map<String, DataModel.Flag>> applied = sink.expectApply();
         assertNotNull(applied);
-        assertEquals(1, applied.getItems().size());
+        assertEquals(1, applied.getData().size());
     }
 
     @Test

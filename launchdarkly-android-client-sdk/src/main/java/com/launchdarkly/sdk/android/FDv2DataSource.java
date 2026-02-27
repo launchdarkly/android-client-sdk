@@ -5,7 +5,8 @@ import androidx.annotation.NonNull;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
-import com.launchdarkly.sdk.android.subsystems.ChangeSet;
+import com.launchdarkly.sdk.android.DataModel;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
@@ -14,6 +15,7 @@ import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -205,7 +207,7 @@ final class FDv2DataSource implements DataSource {
 
                 switch (result.getResultType()) {
                     case CHANGE_SET:
-                        ChangeSet changeSet = result.getChangeSet();
+                        ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
                             sink.apply(context, changeSet);
                             anyDataReceived = true;
@@ -218,16 +220,18 @@ final class FDv2DataSource implements DataSource {
                         break;
                     case STATUS:
                         FDv2SourceResult.Status status = result.getStatus();
-                        switch (status.getState()) {
-                            case INTERRUPTED:
-                            case TERMINAL_ERROR:
-                                sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
-                                break;
-                            case SHUTDOWN:
-                            case GOODBYE:
-                                break;
-                            default:
-                                break;
+                        if (status != null) {
+                            switch (status.getState()) {
+                                case INTERRUPTED:
+                                case TERMINAL_ERROR:
+                                    sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
+                                    break;
+                                case SHUTDOWN:
+                                case GOODBYE:
+                                    break;
+                                default:
+                                    break;
+                            }
                         }
                         break;
                 }
@@ -304,7 +308,7 @@ final class FDv2DataSource implements DataSource {
 
                             switch (result.getResultType()) {
                                 case CHANGE_SET:
-                                    ChangeSet changeSet = result.getChangeSet();
+                                    ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                                     if (changeSet != null) {
                                         sink.apply(context, changeSet);
                                         sink.setStatus(DataSourceState.VALID, null);

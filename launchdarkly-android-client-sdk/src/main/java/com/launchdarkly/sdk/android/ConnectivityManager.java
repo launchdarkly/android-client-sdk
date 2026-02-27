@@ -6,7 +6,8 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
-import com.launchdarkly.sdk.android.subsystems.ChangeSet;
+import com.launchdarkly.sdk.android.DataModel;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
@@ -14,7 +15,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
-import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
+import com.launchdarkly.sdk.fdv2.Selector;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -98,7 +99,7 @@ class ConnectivityManager {
         }
 
         @Override
-        public void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet) {
+        public void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet) {
             contextDataManager.apply(context, changeSet);
             // Currently, contextDataManager is responsible for firing any necessary flag change events.
         }

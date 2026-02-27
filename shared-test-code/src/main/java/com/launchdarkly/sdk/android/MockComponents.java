@@ -12,17 +12,18 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.DataModel;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
-import com.launchdarkly.sdk.android.subsystems.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
-import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
+import com.launchdarkly.sdk.fdv2.Selector;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,14 +81,14 @@ public abstract class MockComponents {
         public final BlockingQueue<DataModel.Flag> upserts = new LinkedBlockingQueue<>();
 
         /** Full ordered history of every {@link #apply} call, safe for concurrent read. */
-        public final List<ChangeSet> appliedChangeSets = new CopyOnWriteArrayList<>();
+        public final List<ChangeSet<Map<String, DataModel.Flag>>> appliedChangeSets = new CopyOnWriteArrayList<>();
 
         /** Full ordered history of every {@link #setStatus(DataSourceState, Throwable)} call. */
         public final List<StatusEvent> statusEvents = new CopyOnWriteArrayList<>();
 
         private volatile Selector lastSelector = Selector.EMPTY;
 
-        private final BlockingQueue<ChangeSet> applyQueue = new LinkedBlockingQueue<>();
+        private final BlockingQueue<ChangeSet<Map<String, DataModel.Flag>>> applyQueue = new LinkedBlockingQueue<>();
         private final BlockingQueue<Boolean> applySignals = new LinkedBlockingQueue<>();
         private final BlockingQueue<DataSourceState> statusUpdates = new LinkedBlockingQueue<>();
 
@@ -112,7 +113,7 @@ public abstract class MockComponents {
         }
 
         @Override
-        public void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet) {
+        public void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet) {
             appliedChangeSets.add(changeSet);
             applyQueue.offer(changeSet);
             applySignals.offer(true);
@@ -122,7 +123,7 @@ public abstract class MockComponents {
         }
 
         /** Blocks until the next apply arrives or the 1-second timeout expires. */
-        public ChangeSet expectApply() {
+        public ChangeSet<Map<String, DataModel.Flag>> expectApply() {
             return requireValue(applyQueue, 1, TimeUnit.SECONDS);
         }
 
@@ -147,8 +148,8 @@ public abstract class MockComponents {
 
         /** Returns the most recently applied {@link ChangeSet}, or {@code null} if none. */
         @Nullable
-        public ChangeSet getLastChangeSet() {
-            List<ChangeSet> list = appliedChangeSets;
+        public ChangeSet<Map<String, DataModel.Flag>> getLastChangeSet() {
+            List<ChangeSet<Map<String, DataModel.Flag>>> list = appliedChangeSets;
             return list.isEmpty() ? null : list.get(list.size() - 1);
         }
 
