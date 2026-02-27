@@ -96,6 +96,7 @@ final class FDv2DataSource implements DataSource {
     @Override
     public void start(@NonNull Callback<Boolean> resultCallback) {
         synchronized (startResultLock) {
+            // Late caller: the first start already finished, so replay its result immediately.
             if (startResult != null) {
                 if (startResult) {
                     resultCallback.onSuccess(true);
@@ -107,10 +108,11 @@ final class FDv2DataSource implements DataSource {
                 return;
             }
 
-            // otherwise set up callback with result to come
+            // Start is still in progress; queue the callback to be fired by tryCompleteStart.
             pendingStartCallbacks.add(resultCallback);
         }
 
+        // Only the first caller spawns the background thread; subsequent callers just queued above.
         if (!started.compareAndSet(false, true)) {
             return;
         }
@@ -162,13 +164,15 @@ final class FDv2DataSource implements DataSource {
      * No-op if start has already completed.
      */
     private void tryCompleteStart(boolean success, Throwable error) {
+        // Idempotent: only the first call wins. Later calls (e.g. from runSynchronizers after
+        // start already completed via an initializer) are silently ignored.
         if (!startCompleted.compareAndSet(false, true)) {
             return;
         }
-        startResult = success;
-        startError = error;
         List<Callback<Boolean>> toNotify;
         synchronized (startResultLock) {
+            startResult = success;
+            startError = error;
             toNotify = new ArrayList<>(pendingStartCallbacks);
             pendingStartCallbacks.clear();
         }
@@ -211,11 +215,14 @@ final class FDv2DataSource implements DataSource {
                         if (changeSet != null) {
                             sink.apply(context, changeSet);
                             anyDataReceived = true;
+                            // A non-empty selector means the payload is fully current; the
+                            // initializer is done and synchronizers can take over from here.
                             if (!changeSet.getSelector().isEmpty()) {
                                 sink.setStatus(DataSourceState.VALID, null);
                                 tryCompleteStart(true, null);
                                 return;
                             }
+                            // Empty selector: partial data received, keep trying remaining initializers.
                         }
                         break;
                     case STATUS:
@@ -247,6 +254,8 @@ final class FDv2DataSource implements DataSource {
             }
             initializer = sourceManager.getNextInitializerAndSetActive();
         }
+        // All initializers exhausted. If any gave us data (even without a final selector),
+        // consider initialization successful and let synchronizers keep the data current.
         if (anyDataReceived) {
             sink.setStatus(DataSourceState.VALID, null);
             tryCompleteStart(true, null);
@@ -281,13 +290,16 @@ final class FDv2DataSource implements DataSource {
                                  new FDv2DataSourceConditions.Conditions(getConditions(synchronizerCount, isPrime))) {
                         while (running) {
                             Future<FDv2SourceResult> nextFuture = synchronizer.next();
+                            // Race the next synchronizer result against any active conditions
+                            // (fallback/recovery timers). Whichever resolves first wins.
                             Object res = LDFutures.anyOf(conditions.getFuture(), nextFuture).get();
 
                             if (res instanceof FDv2DataSourceConditions.ConditionType) {
                                 FDv2DataSourceConditions.ConditionType ct = (FDv2DataSourceConditions.ConditionType) res;
                                 switch (ct) {
                                     case FALLBACK:
-                                        logger.debug("A synchronizer has experienced an interruption and we are falling back.");
+                                        logger.debug("Synchronizer {} experienced an interruption; falling back to next synchronizer.",
+                                                synchronizer.getClass().getSimpleName());
                                         break;
                                     case RECOVERY:
                                         logger.debug("The data source is attempting to recover to a higher priority synchronizer.");
@@ -304,6 +316,8 @@ final class FDv2DataSource implements DataSource {
                             }
 
                             FDv2SourceResult result = (FDv2SourceResult) res;
+                            // Let conditions observe the result before we act on it so
+                            // they can update their internal state (e.g. reset interruption timers).
                             conditions.inform(result);
 
                             switch (result.getResultType()) {
@@ -323,8 +337,11 @@ final class FDv2DataSource implements DataSource {
                                                 sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
                                                 break;
                                             case SHUTDOWN:
+                                                // Server is shutting down cleanly; exit the entire synchronizer loop.
                                                 return;
                                             case TERMINAL_ERROR:
+                                                // This synchronizer cannot recover; block it so the outer
+                                                // loop advances to the next available synchronizer.
                                                 sourceManager.blockCurrentSynchronizer();
                                                 running = false;
                                                 sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
