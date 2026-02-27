@@ -5,6 +5,8 @@ import androidx.annotation.NonNull;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -20,9 +22,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class LDFutures {
     private LDFutures() {}
 
+    private static final ExecutorService BRIDGE_EXECUTOR = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "LaunchDarkly-FutureBridge");
+        t.setDaemon(true);
+        return t;
+    });
+
     /**
      * Converts any Future to an LDAwaitFuture that completes when the given future completes.
      * If the future is already an LDAwaitFuture, returns it as-is.
+     * <p>
+     * If the future is already done, it is resolved synchronously without spawning a thread.
+     * Otherwise, a pooled daemon thread blocks on the future until it completes.
      *
      * @param future the future to wrap
      * @param <T>    result type
@@ -35,13 +46,21 @@ public final class LDFutures {
             return already;
         }
         LDAwaitFuture<T> result = new LDAwaitFuture<>();
-        new Thread(() -> {
+        if (future.isDone()) {
             try {
                 result.set(future.get());
             } catch (Throwable t) {
                 result.setException(t instanceof ExecutionException && t.getCause() != null ? t.getCause() : t);
             }
-        }, "LaunchDarkly-FutureBridge").start();
+            return result;
+        }
+        BRIDGE_EXECUTOR.execute(() -> {
+            try {
+                result.set(future.get());
+            } catch (Throwable t) {
+                result.setException(t instanceof ExecutionException && t.getCause() != null ? t.getCause() : t);
+            }
+        });
         return result;
     }
 
