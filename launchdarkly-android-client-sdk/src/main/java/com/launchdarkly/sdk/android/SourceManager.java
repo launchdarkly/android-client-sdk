@@ -14,7 +14,7 @@ import java.util.List;
  * advances through the lists (with optional block state for synchronizers),
  * and closes the previous source when switching.
  * <p>
- * Port of java-core SourceManager. Package-private for internal use by FDv2DataSource.
+ * Package-private for internal use by FDv2DataSource.
  */
 final class SourceManager implements Closeable {
 

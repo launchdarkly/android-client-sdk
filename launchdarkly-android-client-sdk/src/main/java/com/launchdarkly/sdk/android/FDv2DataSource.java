@@ -116,7 +116,8 @@ final class FDv2DataSource implements DataSource {
         if (!started.compareAndSet(false, true)) {
             return;
         }
-        stopped.set(false);
+        // Do not reset stopped here: it is initialized false and start() runs once. Resetting would
+        // race with a concurrent stop() and could undo it, causing a spurious OFF/exhaustion report.
         LDContext context = evaluationContext;
 
         new Thread(() -> {
@@ -151,7 +152,7 @@ final class FDv2DataSource implements DataSource {
     }
 
     /**
-     * If not stopped, reports OFF with the given message (e.g. exhaustion). Matches java-core maybeReportUnexpectedExhaustion.
+     * If not stopped, reports OFF with the given message (e.g. exhaustion).
      */
     private void maybeReportUnexpectedExhaustion(String message) {
         if (!stopped.get()) {
@@ -191,7 +192,7 @@ final class FDv2DataSource implements DataSource {
     public void stop(@NonNull Callback<Void> completionCallback) {
         stopped.set(true);
         sourceManager.close();
-        // Caller owns sharedExecutor; we do not shut it down (match java-core).
+        // Caller owns sharedExecutor; we do not shut it down.
         dataSourceUpdateSink.setStatus(DataSourceState.OFF, null);
         completionCallback.onSuccess(null);
     }
@@ -262,7 +263,6 @@ final class FDv2DataSource implements DataSource {
         }
     }
 
-    /** Same as java-core getConditions(): empty if 1 sync; Fallback only if prime; Fallback+Recovery if non-prime. */
     private List<FDv2DataSourceConditions.Condition> getConditions(int synchronizerCount, boolean isPrime) {
         if (synchronizerCount <= 1) {
             return Collections.emptyList();
@@ -282,6 +282,9 @@ final class FDv2DataSource implements DataSource {
         try {
             Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
             while (synchronizer != null) {
+                if (stopped.get()) {
+                    return;
+                }
                 int synchronizerCount = sourceManager.getAvailableSynchronizerCount();
                 boolean isPrime = sourceManager.isPrimeSynchronizer();
                 try {
@@ -337,8 +340,9 @@ final class FDv2DataSource implements DataSource {
                                                 sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
                                                 break;
                                             case SHUTDOWN:
-                                                // Server is shutting down cleanly; exit the entire synchronizer loop.
-                                                return;
+                                                // This synchronizer is shutting down cleanly/intentionally
+                                                running = false;
+                                                break;
                                             case TERMINAL_ERROR:
                                                 // This synchronizer cannot recover; block it so the outer
                                                 // loop advances to the next available synchronizer.

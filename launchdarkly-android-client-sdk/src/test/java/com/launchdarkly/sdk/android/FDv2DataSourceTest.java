@@ -1289,7 +1289,7 @@ public class FDv2DataSourceTest {
     }
 
     @Test
-    public void shutdownStatusExitsImmediately() throws Exception {
+    public void shutdownStatusFallsBackToNextSynchronizer() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         AtomicBoolean secondSyncCalled = new AtomicBoolean(false);
 
@@ -1305,7 +1305,8 @@ public class FDv2DataSourceTest {
         assertTrue(startCallback.await(2000));
 
         sink.awaitApplyCount(1, 2, TimeUnit.SECONDS);
-        assertFalse(secondSyncCalled.get()); // SHUTDOWN exits immediately, second never runs
+        assertTrue(secondSyncCalled.get()); // SHUTDOWN from first sync causes fallback to second
+        stopDataSource(dataSource);
     }
 
     @Test

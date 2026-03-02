@@ -1,8 +1,7 @@
 package com.launchdarkly.sdk.android.subsystems;
 
 /**
- * Data source status state, aligned with java-core's {@code DataSourceStatusProvider.State}.
- * Used internally by FDv2 data sources and the sink to communicate connection health;
+ * Data source status state. Used internally by FDv2 data sources and the sink to communicate connection health;
  * the sink maps this to {@link com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode}
  * for the public API.
  */
