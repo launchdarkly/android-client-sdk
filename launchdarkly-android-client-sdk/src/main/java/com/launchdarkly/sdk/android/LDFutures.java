@@ -78,17 +78,29 @@ public final class LDFutures {
         }
         LDAwaitFuture<Object> result = new LDAwaitFuture<>();
         AtomicBoolean won = new AtomicBoolean(false);
-        for (Future<?> f : futures) {
+        LDAwaitFuture<?>[] awaitables = new LDAwaitFuture<?>[futures.length];
+        Runnable[] listeners = new Runnable[futures.length];
+        for (int i = 0; i < futures.length; i++) {
+            Future<?> f = futures[i];
             LDAwaitFuture<?> awaitable = f instanceof LDAwaitFuture ? (LDAwaitFuture<?>) f : fromFuture(f);
-            awaitable.addListener(() -> {
+            awaitables[i] = awaitable;
+            final int idx = i;
+            Runnable listener = () -> {
                 if (won.compareAndSet(false, true)) {
                     try {
                         result.set(awaitable.get());
                     } catch (Throwable t) {
                         result.setException(t instanceof ExecutionException && t.getCause() != null ? t.getCause() : t);
                     }
+                    // Remove this listener from all futures so long-lived ones (e.g. conditions)
+                    // don't accumulate listeners when another future wins each iteration.
+                    for (int j = 0; j < awaitables.length; j++) {
+                        awaitables[j].removeListener(listeners[j]);
+                    }
                 }
-            });
+            };
+            listeners[i] = listener;
+            awaitable.addListener(listener);
         }
         return result;
     }
@@ -190,6 +202,25 @@ class LDAwaitFuture<T> implements Future<T> {
             }
         }
         listener.run();
+    }
+
+    /**
+     * Removes a listener that was previously added. Used by anyOf to avoid accumulating
+     * listeners on long-lived futures when the race is decided by another future.
+     */
+    void removeListener(@NonNull Runnable listener) {
+        synchronized (lock) {
+            if (listeners != null) {
+                listeners.remove(listener);
+            }
+        }
+    }
+
+    /** For tests: returns current listener count so accumulation can be asserted. */
+    int getListenerCount() {
+        synchronized (lock) {
+            return listeners == null ? 0 : listeners.size();
+        }
     }
 
     @Override

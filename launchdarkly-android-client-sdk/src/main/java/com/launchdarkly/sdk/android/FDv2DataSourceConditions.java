@@ -41,7 +41,8 @@ final class FDv2DataSourceConditions {
         private final LDAwaitFuture<ConditionType> resultFuture = new LDAwaitFuture<>();
         private final ScheduledExecutorService executor;
         private final long timeoutSeconds;
-        private volatile ScheduledFuture<?> timerFuture;
+        private volatile boolean cancelled;
+        private ScheduledFuture<?> timerFuture;
 
         FallbackCondition(@NonNull ScheduledExecutorService executor, long timeoutSeconds) {
             this.executor = executor;
@@ -60,11 +61,17 @@ final class FDv2DataSourceConditions {
             } else if (result.getResultType() == SourceResultType.STATUS
                     && result.getStatus() != null
                     && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
-                if (timerFuture == null) {
-                    timerFuture = executor.schedule(
-                            () -> resultFuture.set(ConditionType.FALLBACK),
-                            timeoutSeconds,
-                            TimeUnit.SECONDS);
+                synchronized (this) {
+                    if (!cancelled && timerFuture == null) {
+                        timerFuture = executor.schedule(
+                                () -> {
+                                    if (!cancelled) {
+                                        resultFuture.set(ConditionType.FALLBACK);
+                                    }
+                                },
+                                timeoutSeconds,
+                                TimeUnit.SECONDS);
+                    }
                 }
             }
         }
@@ -80,9 +87,12 @@ final class FDv2DataSourceConditions {
         }
 
         private void cancel() {
-            if (timerFuture != null) {
-                timerFuture.cancel(false);
-                timerFuture = null;
+            synchronized (this) {
+                cancelled = true;
+                if (timerFuture != null) {
+                    timerFuture.cancel(false);
+                    timerFuture = null;
+                }
             }
         }
     }
