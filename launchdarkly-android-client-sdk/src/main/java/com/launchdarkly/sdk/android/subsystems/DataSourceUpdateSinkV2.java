@@ -3,8 +3,6 @@ package com.launchdarkly.sdk.android.subsystems;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import com.launchdarkly.sdk.fdv2.Selector;
-
 /**
  * Interface that an FDv2 {@link DataSource} will use to push data into the SDK.
  * <p>

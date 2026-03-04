@@ -23,7 +23,6 @@ import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
-import com.launchdarkly.sdk.fdv2.Selector;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,8 +85,6 @@ public abstract class MockComponents {
         /** Full ordered history of every {@link #setStatus(DataSourceState, Throwable)} call. */
         public final List<StatusEvent> statusEvents = new CopyOnWriteArrayList<>();
 
-        private volatile Selector lastSelector = Selector.EMPTY;
-
         private final BlockingQueue<ChangeSet<Map<String, DataModel.Flag>>> applyQueue = new LinkedBlockingQueue<>();
         private final BlockingQueue<Boolean> applySignals = new LinkedBlockingQueue<>();
         private final BlockingQueue<DataSourceState> statusUpdates = new LinkedBlockingQueue<>();
@@ -117,9 +114,6 @@ public abstract class MockComponents {
             appliedChangeSets.add(changeSet);
             applyQueue.offer(changeSet);
             applySignals.offer(true);
-            if (!changeSet.getSelector().isEmpty()) {
-                lastSelector = changeSet.getSelector();
-            }
         }
 
         /** Blocks until the next apply arrives or the 1-second timeout expires. */
