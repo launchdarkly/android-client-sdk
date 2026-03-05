@@ -31,6 +31,23 @@ public class LDFuturesTest {
     }
 
     /**
+     * When the first future is already completed, its listener runs during addListener and the
+     * cleanup loop cannot remove listeners that have not been added yet. Those are added in
+     * the same pass and would otherwise leak on the long-lived future.
+     */
+    @Test
+    public void anyOfWhenFirstFutureAlreadyCompletedDoesNotLeakListenerOnOthers() throws ExecutionException, InterruptedException {
+        LDAwaitFuture<Object> alreadyCompleted = new LDAwaitFuture<>();
+        alreadyCompleted.set("first");
+        LDAwaitFuture<Object> neverCompletes = new LDAwaitFuture<>();
+
+        LDFutures.anyOf(alreadyCompleted, neverCompletes).get();
+
+        assertEquals("Other future must not retain a listener when the first was already completed",
+                0, neverCompletes.getListenerCount());
+    }
+
+    /**
      * Without the fix: each anyOf(longLived, nextFuture) adds a listener to longLived.
      * When nextFuture wins, that listener is never removed, so listener count grows
      * without bound. With the fix: the winning listener removes all listeners from

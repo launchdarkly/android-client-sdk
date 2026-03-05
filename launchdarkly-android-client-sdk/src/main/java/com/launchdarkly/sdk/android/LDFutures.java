@@ -105,6 +105,14 @@ public final class LDFutures {
         for (int i = 0; i < futures.length; i++) {
             awaitables[i].addListener(listeners[i]);
         }
+        // If the first (or any) future was already completed, its listener ran synchronously
+        // during addListener above and removed only listeners already registered. Any listener
+        // added later was never removed — remove them now to avoid a leak on long-lived futures.
+        if (result.isDone()) {
+            for (int i = 0; i < awaitables.length; i++) {
+                awaitables[i].removeListener(listeners[i]);
+            }
+        }
         return result;
     }
 }
