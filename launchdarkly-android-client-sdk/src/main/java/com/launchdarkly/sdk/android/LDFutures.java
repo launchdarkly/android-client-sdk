@@ -22,11 +22,30 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class LDFutures {
     private LDFutures() {}
 
-    private static final ExecutorService BRIDGE_EXECUTOR = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "LaunchDarkly-FutureBridge");
-        t.setDaemon(true);
-        return t;
-    });
+    /**
+     * Lazily initialized so the pool is only created when {@link #fromFuture} actually needs
+     * to bridge a non-{@link LDAwaitFuture} that is not yet done. Call sites that only use
+     * LDAwaitFuture (e.g. FDv2DataSource) never allocate this executor.
+     */
+    private static volatile ExecutorService bridgeExecutor;
+
+    private static ExecutorService getBridgeExecutor() {
+        ExecutorService e = bridgeExecutor;
+        if (e == null) {
+            synchronized (LDFutures.class) {
+                e = bridgeExecutor;
+                if (e == null) {
+                    e = Executors.newCachedThreadPool(r -> {
+                        Thread t = new Thread(r, "LaunchDarkly-FutureBridge");
+                        t.setDaemon(true);
+                        return t;
+                    });
+                    bridgeExecutor = e;
+                }
+            }
+        }
+        return e;
+    }
 
     /**
      * Converts any Future to an LDAwaitFuture that completes when the given future completes.
@@ -54,7 +73,7 @@ public final class LDFutures {
             }
             return result;
         }
-        BRIDGE_EXECUTOR.execute(() -> {
+        getBridgeExecutor().execute(() -> {
             try {
                 result.set(future.get());
             } catch (Throwable t) {
