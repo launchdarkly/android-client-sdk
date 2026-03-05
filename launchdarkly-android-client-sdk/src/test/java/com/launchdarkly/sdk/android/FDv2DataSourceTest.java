@@ -57,6 +57,8 @@ public class FDv2DataSourceTest {
     @Rule
     public Timeout globalTimeout = Timeout.seconds(15);
 
+    private static final long AWAIT_TIMEOUT_SECONDS = 10;
+
     private ScheduledExecutorService executor;
 
     @Before
@@ -279,7 +281,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         ChangeSet<Map<String, DataModel.Flag>> applied = sink.expectApply();
         assertNotNull(applied);
@@ -302,7 +304,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertTrue(secondCalled.get());
         assertEquals(1, sink.getApplyCount());
@@ -324,7 +326,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertFalse(secondCalled.get());
         assertEquals(1, sink.getApplyCount());
@@ -346,10 +348,10 @@ public class FDv2DataSourceTest {
                 }));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertTrue(syncCalled.get());
-        sink.awaitApplyCount(1, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(1, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(1, sink.getApplyCount());
     }
 
@@ -363,7 +365,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(2000));
+        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
     }
 
     @Test
@@ -380,7 +382,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         ChangeSet<Map<String, DataModel.Flag>> applied = sink.expectApply();
         assertNotNull(applied);
@@ -396,7 +398,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertEquals(1, sink.getApplyCount());
         assertEquals(DataSourceState.VALID, sink.getLastState());
@@ -416,7 +418,7 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         ChangeSet<Map<String, DataModel.Flag>> applied = sink.expectApply();
         assertNotNull(applied);
@@ -432,7 +434,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertTrue(sink.appliedChangeSets.isEmpty());
         assertEquals(DataSourceState.VALID, sink.getLastState());
@@ -449,9 +451,9 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(2, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(2, sink.getApplyCount());
     }
 
@@ -468,7 +470,7 @@ public class FDv2DataSourceTest {
                 }));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertTrue(syncCalled.get());
     }
@@ -494,12 +496,13 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        // Wait for fallback + recovery: ~1s fallback + ~2s recovery
-        sink.awaitApplyCount(3, 6, TimeUnit.SECONDS);
+        // Wait for fallback + recovery: ~1s fallback + ~2s recovery.
+        // Use generous timeouts for Android where thread scheduling can delay timer delivery.
+        sink.awaitApplyCount(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
-        List<DataSourceState> statuses = sink.awaitStatuses(3, 2, TimeUnit.SECONDS);
+        List<DataSourceState> statuses = sink.awaitStatuses(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(statuses.size() >= 3);
         assertEquals(DataSourceState.VALID, statuses.get(0));
         assertEquals(DataSourceState.INTERRUPTED, statuses.get(1));
@@ -522,7 +525,7 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource); // should not hang while fallback condition is waiting
     }
@@ -542,13 +545,13 @@ public class FDv2DataSourceTest {
                                 FDv2SourceResult.changeSet(makeChangeSet(false))); }));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        assertEquals(Integer.valueOf(1), callOrder.poll(2, TimeUnit.SECONDS));
-        assertEquals(Integer.valueOf(2), callOrder.poll(2, TimeUnit.SECONDS));
+        assertEquals(Integer.valueOf(1), callOrder.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(Integer.valueOf(2), callOrder.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         // Wait for: VALID (first changeset), INTERRUPTED (terminal error), VALID (second changeset)
-        List<DataSourceState> statuses = sink.awaitStatuses(3, 4, TimeUnit.SECONDS);
+        List<DataSourceState> statuses = sink.awaitStatuses(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(3, statuses.size());
         assertEquals(DataSourceState.VALID, statuses.get(0));
         assertEquals(DataSourceState.INTERRUPTED, statuses.get(1));
@@ -568,9 +571,9 @@ public class FDv2DataSourceTest {
                         () -> new MockQueuedSynchronizer(terminalError())));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(2000));
+        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        List<DataSourceState> statuses = sink.awaitStatuses(4, 2, TimeUnit.SECONDS);
+        List<DataSourceState> statuses = sink.awaitStatuses(4, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(4, statuses.size());
         assertEquals(DataSourceState.INTERRUPTED, statuses.get(0));
         assertEquals(DataSourceState.INTERRUPTED, statuses.get(1));
@@ -593,7 +596,7 @@ public class FDv2DataSourceTest {
                                 FDv2SourceResult.changeSet(makeChangeSet(false))); }));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertEquals(1, firstCallCount.get()); // called once then blocked
         assertTrue(secondCallCount.get() >= 1);
@@ -611,7 +614,7 @@ public class FDv2DataSourceTest {
                         () -> new MockQueuedSynchronizer(terminalError())));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(2000));
+        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
     }
 
     @Test
@@ -634,10 +637,11 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        // Wait for at least 3 applies (first sync apply, second sync apply, first sync recovery)
-        sink.awaitApplyCount(3, 6, TimeUnit.SECONDS);
+        // Wait for at least 3 applies (first sync apply, second sync apply, first sync recovery).
+        // Use generous timeout for Android where ScheduledExecutor can be delayed.
+        sink.awaitApplyCount(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
         assertTrue(firstCallCount.get() >= 2 || secondCallCount.get() >= 1);
         stopDataSource(dataSource);
@@ -659,9 +663,10 @@ public class FDv2DataSourceTest {
                 1, 300);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        Boolean secondCalled = secondCalledQueue.poll(4, TimeUnit.SECONDS);
+        // Generous timeout for Android where fallback timer (1s) and thread scheduling can be delayed
+        Boolean secondCalled = secondCalledQueue.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull("second synchronizer should be called after fallback", secondCalled);
         stopDataSource(dataSource);
     }
@@ -680,7 +685,7 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource);
 
@@ -703,7 +708,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource); // should return quickly
     }
@@ -724,7 +729,7 @@ public class FDv2DataSourceTest {
                 }));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource);
 
@@ -740,7 +745,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource);
         stopDataSource(dataSource);
@@ -760,9 +765,9 @@ public class FDv2DataSourceTest {
         stopDataSource(dataSource); // close() completes slowFuture with SHUTDOWN via MockInitializer.close()
 
         // Start callback must eventually complete (not hang)
-        assertFalse(startCallback.await(2000));
+        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        DataSourceState offStatus = sink.awaitStatus(2, TimeUnit.SECONDS);
+        DataSourceState offStatus = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(offStatus);
         assertEquals(DataSourceState.OFF, offStatus);
         assertNull(sink.getLastError());
@@ -778,11 +783,11 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource);
 
-        List<DataSourceState> statuses = sink.awaitStatuses(2, 2, TimeUnit.SECONDS);
+        List<DataSourceState> statuses = sink.awaitStatuses(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(2, statuses.size());
         assertEquals(DataSourceState.VALID, statuses.get(0));
         assertEquals(DataSourceState.OFF, statuses.get(1));
@@ -802,7 +807,7 @@ public class FDv2DataSourceTest {
                 120, 300);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource); // should not hang while condition is waiting for fallback timeout
     }
@@ -830,9 +835,9 @@ public class FDv2DataSourceTest {
         dataSource.start(cb2);
         dataSource.start(cb3);
 
-        assertTrue(cb1.await(2000));
-        assertTrue(cb2.await(2000));
-        assertTrue(cb3.await(2000));
+        assertTrue(cb1.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertTrue(cb2.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertTrue(cb3.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertEquals(1, runCount.get()); // initializer factory only called once
     }
@@ -851,8 +856,8 @@ public class FDv2DataSourceTest {
         dataSource.start(cb1);
         dataSource.start(cb2);
 
-        assertTrue(cb1.await(2000));
-        assertTrue(cb2.await(2000));
+        assertTrue(cb1.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertTrue(cb2.await(AWAIT_TIMEOUT_SECONDS * 1000));
         stopDataSource(dataSource);
     }
 
@@ -873,7 +878,7 @@ public class FDv2DataSourceTest {
         }
 
         for (AwaitableCallback<Boolean> cb : callbacks) {
-            assertTrue(cb.await(2000));
+            assertTrue(cb.await(AWAIT_TIMEOUT_SECONDS * 1000));
         }
         stopDataSource(dataSource);
     }
@@ -890,7 +895,7 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         stopDataSource(dataSource); // stop immediately after starting
 
-        startCallback.await(2000); // should not hang regardless of result
+        startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000); // should not hang regardless of result
     }
 
     @Test
@@ -910,9 +915,9 @@ public class FDv2DataSourceTest {
                 Collections.singletonList(() -> sync));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(10, 3, TimeUnit.SECONDS);
+        sink.awaitApplyCount(10, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(sink.getApplyCount() >= 10);
         stopDataSource(dataSource);
     }
@@ -933,7 +938,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertTrue(firstCalled.get());
         assertEquals(1, sink.getApplyCount());
@@ -951,7 +956,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertTrue(firstCalled.get());
         assertEquals(1, sink.getApplyCount());
@@ -968,7 +973,7 @@ public class FDv2DataSourceTest {
                         () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertEquals(1, sink.getApplyCount());
         stopDataSource(dataSource);
@@ -986,7 +991,7 @@ public class FDv2DataSourceTest {
                         () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertTrue(firstCalled.get());
         assertEquals(1, sink.getApplyCount());
@@ -1017,9 +1022,9 @@ public class FDv2DataSourceTest {
                         () -> new MockQueuedSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(2, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(firstClosed.get());
         stopDataSource(dataSource);
     }
@@ -1041,7 +1046,7 @@ public class FDv2DataSourceTest {
                 }));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         stopDataSource(dataSource);
         assertTrue(syncClosed.get());
@@ -1064,11 +1069,11 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(initializerStarted.await(2, TimeUnit.SECONDS));
+        assertTrue(initializerStarted.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         stopDataSource(dataSource);
         // slowFuture is now completed with SHUTDOWN by MockInitializer.close()
-        startCallback.await(2000); // must not hang
+        startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000); // must not hang
     }
 
     // ============================================================================
@@ -1087,7 +1092,7 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000)); // changeset arrives first, so start succeeds
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000)); // changeset arrives first, so start succeeds
 
         stopDataSource(dataSource); // should complete cleanly if conditions were closed
     }
@@ -1105,9 +1110,9 @@ public class FDv2DataSourceTest {
                 10, 20);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(2, 3, TimeUnit.SECONDS);
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(sink.getApplyCount() >= 2);
         stopDataSource(dataSource);
     }
@@ -1124,7 +1129,7 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
         // If conditions were not closed on exception, resources would leak
         stopDataSource(dataSource);
     }
@@ -1147,7 +1152,7 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         // Give the recovery timer time to fire if it incorrectly exists (it shouldn't)
         Thread.sleep(100);
@@ -1170,9 +1175,9 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(2, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(2, sink.getApplyCount()); // both changesets processed without condition interruption
         stopDataSource(dataSource);
     }
@@ -1189,9 +1194,9 @@ public class FDv2DataSourceTest {
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(2, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(2, sink.getApplyCount()); // both processed; conditions future never fired
         stopDataSource(dataSource);
     }
@@ -1215,7 +1220,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertEquals(1, sink.getApplyCount());
         assertNull("second initializer should not be called when first has non-empty selector",
@@ -1231,7 +1236,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         assertEquals(1, sink.getApplyCount());
         assertEquals(DataSourceState.VALID, sink.getLastState());
@@ -1246,7 +1251,7 @@ public class FDv2DataSourceTest {
                 Collections.singletonList(() -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
         stopDataSource(dataSource);
     }
 
@@ -1262,9 +1267,9 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(3, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(3, sink.getApplyCount());
         stopDataSource(dataSource);
     }
@@ -1281,9 +1286,9 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(2, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(sink.getApplyCount() >= 2);
         stopDataSource(dataSource);
     }
@@ -1302,9 +1307,13 @@ public class FDv2DataSourceTest {
                         () -> { secondSyncCalled.set(true); return new MockQueuedSynchronizer(); }));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(1, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(1, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        // Wait for FDv2DataSource thread to process SHUTDOWN and build second sync (can lag on Android)
+        for (int i = 0; i < 100 && !secondSyncCalled.get(); i++) {
+            Thread.sleep(50);
+        }
         assertTrue(secondSyncCalled.get()); // SHUTDOWN from first sync causes fallback to second
         stopDataSource(dataSource);
     }
@@ -1318,9 +1327,9 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        DataSourceState status = sink.awaitStatus(2, TimeUnit.SECONDS);
+        DataSourceState status = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(status);
         assertEquals(DataSourceState.VALID, status);
         assertEquals(DataSourceState.VALID, sink.getLastState());
@@ -1338,12 +1347,12 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(terminalErr)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(2000));
+        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        DataSourceState first = sink.awaitStatus(2, TimeUnit.SECONDS);
+        DataSourceState first = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.INTERRUPTED, first);
 
-        DataSourceState second = sink.awaitStatus(2, TimeUnit.SECONDS);
+        DataSourceState second = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.OFF, second);
 
         assertEquals(DataSourceState.OFF, sink.getLastState());
@@ -1362,9 +1371,9 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        sink.awaitApplyCount(3, 2, TimeUnit.SECONDS);
+        sink.awaitApplyCount(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.VALID, sink.getLastState());
         assertEquals(3, sink.getApplyCount());
         stopDataSource(dataSource);
@@ -1382,11 +1391,11 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(err)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000)); // changeset arrives first, so start succeeds
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000)); // changeset arrives first, so start succeeds
 
-        assertEquals(DataSourceState.VALID, sink.awaitStatus(2, TimeUnit.SECONDS));
-        assertEquals(DataSourceState.INTERRUPTED, sink.awaitStatus(2, TimeUnit.SECONDS));
-        assertEquals(DataSourceState.OFF, sink.awaitStatus(2, TimeUnit.SECONDS));
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(DataSourceState.INTERRUPTED, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(DataSourceState.OFF, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         assertEquals(DataSourceState.OFF, sink.getLastState());
         assertNotNull(sink.getLastError());
@@ -1402,14 +1411,14 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        DataSourceState validStatus = sink.awaitStatus(2, TimeUnit.SECONDS);
+        DataSourceState validStatus = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.VALID, validStatus);
 
         stopDataSource(dataSource);
 
-        DataSourceState offStatus = sink.awaitStatus(2, TimeUnit.SECONDS);
+        DataSourceState offStatus = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.OFF, offStatus);
     }
 }

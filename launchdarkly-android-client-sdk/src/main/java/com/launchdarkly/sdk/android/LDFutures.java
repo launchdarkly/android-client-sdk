@@ -22,11 +22,30 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class LDFutures {
     private LDFutures() {}
 
-    private static final ExecutorService BRIDGE_EXECUTOR = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "LaunchDarkly-FutureBridge");
-        t.setDaemon(true);
-        return t;
-    });
+    /**
+     * Lazily initialized so the pool is only created when {@link #fromFuture} actually needs
+     * to bridge a non-{@link LDAwaitFuture} that is not yet done. Call sites that only use
+     * LDAwaitFuture (e.g. FDv2DataSource) never allocate this executor.
+     */
+    private static volatile ExecutorService bridgeExecutor;
+
+    private static ExecutorService getBridgeExecutor() {
+        ExecutorService e = bridgeExecutor;
+        if (e == null) {
+            synchronized (LDFutures.class) {
+                e = bridgeExecutor;
+                if (e == null) {
+                    e = Executors.newCachedThreadPool(r -> {
+                        Thread t = new Thread(r, "LaunchDarkly-FutureBridge");
+                        t.setDaemon(true);
+                        return t;
+                    });
+                    bridgeExecutor = e;
+                }
+            }
+        }
+        return e;
+    }
 
     /**
      * Converts any Future to an LDAwaitFuture that completes when the given future completes.
@@ -54,7 +73,7 @@ public final class LDFutures {
             }
             return result;
         }
-        BRIDGE_EXECUTOR.execute(() -> {
+        getBridgeExecutor().execute(() -> {
             try {
                 result.set(future.get());
             } catch (Throwable t) {
@@ -65,37 +84,53 @@ public final class LDFutures {
     }
 
     /**
-     * Returns an {@link LDAwaitFuture} that completes when the first of the given futures
-     * completes. Equivalent to CompletableFuture.anyOf. Works with any {@link Future}
-     * (API-level safe).
-     * <p>
-     * The return type is {@link LDAwaitFuture} rather than {@link Future} so that callers
-     * which need {@link LDAwaitFuture}-specific capabilities (e.g. {@code addListener}) can
-     * use the result directly. Callers that only need {@link Future} can use it as one.
+     * Returns a future that completes when the first of the given futures completes.
+     * Equivalent to CompletableFuture.anyOf. Works with any {@link Future} (API-level safe).
      *
      * @param futures the futures to race (null or empty returns a future that never completes)
      * @param <T>     common result type; use {@code Object} when mixing futures of different types
      * @return an {@link LDAwaitFuture} that completes with the first result (or the first exception)
      */
-    @SuppressWarnings("unchecked")
     @SafeVarargs
+    @SuppressWarnings("unchecked")
     public static <T> LDAwaitFuture<T> anyOf(Future<? extends T>... futures) {
         if (futures == null || futures.length == 0) {
             return new LDAwaitFuture<>();
         }
         LDAwaitFuture<T> result = new LDAwaitFuture<>();
         AtomicBoolean won = new AtomicBoolean(false);
-        for (Future<?> f : futures) {
+        LDAwaitFuture<?>[] awaitables = new LDAwaitFuture<?>[futures.length];
+        Runnable[] listeners = new Runnable[futures.length];
+        for (int i = 0; i < futures.length; i++) {
+            Future<?> f = futures[i];
             LDAwaitFuture<?> awaitable = f instanceof LDAwaitFuture ? (LDAwaitFuture<?>) f : fromFuture(f);
-            awaitable.addListener(() -> {
+            awaitables[i] = awaitable;
+            Runnable listener = () -> {
                 if (won.compareAndSet(false, true)) {
                     try {
                         result.set((T) awaitable.get());
                     } catch (Throwable t) {
                         result.setException(t instanceof ExecutionException && t.getCause() != null ? t.getCause() : t);
                     }
+                    // Remove this listener from all futures so long-lived ones (e.g. conditions)
+                    // don't accumulate listeners when another future wins each iteration.
+                    for (int j = 0; j < awaitables.length; j++) {
+                        awaitables[j].removeListener(listeners[j]);
+                    }
                 }
-            });
+            };
+            listeners[i] = listener;
+        }
+        for (int i = 0; i < futures.length; i++) {
+            awaitables[i].addListener(listeners[i]);
+        }
+        // If the first (or any) future was already completed, its listener ran synchronously
+        // during addListener above and removed only listeners already registered. Any listener
+        // added later was never removed — remove them now to avoid a leak on long-lived futures.
+        if (result.isDone()) {
+            for (int i = 0; i < awaitables.length; i++) {
+                awaitables[i].removeListener(listeners[i]);
+            }
         }
         return result;
     }
@@ -172,7 +207,7 @@ class LDAwaitFuture<T> implements Future<T> {
     private volatile Throwable error = null;
     private volatile boolean completed = false;
     private final Object lock = new Object();
-    private List<Runnable> listeners = null;
+    private List<Runnable> listeners = new ArrayList<>();
 
     LDAwaitFuture() {}
 
@@ -189,14 +224,30 @@ class LDAwaitFuture<T> implements Future<T> {
     void addListener(@NonNull Runnable listener) {
         synchronized (lock) {
             if (!completed) {
-                if (listeners == null) {
-                    listeners = new ArrayList<>();
-                }
                 listeners.add(listener);
                 return;
             }
         }
         listener.run();
+    }
+
+    /**
+     * Removes a listener that was previously added. Used by anyOf to avoid accumulating
+     * listeners on long-lived futures when the race is decided by another future.
+     */
+    void removeListener(@NonNull Runnable listener) {
+        synchronized (lock) {
+            if (listeners != null) {
+                listeners.remove(listener);
+            }
+        }
+    }
+
+    /** For tests: returns current listener count so accumulation can be asserted. */
+    int getListenerCount() {
+        synchronized (lock) {
+            return listeners == null ? 0 : listeners.size();
+        }
     }
 
     @Override
