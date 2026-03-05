@@ -7,12 +7,12 @@ import androidx.annotation.VisibleForTesting;
 import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.android.subsystems.ChangeSet;
-import com.launchdarkly.sdk.android.subsystems.ChangeSetType;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.android.DataModel.Flag;
-import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
+import com.launchdarkly.sdk.fdv2.Selector;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -204,13 +204,13 @@ final class ContextDataManager implements TransactionalDataStore {
     }
 
     @Override
-    public void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet) {
+    public void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, Flag>> changeSet) {
         switch (changeSet.getType()) {
             case Full:
-                applyFullData(context, changeSet.getSelector(), changeSet.getItems(), changeSet.shouldPersist());
+                applyFullData(context, changeSet.getSelector(), changeSet.getData(), changeSet.shouldPersist());
                 break;
             case Partial:
-                applyPartialData(context, changeSet.getSelector(), changeSet.getItems(), changeSet.shouldPersist());
+                applyPartialData(context, changeSet.getSelector(), changeSet.getData(), changeSet.shouldPersist());
                 break;
             case None:
             default:

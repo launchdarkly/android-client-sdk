@@ -3,6 +3,10 @@ package com.launchdarkly.sdk.android.subsystems;
 import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.DataModel;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+
+import java.util.Map;
 
 /**
  * Interface that an implementation of {@link DataSource} will use to push data into the SDK transactionally.
@@ -27,5 +31,5 @@ public interface TransactionalDataSourceUpdateSink {
      * @param context   the context that was used to get the changeset (must still be active for apply to succeed)
      * @param changeSet the changeset to apply
      */
-    void apply(@NonNull LDContext context, @NonNull ChangeSet changeSet);
+    void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet);
 }

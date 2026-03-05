@@ -10,12 +10,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.launchdarkly.sdk.android.subsystems.ChangeSet;
-import com.launchdarkly.sdk.android.subsystems.ChangeSetType;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.internal.fdv2.sources.Selector;
+import com.launchdarkly.sdk.fdv2.Selector;
 
 import org.junit.Test;
 
@@ -35,7 +35,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
 
         ContextDataManager manager = createDataManager();
         manager.switchToContext(CONTEXT);
-        ChangeSet changeSet = new ChangeSet(
+        ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Full,
                 Selector.EMPTY,
                 fullItems,
@@ -62,7 +62,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         Flag flag2 = new FlagBuilder("flag2").version(2).build();
         Map<String, Flag> fullItems = new HashMap<>();
         fullItems.put(flag2.getKey(), flag2);
-        ChangeSet changeSet = new ChangeSet(
+        ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Full,
                 Selector.EMPTY,
                 fullItems,
@@ -90,7 +90,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         Map<String, Flag> partialItems = new HashMap<>();
         partialItems.put(flag2.getKey(), flag2);
         partialItems.put(flag1v2.getKey(), flag1v2);
-        ChangeSet changeSet = new ChangeSet(
+        ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Partial,
                 Selector.EMPTY,
                 partialItems,
@@ -115,7 +115,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         manager.initData(CONTEXT, initialData);
 
         Flag flag1Lower = new FlagBuilder("flag1").version(1).value(false).build();
-        ChangeSet changeSet = new ChangeSet(
+        ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Partial,
                 Selector.EMPTY,
                 Collections.singletonMap(flag1Lower.getKey(), flag1Lower),
@@ -137,7 +137,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
-        ChangeSet changeSet = new ChangeSet(
+        ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.None,
                 Selector.EMPTY,
                 Collections.emptyMap(),
@@ -159,7 +159,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
 
         Selector selector = Selector.make(42, "state-42");
         Flag flag = new FlagBuilder("flag1").version(1).build();
-        ChangeSet changeSet = new ChangeSet(
+        ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Full,
                 selector,
                 Collections.singletonMap(flag.getKey(), flag),
@@ -179,11 +179,11 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         manager.switchToContext(CONTEXT);
         Selector first = Selector.make(1, "state1");
         Flag flag = new FlagBuilder("flag1").version(1).build();
-        manager.apply(CONTEXT, new ChangeSet(
+        manager.apply(CONTEXT, new ChangeSet<>(
                 ChangeSetType.Full, first, Collections.singletonMap(flag.getKey(), flag), null, false));
         assertEquals(1, manager.getSelector().getVersion());
 
-        manager.apply(CONTEXT, new ChangeSet(
+        manager.apply(CONTEXT, new ChangeSet<>(
                 ChangeSetType.Full, Selector.EMPTY, Collections.singletonMap(flag.getKey(), flag), null, false));
         assertTrue(manager.getSelector().isEmpty());
     }
@@ -194,12 +194,12 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         manager.switchToContext(CONTEXT);
         Selector first = Selector.make(1, "state1");
         Flag flag = new FlagBuilder("flag1").version(1).build();
-        manager.apply(CONTEXT, new ChangeSet(
+        manager.apply(CONTEXT, new ChangeSet<>(
                 ChangeSetType.Full, first, Collections.singletonMap(flag.getKey(), flag), null, false));
         assertEquals(1, manager.getSelector().getVersion());
 
         Flag flag2 = new FlagBuilder("flag2").version(1).build();
-        manager.apply(CONTEXT, new ChangeSet(
+        manager.apply(CONTEXT, new ChangeSet<>(
                 ChangeSetType.Partial, Selector.EMPTY,
                 Collections.singletonMap(flag2.getKey(), flag2), null, false));
         assertTrue(manager.getSelector().isEmpty());
@@ -216,7 +216,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         LDContext otherContext = LDContext.create("other-context");
         Map<String, Flag> fullItems = Collections.singletonMap(
                 "flag2", new FlagBuilder("flag2").version(1).build());
-        ChangeSet changeSet = new ChangeSet(
+        ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Full,
                 Selector.EMPTY,
                 fullItems,
@@ -238,7 +238,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         assertNotNull(DataSourceUpdateSink.class.cast(mock));
         DataSourceUpdateSinkV2 v2 = DataSourceUpdateSinkV2.class.cast(mock);
         assertNotNull(v2);
-        v2.apply(CONTEXT, new ChangeSet(
+        v2.apply(CONTEXT, new ChangeSet<>(
                 ChangeSetType.None, Selector.EMPTY, Collections.emptyMap(), null, false));
         assertNotNull(mock.expectApply());
     }
