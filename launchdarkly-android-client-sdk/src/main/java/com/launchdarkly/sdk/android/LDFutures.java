@@ -69,14 +69,16 @@ public final class LDFutures {
      * Equivalent to CompletableFuture.anyOf. Works with any {@link Future} (API-level safe).
      *
      * @param futures the futures to race (null or empty returns a future that never completes)
-     * @return a Future that completes with the first result (or the first exception)
+     * @param <T>     common result type; use {@code Object} when mixing futures of different types
+     * @return an {@link LDAwaitFuture} that completes with the first result (or the first exception)
      */
     @SafeVarargs
-    public static Future<Object> anyOf(Future<?>... futures) {
+    @SuppressWarnings("unchecked")
+    public static <T> LDAwaitFuture<T> anyOf(Future<? extends T>... futures) {
         if (futures == null || futures.length == 0) {
             return new LDAwaitFuture<>();
         }
-        LDAwaitFuture<Object> result = new LDAwaitFuture<>();
+        LDAwaitFuture<T> result = new LDAwaitFuture<>();
         AtomicBoolean won = new AtomicBoolean(false);
         LDAwaitFuture<?>[] awaitables = new LDAwaitFuture<?>[futures.length];
         Runnable[] listeners = new Runnable[futures.length];
@@ -84,11 +86,10 @@ public final class LDFutures {
             Future<?> f = futures[i];
             LDAwaitFuture<?> awaitable = f instanceof LDAwaitFuture ? (LDAwaitFuture<?>) f : fromFuture(f);
             awaitables[i] = awaitable;
-            final int idx = i;
             Runnable listener = () -> {
                 if (won.compareAndSet(false, true)) {
                     try {
-                        result.set(awaitable.get());
+                        result.set((T) awaitable.get());
                     } catch (Throwable t) {
                         result.setException(t instanceof ExecutionException && t.getCause() != null ? t.getCause() : t);
                     }
@@ -100,7 +101,9 @@ public final class LDFutures {
                 }
             };
             listeners[i] = listener;
-            awaitable.addListener(listener);
+        }
+        for (int i = 0; i < futures.length; i++) {
+            awaitables[i].addListener(listeners[i]);
         }
         return result;
     }
@@ -177,7 +180,7 @@ class LDAwaitFuture<T> implements Future<T> {
     private volatile Throwable error = null;
     private volatile boolean completed = false;
     private final Object lock = new Object();
-    private List<Runnable> listeners = null;
+    private List<Runnable> listeners = new ArrayList<>();
 
     LDAwaitFuture() {}
 
@@ -194,9 +197,6 @@ class LDAwaitFuture<T> implements Future<T> {
     void addListener(@NonNull Runnable listener) {
         synchronized (lock) {
             if (!completed) {
-                if (listeners == null) {
-                    listeners = new ArrayList<>();
-                }
                 listeners.add(listener);
                 return;
             }

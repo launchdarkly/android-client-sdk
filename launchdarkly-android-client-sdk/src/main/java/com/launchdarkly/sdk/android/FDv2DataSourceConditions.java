@@ -8,11 +8,10 @@ import com.launchdarkly.sdk.fdv2.SourceSignal;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Fallback and recovery conditions for switching between FDv2 synchronizers.
@@ -35,17 +34,18 @@ final class FDv2DataSourceConditions {
     }
 
     /**
-     * Fallback: on INTERRUPTED start timer; on CHANGE_SET cancel. Future completes with FALLBACK when timer fires.
+     * Base for conditions that complete after a timeout. Holds the result future, executor,
+     * timeout, and optional timer; subclasses define when the timer is started and what completes the future.
      */
-    static final class FallbackCondition implements Condition {
-        private final LDAwaitFuture<ConditionType> resultFuture = new LDAwaitFuture<>();
-        private final ScheduledExecutorService executor;
-        private final long timeoutSeconds;
-        private volatile boolean cancelled;
-        private ScheduledFuture<?> timerFuture;
+    static abstract class TimedCondition implements Condition {
+        protected final LDAwaitFuture<ConditionType> resultFuture = new LDAwaitFuture<>();
+        protected final ScheduledExecutorService sharedExecutor;
+        protected final long timeoutSeconds;
+        /** Future for the timeout task, if any. Null when no timeout is active. */
+        protected ScheduledFuture<?> timerFuture;
 
-        FallbackCondition(@NonNull ScheduledExecutorService executor, long timeoutSeconds) {
-            this.executor = executor;
+        TimedCondition(@NonNull ScheduledExecutorService sharedExecutor, long timeoutSeconds) {
+            this.sharedExecutor = sharedExecutor;
             this.timeoutSeconds = timeoutSeconds;
         }
 
@@ -55,56 +55,56 @@ final class FDv2DataSourceConditions {
         }
 
         @Override
-        public void inform(@NonNull FDv2SourceResult result) {
-            if (result.getResultType() == SourceResultType.CHANGE_SET) {
-                cancel();
-            } else if (result.getResultType() == SourceResultType.STATUS
-                    && result.getStatus() != null
-                    && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
-                synchronized (this) {
-                    if (!cancelled && timerFuture == null) {
-                        timerFuture = executor.schedule(
-                                () -> {
-                                    if (!cancelled) {
-                                        resultFuture.set(ConditionType.FALLBACK);
-                                    }
-                                },
-                                timeoutSeconds,
-                                TimeUnit.SECONDS);
-                    }
-                }
+        public void close() {
+            if (timerFuture != null) {
+                timerFuture.cancel(false);
+                timerFuture = null;
             }
+        }
+    }
+
+    /**
+     * Fallback: on INTERRUPTED start timer; on CHANGE_SET cancel timer. Future completes with FALLBACK when timer fires.
+     */
+    static final class FallbackCondition extends TimedCondition {
+
+        FallbackCondition(@NonNull ScheduledExecutorService executor, long timeoutSeconds) {
+            super(executor, timeoutSeconds);
         }
 
         @Override
-        public void close() {
-            cancel();
+        public void inform(@NonNull FDv2SourceResult result) {
+            if (result.getResultType() == SourceResultType.CHANGE_SET) {
+                if (timerFuture != null) {
+                    timerFuture.cancel(false);
+                    timerFuture = null;
+                }
+            }
+            if (result.getResultType() == SourceResultType.STATUS
+                    && result.getStatus() != null
+                    && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
+                if (timerFuture == null) {
+                    timerFuture = sharedExecutor.schedule(
+                            () -> resultFuture.set(ConditionType.FALLBACK),
+                            timeoutSeconds,
+                            TimeUnit.SECONDS);
+                }
+            }
         }
 
         @Override
         public ConditionType getType() {
             return ConditionType.FALLBACK;
         }
-
-        private void cancel() {
-            synchronized (this) {
-                cancelled = true;
-                if (timerFuture != null) {
-                    timerFuture.cancel(false);
-                    timerFuture = null;
-                }
-            }
-        }
     }
 
     /**
      * Recovery: timer starts when built. Future completes with RECOVERY when timer fires.
      */
-    static final class RecoveryCondition implements Condition {
-        private final LDAwaitFuture<ConditionType> resultFuture = new LDAwaitFuture<>();
-        private volatile ScheduledFuture<?> timerFuture;
+    static final class RecoveryCondition extends TimedCondition {
 
         RecoveryCondition(@NonNull ScheduledExecutorService executor, long timeoutSeconds) {
+            super(executor, timeoutSeconds);
             this.timerFuture = executor.schedule(
                     () -> resultFuture.set(ConditionType.RECOVERY),
                     timeoutSeconds,
@@ -112,20 +112,7 @@ final class FDv2DataSourceConditions {
         }
 
         @Override
-        public LDAwaitFuture<ConditionType> getFuture() {
-            return resultFuture;
-        }
-
-        @Override
         public void inform(@NonNull FDv2SourceResult result) {}
-
-        @Override
-        public void close() {
-            if (timerFuture != null) {
-                timerFuture.cancel(false);
-                timerFuture = null;
-            }
-        }
 
         @Override
         public ConditionType getType() {
@@ -142,24 +129,11 @@ final class FDv2DataSourceConditions {
 
         Conditions(@NonNull List<Condition> conditions) {
             this.conditions = new ArrayList<>(conditions);
-            if (conditions.isEmpty()) {
-                this.conditionsFuture = new LDAwaitFuture<>(); // never completes
-            } else {
-                this.conditionsFuture = new LDAwaitFuture<>();
-                AtomicBoolean won = new AtomicBoolean(false);
-                for (Condition c : conditions) {
-                    c.getFuture().addListener(() -> {
-                        if (won.compareAndSet(false, true)) {
-                            try {
-                                conditionsFuture.set((Object) c.getFuture().get());
-                            } catch (Throwable t) {
-                                Throwable cause = (t instanceof ExecutionException && t.getCause() != null) ? t.getCause() : t;
-                                conditionsFuture.setException(cause);
-                            }
-                        }
-                    });
-                }
+            Future<?>[] futures = new Future<?>[conditions.size()];
+            for (int i = 0; i < conditions.size(); i++) {
+                futures[i] = conditions.get(i).getFuture();
             }
+            this.conditionsFuture = LDFutures.anyOf(futures);
         }
 
         LDAwaitFuture<Object> getFuture() {
