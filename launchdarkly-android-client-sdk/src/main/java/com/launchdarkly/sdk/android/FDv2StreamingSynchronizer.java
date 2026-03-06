@@ -248,13 +248,18 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
         synchronized (closeLock) {
             if (closed) {
+                // close() was called before we could start; discard the EventSource so its
+                // OkHttp client is not leaked.
+                es.close();
                 return;
             }
             eventSource = es;
+            // Start inside the lock so close() cannot close es between the assignment above
+            // and the start() call below.  es.start() is non-blocking (spawns a thread) so
+            // holding closeLock here is safe.
+            streamStarted = System.currentTimeMillis();
+            es.start();
         }
-
-        streamStarted = System.currentTimeMillis();
-        es.start();
     }
 
     private URI getStreamUri() {
@@ -263,7 +268,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             uri = HttpHelpers.concatenateUriPath(uri, LDUtil.urlSafeBase64(evaluationContext));
         }
         if (evaluationReasons) {
-            uri = URI.create(uri.toString() + "?withReasons=true");
+            uri = HttpHelpers.addQueryParam(uri, "withReasons", "true");
         }
         return uri;
     }
@@ -308,12 +313,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 try {
                     ChangeSet<Map<String, Flag>> changeSet =
                             FDv2ChangeSetTranslator.toChangeSet(raw, logger);
-                    long start = streamStarted;
-                    if (diagnosticStore != null && start != 0) {
-                        diagnosticStore.recordStreamInit(start,
-                                (int) (System.currentTimeMillis() - start), false);
-                        streamStarted = 0;
-                    }
                     resultQueue.put(FDv2SourceResult.changeSet(changeSet));
                 } catch (SerializationException e) {
                     logger.error("Failed to translate FDv2 changeset: {}", e.toString());
