@@ -28,6 +28,7 @@ import com.launchdarkly.sdk.json.SerializationException;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -65,7 +66,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
     private final HttpProperties httpProperties;
     private final URI streamBaseUri;
-    private final String requestPath;
+    private final String streamRequestPath;
     private final boolean useReport;
     private final LDContext evaluationContext;
     private final SelectorSource selectorSource;
@@ -76,6 +77,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     @Nullable
     private final DiagnosticStore diagnosticStore;
     private final LDLogger logger;
+    private final Executor executor;
 
     private final LDAsyncQueue<FDv2SourceResult> resultQueue = new LDAsyncQueue<>();
     private final LDAwaitFuture<FDv2SourceResult> shutdownFuture = new LDAwaitFuture<>();
@@ -89,30 +91,47 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private volatile EventSource eventSource;
     private volatile long streamStarted = 0;
 
+    /**
+     * @param evaluationContext            the context to evaluate flags for
+     * @param selectorSource               source of the current selector, sent as the request basis
+     * @param streamBaseUri                base URI for the stream endpoint
+     * @param streamRequestPath            path appended to the base URI for the stream request
+     * @param requestor                    optional requestor for handling ping events via poll; may be null
+     * @param initialReconnectDelayMillis  delay before reconnecting after an error, in milliseconds
+     * @param evaluationReasons           true to request evaluation reasons in the stream
+     * @param useReport                    true to use HTTP REPORT for the request body
+     * @param httpProperties               HTTP configuration for the stream request
+     * @param executor                     executor used for closing the EventSource when restarting the
+     *                                     stream; closing must not run on the EventSource callback thread
+     * @param logger                       logger
+     * @param diagnosticStore              optional store for stream diagnostics; may be null
+     */
     FDv2StreamingSynchronizer(
-            @NonNull HttpProperties httpProperties,
-            @NonNull URI streamBaseUri,
-            @NonNull String requestPath,
             @NonNull LDContext evaluationContext,
-            boolean useReport,
-            boolean evaluationReasons,
             @NonNull SelectorSource selectorSource,
+            @NonNull URI streamBaseUri,
+            @NonNull String streamRequestPath,
             @Nullable FDv2Requestor requestor,
             int initialReconnectDelayMillis,
-            @Nullable DiagnosticStore diagnosticStore,
-            @NonNull LDLogger logger
+            boolean evaluationReasons,
+            boolean useReport,
+            @NonNull HttpProperties httpProperties,
+            @NonNull Executor executor,
+            @NonNull LDLogger logger,
+            @Nullable DiagnosticStore diagnosticStore
     ) {
-        this.httpProperties = httpProperties;
-        this.streamBaseUri = streamBaseUri;
-        this.requestPath = requestPath;
         this.evaluationContext = evaluationContext;
-        this.useReport = useReport;
-        this.evaluationReasons = evaluationReasons;
         this.selectorSource = selectorSource;
+        this.streamBaseUri = streamBaseUri;
+        this.streamRequestPath = streamRequestPath;
         this.requestor = requestor;
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
-        this.diagnosticStore = diagnosticStore;
+        this.evaluationReasons = evaluationReasons;
+        this.useReport = useReport;
+        this.httpProperties = httpProperties;
+        this.executor = executor;
         this.logger = logger;
+        this.diagnosticStore = diagnosticStore;
     }
 
     @Override
@@ -239,7 +258,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     }
 
     private URI getStreamUri() {
-        URI uri = HttpHelpers.concatenateUriPath(streamBaseUri, requestPath);
+        URI uri = HttpHelpers.concatenateUriPath(streamBaseUri, streamRequestPath);
         if (!useReport) {
             uri = HttpHelpers.concatenateUriPath(uri, LDUtil.urlSafeBase64(evaluationContext));
         }
@@ -428,7 +447,10 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
 
         if (esToClose != null) {
-            esToClose.close();
+            // Close via executor to avoid blocking or deadlocking the EventSource callback
+            // thread (restartStream is invoked from handleSseMessage on that thread).
+            EventSource toClose = esToClose;
+            executor.execute(toClose::close);
         }
     }
 }
