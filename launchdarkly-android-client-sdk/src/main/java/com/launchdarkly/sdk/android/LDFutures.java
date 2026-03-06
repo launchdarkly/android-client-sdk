@@ -321,3 +321,52 @@ class LDAwaitFuture<T> implements Future<T> {
         }
     }
 }
+
+/**
+ * A thread-safe, non-blocking async queue where producers put items and consumers take items
+ * as futures. Analogous to {@code IterableAsyncQueue} in java-core internal.
+ * <p>
+ * If a consumer calls {@link #take()} before an item is available, it receives a pending
+ * {@link LDAwaitFuture} that is completed when the next {@link #put(Object)} call arrives.
+ * If an item was already put before take() is called, the returned future is already done.
+ * <p>
+ * Only one consumer is assumed to be waiting at a time (the FDv2 orchestrator calls next()
+ * serially). Multiple concurrent takes() will share the same pending future.
+ *
+ * @param <T> the item type
+ */
+class LDAsyncQueue<T> {
+    private final java.util.Queue<T> items = new java.util.LinkedList<>();
+    private LDAwaitFuture<T> pending = null;
+
+    /**
+     * Enqueues an item. If a consumer is waiting in {@link #take()}, the pending future is
+     * completed immediately with this item; otherwise the item is buffered.
+     */
+    synchronized void put(T item) {
+        if (pending != null) {
+            LDAwaitFuture<T> p = pending;
+            pending = null;
+            p.set(item);
+        } else {
+            items.add(item);
+        }
+    }
+
+    /**
+     * Returns a future that completes with the next available item. If an item is already
+     * buffered, the returned future is immediately done. Otherwise the future will complete
+     * when the next {@link #put(Object)} call arrives.
+     */
+    synchronized java.util.concurrent.Future<T> take() {
+        if (!items.isEmpty()) {
+            LDAwaitFuture<T> result = new LDAwaitFuture<>();
+            result.set(items.poll());
+            return result;
+        }
+        if (pending == null) {
+            pending = new LDAwaitFuture<>();
+        }
+        return pending;
+    }
+}

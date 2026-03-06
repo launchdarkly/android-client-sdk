@@ -57,6 +57,11 @@ final class FDv2DataSource implements DataSource {
     private final Object startResultLock = new Object();
     private final List<Callback<Boolean>> pendingStartCallbacks = new ArrayList<>();
 
+    /**
+     * Convenience constructor using default fallback and recovery timeouts.
+     * See {@link #FDv2DataSource(LDContext, List, List, DataSourceUpdateSinkV2,
+     * ScheduledExecutorService, LDLogger, long, long)} for parameter documentation.
+     */
     FDv2DataSource(
             @NonNull LDContext evaluationContext,
             @NonNull List<DataSourceFactory<Initializer>> initializers,
@@ -70,6 +75,19 @@ final class FDv2DataSource implements DataSource {
                 FDv2DataSourceConditions.DEFAULT_RECOVERY_TIMEOUT_SECONDS);
     }
 
+    /**
+     * @param evaluationContext    the context to evaluate flags for
+     * @param initializers         factories for one-shot initializers, tried in order
+     * @param synchronizers        factories for recurring synchronizers, tried in order
+     * @param dataSourceUpdateSink sink to apply changesets and status updates to
+     * @param sharedExecutor       executor used for internal background tasks; must have at least
+     *                             2 threads
+     * @param logger               logger
+     * @param fallbackTimeoutSeconds  seconds of INTERRUPTED state before falling back to the
+     *                                next synchronizer
+     * @param recoveryTimeoutSeconds  seconds before attempting to recover to the primary
+     *                                synchronizer
+     */
     FDv2DataSource(
             @NonNull LDContext evaluationContext,
             @NonNull List<DataSourceFactory<Initializer>> initializers,
@@ -120,7 +138,7 @@ final class FDv2DataSource implements DataSource {
         // race with a concurrent stop() and could undo it, causing a spurious OFF/exhaustion report.
         LDContext context = evaluationContext;
 
-        new Thread(() -> {
+        sharedExecutor.execute(() -> {
             try {
                 if (!sourceManager.hasAvailableSources()) {
                     logger.info("No initializers or synchronizers; data source will not connect.");
@@ -148,7 +166,7 @@ final class FDv2DataSource implements DataSource {
                 logger.warn("FDv2DataSource error: {}", t.toString());
                 tryCompleteStart(false, t);
             }
-        }, "LaunchDarkly-FDv2DataSource").start();
+        });
     }
 
     /**

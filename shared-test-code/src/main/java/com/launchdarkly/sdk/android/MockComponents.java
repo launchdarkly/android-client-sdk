@@ -86,6 +86,7 @@ public abstract class MockComponents {
         /** Full ordered history of every {@link #setStatus(DataSourceState, Throwable)} call. */
         public final List<StatusEvent> statusEvents = new CopyOnWriteArrayList<>();
 
+        @NonNull
         private volatile Selector lastSelector = Selector.EMPTY;
 
         private final BlockingQueue<ChangeSet<Map<String, DataModel.Flag>>> applyQueue = new LinkedBlockingQueue<>();

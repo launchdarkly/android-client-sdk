@@ -83,6 +83,7 @@ ext.versions = [
     "launchdarklyJavaSdkInternal": "1.9.0",
     "launchdarklyLogging": "1.1.1",
     "okhttp": "4.12.0",
+    "testHelpers": "2.1.0",
     "timber": "5.0.1",
 ]
 
@@ -105,6 +106,7 @@ dependencies {
 
     testImplementation("junit:junit:${versions.junit}")
     testImplementation("org.easymock:easymock:4.3")
+    testImplementation("com.launchdarkly:test-helpers:${versions.testHelpers}")
     testImplementation(project(":shared-test-code"))
 
     androidTestImplementation("junit:junit:${versions.junit}")
