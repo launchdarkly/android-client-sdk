@@ -4,10 +4,17 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import com.launchdarkly.eventsource.EventHandler;
+import com.launchdarkly.eventsource.ConnectStrategy;
+import com.launchdarkly.eventsource.ErrorStrategy;
 import com.launchdarkly.eventsource.EventSource;
+import com.launchdarkly.eventsource.FaultEvent;
+import com.launchdarkly.eventsource.HttpConnectStrategy;
 import com.launchdarkly.eventsource.MessageEvent;
-import com.launchdarkly.eventsource.UnsuccessfulResponseException;
+import com.launchdarkly.eventsource.RetryDelayStrategy;
+import com.launchdarkly.eventsource.StreamClosedByCallerException;
+import com.launchdarkly.eventsource.StreamEvent;
+import com.launchdarkly.eventsource.StreamException;
+import com.launchdarkly.eventsource.StreamHttpErrorException;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.DataModel.Flag;
@@ -23,8 +30,6 @@ import com.launchdarkly.sdk.internal.fdv2.sources.FDv2ProtocolHandler;
 import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 import com.launchdarkly.sdk.json.JsonSerialization;
-import com.launchdarkly.sdk.json.SerializationException;
-
 import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
@@ -40,23 +45,11 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
 /**
  * FDv2 streaming synchronizer for the Android client SDK.
  * <p>
- * Maintains a long-lived SSE connection using the Android EventSource library (callback-based
- * API). Incoming SSE events are processed through {@link FDv2ProtocolHandler}; CHANGESET
- * actions are translated via {@link FDv2ChangeSetTranslator} and delivered as
- * {@link FDv2SourceResult} values through {@link #next()}.
+ * Maintains a long-lived SSE connection using the {@link EventSource} API.
  * <p>
  * If an optional {@link FDv2Requestor} is supplied, {@code ping} SSE events are handled by
  * issuing a poll request. If no requestor is supplied, {@code ping} events are ignored.
  * <p>
- * On GOODBYE the stream is restarted: the EventSource is closed and a new one is created on
- * the next {@link #next()} call, so the server can send a fresh payload. Non-recoverable HTTP
- * errors (e.g. 401) deliver a TERMINAL_ERROR that completes the shutdown future, preventing
- * further reconnects and signalling the orchestrator to move on.
- * <p>
- * Thread safety: EventSource callbacks run on the EventSource's internal thread. {@link #next()}
- * and {@link #close()} may be called from the FDv2DataSource orchestrator thread. Shared mutable
- * state is guarded either by {@link #closeLock} (for start/close/restart lifecycle) or by
- * being volatile ({@code eventSource}, {@code streamStarted}).
  */
 final class FDv2StreamingSynchronizer implements Synchronizer {
     private static final String METHOD_REPORT = "REPORT";
@@ -81,11 +74,10 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
     private final LDAsyncQueue<FDv2SourceResult> resultQueue = new LDAsyncQueue<>();
     private final LDAwaitFuture<FDv2SourceResult> shutdownFuture = new LDAwaitFuture<>();
-    // started: true once startStream() has been called; reset to false on restart so the
-    // next next() call creates a new EventSource.
     private final AtomicBoolean started = new AtomicBoolean(false);
+    private final FDv2ProtocolHandler protocolHandler = new FDv2ProtocolHandler();
 
-    // closeLock guards: closed, eventSource, and started.set(false) in restartStream.
+    // closeLock guards: closed and the eventSource assignment in startStream.
     private final Object closeLock = new Object();
     private boolean closed = false;
     private volatile EventSource eventSource;
@@ -101,8 +93,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
      * @param evaluationReasons           true to request evaluation reasons in the stream
      * @param useReport                    true to use HTTP REPORT for the request body
      * @param httpProperties               HTTP configuration for the stream request
-     * @param executor                     executor used for closing the EventSource when restarting the
-     *                                     stream; closing must not run on the EventSource callback thread
+     * @param executor                     executor used to run the streaming loop on a background
+     *                                     thread; should use background-priority threads
      * @param logger                       logger
      * @param diagnosticStore              optional store for stream diagnostics; may be null
      */
@@ -136,9 +128,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
     @Override
     public Future<FDv2SourceResult> next() {
-        // Check outside of closeLock to avoid holding it during startStream().
-        // startStream() itself holds closeLock only while assigning eventSource, so the
-        // window is short. See restartStream() for why started may be reset to false.
         boolean shouldStart;
         synchronized (closeLock) {
             shouldStart = !closed && !started.getAndSet(true);
@@ -173,93 +162,82 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     }
 
     private void startStream() {
-        FDv2ProtocolHandler handler = new FDv2ProtocolHandler();
+        HttpConnectStrategy connectStrategy = ConnectStrategy.http(getStreamUri())
+                .clientBuilderActions(clientBuilder -> {
+                    httpProperties.applyToHttpClientBuilder(clientBuilder);
+                    clientBuilder.readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                })
+                .requestTransformer(request -> {
+                    Selector selector = selectorSource.getSelector();
+                    URI currentUri = request.url().uri();
+                    URI updatedUri = currentUri;
 
-        EventHandler eventHandler = new EventHandler() {
-            @Override
-            public void onOpen() {
-                logger.info("Connected to FDv2 stream");
-                long start = streamStarted;
-                if (diagnosticStore != null && start != 0) {
-                    diagnosticStore.recordStreamInit(start,
-                            (int) (System.currentTimeMillis() - start), false);
-                    streamStarted = 0;
-                }
-            }
+                    if (!selector.isEmpty()) {
+                        updatedUri = HttpHelpers.addQueryParam(updatedUri, "basis", selector.getState());
+                    }
 
-            @Override
-            public void onClosed() {
-                logger.debug("FDv2 stream closed");
-            }
+                    okhttp3.Request.Builder reqBuilder = request.newBuilder()
+                            .headers(request.headers().newBuilder()
+                                    .addAll(httpProperties.toHeadersBuilder().build())
+                                    .build());
 
-            @Override
-            public void onMessage(String name, MessageEvent event) {
-                logger.debug("FDv2 stream event: {}", name);
-                handleSseMessage(name, event.getData(), handler);
-            }
-
-            @Override
-            public void onComment(String comment) {
-                // heartbeat — no action needed
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                handleSseError(t);
-            }
-        };
-
-        EventSource.Builder builder = new EventSource.Builder(eventHandler, getStreamUri());
-        builder.reconnectTime(initialReconnectDelayMillis, TimeUnit.MILLISECONDS);
-        builder.maxReconnectTime(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
-
-        builder.clientBuilderActions(clientBuilder -> {
-            httpProperties.applyToHttpClientBuilder(clientBuilder);
-            clientBuilder.readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-        });
-
-        // Inject headers and selector (basis) query param on each (re)connection.
-        builder.requestTransformer(request -> {
-            Selector selector = selectorSource.getSelector();
-            URI currentUri = request.url().uri();
-            URI updatedUri = currentUri;
-
-            if (!selector.isEmpty()) {
-                updatedUri = HttpHelpers.addQueryParam(updatedUri, "basis", selector.getState());
-            }
-
-            okhttp3.Request.Builder reqBuilder = request.newBuilder()
-                    .headers(request.headers().newBuilder()
-                            .addAll(httpProperties.toHeadersBuilder().build())
-                            .build());
-
-            if (!updatedUri.equals(currentUri)) {
-                reqBuilder.url(updatedUri.toString());
-            }
-            return reqBuilder.build();
-        });
+                    if (!updatedUri.equals(currentUri)) {
+                        reqBuilder.url(updatedUri.toString());
+                    }
+                    return reqBuilder.build();
+                });
 
         if (useReport) {
-            builder.method(METHOD_REPORT);
-            builder.body(RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON));
+            connectStrategy = connectStrategy.methodAndBody(
+                    METHOD_REPORT,
+                    RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON));
         }
 
-        EventSource es = builder.build();
+        EventSource es = new EventSource.Builder(connectStrategy)
+                .retryDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
+                .retryDelayStrategy(RetryDelayStrategy.defaultStrategy()
+                        .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS))
+                .errorStrategy(ErrorStrategy.alwaysContinue())
+                .build();
 
         synchronized (closeLock) {
             if (closed) {
-                // close() was called before we could start; discard the EventSource so its
-                // OkHttp client is not leaked.
                 es.close();
                 return;
             }
             eventSource = es;
-            // Start inside the lock so close() cannot close es between the assignment above
-            // and the start() call below.  es.start() is non-blocking (spawns a thread) so
-            // holding closeLock here is safe.
-            streamStarted = System.currentTimeMillis();
-            es.start();
         }
+
+        executor.execute(() -> {
+            streamStarted = System.currentTimeMillis();
+            try {
+                for (StreamEvent event : es.anyEvents()) {
+                    if (closed) {
+                        break;
+                    }
+                    if (event instanceof MessageEvent) {
+                        handleMessage((MessageEvent) event);
+                    } else if (event instanceof FaultEvent) {
+                        handleError((FaultEvent) event);
+                    }
+                    // CommentEvent (SSE comment/heartbeat line) — no action needed
+                }
+            } catch (Exception e) {
+                synchronized (closeLock) {
+                    if (closed) {
+                        return;
+                    }
+                }
+                LDUtil.logExceptionAtErrorLevel(logger, e, "Stream thread ended with unexpected exception");
+                recordStreamInit(true);
+                resultQueue.put(FDv2SourceResult.status(
+                        FDv2SourceResult.Status.interrupted(
+                                new LDFailure("Stream thread ended unexpectedly", e,
+                                        LDFailure.FailureType.UNKNOWN_ERROR))));
+            } finally {
+                es.close();
+            }
+        });
     }
 
     private URI getStreamUri() {
@@ -273,8 +251,19 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         return uri;
     }
 
+    private void recordStreamInit(boolean failed) {
+        long start = streamStarted;
+        if (diagnosticStore != null && start != 0) {
+            diagnosticStore.recordStreamInit(start, System.currentTimeMillis() - start, failed);
+        }
+    }
+
     @VisibleForTesting
-    void handleSseMessage(String eventName, String eventData, FDv2ProtocolHandler handler) {
+    void handleMessage(MessageEvent event) {
+        String eventName = event.getEventName();
+        String eventData = event.getData();
+        logger.debug("onMessage: {}: {}", eventName, eventData);
+
         if (PING.equalsIgnoreCase(eventName)) {
             handlePing();
             return;
@@ -285,10 +274,10 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             fdv2Event = new FDv2Event(eventName,
                     GsonHelpers.gsonInstance().fromJson(eventData, com.google.gson.JsonElement.class));
         } catch (Exception e) {
-            logger.error("Failed to parse FDv2 SSE event '{}': {}", eventName, e.toString());
+            LDUtil.logExceptionAtErrorLevel(logger, e, "Failed to parse SSE event '{}'", eventName);
             resultQueue.put(FDv2SourceResult.status(
                     FDv2SourceResult.Status.interrupted(
-                            new LDFailure("Failed to parse FDv2 SSE event", e,
+                            new LDFailure("Failed to parse SSE event", e,
                                     LDFailure.FailureType.INVALID_RESPONSE_BODY))));
             restartStream(true);
             return;
@@ -296,12 +285,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
         FDv2ProtocolHandler.IFDv2ProtocolAction action;
         try {
-            action = handler.handleEvent(fdv2Event);
+            action = protocolHandler.handleEvent(fdv2Event);
         } catch (Exception e) {
-            logger.error("FDv2 protocol handler error for event '{}': {}", eventName, e.toString());
+            LDUtil.logExceptionAtErrorLevel(logger, e, "Protocol handler error for event '{}'", eventName);
             resultQueue.put(FDv2SourceResult.status(
                     FDv2SourceResult.Status.interrupted(
-                            new LDFailure("FDv2 protocol handler error", e,
+                            new LDFailure("Protocol handler error", e,
                                     LDFailure.FailureType.INVALID_RESPONSE_BODY))));
             restartStream(true);
             return;
@@ -313,19 +302,20 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 try {
                     ChangeSet<Map<String, Flag>> changeSet =
                             FDv2ChangeSetTranslator.toChangeSet(raw, logger);
+                    recordStreamInit(false);
+                    streamStarted = 0;
                     resultQueue.put(FDv2SourceResult.changeSet(changeSet));
-                } catch (SerializationException e) {
-                    logger.error("Failed to translate FDv2 changeset: {}", e.toString());
-                    resultQueue.put(FDv2SourceResult.status(
-                            FDv2SourceResult.Status.interrupted(
-                                    new LDFailure("Failed to translate FDv2 changeset", e,
-                                            LDFailure.FailureType.INVALID_RESPONSE_BODY))));
+                } catch (Exception e) {
+                    LDUtil.logExceptionAtErrorLevel(logger, e, "Failed to translate changeset");
+                    FDv2SourceResult result = FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(
+                        new LDFailure("Failed to translate changeset", e,
+                                LDFailure.FailureType.INVALID_RESPONSE_BODY)));
+                    resultQueue.put(result);
                     restartStream(true);
                 }
                 break;
             }
             case ERROR: {
-                // Server-side error event: log and remain connected; no result queued.
                 FDv2ProtocolHandler.FDv2ActionError error =
                         (FDv2ProtocolHandler.FDv2ActionError) action;
                 logger.error("Received FDv2 error from server: {} - {}",
@@ -334,10 +324,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             }
             case GOODBYE: {
                 String reason = ((FDv2ProtocolHandler.FDv2ActionGoodbye) action).getReason();
-                logger.info("FDv2 stream received GOODBYE with reason: '{}'", reason);
+                logger.info("Stream received GOODBYE with reason: '{}'", reason);
                 resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason)));
-                // Restart so the next next() call establishes a new connection with the
-                // current selector, potentially receiving an incremental changeset.
                 restartStream(false);
                 break;
             }
@@ -350,106 +338,93 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                         FDv2SourceResult.Status.interrupted(
                                 new LDFailure("FDv2 protocol internal error: " + internalError.getMessage(),
                                         LDFailure.FailureType.INVALID_RESPONSE_BODY))));
-                restartStream(true);
+                // Only restart for invalid-data errors (bad payload or JSON); for unknown events
+                // or protocol sequence violations the stream may still be healthy.
+                FDv2ProtocolHandler.FDv2ProtocolErrorType errorType = internalError.getErrorType();
+                if (errorType == FDv2ProtocolHandler.FDv2ProtocolErrorType.MISSING_PAYLOAD ||
+                        errorType == FDv2ProtocolHandler.FDv2ProtocolErrorType.JSON_ERROR) {
+                    restartStream(true);
+                }
                 break;
             }
             case NONE:
-                // heartbeat / server-intent with no immediate action
                 break;
         }
     }
 
     /**
      * Handles a {@code ping} SSE event by issuing a poll request synchronously on the calling
-     * (EventSource delivery) thread. Blocking the delivery thread prevents any subsequent stream
-     * events from being processed until the poll response has been enqueued, which ensures
-     * ordering and prevents concurrent in-flight requests. Response processing is delegated to
-     * {@link FDv2PollingBase#doPoll(FDv2Requestor, LDLogger, Selector, boolean)} with
-     * {@code oneShot=false} so errors map to INTERRUPTED rather than TERMINAL_ERROR.
-     * If no requestor was supplied at construction, the event is silently ignored.
+     * (streaming) thread. Blocking the streaming thread prevents any subsequent stream events
+     * from being processed until the poll response has been enqueued, which ensures ordering
+     * and prevents concurrent in-flight requests. If no requestor was supplied at construction,
+     * the event is silently ignored.
      */
     private void handlePing() {
         if (requestor == null) {
-            logger.debug("FDv2 stream received ping but no requestor configured; ignoring");
+            logger.debug("Stream received ping but no requestor configured; ignoring");
             return;
         }
-        logger.debug("FDv2 stream received ping; fetching payload via poll");
+        logger.debug("Stream received ping; fetching payload via poll");
         FDv2SourceResult result = FDv2PollingBase.doPoll(requestor, logger, selectorSource.getSelector(), false);
         resultQueue.put(result);
     }
 
-    private void handleSseError(Throwable t) {
-        if (t instanceof UnsuccessfulResponseException) {
-            int code = ((UnsuccessfulResponseException) t).getCode();
+    private void handleError(FaultEvent event) {
+        StreamException t = event.getCause();
+        if (t instanceof StreamClosedByCallerException) {
+            return;
+        }
+
+        recordStreamInit(true);
+
+        if (t instanceof StreamHttpErrorException) {
+            int code = ((StreamHttpErrorException) t).getCode();
             boolean recoverable = LDUtil.isHttpErrorRecoverable(code);
             LDFailure failure = new LDInvalidResponseCodeFailure(
-                    "Unexpected response code from FDv2 stream", t, code, recoverable);
-
-            if (diagnosticStore != null) {
-                long start = streamStarted;
-                if (start != 0) {
-                    diagnosticStore.recordStreamInit(start,
-                            (int) (System.currentTimeMillis() - start), true);
-                }
-            }
+                    "Unexpected response code from stream", t, code, recoverable);
 
             if (!recoverable) {
-                logger.error("FDv2 stream received non-recoverable HTTP error: {}", code);
-                // TERMINAL_ERROR on shutdownFuture ensures all current and future next() calls
-                // return immediately without waiting for the queue.
-                // The orchestrator (FDv2DataSource) is responsible for calling shutDown() on the
-                // sink if the terminal error is due to an auth failure.
+                logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                 shutdownFuture.set(FDv2SourceResult.status(
                         FDv2SourceResult.Status.terminalError(failure)));
+                if (eventSource != null) {
+                    eventSource.close();
+                }
             } else {
-                logger.warn("FDv2 stream received HTTP error {}; will retry", code);
+                logger.warn("Stream received HTTP error {}; will retry", code);
                 streamStarted = System.currentTimeMillis();
                 resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure)));
             }
         } else {
-            LDUtil.logExceptionAtWarnLevel(logger, t, "FDv2 stream network error");
+            LDUtil.logExceptionAtWarnLevel(logger, t, "Stream network error");
             streamStarted = System.currentTimeMillis();
             resultQueue.put(FDv2SourceResult.status(
                     FDv2SourceResult.Status.interrupted(
-                            new LDFailure("FDv2 stream network error", t,
+                            new LDFailure("Stream network error", t,
                                     LDFailure.FailureType.NETWORK_FAILURE))));
         }
     }
 
     /**
-     * Closes the current EventSource and resets state so the next {@link #next()} call starts
-     * a fresh connection. The protocol handler is reset to the INACTIVE state so the new
-     * connection can receive a new server-intent sequence.
-     * <p>
-     * Called from within the EventSource callback thread; the actual close happens in a
-     * background thread to avoid blocking the callback.
+     * Interrupts the current connection so the EventSource reconnects immediately on the
+     * streaming thread, and resets the diagnostic timer for the new connection attempt.
+     * {@link EventSource#interrupt()} is safe to call from the streaming thread itself.
      *
      * @param failed true if the restart is due to an error (for diagnostic recording)
      */
     private void restartStream(boolean failed) {
-        long start = streamStarted;
-        if (diagnosticStore != null && start != 0) {
-            diagnosticStore.recordStreamInit(start,
-                    (int) (System.currentTimeMillis() - start), failed);
-        }
+        recordStreamInit(failed);
         streamStarted = System.currentTimeMillis();
 
-        EventSource esToClose;
         synchronized (closeLock) {
             if (closed) {
                 return;
             }
-            esToClose = eventSource;
-            eventSource = null;
-            // Reset started so the next next() call creates a new EventSource.
-            started.set(false);
         }
 
-        if (esToClose != null) {
-            // Close via executor to avoid blocking or deadlocking the EventSource callback
-            // thread (restartStream is invoked from handleSseMessage on that thread).
-            EventSource toClose = esToClose;
-            executor.execute(toClose::close);
+        if (eventSource != null) {
+            eventSource.interrupt();
         }
+        protocolHandler.reset();
     }
 }

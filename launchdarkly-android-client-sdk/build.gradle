@@ -74,7 +74,7 @@ ext {}
 ext.versions = [
     "androidAnnotation": "1.2.0",
     "androidAppcompat": "1.1.0",
-    "eventsource": "3.0.0",
+    "eventsource": "4.2.0",
     "gson": "2.13.2",
     "jacksonCore": "2.10.5",
     "jacksonDatabind": "2.10.5.1",

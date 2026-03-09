@@ -138,8 +138,11 @@ public abstract class MockComponents {
             statusUpdates.offer(state);
         }
 
+        public volatile boolean shutDownCalled = false;
+
         @Override
         public void shutDown() {
+            shutDownCalled = true;
         }
 
         /** Returns the total number of apply calls received. */

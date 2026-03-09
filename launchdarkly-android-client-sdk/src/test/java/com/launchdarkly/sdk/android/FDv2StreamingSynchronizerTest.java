@@ -13,6 +13,7 @@ import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
+import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
@@ -20,7 +21,8 @@ import org.junit.rules.Timeout;
 import java.io.IOException;
 import java.net.URI;
 import java.util.HashMap;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -36,10 +38,16 @@ public class FDv2StreamingSynchronizerTest {
     @Rule
     public Timeout globalTimeout = Timeout.seconds(10);
 
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+
+    @After
+    public void tearDown() {
+        executor.shutdownNow();
+    }
+
     private static final LDContext CONTEXT = LDContext.create("test-context");
     private static final LDLogger LOGGER = LDLogger.none();
     private static final SelectorSource EMPTY_SELECTOR_SOURCE = () -> Selector.EMPTY;
-    private static final Executor SAME_THREAD_EXECUTOR = Runnable::run;
 
     // Bogus paths used by tests — deliberately not the real production paths.
     private static final String STREAM_PATH = "/fake-stream";
@@ -55,17 +63,17 @@ public class FDv2StreamingSynchronizerTest {
                 null, null);
     }
 
-    private static FDv2StreamingSynchronizer makeSynchronizer(URI streamBaseUri, Executor executor) {
-        return makeSynchronizer(streamBaseUri, executor, EMPTY_SELECTOR_SOURCE, null);
+    private FDv2StreamingSynchronizer makeSynchronizer(URI streamBaseUri) {
+        return makeSynchronizer(streamBaseUri, EMPTY_SELECTOR_SOURCE, null);
     }
 
-    private static FDv2StreamingSynchronizer makeSynchronizer(
-            URI streamBaseUri, Executor executor, SelectorSource selectorSource) {
-        return makeSynchronizer(streamBaseUri, executor, selectorSource, null);
+    private FDv2StreamingSynchronizer makeSynchronizer(
+            URI streamBaseUri, SelectorSource selectorSource) {
+        return makeSynchronizer(streamBaseUri, selectorSource, null);
     }
 
-    private static FDv2StreamingSynchronizer makeSynchronizer(
-            URI streamBaseUri, Executor executor, SelectorSource selectorSource,
+    private FDv2StreamingSynchronizer makeSynchronizer(
+            URI streamBaseUri, SelectorSource selectorSource,
             DiagnosticStore diagnosticStore) {
         return new FDv2StreamingSynchronizer(
                 CONTEXT,
@@ -82,8 +90,8 @@ public class FDv2StreamingSynchronizerTest {
                 diagnosticStore);
     }
 
-    private static FDv2StreamingSynchronizer makeSynchronizer(
-            URI streamBaseUri, Executor executor,
+    private FDv2StreamingSynchronizer makeSynchronizer(
+            URI streamBaseUri,
             boolean evaluationReasons, boolean useReport) {
         return new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
@@ -107,13 +115,13 @@ public class FDv2StreamingSynchronizerTest {
 
     @Test
     public void closeBeforeAnyNext_succeeds() {
-        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:9999/"), SAME_THREAD_EXECUTOR);
+        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:9999/"));
         sync.close();
     }
 
     @Test
     public void closeIdempotent() {
-        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:9999/"), SAME_THREAD_EXECUTOR);
+        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:9999/"));
         sync.close();
         sync.close();
     }
@@ -121,7 +129,7 @@ public class FDv2StreamingSynchronizerTest {
     @Test
     public void closeCalledMultipleTimes() throws Exception {
         // Close multiple times before calling next(); next() should still return SHUTDOWN
-        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:9999/"), SAME_THREAD_EXECUTOR);
+        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:9999/"));
         sync.close();
         sync.close();
         sync.close();
@@ -138,7 +146,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.start(),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> future = sync.next();
             sync.close();
@@ -162,7 +170,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -192,7 +200,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred2),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> result1Future = sync.next();
             FDv2SourceResult result1 = result1Future.get(5, TimeUnit.SECONDS);
@@ -229,7 +237,7 @@ public class FDv2StreamingSynchronizerTest {
                         Handlers.SSE.event(payloadTransferred),
                         Handlers.SSE.leaveOpen())))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> result1Future = sync.next();
             FDv2SourceResult result1 = result1Future.get(5, TimeUnit.SECONDS);
@@ -265,7 +273,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -291,7 +299,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -309,7 +317,7 @@ public class FDv2StreamingSynchronizerTest {
     @Test
     public void httpNonRecoverableError() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(401))) {
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -325,7 +333,7 @@ public class FDv2StreamingSynchronizerTest {
     @Test
     public void httpRecoverableError() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(503))) {
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -340,7 +348,7 @@ public class FDv2StreamingSynchronizerTest {
 
     @Test
     public void networkError() throws Exception {
-        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:1"), SAME_THREAD_EXECUTOR);
+        FDv2StreamingSynchronizer sync = makeSynchronizer(URI.create("http://localhost:1"));
 
         Future<FDv2SourceResult> resultFuture = sync.next();
         FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -360,7 +368,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(badEvent),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -381,7 +389,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(badEventStructure),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -404,7 +412,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -433,7 +441,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -460,7 +468,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             SelectorSource selectorSource = () -> Selector.make(50, "(p:old:50)");
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR, selectorSource);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), selectorSource);
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -489,7 +497,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             // EMPTY_SELECTOR_SOURCE returns Selector.EMPTY which isEmpty() == true
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             resultFuture.get(5, TimeUnit.SECONDS);
@@ -530,7 +538,7 @@ public class FDv2StreamingSynchronizerTest {
                         : Selector.make(100, "(p:new:100)");
             };
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR, selectorSource);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), selectorSource);
 
             // First result: INTERRUPTED from the 503
             Future<FDv2SourceResult> result1Future = sync.next();
@@ -575,7 +583,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             // null diagnosticStore is the default in makeSynchronizer; verify it doesn't throw
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -602,7 +610,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -641,7 +649,7 @@ public class FDv2StreamingSynchronizerTest {
                         Handlers.SSE.leaveOpen())))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             // First result: error
             Future<FDv2SourceResult> result1Future = sync.next();
@@ -696,7 +704,7 @@ public class FDv2StreamingSynchronizerTest {
                         Handlers.SSE.leaveOpen())))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             // First changeset
             Future<FDv2SourceResult> result1Future = sync.next();
@@ -757,7 +765,7 @@ public class FDv2StreamingSynchronizerTest {
                         Handlers.SSE.leaveOpen())))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             FDv2SourceResult r1 = sync.next().get(5, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, r1.getResultType());
@@ -807,7 +815,7 @@ public class FDv2StreamingSynchronizerTest {
                         Handlers.SSE.leaveOpen())))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             // First result: interrupted due to invalid data
             Future<FDv2SourceResult> result1Future = sync.next();
@@ -823,12 +831,8 @@ public class FDv2StreamingSynchronizerTest {
             LDValue event = diagnosticStore.createEventAndReset(0, 0).getJsonValue();
             LDValue streamInits = event.get("streamInits");
             assertEquals(2, streamInits.size());
-            // Android records streamInit in onOpen (when the connection is established), before any
-            // events are processed. By the time the invalid event triggers restartStream(true),
-            // onOpen has already cleared streamStarted to 0, so no failed record is written.
-            // Both inits are therefore recorded as successful (the failure is surfaced via
-            // the INTERRUPTED result, not the diagnostic store).
-            assertFalse(streamInits.get(0).get("failed").booleanValue());
+            assertTrue("Invalid data restart should record a failed stream init",
+                    streamInits.get(0).get("failed").booleanValue());
             assertFalse(streamInits.get(1).get("failed").booleanValue());
 
             sync.close();
@@ -854,7 +858,7 @@ public class FDv2StreamingSynchronizerTest {
                         Handlers.SSE.leaveOpen())))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             // First error
             FDv2SourceResult result1 = sync.next().get(5, TimeUnit.SECONDS);
@@ -916,7 +920,7 @@ public class FDv2StreamingSynchronizerTest {
                         Handlers.SSE.leaveOpen())))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             // First successful changeset
             FDv2SourceResult result1 = sync.next().get(5, TimeUnit.SECONDS);
@@ -961,7 +965,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             sync.next().get(5, TimeUnit.SECONDS);
 
@@ -985,7 +989,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR,
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(),
                     true /* evaluationReasons */, false);
 
             sync.next().get(5, TimeUnit.SECONDS);
@@ -1009,7 +1013,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.event(payloadTransferred),
                 Handlers.SSE.leaveOpen()))) {
 
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR,
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(),
                     false, true /* useReport */);
 
             Future<FDv2SourceResult> resultFuture = sync.next();
@@ -1047,7 +1051,7 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             // Default makeSynchronizer uses null requestor
-            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), SAME_THREAD_EXECUTOR);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -1080,7 +1084,7 @@ public class FDv2StreamingSynchronizerTest {
             FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
                     CONTEXT, EMPTY_SELECTOR_SOURCE, streamServer.getUri(), STREAM_PATH,
                     requestor, 100, false, false,
-                    httpProperties(), SAME_THREAD_EXECUTOR, LOGGER, null);
+                    httpProperties(), executor, LOGGER, null);
 
             try {
                 Future<FDv2SourceResult> resultFuture = sync.next();
@@ -1120,7 +1124,7 @@ public class FDv2StreamingSynchronizerTest {
         FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, URI.create("http://localhost:9999/"), STREAM_PATH,
                 trackingRequestor, 100, false, false,
-                httpProperties(), SAME_THREAD_EXECUTOR, LOGGER, null);
+                httpProperties(), executor, LOGGER, null);
 
         assertFalse(requestorClosed.get());
         sync.close();
@@ -1136,7 +1140,7 @@ public class FDv2StreamingSynchronizerTest {
 
         try (HttpServer server = HttpServer.start(Handlers.status(401))) {
             FDv2StreamingSynchronizer sync = makeSynchronizer(
-                    server.getUri(), SAME_THREAD_EXECUTOR, EMPTY_SELECTOR_SOURCE, diagnosticStore);
+                    server.getUri(), EMPTY_SELECTOR_SOURCE, diagnosticStore);
 
             FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
             assertEquals(SourceResultType.STATUS, result.getResultType());
