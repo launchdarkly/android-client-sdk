@@ -1,15 +1,25 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
+import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
+import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.http.HttpProperties;
 
+import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
@@ -18,20 +28,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
- * Builds a mode-aware {@link FDv2DataSource} from a {@link ModeDefinition} table.
+ * Builds a mode-aware {@link FDv2DataSource} from either a custom {@link ModeDefinition} table
+ * or the built-in default mode definitions.
  * <p>
- * At build time, each {@link ComponentConfigurer} in the mode table is resolved into a
- * {@link FDv2DataSource.DataSourceFactory} by partially applying the {@link ClientContext}:
- * <pre>{@code
- * DataSourceFactory<T> factory = () -> configurer.build(clientContext);
- * }</pre>
- * This bridges the SDK's {@link ComponentConfigurer} pattern (used in the mode table) with
- * the {@link FDv2DataSource.DataSourceFactory} pattern (used inside {@link FDv2DataSource}).
+ * When no custom table is supplied, the builder creates concrete {@link FDv2PollingInitializer},
+ * {@link FDv2PollingSynchronizer}, and {@link FDv2StreamingSynchronizer} factories using
+ * dependencies extracted from the {@link ClientContext}. Shared dependencies (executor,
+ * {@link SelectorSource}) are created once and captured by all factory closures. Each factory
+ * call creates fresh instances of requestors and concrete sources to ensure proper lifecycle
+ * management.
  * <p>
- * The configurers in {@link ModeDefinition#DEFAULT_MODE_TABLE} are currently stubbed. A
- * subsequent commit will replace them with real implementations that create
- * {@link FDv2PollingInitializer}, {@link FDv2PollingSynchronizer},
- * {@link FDv2StreamingSynchronizer}, etc.
+ * When a custom table is supplied (for testing), each {@link ComponentConfigurer} is resolved
+ * into a {@link FDv2DataSource.DataSourceFactory} by partially applying the
+ * {@link ClientContext}.
  * <p>
  * Package-private — not part of the public SDK API.
  *
@@ -40,41 +49,49 @@ import java.util.concurrent.ScheduledExecutorService;
  */
 final class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
 
+    @Nullable
     private final Map<ConnectionMode, ModeDefinition> modeTable;
     private final ConnectionMode startingMode;
 
     /**
-     * Creates a builder using the {@link ModeDefinition#DEFAULT_MODE_TABLE} and
+     * Creates a builder using the built-in default mode definitions and
      * {@link ConnectionMode#STREAMING} as the starting mode.
      */
     FDv2DataSourceBuilder() {
-        this(ModeDefinition.DEFAULT_MODE_TABLE, ConnectionMode.STREAMING);
+        this(null, ConnectionMode.STREAMING);
     }
 
     /**
-     * @param modeTable    the mode definitions to resolve at build time
+     * @param modeTable    custom mode definitions to resolve at build time, or {@code null}
+     *                     to use the built-in defaults
      * @param startingMode the initial connection mode for the data source
      */
     FDv2DataSourceBuilder(
-            @NonNull Map<ConnectionMode, ModeDefinition> modeTable,
+            @Nullable Map<ConnectionMode, ModeDefinition> modeTable,
             @NonNull ConnectionMode startingMode
     ) {
-        this.modeTable = Collections.unmodifiableMap(new EnumMap<>(modeTable));
+        this.modeTable = modeTable != null
+                ? Collections.unmodifiableMap(new EnumMap<>(modeTable))
+                : null;
         this.startingMode = startingMode;
     }
 
     @Override
     public DataSource build(ClientContext clientContext) {
-        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> resolved =
-                resolveModeTable(clientContext);
-
-        DataSourceUpdateSinkV2 sinkV2 =
-                (DataSourceUpdateSinkV2) clientContext.getDataSourceUpdateSink();
-
         // TODO: executor lifecycle — FDv2DataSource does not shut down its executor.
         // In a future commit, this should be replaced with an executor obtained from
         // ClientContextImpl or managed by ConnectivityManager.
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
+
+        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> resolved;
+        if (modeTable != null) {
+            resolved = resolveCustomModeTable(clientContext);
+        } else {
+            resolved = buildDefaultModeTable(clientContext, executor);
+        }
+
+        DataSourceUpdateSinkV2 sinkV2 =
+                (DataSourceUpdateSinkV2) clientContext.getDataSourceUpdateSink();
 
         return new FDv2DataSource(
                 clientContext.getEvaluationContext(),
@@ -87,11 +104,95 @@ final class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
     }
 
     /**
-     * Resolves every {@link ComponentConfigurer} in the mode table into a
-     * {@link FDv2DataSource.DataSourceFactory} by capturing the {@code clientContext}.
-     * The actual component is not created until the factory's {@code build()} is called.
+     * Builds the default mode table with real factories. Shared dependencies are created
+     * once and captured by factory closures; each factory call creates fresh instances of
+     * requestors and concrete sources.
      */
-    private Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> resolveModeTable(
+    private Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> buildDefaultModeTable(
+            ClientContext clientContext,
+            ScheduledExecutorService executor
+    ) {
+        ClientContextImpl impl = ClientContextImpl.get(clientContext);
+        HttpProperties httpProperties = LDUtil.makeHttpProperties(clientContext);
+        LDContext evalContext = clientContext.getEvaluationContext();
+        LDLogger logger = clientContext.getBaseLogger();
+        boolean useReport = clientContext.getHttp().isUseReport();
+        boolean evaluationReasons = clientContext.isEvaluationReasons();
+        URI pollingBaseUri = clientContext.getServiceEndpoints().getPollingBaseUri();
+        URI streamingBaseUri = clientContext.getServiceEndpoints().getStreamingBaseUri();
+        DiagnosticStore diagnosticStore = impl.getDiagnosticStore();
+        TransactionalDataStore txnStore = impl.getTransactionalDataStore();
+        SelectorSource selectorSource = new SelectorSourceFacade(txnStore);
+
+        // Each factory creates a fresh requestor so that lifecycle (close/shutdown) is isolated
+        // per initializer/synchronizer instance.
+        FDv2DataSource.DataSourceFactory<Initializer> pollingInitFactory = () ->
+                new FDv2PollingInitializer(
+                        newRequestor(evalContext, pollingBaseUri, httpProperties,
+                                useReport, evaluationReasons, logger),
+                        selectorSource, executor, logger);
+
+        FDv2DataSource.DataSourceFactory<Synchronizer> streamingSyncFactory = () ->
+                new FDv2StreamingSynchronizer(
+                        httpProperties, streamingBaseUri,
+                        StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
+                        evalContext, useReport, evaluationReasons, selectorSource,
+                        newRequestor(evalContext, pollingBaseUri, httpProperties,
+                                useReport, evaluationReasons, logger),
+                        StreamingDataSourceBuilder.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS,
+                        diagnosticStore, logger);
+
+        FDv2DataSource.DataSourceFactory<Synchronizer> foregroundPollSyncFactory = () ->
+                new FDv2PollingSynchronizer(
+                        newRequestor(evalContext, pollingBaseUri, httpProperties,
+                                useReport, evaluationReasons, logger),
+                        selectorSource, executor,
+                        0, PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, logger);
+
+        FDv2DataSource.DataSourceFactory<Synchronizer> backgroundPollSyncFactory = () ->
+                new FDv2PollingSynchronizer(
+                        newRequestor(evalContext, pollingBaseUri, httpProperties,
+                                useReport, evaluationReasons, logger),
+                        selectorSource, executor,
+                        0, LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, logger);
+
+        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> resolved =
+                new EnumMap<>(ConnectionMode.class);
+
+        // STREAMING: poll once for initial data, then stream (with polling fallback)
+        resolved.put(ConnectionMode.STREAMING, new FDv2DataSource.ResolvedModeDefinition(
+                Collections.singletonList(pollingInitFactory),
+                Arrays.asList(streamingSyncFactory, foregroundPollSyncFactory)));
+
+        // POLLING: poll once for initial data, then poll periodically
+        resolved.put(ConnectionMode.POLLING, new FDv2DataSource.ResolvedModeDefinition(
+                Collections.singletonList(pollingInitFactory),
+                Collections.singletonList(foregroundPollSyncFactory)));
+
+        // OFFLINE: no network activity
+        resolved.put(ConnectionMode.OFFLINE, new FDv2DataSource.ResolvedModeDefinition(
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>emptyList()));
+
+        // ONE_SHOT: poll once, then stop
+        resolved.put(ConnectionMode.ONE_SHOT, new FDv2DataSource.ResolvedModeDefinition(
+                Collections.singletonList(pollingInitFactory),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>emptyList()));
+
+        // BACKGROUND: poll at reduced frequency (no re-initialization)
+        resolved.put(ConnectionMode.BACKGROUND, new FDv2DataSource.ResolvedModeDefinition(
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.singletonList(backgroundPollSyncFactory)));
+
+        return resolved;
+    }
+
+    /**
+     * Resolves a custom {@link ModeDefinition} table by wrapping each {@link ComponentConfigurer}
+     * in a {@link FDv2DataSource.DataSourceFactory} that defers to
+     * {@code configurer.build(clientContext)}.
+     */
+    private Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> resolveCustomModeTable(
             ClientContext clientContext
     ) {
         Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> resolved =
@@ -115,5 +216,21 @@ final class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
         }
 
         return resolved;
+    }
+
+    private static DefaultFDv2Requestor newRequestor(
+            LDContext evalContext,
+            URI pollingBaseUri,
+            HttpProperties httpProperties,
+            boolean useReport,
+            boolean evaluationReasons,
+            LDLogger logger
+    ) {
+        return new DefaultFDv2Requestor(
+                evalContext, pollingBaseUri,
+                StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
+                StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
+                httpProperties, useReport, evaluationReasons,
+                null, logger);
     }
 }
