@@ -15,6 +15,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.fdv2.Selector;
 
 import java.lang.ref.WeakReference;
@@ -56,6 +57,7 @@ class ConnectivityManager {
     private final ClientContext baseClientContext;
     private final PlatformState platformState;
     private final ComponentConfigurer<DataSource> dataSourceFactory;
+    private final TransactionalDataStore transactionalDataStore;
     private final DataSourceUpdateSink dataSourceUpdateSink;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
@@ -135,6 +137,7 @@ class ConnectivityManager {
     ) {
         this.baseClientContext = clientContext;
         this.dataSourceFactory = dataSourceFactory;
+        this.transactionalDataStore = contextDataManager;
         this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl(contextDataManager);
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.eventProcessor = eventProcessor;
@@ -235,6 +238,7 @@ class ConnectivityManager {
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
+                transactionalDataStore,
                 context,
                 inBackground,
                 previouslyInBackground.get()
