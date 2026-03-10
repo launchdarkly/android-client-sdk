@@ -657,4 +657,313 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private void verifyNoMoreDataSourcesWereStopped() {
         requireNoMoreValues(stoppedDataSources, 1, TimeUnit.SECONDS, "stopping of data source");
     }
+
+    // --- ModeAware (FDv2) tests ---
+
+    /**
+     * A minimal {@link ModeAware} data source that tracks {@code switchMode()} calls.
+     * Mimics the threading behavior of real data sources by calling the start callback
+     * on a background thread after reporting initial status.
+     */
+    private static class MockModeAwareDataSource implements ModeAware {
+        final BlockingQueue<com.launchdarkly.sdk.android.ConnectionMode> switchModeCalls =
+                new LinkedBlockingQueue<>();
+        final BlockingQueue<DataSource> startedQueue;
+        final BlockingQueue<DataSource> stoppedQueue;
+        final ClientContext clientContext;
+
+        MockModeAwareDataSource(
+                ClientContext clientContext,
+                BlockingQueue<DataSource> startedQueue,
+                BlockingQueue<DataSource> stoppedQueue
+        ) {
+            this.clientContext = clientContext;
+            this.startedQueue = startedQueue;
+            this.stoppedQueue = stoppedQueue;
+        }
+
+        @Override
+        public void start(@NonNull Callback<Boolean> resultCallback) {
+            if (startedQueue != null) {
+                startedQueue.add(this);
+            }
+            new Thread(() -> {
+                clientContext.getDataSourceUpdateSink().setStatus(
+                        ConnectionMode.STREAMING, null);
+                resultCallback.onSuccess(true);
+            }).start();
+        }
+
+        @Override
+        public void stop(@NonNull Callback<Void> completionCallback) {
+            if (stoppedQueue != null) {
+                stoppedQueue.add(this);
+            }
+            completionCallback.onSuccess(null);
+        }
+
+        @Override
+        public boolean needsRefresh(boolean newInBackground, @NonNull LDContext newEvaluationContext) {
+            return false;
+        }
+
+        @Override
+        public void switchMode(@NonNull com.launchdarkly.sdk.android.ConnectionMode newMode) {
+            switchModeCalls.add(newMode);
+        }
+
+        com.launchdarkly.sdk.android.ConnectionMode requireSwitchMode() {
+            return requireValue(switchModeCalls, 1, TimeUnit.SECONDS,
+                    "switchMode call");
+        }
+
+        void requireNoMoreSwitchModeCalls() {
+            requireNoMoreValues(switchModeCalls, 100, TimeUnit.MILLISECONDS,
+                    "unexpected switchMode call");
+        }
+    }
+
+    private ComponentConfigurer<DataSource> makeModeAwareDataSourceFactory(
+            MockModeAwareDataSource[] holder
+    ) {
+        return clientContext -> {
+            receivedClientContexts.add(clientContext);
+            MockModeAwareDataSource ds = new MockModeAwareDataSource(
+                    clientContext, startedDataSources, stoppedDataSources);
+            holder[0] = ds;
+            return ds;
+        };
+    }
+
+    @Test
+    public void modeAwareForegroundToBackgroundSwitchesMode() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        // Initial mode: STREAMING (foreground + network available).
+        // resolveAndSwitchMode was called after start() but resolved STREAMING = no-op.
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        ds.requireNoMoreSwitchModeCalls();
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        com.launchdarkly.sdk.android.ConnectionMode newMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, newMode);
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
+    public void modeAwareBackgroundToForegroundSwitchesMode() throws Exception {
+        mockPlatformState.setForeground(false);
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        // Initial resolution: background → switchMode(BACKGROUND)
+        com.launchdarkly.sdk.android.ConnectionMode initialMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, initialMode);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(true);
+
+        com.launchdarkly.sdk.android.ConnectionMode newMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, newMode);
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
+    public void modeAwareNetworkLostSwitchesMode() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        ds.requireNoMoreSwitchModeCalls();
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+
+        com.launchdarkly.sdk.android.ConnectionMode newMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, newMode);
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
+    public void modeAwareNetworkRestoredSwitchesMode() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setOffline(false);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        ds.requireNoMoreSwitchModeCalls();
+
+        // Lose network
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+        com.launchdarkly.sdk.android.ConnectionMode offlineMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, offlineMode);
+
+        // Restore network
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+        com.launchdarkly.sdk.android.ConnectionMode restoredMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, restoredMode);
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
+    public void modeAwareSetForceOfflineSwitchesMode() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        ds.requireNoMoreSwitchModeCalls();
+
+        connectivityManager.setForceOffline(true);
+
+        com.launchdarkly.sdk.android.ConnectionMode newMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, newMode);
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
+    public void modeAwareUnsetForceOfflineResolvesMode() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setOffline(false);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        ds.requireNoMoreSwitchModeCalls();
+
+        connectivityManager.setForceOffline(true);
+        com.launchdarkly.sdk.android.ConnectionMode offlineMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, offlineMode);
+
+        connectivityManager.setForceOffline(false);
+        com.launchdarkly.sdk.android.ConnectionMode restoredMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, restoredMode);
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
+    public void modeAwareDoesNotSwitchWhenModeUnchanged() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        ds.requireNoMoreSwitchModeCalls();
+
+        // Network is already available; re-notifying should not trigger switchMode
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+
+        ds.requireNoMoreSwitchModeCalls();
+        verifyAll();
+        verifyNoMoreDataSourcesWereStopped();
+    }
+
+    @Test
+    public void modeAwareDoesNotTearDownOnForegroundChange() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+        ds.requireNoMoreSwitchModeCalls();
+
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        ds.requireSwitchMode();
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void modeAwareStartsInBackgroundResolvesToBackground() throws Exception {
+        mockPlatformState.setForeground(false);
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        MockModeAwareDataSource[] holder = new MockModeAwareDataSource[1];
+        createTestManager(false, false, makeModeAwareDataSourceFactory(holder));
+        awaitStartUp();
+
+        MockModeAwareDataSource ds = holder[0];
+        assertNotNull(ds);
+
+        // Builder default is STREAMING, but we start in background, so
+        // resolveAndSwitchMode should immediately switch to BACKGROUND
+        com.launchdarkly.sdk.android.ConnectionMode initialMode = ds.requireSwitchMode();
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, initialMode);
+        ds.requireNoMoreSwitchModeCalls();
+
+        verifyAll();
+    }
 }
