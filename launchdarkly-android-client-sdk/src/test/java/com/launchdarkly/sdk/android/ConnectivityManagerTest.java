@@ -37,8 +37,15 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
+import com.launchdarkly.sdk.android.subsystems.DataSourceState;
+import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.Synchronizer;
+
 import java.io.IOException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -656,5 +663,235 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     private void verifyNoMoreDataSourcesWereStopped() {
         requireNoMoreValues(stoppedDataSources, 1, TimeUnit.SECONDS, "stopping of data source");
+    }
+
+    // ==== ModeAware tests ====
+
+    /**
+     * A mock ModeAware data source that records switchMode calls and
+     * signals start success immediately.
+     */
+    private static class MockModeAwareDataSource implements ModeAware {
+        final BlockingQueue<ResolvedModeDefinition> switchModeCalls = new LinkedBlockingQueue<>();
+        private final BlockingQueue<DataSource> startedQueue;
+        private volatile com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink sink;
+
+        MockModeAwareDataSource(BlockingQueue<DataSource> startedQueue) {
+            this.startedQueue = startedQueue;
+        }
+
+        void setSink(com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink sink) {
+            this.sink = sink;
+        }
+
+        @Override
+        public void start(@NonNull Callback<Boolean> resultCallback) {
+            startedQueue.add(this);
+            new Thread(() -> {
+                if (sink != null) {
+                    sink.setStatus(ConnectionMode.STREAMING, null);
+                }
+                resultCallback.onSuccess(true);
+            }).start();
+        }
+
+        @Override
+        public void stop(@NonNull Callback<Void> completionCallback) {
+            completionCallback.onSuccess(null);
+        }
+
+        @Override
+        public boolean needsRefresh(boolean newInBackground, @NonNull LDContext newEvaluationContext) {
+            return false;
+        }
+
+        @Override
+        public void switchMode(@NonNull ResolvedModeDefinition newDefinition) {
+            switchModeCalls.add(newDefinition);
+        }
+    }
+
+    /**
+     * Creates a test FDv2DataSourceBuilder that returns a MockModeAwareDataSource.
+     * The resolved mode table contains STREAMING, BACKGROUND, and OFFLINE modes.
+     */
+    private FDv2DataSourceBuilder makeModeAwareDataSourceFactory(
+            MockModeAwareDataSource mockDataSource
+    ) {
+        Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+        ));
+        return new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
+            @Override
+            public DataSource build(ClientContext clientContext) {
+                super.build(clientContext);
+                receivedClientContexts.add(clientContext);
+                mockDataSource.setSink(clientContext.getDataSourceUpdateSink());
+                return mockDataSource;
+            }
+        };
+    }
+
+    @Test
+    public void modeAware_foregroundToBackground_switchesMode() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
+        createTestManager(false, false, makeModeAwareDataSourceFactory(mockDS));
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        ResolvedModeDefinition def = mockDS.switchModeCalls.poll(2, TimeUnit.SECONDS);
+        assertNotNull("Expected switchMode call for background transition", def);
+        verifyAll();
+        verifyNoMoreDataSourcesWereCreated();
+    }
+
+    @Test
+    public void modeAware_backgroundToForeground_switchesMode() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
+        createTestManager(false, false, makeModeAwareDataSourceFactory(mockDS));
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+        ResolvedModeDefinition def1 = mockDS.switchModeCalls.poll(2, TimeUnit.SECONDS);
+        assertNotNull("Expected switchMode for background", def1);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(true);
+        ResolvedModeDefinition def2 = mockDS.switchModeCalls.poll(2, TimeUnit.SECONDS);
+        assertNotNull("Expected switchMode for foreground", def2);
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereCreated();
+    }
+
+    @Test
+    public void modeAware_networkLost_switchesToOffline() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        replayAll();
+
+        MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
+        createTestManager(false, false, makeModeAwareDataSourceFactory(mockDS));
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+
+        ResolvedModeDefinition def = mockDS.switchModeCalls.poll(2, TimeUnit.SECONDS);
+        assertNotNull("Expected switchMode call for offline", def);
+        assertTrue("OFFLINE mode should have no synchronizers",
+                def.getSynchronizerFactories().isEmpty());
+
+        verifyAll();
+        verifyNoMoreDataSourcesWereCreated();
+    }
+
+    @Test
+    public void modeAware_forceOffline_switchesToOffline() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        replayAll();
+
+        MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
+        createTestManager(false, false, makeModeAwareDataSourceFactory(mockDS));
+        awaitStartUp();
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "data source started");
+
+        connectivityManager.setForceOffline(true);
+
+        ResolvedModeDefinition def = mockDS.switchModeCalls.poll(2, TimeUnit.SECONDS);
+        assertNotNull("Expected switchMode call for forced offline", def);
+        assertTrue("OFFLINE mode should have no synchronizers",
+                def.getSynchronizerFactories().isEmpty());
+
+        verifyAll();
+    }
+
+    @Test
+    public void modeAware_doesNotTearDownOnForegroundChange() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
+        createTestManager(false, false, makeModeAwareDataSourceFactory(mockDS));
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        ResolvedModeDefinition def = mockDS.switchModeCalls.poll(2, TimeUnit.SECONDS);
+        assertNotNull(def);
+        verifyNoMoreDataSourcesWereCreated();
+        verifyAll();
+    }
+
+    @Test
+    public void modeAware_sameModeDoesNotTriggerSwitch() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
+        createTestManager(false, false, makeModeAwareDataSourceFactory(mockDS));
+        awaitStartUp();
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "data source started");
+
+        // Fire a foreground event when already in foreground — should not trigger switchMode
+        mockPlatformState.setAndNotifyForegroundChangeListeners(true);
+
+        ResolvedModeDefinition def = mockDS.switchModeCalls.poll(500, TimeUnit.MILLISECONDS);
+        assertNull("Should not switchMode when mode hasn't changed", def);
+
+        verifyAll();
+    }
+
+    @Test
+    public void modeAware_switchModePassesResolvedDefinition() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
+        createTestManager(false, false, makeModeAwareDataSourceFactory(mockDS));
+        awaitStartUp();
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "data source started");
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        ResolvedModeDefinition def = mockDS.switchModeCalls.poll(2, TimeUnit.SECONDS);
+        assertNotNull("Expected switchMode call", def);
+        assertNotNull("Definition should have synchronizer factories", def.getSynchronizerFactories());
+        assertNotNull("Definition should have initializer factories", def.getInitializerFactories());
+
+        verifyAll();
     }
 }
