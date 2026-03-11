@@ -454,6 +454,47 @@ public class FDv2StreamingSynchronizerTest {
         }
     }
 
+    @Test
+    public void reconnectAfterPartialProtocolSequenceDeliversChangeset() throws Exception {
+        String serverIntent = makeEvent("server-intent",
+                "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred",
+                "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        // First connection: delivers server-intent then closes without completing
+        // the protocol sequence (no payload-transferred), simulating a mid-sequence
+        // network disruption.  Second connection: delivers a full fresh sequence.
+        // Without resetting the protocol handler between connections, the stale
+        // state from the first server-intent would corrupt the second connection.
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent)),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred),
+                        Handlers.SSE.leaveOpen())))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+
+            FDv2SourceResult changesetResult = null;
+            for (int i = 0; i < 10; i++) {
+                FDv2SourceResult r = sync.next().get(5, TimeUnit.SECONDS);
+                assertNotNull(r);
+                if (r.getResultType() == SourceResultType.CHANGE_SET) {
+                    changesetResult = r;
+                    break;
+                }
+                assertEquals(SourceResultType.STATUS, r.getResultType());
+            }
+            assertNotNull("Should receive a valid CHANGE_SET after reconnection, " +
+                    "proving the protocol handler was reset", changesetResult);
+
+            sync.close();
+        }
+    }
+
     // ---- selector (basis) in stream request ----
 
     @Test

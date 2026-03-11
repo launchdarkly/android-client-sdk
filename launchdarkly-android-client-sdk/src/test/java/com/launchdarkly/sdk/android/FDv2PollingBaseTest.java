@@ -97,6 +97,20 @@ public class FDv2PollingBaseTest {
         assertEquals(ChangeSetType.None, result.getChangeSet().getType());
     }
 
+    @Test
+    public void http304_preservesCurrentSelector() {
+        Selector selector = Selector.make(5, "cached-state");
+        MockFDv2Requestor requestor = new MockFDv2Requestor();
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.notModified());
+
+        FDv2SourceResult result = FDv2PollingBase.doPoll(requestor, LOGGER, selector, false);
+
+        assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
+        assertNotNull(result.getChangeSet());
+        assertEquals(ChangeSetType.None, result.getChangeSet().getType());
+        assertEquals(selector, result.getChangeSet().getSelector());
+    }
+
     // ---- HTTP error codes ----
 
     @Test

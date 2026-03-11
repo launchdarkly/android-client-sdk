@@ -94,9 +94,9 @@ abstract class FDv2PollingBase {
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             if (cause instanceof IOException) {
-                logger.error("FDv2 polling failed with network error: {}", cause.toString());
+                LDUtil.logExceptionAtErrorLevel(logger, cause, "Polling failed with network error");
             } else {
-                logger.error("FDv2 polling failed: {}", cause.toString());
+                LDUtil.logExceptionAtErrorLevel(logger, cause, "Polling failed");
             }
             return oneShot
                     ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(cause))
@@ -105,10 +105,10 @@ abstract class FDv2PollingBase {
 
         // 304 Not Modified: nothing changed
         if (response.getStatusCode() == 304) {
-            logger.debug("FDv2 polling: 304 Not Modified");
+            logger.debug("Polling got 304 Not Modified");
             return FDv2SourceResult.changeSet(new ChangeSet<>(
                     ChangeSetType.None,
-                    Selector.EMPTY,
+                    selector,
                     Collections.emptyMap(),
                     null,
                     true));
@@ -117,9 +117,9 @@ abstract class FDv2PollingBase {
         if (!response.isSuccess()) {
             int code = response.getStatusCode();
             boolean recoverable = LDUtil.isHttpErrorRecoverable(code);
-            logger.error("FDv2 polling failed with HTTP {}", code);
+            logger.error("Polling failed with HTTP {}", code);
             LDFailure failure = new LDInvalidResponseCodeFailure(
-                    "FDv2 polling request failed", null, code, recoverable);
+                    "Polling request failed", null, code, recoverable);
             if (oneShot || !recoverable) {
                 return FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure));
             } else {
@@ -143,7 +143,7 @@ abstract class FDv2PollingBase {
             try {
                 action = handler.handleEvent(event);
             } catch (Exception e) {
-                logger.error("FDv2 protocol handler error during polling: {}", e.toString());
+                LDUtil.logExceptionAtErrorLevel(logger, e, "Protocol handler error during polling");
                 LDFailure failure = new LDFailure(
                         "FDv2 protocol handler error", e, LDFailure.FailureType.INVALID_RESPONSE_BODY);
                 return oneShot
@@ -160,7 +160,7 @@ abstract class FDv2PollingBase {
                                 FDv2ChangeSetTranslator.toChangeSet(raw, logger);
                         return FDv2SourceResult.changeSet(changeSet);
                     } catch (SerializationException e) {
-                        logger.error("FDv2 polling: failed to translate changeset: {}", e.toString());
+                        LDUtil.logExceptionAtErrorLevel(logger, e, "Polling failed to translate changeset");
                         LDFailure failure = new LDFailure(
                                 "Failed to translate FDv2 polling changeset", e,
                                 LDFailure.FailureType.INVALID_RESPONSE_BODY);
@@ -172,10 +172,10 @@ abstract class FDv2PollingBase {
                 case ERROR: {
                     FDv2ProtocolHandler.FDv2ActionError error =
                             (FDv2ProtocolHandler.FDv2ActionError) action;
-                    logger.error("FDv2 polling received error event: {} - {}",
+                    logger.error("Polling received error event: {} - {}",
                             error.getId(), error.getReason());
                     LDFailure failure = new LDFailure(
-                            "FDv2 polling error: " + error.getReason(),
+                            "Polling error: " + error.getReason(),
                             LDFailure.FailureType.UNKNOWN_ERROR);
                     return oneShot
                             ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))
@@ -183,16 +183,16 @@ abstract class FDv2PollingBase {
                 }
                 case GOODBYE: {
                     String reason = ((FDv2ProtocolHandler.FDv2ActionGoodbye) action).getReason();
-                    logger.info("FDv2 polling received GOODBYE with reason: '{}'", reason);
+                    logger.info("Polling received GOODBYE with reason: '{}'", reason);
                     return FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason));
                 }
                 case INTERNAL_ERROR: {
                     FDv2ProtocolHandler.FDv2ActionInternalError internalError =
                             (FDv2ProtocolHandler.FDv2ActionInternalError) action;
-                    logger.error("FDv2 polling protocol internal error ({}): {}",
+                    logger.error("Polling protocol internal error ({}): {}",
                             internalError.getErrorType(), internalError.getMessage());
                     LDFailure failure = new LDFailure(
-                            "FDv2 polling internal error: " + internalError.getMessage(),
+                            "Polling internal error: " + internalError.getMessage(),
                             LDFailure.FailureType.INVALID_RESPONSE_BODY);
                     return oneShot
                             ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))

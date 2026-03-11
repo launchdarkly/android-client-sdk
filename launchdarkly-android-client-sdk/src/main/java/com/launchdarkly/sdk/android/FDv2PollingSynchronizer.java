@@ -91,8 +91,9 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
         } catch (RuntimeException e) {
             // An unexpected exception must not escape: ScheduledExecutorService silently
             // cancels the task on any unchecked exception, ending all future polls with no
-            // error signal. Log the exception and return normally so the next interval fires.
-            LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in FDv2 polling synchronizer task");
+            // error signal. Log and enqueue an INTERRUPTED result so the consumer is notified
+            LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in polling synchronizer task");
+            resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e)));
         }
     }
 

@@ -318,7 +318,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             case ERROR: {
                 FDv2ProtocolHandler.FDv2ActionError error =
                         (FDv2ProtocolHandler.FDv2ActionError) action;
-                logger.error("Received FDv2 error from server: {} - {}",
+                logger.error("Received error from server: {} - {}",
                         error.getId(), error.getReason());
                 break;
             }
@@ -376,6 +376,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
 
         recordStreamInit(true);
+        protocolHandler.reset();
 
         if (t instanceof StreamHttpErrorException) {
             int code = ((StreamHttpErrorException) t).getCode();
@@ -387,8 +388,9 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                 shutdownFuture.set(FDv2SourceResult.status(
                         FDv2SourceResult.Status.terminalError(failure)));
-                if (eventSource != null) {
-                    eventSource.close();
+                EventSource es = eventSource;
+                if (es != null) {
+                    es.close();
                 }
             } else {
                 logger.warn("Stream received HTTP error {}; will retry", code);
@@ -416,14 +418,16 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         recordStreamInit(failed);
         streamStarted = System.currentTimeMillis();
 
+        EventSource es;
         synchronized (closeLock) {
             if (closed) {
                 return;
             }
+            es = eventSource;
         }
 
-        if (eventSource != null) {
-            eventSource.interrupt();
+        if (es != null) {
+            es.interrupt();
         }
         protocolHandler.reset();
     }

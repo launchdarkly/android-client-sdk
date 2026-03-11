@@ -287,7 +287,12 @@ public class FDv2PollingSynchronizerTest {
                 mixedRequestor, () -> Selector.EMPTY, executor, 0, 20, LDLogger.none());
 
         try {
-            // The first task invocation throws; the second should succeed.
+            // The first task invocation throws; the catch block enqueues INTERRUPTED.
+            FDv2SourceResult interrupted = synchronizer.next().get(2, TimeUnit.SECONDS);
+            assertEquals(SourceResultType.STATUS, interrupted.getResultType());
+            assertEquals(SourceSignal.INTERRUPTED, interrupted.getStatus().getState());
+
+            // The second poll should succeed normally.
             Future<FDv2SourceResult> nextFuture = synchronizer.next();
 
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll2 = delegate.awaitNextPoll();

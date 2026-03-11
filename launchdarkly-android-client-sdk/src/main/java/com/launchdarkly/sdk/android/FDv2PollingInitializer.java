@@ -53,7 +53,7 @@ final class FDv2PollingInitializer extends FDv2PollingBase implements Initialize
                 FDv2SourceResult result = doPoll(selectorSource.getSelector(), true);
                 pollFuture.set(result);
             } catch (RuntimeException e) {
-                LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in FDv2 polling initializer");
+                LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in polling initializer");
                 pollFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(e)));
             }
         });

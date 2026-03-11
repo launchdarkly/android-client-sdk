@@ -13,9 +13,7 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -43,7 +41,6 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
  */
 final class DefaultFDv2Requestor implements FDv2Requestor {
     private static final String METHOD_REPORT = "REPORT";
-    private static final int MAX_ETAG_CACHE_SIZE = 10;
     private static final String BASIS_PARAM = "basis";
     private static final String FILTER_PARAM = "filter";
     private static final String WITH_REASONS_PARAM = "withReasons";
@@ -53,15 +50,19 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
     private final OkHttpClient httpClient;
     private final URI pollingUri;
     private final okhttp3.Headers headers;
-    private final LDContext evaluationContext;
     private final boolean useReport;
     private final boolean evaluationReasons;
+    @Nullable
+    private final RequestBody reportBody;
     @Nullable
     private final String payloadFilter;
     private final LDLogger logger;
 
-    /** Per-URI ETag cache; guarded by its own lock. */
-    private final Map<URI, String> etags = new HashMap<>();
+    private final Object etagLock = new Object();
+    /** Last ETag received from the server; guarded by {@link #etagLock}. */
+    @Nullable private String cachedEtag;
+    /** The request URI that {@link #cachedEtag} corresponds to; guarded by {@link #etagLock}. */
+    @Nullable private URI lastRequestUri;
 
     /**
      * @param evaluationContext  the context to evaluate flags for
@@ -85,7 +86,6 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             boolean evaluationReasons,
             @Nullable String payloadFilter,
             @NonNull LDLogger logger) {
-        this.evaluationContext = evaluationContext;
         this.useReport = useReport;
         this.evaluationReasons = evaluationReasons;
         this.payloadFilter = payloadFilter;
@@ -101,6 +101,9 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
         this.pollingUri = useReport
                 ? basePollingUri
                 : HttpHelpers.concatenateUriPath(basePollingUri, LDUtil.urlSafeBase64(evaluationContext));
+        this.reportBody = useReport
+                ? RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON)
+                : null;
 
         this.httpClient = httpProperties.toHttpClientBuilder()
                 // New connection per request: keeping an idle connection alive causes
@@ -130,26 +133,27 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                 requestUri = HttpHelpers.addQueryParam(requestUri, WITH_REASONS_PARAM, "true");
             }
 
-            logger.debug("FDv2 polling request to: {}", requestUri);
+            logger.debug("Polling request to: {}", requestUri);
 
             Request.Builder reqBuilder = new Request.Builder()
                     .url(requestUri.toURL())
                     .headers(headers);
 
             if (useReport) {
-                String contextJson = JsonSerialization.serialize(evaluationContext);
-                reqBuilder.method(METHOD_REPORT, RequestBody.create(contextJson, JSON));
+                reqBuilder.method(METHOD_REPORT, reportBody);
             } else {
-                synchronized (etags) {
-                    String etag = etags.get(requestUri);
-                    if (etag != null) {
-                        reqBuilder.header(IF_NONE_MATCH_HEADER, etag);
+                synchronized (etagLock) {
+                    if (!requestUri.equals(lastRequestUri)) {
+                        cachedEtag = null;
+                        lastRequestUri = requestUri;
+                    }
+                    if (cachedEtag != null) {
+                        reqBuilder.header(IF_NONE_MATCH_HEADER, cachedEtag);
                     }
                 }
                 reqBuilder.get();
             }
 
-            final URI finalRequestUri = requestUri;
             httpClient.newCall(reqBuilder.build()).enqueue(new Callback() {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
@@ -159,7 +163,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                 @Override
                 public void onResponse(@NonNull Call call, @NonNull Response response) {
                     try {
-                        handleResponse(response, finalRequestUri, future);
+                        handleResponse(response, future);
                     } finally {
                         response.close();
                     }
@@ -175,7 +179,6 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
 
     private void handleResponse(
             @NonNull Response response,
-            @NonNull URI requestUri,
             @NonNull LDAwaitFuture<FDv2PayloadResponse> future) {
         try {
             int code = response.code();
@@ -187,31 +190,20 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             }
 
             if (!response.isSuccessful()) {
+                // if we get a 400, odds are that a minifier interfered with serialization related types at compile time.  R8 and
+                // ProGuard are both common minifiers that end users customize.
                 if (code == 400) {
-                    logger.error("Received 400 response when fetching FDv2 flag values. " +
-                            "Please check recommended ProGuard settings");
+                    logger.error("Received 400 response when fetching flag values. Please check recommended R8 and/or ProGuard settings");
                 } else {
-                    logger.warn("FDv2 polling request failed with HTTP {}", code);
+                    logger.warn("Polling request failed with HTTP {}", code);
                 }
                 future.set(FDv2PayloadResponse.failure(code));
                 return;
             }
 
-            // Update ETag cache. On overflow, flush all stale entries before inserting —
-            // only the current URI's ETag is useful anyway, so losing old entries is harmless.
             if (!useReport) {
-                String newEtag = response.header(ETAG_HEADER);
-                synchronized (etags) {
-                    if (newEtag != null) {
-                        // Here we impose space limit on etags.  We could track oldest, but that
-                        // is more complicated than it is worth.
-                        if (etags.size() >= MAX_ETAG_CACHE_SIZE) {
-                            etags.clear();
-                        }
-                        etags.put(requestUri, newEtag);
-                    } else {
-                        etags.remove(requestUri);
-                    }
+                synchronized (etagLock) {
+                    cachedEtag = response.header(ETAG_HEADER);
                 }
             }
 
@@ -222,7 +214,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             }
 
             String bodyStr = body.string();
-            logger.debug("FDv2 polling response received");
+            logger.debug("Polling response received");
             List<FDv2Event> events = FDv2Event.parseEventsArray(bodyStr);
             future.set(FDv2PayloadResponse.success(events, code));
 
