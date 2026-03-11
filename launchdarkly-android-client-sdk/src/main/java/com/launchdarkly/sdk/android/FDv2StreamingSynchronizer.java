@@ -316,6 +316,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 break;
             }
             case ERROR: {
+                // Per the FDv2 protocol, server-sent error events are non-fatal: the protocol
+                // handler discards the payload and we remain connected.
                 FDv2ProtocolHandler.FDv2ActionError error =
                         (FDv2ProtocolHandler.FDv2ActionError) action;
                 logger.error("Received error from server: {} - {}",
