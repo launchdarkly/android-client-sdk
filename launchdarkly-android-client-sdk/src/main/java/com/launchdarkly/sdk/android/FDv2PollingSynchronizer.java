@@ -111,7 +111,7 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
                 scheduledTask = null;
             }
         }
-        closeRequestor();
         shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+        closeRequestor();
     }
 }
