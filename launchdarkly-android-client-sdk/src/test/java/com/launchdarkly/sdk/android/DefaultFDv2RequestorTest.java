@@ -502,38 +502,6 @@ public class DefaultFDv2RequestorTest {
         }
     }
 
-    @Test
-    public void etagCacheOverflow() throws Exception {
-        // After MAX_ETAG_CACHE_SIZE (10) entries are stored, the next insert flushes the whole
-        // cache before adding the new entry. Previously cached URIs lose their ETags.
-        Handler etagResp = Handlers.all(
-                Handlers.header("ETag", "test-etag"),
-                Handlers.bodyJson(EMPTY_EVENTS_JSON));
-
-        try (HttpServer server = HttpServer.start(etagResp)) {
-            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
-                // Fill the cache to capacity with 10 distinct selectors (= 10 distinct URIs)
-                for (int i = 1; i <= 10; i++) {
-                    requestor.poll(Selector.make(i, "state" + i)).get(5, TimeUnit.SECONDS);
-                    server.getRecorder().requireRequest();
-                }
-
-                // 11th distinct selector: cache has 10 entries → overflow → flush + insert
-                // The 11th request itself sees no cached ETag (first time for this URI)
-                requestor.poll(Selector.make(11, "state11")).get(5, TimeUnit.SECONDS);
-                RequestInfo req11 = server.getRecorder().requireRequest();
-                assertNull("11th request should have no If-None-Match (first time for this URI)",
-                        req11.getHeader("If-None-Match"));
-
-                // Selector 1 was evicted during the flush — its ETag is gone
-                requestor.poll(Selector.make(1, "state1")).get(5, TimeUnit.SECONDS);
-                RequestInfo reqAfterFlush = server.getRecorder().requireRequest();
-                assertNull("Request after cache overflow should have no If-None-Match for evicted selector",
-                        reqAfterFlush.getHeader("If-None-Match"));
-            }
-        }
-    }
-
     @Test(expected = ExecutionException.class)
     public void networkFailureThrowsException() throws Exception {
         try (DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(

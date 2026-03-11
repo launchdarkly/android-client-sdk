@@ -81,7 +81,7 @@ final class FDv2DataSource implements DataSource {
      * @param synchronizers        factories for recurring synchronizers, tried in order
      * @param dataSourceUpdateSink sink to apply changesets and status updates to
      * @param sharedExecutor       executor used for internal background tasks; must have at least
-     *                             2 threads
+     *                             2 threads available for this data source to run properly.
      * @param logger               logger
      * @param fallbackTimeoutSeconds  seconds of INTERRUPTED state before falling back to the
      *                                next synchronizer
