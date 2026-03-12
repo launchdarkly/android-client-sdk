@@ -430,7 +430,7 @@ public class FDv2StreamingSynchronizerTest {
         String serverIntent = makeEvent("server-intent",
                 "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"\"}]}");
         String badPutObject = makeEvent("put-object",
-                "{\"version\":1,\"kind\":\"flag_eval\",\"key\":\"f1\",\"object\":123}");
+                "{\"version\":1,\"kind\":\"flag-eval\",\"key\":\"f1\",\"object\":123}");
         String payloadTransferred = makeEvent("payload-transferred",
                 "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
 

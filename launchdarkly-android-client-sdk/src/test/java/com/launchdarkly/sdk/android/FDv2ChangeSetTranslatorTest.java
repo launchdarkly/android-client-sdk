@@ -46,7 +46,7 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_withFullChangeset_returnsFullChangeSetType() throws SerializationException {
         List<FDv2Change> changes = Collections.singletonList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.FULL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);
@@ -57,7 +57,7 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_withPartialChangeset_returnsPartialChangeSetType() throws SerializationException {
         List<FDv2Change> changes = Collections.singletonList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.PARTIAL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);
@@ -100,7 +100,7 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_withPutOperation_deserializesFlag() throws SerializationException {
         List<FDv2Change> changes = Collections.singletonList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.FULL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);
@@ -117,7 +117,7 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_withDeleteOperation_createsDeletedPlaceholder() throws SerializationException {
         List<FDv2Change> changes = Collections.singletonList(
-                new FDv2Change(FDv2ChangeType.DELETE, "flag_eval", "flag1", 5, null));
+                new FDv2Change(FDv2ChangeType.DELETE, "flag-eval", "flag1", 5, null));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.PARTIAL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);
@@ -133,8 +133,8 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_withMultipleFlags_includesAll() throws SerializationException {
         List<FDv2Change> changes = Arrays.asList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, createFlagJsonElement("flag1", 1)),
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag2", 2, createFlagJsonElement("flag2", 2)));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, createFlagJsonElement("flag1", 1)),
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag2", 2, createFlagJsonElement("flag2", 2)));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.FULL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);
@@ -148,7 +148,7 @@ public class FDv2ChangeSetTranslatorTest {
     public void toChangeSet_withNonFlagEvalKind_skipsAndIncludesOnlyFlagEval() throws SerializationException {
         List<FDv2Change> changes = Arrays.asList(
                 new FDv2Change(FDv2ChangeType.PUT, "segment", "seg1", 1, createFlagJsonElement("seg1", 1)),
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, createFlagJsonElement("flag1", 1)));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.FULL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, logging.logger);
@@ -163,8 +163,8 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_withPutMissingObject_skipsAndLogsWarning() throws SerializationException {
         List<FDv2Change> changes = Arrays.asList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, null),
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag2", 2, createFlagJsonElement("flag2", 2)));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, null),
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag2", 2, createFlagJsonElement("flag2", 2)));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.FULL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, logging.logger);
@@ -188,8 +188,8 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_withMixedPutAndDelete_handlesAll() throws SerializationException {
         List<FDv2Change> changes = Arrays.asList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, createFlagJsonElement("flag1", 1)),
-                new FDv2Change(FDv2ChangeType.DELETE, "flag_eval", "flag2", 2, null));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, createFlagJsonElement("flag1", 1)),
+                new FDv2Change(FDv2ChangeType.DELETE, "flag-eval", "flag2", 2, null));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.PARTIAL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);
@@ -207,9 +207,9 @@ public class FDv2ChangeSetTranslatorTest {
     @Test
     public void toChangeSet_preservesOrderOfChangesWithinKind() throws SerializationException {
         List<FDv2Change> changes = Arrays.asList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag3", 3, createFlagJsonElement("flag3", 3)),
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, createFlagJsonElement("flag1", 1)),
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag2", 2, createFlagJsonElement("flag2", 2)));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag3", 3, createFlagJsonElement("flag3", 3)),
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, createFlagJsonElement("flag1", 1)),
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag2", 2, createFlagJsonElement("flag2", 2)));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.FULL, changes, Selector.make(1, "state1"));
 
         ChangeSet<Map<String, Flag>> result = FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);
@@ -226,7 +226,7 @@ public class FDv2ChangeSetTranslatorTest {
         com.google.gson.JsonElement invalid = com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance()
                 .fromJson("123", com.google.gson.JsonElement.class);
         List<FDv2Change> changes = Collections.singletonList(
-                new FDv2Change(FDv2ChangeType.PUT, "flag_eval", "flag1", 1, invalid));
+                new FDv2Change(FDv2ChangeType.PUT, "flag-eval", "flag1", 1, invalid));
         FDv2ChangeSet fdv2ChangeSet = new FDv2ChangeSet(FDv2ChangeSetType.FULL, changes, Selector.make(1, "state1"));
 
         FDv2ChangeSetTranslator.toChangeSet(fdv2ChangeSet, LOGGER);

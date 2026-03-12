@@ -268,8 +268,8 @@ final class FDv2DataSource implements DataSource {
                 logger.warn("Initializer cancelled: {}", e.toString());
                 sink.setStatus(DataSourceState.INTERRUPTED, e);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
                 logger.warn("Initializer interrupted: {}", e.toString());
+                sink.setStatus(DataSourceState.INTERRUPTED, e);
             }
             initializer = sourceManager.getNextInitializerAndSetActive();
         }
@@ -386,8 +386,8 @@ final class FDv2DataSource implements DataSource {
                     logger.warn("Synchronizer cancelled: {}", e.toString());
                     sink.setStatus(DataSourceState.INTERRUPTED, e);
                 } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                     logger.warn("Synchronizer interrupted: {}", e.toString());
+                    sink.setStatus(DataSourceState.INTERRUPTED, e);
                 }
                 synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
             }

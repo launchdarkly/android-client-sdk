@@ -89,7 +89,6 @@ abstract class FDv2PollingBase {
             Future<FDv2Requestor.FDv2PayloadResponse> future = requestor.poll(selector);
             response = future.get();
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e));
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;

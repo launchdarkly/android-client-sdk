@@ -21,6 +21,8 @@ import java.util.Map;
  * DELETE change is represented as a deleted-item placeholder.
  */
 final class FDv2ChangeSetTranslator {
+    private static final String FLAG_EVAL_KIND = "flag-eval";
+
     private FDv2ChangeSetTranslator() {}
 
     /**
@@ -54,7 +56,7 @@ final class FDv2ChangeSetTranslator {
         Map<String, Flag> flags = new LinkedHashMap<>();
 
         for (FDv2Change change : changeset.getChanges()) {
-            if (!"flag_eval".equals(change.getKind())) {
+            if (!FLAG_EVAL_KIND.equals(change.getKind())) {
                 logger.debug("Skipping non-flag data kind '{}' in FDv2 changeset", change.getKind());
                 continue;
             }

@@ -70,7 +70,7 @@ public class DefaultFDv2RequestorTest {
     private static final String VALID_EVENTS_JSON = "{\n" +
             "  \"events\": [\n" +
             "    {\"event\": \"server-intent\", \"data\": {\"payloads\": [{\"id\": \"p1\", \"target\": 100, \"intentCode\": \"xfer-full\", \"reason\": \"\"}]}},\n" +
-            "    {\"event\": \"put-object\", \"data\": {\"version\": 150, \"kind\": \"flag_eval\", \"key\": \"f1\", \"object\": {\"key\": \"f1\", \"version\": 1, \"on\": true}}},\n" +
+            "    {\"event\": \"put-object\", \"data\": {\"version\": 150, \"kind\": \"flag-eval\", \"key\": \"f1\", \"object\": {\"key\": \"f1\", \"version\": 1, \"on\": true}}},\n" +
             "    {\"event\": \"payload-transferred\", \"data\": {\"state\": \"(p:p1:100)\", \"version\": 100}}\n" +
             "  ]\n" +
             "}";
