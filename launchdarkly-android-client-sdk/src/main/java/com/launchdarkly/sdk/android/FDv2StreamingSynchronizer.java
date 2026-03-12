@@ -390,7 +390,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                 shutdownFuture.set(FDv2SourceResult.status(
                         FDv2SourceResult.Status.terminalError(failure)));
-                EventSource es = eventSource;
+                EventSource es;
+                synchronized (closeLock) {
+                    closed = true;
+                    es = eventSource;
+                    eventSource = null;
+                }
                 if (es != null) {
                     es.close();
                 }
