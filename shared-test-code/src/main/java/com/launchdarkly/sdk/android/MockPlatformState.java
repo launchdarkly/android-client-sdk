@@ -63,6 +63,15 @@ public class MockPlatformState implements PlatformState {
         foregroundChangeListeners.remove(listener);
     }
 
+    public void setAndNotifyConnectivityChangeListeners(boolean networkAvailable) {
+        this.networkAvailable = networkAvailable;
+        new Thread(() -> {
+            for (ConnectivityChangeListener listener: connectivityChangeListeners) {
+                listener.onConnectivityChanged(networkAvailable);
+            }
+        }).start();
+    }
+
     public void setAndNotifyForegroundChangeListeners(boolean foreground) {
         this.foreground = foreground;
         new Thread(() -> {

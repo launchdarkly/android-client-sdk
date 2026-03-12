@@ -7,7 +7,6 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
-import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
@@ -15,9 +14,9 @@ import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.util.ArrayList;
-import java.util.Map;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -30,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * switch to next synchronizer) and recovery (when on non-prime synchronizer, try
  * to return to the first after timeout).
  */
-final class FDv2DataSource implements DataSource {
+final class FDv2DataSource implements ModeAware {
 
     /**
      * Factory for creating Initializer or Synchronizer instances.
@@ -42,7 +41,7 @@ final class FDv2DataSource implements DataSource {
     private final LDLogger logger;
     private final LDContext evaluationContext;
     private final DataSourceUpdateSinkV2 dataSourceUpdateSink;
-    private final SourceManager sourceManager;
+    private volatile SourceManager sourceManager;
     private final long fallbackTimeoutSeconds;
     private final long recoveryTimeoutSeconds;
     private final ScheduledExecutorService sharedExecutor;
@@ -138,20 +137,21 @@ final class FDv2DataSource implements DataSource {
         // race with a concurrent stop() and could undo it, causing a spurious OFF/exhaustion report.
         LDContext context = evaluationContext;
 
+        final SourceManager sm = sourceManager;
         sharedExecutor.execute(() -> {
             try {
-                if (!sourceManager.hasAvailableSources()) {
+                if (!sm.hasAvailableSources()) {
                     logger.info("No initializers or synchronizers; data source will not connect.");
                     dataSourceUpdateSink.setStatus(DataSourceState.VALID, null);
                     tryCompleteStart(true, null);
                     return;
                 }
 
-                if (sourceManager.hasInitializers()) {
+                if (sm.hasInitializers()) {
                     runInitializers(context, dataSourceUpdateSink);
                 }
 
-                if (!sourceManager.hasAvailableSynchronizers()) {
+                if (!sm.hasAvailableSynchronizers()) {
                     if (!startCompleted.get()) {
                         maybeReportUnexpectedExhaustion("All initializers exhausted and there are no available synchronizers.");
                     }
@@ -159,8 +159,12 @@ final class FDv2DataSource implements DataSource {
                     return;
                 }
 
-                runSynchronizers(context, dataSourceUpdateSink);
-                maybeReportUnexpectedExhaustion("All data source acquisition methods have been exhausted.");
+                runSynchronizers(context, dataSourceUpdateSink, sm);
+                // Only report exhaustion if this SourceManager is still the active one
+                // (a concurrent switchMode() may have replaced it).
+                if (sourceManager == sm) {
+                    maybeReportUnexpectedExhaustion("All data source acquisition methods have been exhausted.");
+                }
                 tryCompleteStart(false, null);
             } catch (Throwable t) {
                 logger.warn("FDv2DataSource error: {}", t.toString());
@@ -213,6 +217,34 @@ final class FDv2DataSource implements DataSource {
         // Caller owns sharedExecutor; we do not shut it down.
         dataSourceUpdateSink.setStatus(DataSourceState.OFF, null);
         completionCallback.onSuccess(null);
+    }
+
+    @Override
+    public boolean needsRefresh(boolean newInBackground, @NonNull LDContext newEvaluationContext) {
+        // Mode-aware data sources handle background/foreground transitions via switchMode(),
+        // so only request a full rebuild when the evaluation context changes.
+        return !evaluationContext.equals(newEvaluationContext);
+    }
+
+    @Override
+    public void switchMode(@NonNull ResolvedModeDefinition newDefinition) {
+        List<SynchronizerFactoryWithState> newSyncFactories = new ArrayList<>();
+        for (DataSourceFactory<Synchronizer> factory : newDefinition.getSynchronizerFactories()) {
+            newSyncFactories.add(new SynchronizerFactoryWithState(factory));
+        }
+        // Per CONNMODE 2.0.1: mode switches only transition synchronizers, no initializers.
+        SourceManager newManager = new SourceManager(
+                newSyncFactories,
+                Collections.<DataSourceFactory<Initializer>>emptyList()
+        );
+        SourceManager oldManager = sourceManager;
+        sourceManager = newManager;
+        if (oldManager != null) {
+            oldManager.close();
+        }
+        sharedExecutor.execute(() -> {
+            runSynchronizers(evaluationContext, dataSourceUpdateSink, newManager);
+        });
     }
 
     private void runInitializers(
@@ -296,16 +328,17 @@ final class FDv2DataSource implements DataSource {
 
     private void runSynchronizers(
             @NonNull LDContext context,
-            @NonNull DataSourceUpdateSinkV2 sink
+            @NonNull DataSourceUpdateSinkV2 sink,
+            @NonNull SourceManager sm
     ) {
         try {
-            Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+            Synchronizer synchronizer = sm.getNextAvailableSynchronizerAndSetActive();
             while (synchronizer != null) {
                 if (stopped.get()) {
                     return;
                 }
-                int synchronizerCount = sourceManager.getAvailableSynchronizerCount();
-                boolean isPrime = sourceManager.isPrimeSynchronizer();
+                int synchronizerCount = sm.getAvailableSynchronizerCount();
+                boolean isPrime = sm.isPrimeSynchronizer();
                 try {
                     boolean running = true;
                     try (FDv2DataSourceConditions.Conditions conditions =
@@ -325,7 +358,7 @@ final class FDv2DataSource implements DataSource {
                                         break;
                                     case RECOVERY:
                                         logger.debug("The data source is attempting to recover to a higher priority synchronizer.");
-                                        sourceManager.resetSourceIndex();
+                                        sm.resetSourceIndex();
                                         break;
                                 }
                                 running = false;
@@ -365,7 +398,7 @@ final class FDv2DataSource implements DataSource {
                                             case TERMINAL_ERROR:
                                                 // This synchronizer cannot recover; block it so the outer
                                                 // loop advances to the next available synchronizer.
-                                                sourceManager.blockCurrentSynchronizer();
+                                                sm.blockCurrentSynchronizer();
                                                 running = false;
                                                 sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
                                                 break;
@@ -391,10 +424,10 @@ final class FDv2DataSource implements DataSource {
                     sink.setStatus(DataSourceState.INTERRUPTED, e);
                     return;
                 }
-                synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+                synchronizer = sm.getNextAvailableSynchronizerAndSetActive();
             }
         } finally {
-            sourceManager.close();
+            sm.close();
         }
     }
 }

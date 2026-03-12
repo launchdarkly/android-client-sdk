@@ -17,6 +17,10 @@ abstract class StandardEndpoints {
     static final String ANALYTICS_EVENTS_REQUEST_PATH = "/mobile/events/bulk";
     static final String DIAGNOSTIC_EVENTS_REQUEST_PATH = "/mobile/events/diagnostic";
 
+    static final String FDV2_POLLING_REQUEST_GET_BASE_PATH = "/sdk/poll/eval";
+    static final String FDV2_POLLING_REQUEST_REPORT_BASE_PATH = "/sdk/poll/eval";
+    static final String FDV2_STREAMING_REQUEST_BASE_PATH = "/sdk/stream/eval";
+
     /**
      * Internal method to decide which URI a given component should connect to.
      * <p>
