@@ -399,6 +399,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 if (es != null) {
                     es.close();
                 }
+                if (requestor != null) {
+                    try {
+                        requestor.close();
+                    } catch (IOException ignored) {
+                    }
+                }
             } else {
                 logger.warn("Stream received HTTP error {}; will retry", code);
                 streamStarted = System.currentTimeMillis();
