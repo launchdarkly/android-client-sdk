@@ -330,27 +330,30 @@ class LDAwaitFuture<T> implements Future<T> {
  * {@link LDAwaitFuture} that is completed when the next {@link #put(Object)} call arrives.
  * If an item was already put before take() is called, the returned future is already done.
  * <p>
- * Only one consumer is assumed to be waiting at a time (the FDv2 orchestrator calls next()
- * serially). Multiple concurrent takes() will share the same pending future.
+ * Multiple concurrent consumers are supported; pending futures are satisfied in FIFO order.
  *
  * @param <T> the item type
  */
 class LDAsyncQueue<T> {
-    private final java.util.Queue<T> items = new java.util.LinkedList<>();
-    private LDAwaitFuture<T> pending = null;
+    private final java.util.LinkedList<T> items = new java.util.LinkedList<>();
+    private final java.util.LinkedList<LDAwaitFuture<T>> pendingFutures = new java.util.LinkedList<>();
 
     /**
-     * Enqueues an item. If a consumer is waiting in {@link #take()}, the pending future is
-     * completed immediately with this item; otherwise the item is buffered.
+     * Enqueues an item. If a consumer is waiting in {@link #take()}, the oldest pending future
+     * is completed immediately with this item; otherwise the item is buffered.
      */
-    synchronized void put(T item) {
-        if (pending != null) {
-            LDAwaitFuture<T> p = pending;
-            pending = null;
-            p.set(item);
-        } else {
-            items.add(item);
+    void put(T item) {
+        LDAwaitFuture<T> pendingFuture = null;
+        synchronized (this) {
+            LDAwaitFuture<T> next = pendingFutures.pollFirst();
+            if (next != null) {
+                pendingFuture = next;
+            } else {
+                items.addLast(item);
+                return;
+            }
         }
+        pendingFuture.set(item);
     }
 
     /**
@@ -361,12 +364,11 @@ class LDAsyncQueue<T> {
     synchronized java.util.concurrent.Future<T> take() {
         if (!items.isEmpty()) {
             LDAwaitFuture<T> result = new LDAwaitFuture<>();
-            result.set(items.poll());
+            result.set(items.removeFirst());
             return result;
         }
-        if (pending == null) {
-            pending = new LDAwaitFuture<>();
-        }
-        return pending;
+        LDAwaitFuture<T> future = new LDAwaitFuture<>();
+        pendingFutures.addLast(future);
+        return future;
     }
 }

@@ -55,16 +55,20 @@ public class LDAsyncQueueTest {
     }
 
     @Test
-    public void consecutiveTakesReturnSamePendingFuture() {
-        // The queue is designed for a single consumer: multiple take() calls before any put()
-        // share the same pending LDAwaitFuture.
+    public void consecutiveTakesReturnDistinctFuturesSatisfiedInOrder() throws ExecutionException, InterruptedException, java.util.concurrent.TimeoutException {
         LDAsyncQueue<String> queue = new LDAsyncQueue<>();
         Future<String> f1 = queue.take();
         Future<String> f2 = queue.take();
         assertFalse(f1.isDone());
         assertFalse(f2.isDone());
-        // Both futures are the same object per the single-consumer contract.
-        assertTrue("both take()s before a put() must return the same future instance", f1 == f2);
+        assertTrue("each take() must return a distinct future", f1 != f2);
+
+        queue.put("first");
+        assertEquals("first", f1.get(1, TimeUnit.SECONDS));
+        assertFalse("second future should still be pending", f2.isDone());
+
+        queue.put("second");
+        assertEquals("second", f2.get(1, TimeUnit.SECONDS));
     }
 
     // --- cross-thread delivery ---
