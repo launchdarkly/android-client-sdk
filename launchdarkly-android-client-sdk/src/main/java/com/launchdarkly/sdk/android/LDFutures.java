@@ -321,3 +321,54 @@ class LDAwaitFuture<T> implements Future<T> {
         }
     }
 }
+
+/**
+ * A thread-safe, non-blocking async queue where producers put items and consumers take items
+ * as futures. Analogous to {@code IterableAsyncQueue} in java-core internal.
+ * <p>
+ * If a consumer calls {@link #take()} before an item is available, it receives a pending
+ * {@link LDAwaitFuture} that is completed when the next {@link #put(Object)} call arrives.
+ * If an item was already put before take() is called, the returned future is already done.
+ * <p>
+ * Multiple concurrent consumers are supported; pending futures are satisfied in FIFO order.
+ *
+ * @param <T> the item type
+ */
+class LDAsyncQueue<T> {
+    private final java.util.LinkedList<T> items = new java.util.LinkedList<>();
+    private final java.util.LinkedList<LDAwaitFuture<T>> pendingFutures = new java.util.LinkedList<>();
+
+    /**
+     * Enqueues an item. If a consumer is waiting in {@link #take()}, the oldest pending future
+     * is completed immediately with this item; otherwise the item is buffered.
+     */
+    void put(T item) {
+        LDAwaitFuture<T> pendingFuture = null;
+        synchronized (this) {
+            LDAwaitFuture<T> next = pendingFutures.pollFirst();
+            if (next != null) {
+                pendingFuture = next;
+            } else {
+                items.addLast(item);
+                return;
+            }
+        }
+        pendingFuture.set(item);
+    }
+
+    /**
+     * Returns a future that completes with the next available item. If an item is already
+     * buffered, the returned future is immediately done. Otherwise the future will complete
+     * when the next {@link #put(Object)} call arrives.
+     */
+    synchronized java.util.concurrent.Future<T> take() {
+        if (!items.isEmpty()) {
+            LDAwaitFuture<T> result = new LDAwaitFuture<>();
+            result.set(items.removeFirst());
+            return result;
+        }
+        LDAwaitFuture<T> future = new LDAwaitFuture<>();
+        pendingFutures.addLast(future);
+        return future;
+    }
+}

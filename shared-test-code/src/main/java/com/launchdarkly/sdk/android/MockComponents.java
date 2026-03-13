@@ -86,6 +86,7 @@ public abstract class MockComponents {
         /** Full ordered history of every {@link #setStatus(DataSourceState, Throwable)} call. */
         public final List<StatusEvent> statusEvents = new CopyOnWriteArrayList<>();
 
+        @NonNull
         private volatile Selector lastSelector = Selector.EMPTY;
 
         private final BlockingQueue<ChangeSet<Map<String, DataModel.Flag>>> applyQueue = new LinkedBlockingQueue<>();
@@ -137,8 +138,11 @@ public abstract class MockComponents {
             statusUpdates.offer(state);
         }
 
+        public volatile boolean shutDownCalled = false;
+
         @Override
         public void shutDown() {
+            shutDownCalled = true;
         }
 
         /** Returns the total number of apply calls received. */

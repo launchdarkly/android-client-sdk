@@ -447,8 +447,7 @@ public class FDv2DataSourceTest {
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false)))),
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false)),
-                        FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()))));
+                        FDv2SourceResult.changeSet(makeChangeSet(false)))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));

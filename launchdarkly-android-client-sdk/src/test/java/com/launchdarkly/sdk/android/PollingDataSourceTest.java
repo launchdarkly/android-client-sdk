@@ -274,13 +274,12 @@ public class PollingDataSourceTest {
             ScheduledFuture pollTask = ds.currentPollTask.get();
             assertFalse(pollTask.isCancelled());
 
-            LDContext context1 = requireValue(fetcher.receivedContexts, 5, TimeUnit.MILLISECONDS);
-            Thread.sleep(50);
+            LDContext context1 = requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
 
-            LDContext context2 = requireValue(fetcher.receivedContexts, 5, TimeUnit.MILLISECONDS);
+            LDContext context2 = requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
 
             // if a third request is sent, this will fail here
-            requireNoMoreValues(fetcher.receivedContexts, 100, TimeUnit.MILLISECONDS);
+            requireNoMoreValues(fetcher.receivedContexts, 200, TimeUnit.MILLISECONDS);
             assertTrue(pollTask.isCancelled());
         } finally {
             ds.stop(LDUtil.noOpCallback());

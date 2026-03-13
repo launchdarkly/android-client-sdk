@@ -4,10 +4,14 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import com.launchdarkly.eventsource.EventHandler;
+import com.launchdarkly.eventsource.ConnectStrategy;
 import com.launchdarkly.eventsource.EventSource;
+import com.launchdarkly.eventsource.HttpConnectStrategy;
 import com.launchdarkly.eventsource.MessageEvent;
-import com.launchdarkly.eventsource.UnsuccessfulResponseException;
+import com.launchdarkly.eventsource.RetryDelayStrategy;
+import com.launchdarkly.eventsource.StreamHttpErrorException;
+import com.launchdarkly.eventsource.background.BackgroundEventHandler;
+import com.launchdarkly.eventsource.background.BackgroundEventSource;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
@@ -24,7 +28,6 @@ import com.launchdarkly.sdk.json.SerializationException;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
-import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
 
 import static com.launchdarkly.sdk.android.LDConfig.JSON;
@@ -50,7 +53,7 @@ final class StreamingDataSource implements DataSource {
     // 5 minutes is the standard read timeout used for all LaunchDarkly stream connections, based on
     // an expectation that the server will send heartbeats at a shorter interval than that
 
-    private EventSource es;
+    private BackgroundEventSource es;
     private final LDContext context;
     private final HttpProperties httpProperties;
     private final boolean evaluationReasons;
@@ -91,7 +94,7 @@ final class StreamingDataSource implements DataSource {
         if (!running && !connection401Error) {
             logger.debug("Starting.");
 
-            EventHandler handler = new EventHandler() {
+            BackgroundEventHandler handler = new BackgroundEventHandler() {
                 @Override
                 public void onOpen() {
                     logger.info("Started LaunchDarkly EventStream");
@@ -114,7 +117,7 @@ final class StreamingDataSource implements DataSource {
 
                 @Override
                 public void onComment(String comment) {
-
+                    // intentionally empty
                 }
 
                 @Override
@@ -122,11 +125,11 @@ final class StreamingDataSource implements DataSource {
                     LDUtil.logExceptionAtErrorLevel(logger, t,
                             "Encountered EventStream error connecting to URI: {}",
                             getUri(context));
-                    if (t instanceof UnsuccessfulResponseException) {
+                    if (t instanceof StreamHttpErrorException) {
                         if (diagnosticStore != null) {
                             diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
                         }
-                        int code = ((UnsuccessfulResponseException) t).getCode();
+                        int code = ((StreamHttpErrorException) t).getCode();
                         if (code >= 400 && code < 500) {
                             logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
@@ -146,30 +149,28 @@ final class StreamingDataSource implements DataSource {
                 }
             };
 
-            EventSource.Builder builder = new EventSource.Builder(handler, getUri(context));
-            builder.reconnectTime(initialReconnectDelayMillis, TimeUnit.MILLISECONDS);
-            builder.clientBuilderActions(new EventSource.Builder.ClientConfigurer() {
-                public void configure(OkHttpClient.Builder clientBuilder) {
-                    httpProperties.applyToHttpClientBuilder(clientBuilder);
-                    clientBuilder.readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                }
-            });
-
-            builder.requestTransformer(input ->
-                input.newBuilder()
-                        .headers(
-                                input.headers().newBuilder().addAll(httpProperties.toHeadersBuilder().build()).build()
-                        ).build());
+            HttpConnectStrategy connectStrategy = ConnectStrategy.http(getUri(context))
+                    .clientBuilderActions(clientBuilder -> {
+                        httpProperties.applyToHttpClientBuilder(clientBuilder);
+                        clientBuilder.readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                    })
+                    .requestTransformer(input ->
+                            input.newBuilder()
+                                    .headers(
+                                            input.headers().newBuilder().addAll(httpProperties.toHeadersBuilder().build()).build()
+                                    ).build());
 
             if (useReport) {
-                builder.method(METHOD_REPORT);
-                builder.body(getRequestBody(context));
+                connectStrategy = connectStrategy.methodAndBody(METHOD_REPORT, getRequestBody(context));
             }
 
-            builder.maxReconnectTime(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
+            EventSource.Builder esBuilder = new EventSource.Builder(connectStrategy)
+                    .retryDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
+                    .retryDelayStrategy(RetryDelayStrategy.defaultStrategy()
+                            .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS));
 
             eventSourceStarted = System.currentTimeMillis();
-            es = builder.build();
+            es = new BackgroundEventSource.Builder(handler, esBuilder).build();
             es.start();
 
             running = true;
