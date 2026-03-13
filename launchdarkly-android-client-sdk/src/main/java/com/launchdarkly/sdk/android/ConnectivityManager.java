@@ -6,7 +6,6 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
-import com.launchdarkly.sdk.android.DataModel;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
@@ -15,7 +14,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
-import com.launchdarkly.sdk.fdv2.Selector;
+import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -24,8 +23,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-
-import static com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 
 class ConnectivityManager {
     // Implementation notes:
@@ -56,6 +53,7 @@ class ConnectivityManager {
     private final ClientContext baseClientContext;
     private final PlatformState platformState;
     private final ComponentConfigurer<DataSource> dataSourceFactory;
+    private final TransactionalDataStore transactionalDataStore;
     private final DataSourceUpdateSink dataSourceUpdateSink;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
@@ -74,6 +72,7 @@ class ConnectivityManager {
     private final AtomicReference<Boolean> previouslyInBackground = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
+    private volatile ConnectionMode currentFDv2Mode;
 
     // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
     // This has two purposes: 1. to decouple the data source implementation from the details of how
@@ -105,7 +104,7 @@ class ConnectivityManager {
         }
 
         @Override
-        public void setStatus(ConnectionMode newConnectionMode, Throwable error) {
+        public void setStatus(ConnectionInformation.ConnectionMode newConnectionMode, Throwable error) {
             if (error == null) {
                 updateConnectionInfoForSuccess(newConnectionMode);
             } else {
@@ -123,7 +122,7 @@ class ConnectivityManager {
             // The DataSource will call this method if it receives an error such as HTTP 401 that
             // indicates the mobile key is invalid.
             ConnectivityManager.this.shutDown();
-            setStatus(ConnectionMode.SHUTDOWN, null);
+            setStatus(ConnectionInformation.ConnectionMode.SHUTDOWN, null);
         }
     }
 
@@ -135,6 +134,7 @@ class ConnectivityManager {
     ) {
         this.baseClientContext = clientContext;
         this.dataSourceFactory = dataSourceFactory;
+        this.transactionalDataStore = contextDataManager;
         this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl(contextDataManager);
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.eventProcessor = eventProcessor;
@@ -151,13 +151,22 @@ class ConnectivityManager {
         this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();
 
         connectivityChangeListener = networkAvailable -> {
-            updateDataSource(false, LDUtil.noOpCallback());
+            DataSource dataSource = currentDataSource.get();
+            if (dataSource instanceof ModeAware) {
+                eventProcessor.setOffline(forcedOffline.get() || !networkAvailable);
+                resolveAndSwitchMode((ModeAware) dataSource);
+            } else {
+                updateDataSource(false, LDUtil.noOpCallback());
+            }
         };
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
         foregroundListener = foreground -> {
             DataSource dataSource = currentDataSource.get();
-            if (dataSource == null || dataSource.needsRefresh(!foreground,
+            if (dataSource instanceof ModeAware) {
+                eventProcessor.setInBackground(!foreground);
+                resolveAndSwitchMode((ModeAware) dataSource);
+            } else if (dataSource == null || dataSource.needsRefresh(!foreground,
                     currentContext.get())) {
                 updateDataSource(true, LDUtil.noOpCallback());
             }
@@ -209,11 +218,11 @@ class ConnectivityManager {
         if (forceOffline) {
             logger.debug("Initialized in offline mode");
             initialized = true;
-            dataSourceUpdateSink.setStatus(ConnectionMode.SET_OFFLINE, null);
+            dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.SET_OFFLINE, null);
         } else if (!networkEnabled) {
-            dataSourceUpdateSink.setStatus(ConnectionMode.OFFLINE, null);
+            dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.OFFLINE, null);
         } else if (inBackground && backgroundUpdatingDisabled) {
-            dataSourceUpdateSink.setStatus(ConnectionMode.BACKGROUND_DISABLED, null);
+            dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.BACKGROUND_DISABLED, null);
         } else {
             shouldStopExistingDataSource = mustReinitializeDataSource;
             shouldStartDataSourceIfStopped = true;
@@ -235,6 +244,7 @@ class ConnectivityManager {
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
+                transactionalDataStore,
                 context,
                 inBackground,
                 previouslyInBackground.get()
@@ -261,6 +271,13 @@ class ConnectivityManager {
                 onCompletion.onSuccess(null);
             }
         });
+
+        // Resolve the initial mode after start() so that switchMode() can safely replace
+        // the source manager without conflicting with the start() task submission.
+        if (dataSource instanceof ModeAware) {
+            currentFDv2Mode = ConnectionMode.STREAMING;
+            resolveAndSwitchMode((ModeAware) dataSource);
+        }
 
         return true;
     }
@@ -293,7 +310,7 @@ class ConnectivityManager {
         }
     }
 
-    private void updateConnectionInfoForSuccess(ConnectionMode connectionMode) {
+    private void updateConnectionInfoForSuccess(ConnectionInformation.ConnectionMode connectionMode) {
         boolean updated = false;
         if (connectionInformation.getConnectionMode() != connectionMode) {
             connectionInformation.setConnectionMode(connectionMode);
@@ -318,7 +335,7 @@ class ConnectivityManager {
         }
     }
 
-    private void updateConnectionInfoForError(ConnectionMode connectionMode, Throwable error) {
+    private void updateConnectionInfoForError(ConnectionInformation.ConnectionMode connectionMode, Throwable error) {
         LDFailure failure = null;
         if (error != null) {
             if (error instanceof LDFailure) {
@@ -407,6 +424,31 @@ class ConnectivityManager {
     }
 
     /**
+     * Resolves the current platform state to a {@link ConnectionMode} using the mode resolution
+     * table, and calls {@link ModeAware#switchMode} if the resolved mode differs from the current
+     * mode. This replaces the legacy teardown/rebuild cycle for FDv2 data sources.
+     */
+    private void resolveAndSwitchMode(ModeAware modeAware) {
+        ConnectionMode resolvedMode;
+        if (forcedOffline.get()) {
+            resolvedMode = ConnectionMode.OFFLINE;
+        } else {
+            ModeState state = new ModeState(
+                    platformState.isForeground(),
+                    platformState.isNetworkAvailable()
+            );
+            resolvedMode = ModeResolutionTable.MOBILE.resolve(state);
+        }
+
+        ConnectionMode previousMode = currentFDv2Mode;
+        if (previousMode != resolvedMode) {
+            logger.debug("Switching FDv2 data source mode: {} -> {}", previousMode, resolvedMode);
+            currentFDv2Mode = resolvedMode;
+            modeAware.switchMode(resolvedMode);
+        }
+    }
+
+    /**
      * Permanently stops data updating for the current client instance. We call this if the client
      * is being closed, or if we receive an error that indicates the mobile key is invalid.
      */
@@ -425,7 +467,13 @@ class ConnectivityManager {
     void setForceOffline(boolean forceOffline) {
         boolean wasForcedOffline = forcedOffline.getAndSet(forceOffline);
         if (forceOffline != wasForcedOffline) {
-            updateDataSource(false, LDUtil.noOpCallback());
+            DataSource dataSource = currentDataSource.get();
+            if (dataSource instanceof ModeAware) {
+                eventProcessor.setOffline(forceOffline || !platformState.isNetworkAvailable());
+                resolveAndSwitchMode((ModeAware) dataSource);
+            } else {
+                updateDataSource(false, LDUtil.noOpCallback());
+            }
         }
     }
 
