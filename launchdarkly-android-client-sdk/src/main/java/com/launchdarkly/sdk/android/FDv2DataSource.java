@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.util.ArrayList;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * switch to next synchronizer) and recovery (when on non-prime synchronizer, try
  * to return to the first after timeout).
  */
-final class FDv2DataSource implements ModeAware {
+final class FDv2DataSource implements DataSource, ModeAware {
 
     /**
      * Factory for creating Initializer or Synchronizer instances.
