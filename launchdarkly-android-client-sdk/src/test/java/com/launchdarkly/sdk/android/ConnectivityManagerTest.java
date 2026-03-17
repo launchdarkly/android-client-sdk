@@ -671,7 +671,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
      * A mock ModeAware data source that records switchMode calls and
      * signals start success immediately.
      */
-    private static class MockModeAwareDataSource implements ModeAware {
+    private static class MockModeAwareDataSource implements DataSource, ModeAware {
         final BlockingQueue<ResolvedModeDefinition> switchModeCalls = new LinkedBlockingQueue<>();
         private final BlockingQueue<DataSource> startedQueue;
         private volatile com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink sink;
