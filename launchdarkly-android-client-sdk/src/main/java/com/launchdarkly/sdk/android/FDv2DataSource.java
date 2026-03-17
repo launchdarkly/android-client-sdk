@@ -15,7 +15,6 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
@@ -39,37 +38,9 @@ final class FDv2DataSource implements ModeAware {
         T build();
     }
 
-    /**
-     * A resolved mode definition holding factories that are ready to use (already bound to
-     * their ClientContext). Produced by FDv2DataSourceBuilder from ComponentConfigurer entries.
-     */
-    static final class ResolvedModeDefinition {
-        private final List<DataSourceFactory<Initializer>> initializers;
-        private final List<DataSourceFactory<Synchronizer>> synchronizers;
-
-        ResolvedModeDefinition(
-                @NonNull List<DataSourceFactory<Initializer>> initializers,
-                @NonNull List<DataSourceFactory<Synchronizer>> synchronizers
-        ) {
-            this.initializers = Collections.unmodifiableList(new ArrayList<>(initializers));
-            this.synchronizers = Collections.unmodifiableList(new ArrayList<>(synchronizers));
-        }
-
-        @NonNull
-        List<DataSourceFactory<Initializer>> getInitializers() {
-            return initializers;
-        }
-
-        @NonNull
-        List<DataSourceFactory<Synchronizer>> getSynchronizers() {
-            return synchronizers;
-        }
-    }
-
     private final LDLogger logger;
     private final LDContext evaluationContext;
     private final DataSourceUpdateSinkV2 dataSourceUpdateSink;
-    private final Map<ConnectionMode, ResolvedModeDefinition> modeTable;
     private volatile SourceManager sourceManager;
     private final long fallbackTimeoutSeconds;
     private final long recoveryTimeoutSeconds;
@@ -129,7 +100,6 @@ final class FDv2DataSource implements ModeAware {
         this.evaluationContext = evaluationContext;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.logger = logger;
-        this.modeTable = null;
         List<SynchronizerFactoryWithState> synchronizerFactoriesWithState = new ArrayList<>();
         for (DataSourceFactory<Synchronizer> factory : synchronizers) {
             synchronizerFactoriesWithState.add(new SynchronizerFactoryWithState(factory));
@@ -138,74 +108,6 @@ final class FDv2DataSource implements ModeAware {
         this.fallbackTimeoutSeconds = fallbackTimeoutSeconds;
         this.recoveryTimeoutSeconds = recoveryTimeoutSeconds;
         this.sharedExecutor = sharedExecutor;
-    }
-
-    /**
-     * Mode-aware convenience constructor using default fallback and recovery timeouts.
-     *
-     * @param evaluationContext    the context to evaluate flags for
-     * @param modeTable            resolved mode definitions keyed by ConnectionMode
-     * @param startingMode         the initial connection mode
-     * @param dataSourceUpdateSink sink to apply changesets and status updates to
-     * @param sharedExecutor       executor used for internal background tasks
-     * @param logger               logger
-     */
-    FDv2DataSource(
-            @NonNull LDContext evaluationContext,
-            @NonNull Map<ConnectionMode, ResolvedModeDefinition> modeTable,
-            @NonNull ConnectionMode startingMode,
-            @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
-            @NonNull ScheduledExecutorService sharedExecutor,
-            @NonNull LDLogger logger
-    ) {
-        this(evaluationContext, modeTable, startingMode, dataSourceUpdateSink, sharedExecutor, logger,
-                FDv2DataSourceConditions.DEFAULT_FALLBACK_TIMEOUT_SECONDS,
-                FDv2DataSourceConditions.DEFAULT_RECOVERY_TIMEOUT_SECONDS);
-    }
-
-    /**
-     * Mode-aware constructor. The mode table maps each {@link ConnectionMode} to a
-     * {@link ResolvedModeDefinition} containing pre-built factories. The starting mode
-     * determines the initial set of initializers and synchronizers.
-     *
-     * @param evaluationContext       the context to evaluate flags for
-     * @param modeTable               resolved mode definitions keyed by ConnectionMode
-     * @param startingMode            the initial connection mode
-     * @param dataSourceUpdateSink    sink to apply changesets and status updates to
-     * @param sharedExecutor          executor used for internal background tasks; must have
-     *                                at least 2 threads
-     * @param logger                  logger
-     * @param fallbackTimeoutSeconds  seconds of INTERRUPTED state before falling back
-     * @param recoveryTimeoutSeconds  seconds before attempting to recover to the primary
-     *                                synchronizer
-     */
-    FDv2DataSource(
-            @NonNull LDContext evaluationContext,
-            @NonNull Map<ConnectionMode, ResolvedModeDefinition> modeTable,
-            @NonNull ConnectionMode startingMode,
-            @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
-            @NonNull ScheduledExecutorService sharedExecutor,
-            @NonNull LDLogger logger,
-            long fallbackTimeoutSeconds,
-            long recoveryTimeoutSeconds
-    ) {
-        this.evaluationContext = evaluationContext;
-        this.dataSourceUpdateSink = dataSourceUpdateSink;
-        this.logger = logger;
-        this.modeTable = Collections.unmodifiableMap(new EnumMap<>(modeTable));
-        this.fallbackTimeoutSeconds = fallbackTimeoutSeconds;
-        this.recoveryTimeoutSeconds = recoveryTimeoutSeconds;
-        this.sharedExecutor = sharedExecutor;
-
-        ResolvedModeDefinition startDef = modeTable.get(startingMode);
-        if (startDef == null) {
-            throw new IllegalArgumentException("No mode definition for starting mode: " + startingMode);
-        }
-        List<SynchronizerFactoryWithState> syncFactories = new ArrayList<>();
-        for (DataSourceFactory<Synchronizer> factory : startDef.getSynchronizers()) {
-            syncFactories.add(new SynchronizerFactoryWithState(factory));
-        }
-        this.sourceManager = new SourceManager(syncFactories, new ArrayList<>(startDef.getInitializers()));
     }
 
     @Override
@@ -235,20 +137,21 @@ final class FDv2DataSource implements ModeAware {
         // race with a concurrent stop() and could undo it, causing a spurious OFF/exhaustion report.
         LDContext context = evaluationContext;
 
+        final SourceManager sm = sourceManager;
         sharedExecutor.execute(() -> {
             try {
-                if (!sourceManager.hasAvailableSources()) {
+                if (!sm.hasAvailableSources()) {
                     logger.info("No initializers or synchronizers; data source will not connect.");
                     dataSourceUpdateSink.setStatus(DataSourceState.VALID, null);
                     tryCompleteStart(true, null);
                     return;
                 }
 
-                if (sourceManager.hasInitializers()) {
+                if (sm.hasInitializers()) {
                     runInitializers(context, dataSourceUpdateSink);
                 }
 
-                if (!sourceManager.hasAvailableSynchronizers()) {
+                if (!sm.hasAvailableSynchronizers()) {
                     if (!startCompleted.get()) {
                         maybeReportUnexpectedExhaustion("All initializers exhausted and there are no available synchronizers.");
                     }
@@ -256,10 +159,9 @@ final class FDv2DataSource implements ModeAware {
                     return;
                 }
 
-                SourceManager sm = sourceManager;
-                runSynchronizers(sm, context, dataSourceUpdateSink);
-                // Only report exhaustion if the SourceManager was NOT replaced by a
-                // concurrent switchMode() call; a mode switch is not an error.
+                runSynchronizers(context, dataSourceUpdateSink, sm);
+                // Only report exhaustion if this SourceManager is still the active one
+                // (a concurrent switchMode() may have replaced it).
                 if (sourceManager == sm) {
                     maybeReportUnexpectedExhaustion("All data source acquisition methods have been exhausted.");
                 }
@@ -319,68 +221,29 @@ final class FDv2DataSource implements ModeAware {
 
     @Override
     public boolean needsRefresh(boolean newInBackground, @NonNull LDContext newEvaluationContext) {
-        // Mode-aware data sources handle foreground/background transitions via switchMode(),
-        // so only a context change requires a full teardown/rebuild (to re-run initializers).
-        return !newEvaluationContext.equals(evaluationContext);
+        // Mode-aware data sources handle background/foreground transitions via switchMode(),
+        // so only request a full rebuild when the evaluation context changes.
+        return !evaluationContext.equals(newEvaluationContext);
     }
 
-    /**
-     * Switches to a new connection mode by tearing down the current synchronizers and
-     * starting the new mode's synchronizers on the background executor. Initializers are
-     * NOT re-run (spec CONNMODE 2.0.1).
-     * <p>
-     * Expected to be called from a single thread (ConnectivityManager's listener). The
-     * field swap is not atomic; concurrent calls from multiple threads could leave an
-     * intermediate SourceManager unclosed.
-     */
     @Override
-    public void switchMode(@NonNull ConnectionMode newMode) {
-        if (modeTable == null) {
-            logger.warn("switchMode({}) called but no mode table configured", newMode);
-            return;
+    public void switchMode(@NonNull ResolvedModeDefinition newDefinition) {
+        List<SynchronizerFactoryWithState> newSyncFactories = new ArrayList<>();
+        for (DataSourceFactory<Synchronizer> factory : newDefinition.getSynchronizerFactories()) {
+            newSyncFactories.add(new SynchronizerFactoryWithState(factory));
         }
-        if (stopped.get()) {
-            return;
-        }
-        ResolvedModeDefinition def = modeTable.get(newMode);
-        if (def == null) {
-            logger.error("switchMode({}) failed: no definition found", newMode);
-            return;
-        }
-
-        // Build new SourceManager with the mode's synchronizer factories.
-        // Initializers are NOT included — spec 2.0.1: mode switch does not re-run initializers.
-        List<SynchronizerFactoryWithState> syncFactories = new ArrayList<>();
-        for (DataSourceFactory<Synchronizer> factory : def.getSynchronizers()) {
-            syncFactories.add(new SynchronizerFactoryWithState(factory));
-        }
+        // Per CONNMODE 2.0.1: mode switches only transition synchronizers, no initializers.
         SourceManager newManager = new SourceManager(
-                syncFactories, Collections.<DataSourceFactory<Initializer>>emptyList());
-
-        // Swap the source manager and close the old one to interrupt its active source.
+                newSyncFactories,
+                Collections.<DataSourceFactory<Initializer>>emptyList()
+        );
         SourceManager oldManager = sourceManager;
         sourceManager = newManager;
         if (oldManager != null) {
             oldManager.close();
         }
-
-        // Run the new mode's synchronizers on the background thread.
-        LDContext context = evaluationContext;
         sharedExecutor.execute(() -> {
-            try {
-                if (!newManager.hasAvailableSynchronizers()) {
-                    logger.debug("Mode {} has no synchronizers; data source idle", newMode);
-                    return;
-                }
-                runSynchronizers(newManager, context, dataSourceUpdateSink);
-                // Report exhaustion only if we weren't replaced by another switchMode().
-                if (sourceManager == newManager && !stopped.get()) {
-                    maybeReportUnexpectedExhaustion(
-                            "All synchronizers exhausted after mode switch to " + newMode);
-                }
-            } catch (Throwable t) {
-                logger.warn("FDv2DataSource error after mode switch to {}: {}", newMode, t.toString());
-            }
+            runSynchronizers(evaluationContext, dataSourceUpdateSink, newManager);
         });
     }
 
@@ -464,9 +327,9 @@ final class FDv2DataSource implements ModeAware {
     }
 
     private void runSynchronizers(
-            @NonNull SourceManager sm,
             @NonNull LDContext context,
-            @NonNull DataSourceUpdateSinkV2 sink
+            @NonNull DataSourceUpdateSinkV2 sink,
+            @NonNull SourceManager sm
     ) {
         try {
             Synchronizer synchronizer = sm.getNextAvailableSynchronizerAndSetActive();

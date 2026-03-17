@@ -10,7 +10,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Defines the initializer and synchronizer pipelines for a {@link ConnectionMode}.
+ * Defines the initializers and synchronizers for a single {@link ConnectionMode}.
  * Each instance is a pure data holder — it stores {@link ComponentConfigurer} factories
  * but does not create any concrete initializer or synchronizer objects.
  * <p>
@@ -21,6 +21,7 @@ import java.util.List;
  * Package-private — not part of the public SDK API.
  *
  * @see ConnectionMode
+ * @see ResolvedModeDefinition
  */
 final class ModeDefinition {
 

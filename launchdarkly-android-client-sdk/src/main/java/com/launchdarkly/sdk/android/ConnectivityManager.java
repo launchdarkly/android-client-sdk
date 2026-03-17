@@ -53,11 +53,11 @@ class ConnectivityManager {
     private final ClientContext baseClientContext;
     private final PlatformState platformState;
     private final ComponentConfigurer<DataSource> dataSourceFactory;
-    private final TransactionalDataStore transactionalDataStore;
     private final DataSourceUpdateSink dataSourceUpdateSink;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final EventProcessor eventProcessor;
+    private final TransactionalDataStore transactionalDataStore;
     private final PlatformState.ForegroundChangeListener foregroundListener;
     private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final TaskExecutor taskExecutor;
@@ -72,6 +72,7 @@ class ConnectivityManager {
     private final AtomicReference<Boolean> previouslyInBackground = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
+    private volatile Map<ConnectionMode, ResolvedModeDefinition> resolvedModeTable;
     private volatile ConnectionMode currentFDv2Mode;
 
     // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
@@ -134,11 +135,11 @@ class ConnectivityManager {
     ) {
         this.baseClientContext = clientContext;
         this.dataSourceFactory = dataSourceFactory;
-        this.transactionalDataStore = contextDataManager;
         this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl(contextDataManager);
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.eventProcessor = eventProcessor;
         this.environmentStore = environmentStore;
+        this.transactionalDataStore = contextDataManager;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
 
@@ -153,7 +154,7 @@ class ConnectivityManager {
         connectivityChangeListener = networkAvailable -> {
             DataSource dataSource = currentDataSource.get();
             if (dataSource instanceof ModeAware) {
-                eventProcessor.setOffline(forcedOffline.get() || !networkAvailable);
+                eventProcessor.setOffline(!networkAvailable);
                 resolveAndSwitchMode((ModeAware) dataSource);
             } else {
                 updateDataSource(false, LDUtil.noOpCallback());
@@ -244,14 +245,20 @@ class ConnectivityManager {
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
-                transactionalDataStore,
                 context,
                 inBackground,
-                previouslyInBackground.get()
+                previouslyInBackground.get(),
+                transactionalDataStore
         );
         DataSource dataSource = dataSourceFactory.build(clientContext);
         currentDataSource.set(dataSource);
         previouslyInBackground.set(Boolean.valueOf(inBackground));
+
+        if (dataSourceFactory instanceof FDv2DataSourceBuilder) {
+            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
+            resolvedModeTable = fdv2Builder.getResolvedModeTable();
+            currentFDv2Mode = fdv2Builder.getStartingMode();
+        }
 
         dataSource.start(new Callback<Boolean>() {
             @Override
@@ -272,10 +279,9 @@ class ConnectivityManager {
             }
         });
 
-        // Resolve the initial mode after start() so that switchMode() can safely replace
-        // the source manager without conflicting with the start() task submission.
+        // If the app starts in the background, the builder creates the data source with
+        // STREAMING as the starting mode. Perform an initial mode resolution to correct this.
         if (dataSource instanceof ModeAware) {
-            currentFDv2Mode = ConnectionMode.STREAMING;
             resolveAndSwitchMode((ModeAware) dataSource);
         }
 
@@ -424,31 +430,6 @@ class ConnectivityManager {
     }
 
     /**
-     * Resolves the current platform state to a {@link ConnectionMode} using the mode resolution
-     * table, and calls {@link ModeAware#switchMode} if the resolved mode differs from the current
-     * mode. This replaces the legacy teardown/rebuild cycle for FDv2 data sources.
-     */
-    private void resolveAndSwitchMode(ModeAware modeAware) {
-        ConnectionMode resolvedMode;
-        if (forcedOffline.get()) {
-            resolvedMode = ConnectionMode.OFFLINE;
-        } else {
-            ModeState state = new ModeState(
-                    platformState.isForeground(),
-                    platformState.isNetworkAvailable()
-            );
-            resolvedMode = ModeResolutionTable.MOBILE.resolve(state);
-        }
-
-        ConnectionMode previousMode = currentFDv2Mode;
-        if (previousMode != resolvedMode) {
-            logger.debug("Switching FDv2 data source mode: {} -> {}", previousMode, resolvedMode);
-            currentFDv2Mode = resolvedMode;
-            modeAware.switchMode(resolvedMode);
-        }
-    }
-
-    /**
      * Permanently stops data updating for the current client instance. We call this if the client
      * is being closed, or if we receive an error that indicates the mobile key is invalid.
      */
@@ -479,6 +460,37 @@ class ConnectivityManager {
 
     boolean isForcedOffline() {
         return forcedOffline.get();
+    }
+
+    /**
+     * Resolves the current platform state to a ConnectionMode via the ModeResolutionTable,
+     * looks up the ResolvedModeDefinition from the resolved mode table, and calls
+     * switchMode() on the data source if the mode has changed.
+     */
+    private void resolveAndSwitchMode(@NonNull ModeAware modeAware) {
+        Map<ConnectionMode, ResolvedModeDefinition> table = resolvedModeTable;
+        if (table == null) {
+            return;
+        }
+        boolean forceOffline = forcedOffline.get();
+        boolean networkAvailable = platformState.isNetworkAvailable();
+        boolean foreground = platformState.isForeground();
+        ModeState state = new ModeState(
+                foreground && !forceOffline,
+                networkAvailable && !forceOffline
+        );
+        ConnectionMode newMode = ModeResolutionTable.MOBILE.resolve(state);
+        if (newMode == currentFDv2Mode) {
+            return;
+        }
+        currentFDv2Mode = newMode;
+        ResolvedModeDefinition def = table.get(newMode);
+        if (def == null) {
+            logger.warn("No resolved definition for mode {}; skipping switchMode", newMode);
+            return;
+        }
+        logger.debug("Switching FDv2 mode to {}", newMode);
+        modeAware.switchMode(def);
     }
 
     synchronized ConnectionInformation getConnectionInformation() {
