@@ -3,23 +3,21 @@ package com.launchdarkly.sdk.android;
 import androidx.annotation.NonNull;
 
 /**
- * A single entry in a {@link ModeResolutionTable}. Pairs a condition with a
- * target {@link ConnectionMode}. If {@link Condition#test(ModeState)} returns
- * {@code true} for a given {@link ModeState}, this entry's {@code mode} is the
- * resolved result.
- * <p>
- * When user-configurable mode selection is added, {@code mode} can be replaced
- * with a resolver function to support indirection (e.g., returning a
- * user-configured foreground mode from {@code ModeState}).
+ * A single entry in a {@link ModeResolutionTable}. Pairs a {@link Condition}
+ * predicate with the {@link ConnectionMode} that should be activated when the
+ * condition matches the current {@link ModeState}.
  * <p>
  * Package-private — not part of the public SDK API.
+ *
+ * @see ModeResolutionTable
+ * @see ModeState
  */
 final class ModeResolutionEntry {
 
     /**
-     * Functional interface for evaluating whether a {@link ModeResolutionEntry}
-     * matches a given {@link ModeState}. Defined here to avoid a dependency on
-     * {@code java.util.function.Predicate} (requires API 24+; SDK minimum is 21).
+     * Functional interface for evaluating a {@link ModeState} against a condition.
+     * Defined here (rather than using {@code java.util.function.Predicate}) because
+     * {@code Predicate} requires API 24+ and the SDK targets minSdk 21.
      */
     interface Condition {
         boolean test(@NonNull ModeState state);
@@ -28,10 +26,7 @@ final class ModeResolutionEntry {
     private final Condition conditions;
     private final ConnectionMode mode;
 
-    ModeResolutionEntry(
-            @NonNull Condition conditions,
-            @NonNull ConnectionMode mode
-    ) {
+    ModeResolutionEntry(@NonNull Condition conditions, @NonNull ConnectionMode mode) {
         this.conditions = conditions;
         this.mode = mode;
     }

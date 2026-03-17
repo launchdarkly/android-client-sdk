@@ -14,14 +14,12 @@ abstract class StandardEndpoints {
     static final String STREAMING_REQUEST_BASE_PATH = "/meval";
     static final String POLLING_REQUEST_GET_BASE_PATH = "/msdk/evalx/contexts";
     static final String POLLING_REQUEST_REPORT_BASE_PATH = "/msdk/evalx/context";
+    static final String ANALYTICS_EVENTS_REQUEST_PATH = "/mobile/events/bulk";
+    static final String DIAGNOSTIC_EVENTS_REQUEST_PATH = "/mobile/events/diagnostic";
 
-    // FDv2 paths per CSFDV2 Requirement 2.1.1 (unified for all client-side platforms).
-    // Context is appended as a base64 path segment for GET, or sent in the request body for REPORT/POST.
     static final String FDV2_POLLING_REQUEST_GET_BASE_PATH = "/sdk/poll/eval";
     static final String FDV2_POLLING_REQUEST_REPORT_BASE_PATH = "/sdk/poll/eval";
     static final String FDV2_STREAMING_REQUEST_BASE_PATH = "/sdk/stream/eval";
-    static final String ANALYTICS_EVENTS_REQUEST_PATH = "/mobile/events/bulk";
-    static final String DIAGNOSTIC_EVENTS_REQUEST_PATH = "/mobile/events/diagnostic";
 
     /**
      * Internal method to decide which URI a given component should connect to.

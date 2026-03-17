@@ -199,21 +199,15 @@ Maps to JS `FDv2ConnectionMode`. Closed enum — custom modes are out of scope f
 
 ```java
 final class ModeDefinition {
-    final List<ComponentConfigurer<Initializer>> initializers;
-    final List<ComponentConfigurer<Synchronizer>> synchronizers;
+    private final List<ComponentConfigurer<Initializer>> initializers;
+    private final List<ComponentConfigurer<Synchronizer>> synchronizers;
+    // + getters: getInitializers(), getSynchronizers()
 }
 ```
 
 Uses the SDK's existing `ComponentConfigurer<T>` pattern (which takes `ClientContext` at build time) rather than a custom `DataSourceEntry` config type. This eliminates the need for a separate config-to-factory conversion step — the mode table directly holds factory functions.
 
-Helper factory methods provide readable construction:
-
-```java
-static ComponentConfigurer<Initializer> pollingInitializer() { ... }
-static ComponentConfigurer<Synchronizer> pollingSynchronizer(long intervalMs) { ... }
-static ComponentConfigurer<Synchronizer> streamingSynchronizer() { ... }
-static ComponentConfigurer<Initializer> cacheInitializer() { ... }  // stubbed for now
-```
+`ModeDefinition` is a pure data class — it holds configurer lists but does not define factory methods. The `DEFAULT_MODE_TABLE` entries are currently stubbed (`clientContext -> null`). Real `ComponentConfigurer` implementations will be wired in when `FDv2DataSourceBuilder` is created (Commit 4).
 
 ### 3. Default Mode Table
 
@@ -243,12 +237,13 @@ This resolution produces a `Map<ConnectionMode, ResolvedModeDefinition>` where `
 
 ```java
 final class ModeState {
-    final boolean foreground;
-    final boolean networkAvailable;
+    private final boolean foreground;
+    private final boolean networkAvailable;
+    // + getters: isForeground(), isNetworkAvailable()
 }
 ```
 
-Represents the current platform state. All fields required, primitive `boolean` types. Built by ConnectivityManager from `PlatformState` events.
+Represents the current platform state. All fields required, primitive `boolean` types, accessed via getters (codebase convention). Built by ConnectivityManager from `PlatformState` events.
 
 In this PR, `ModeState` only carries platform state. User-configurable foreground/background mode selection (CONNMODE 2.2.2) is deferred to a future PR. When that's added, `foregroundMode` and `backgroundMode` fields will be introduced here and the resolution table entries will reference them via lambdas instead of hardcoded enum values.
 
@@ -256,12 +251,18 @@ In this PR, `ModeState` only carries platform state. User-configurable foregroun
 
 ```java
 final class ModeResolutionEntry {
-    final Predicate<ModeState> conditions;   // does this entry apply to the given state?
-    final ConnectionMode mode;               // the resolved mode if this entry matches
+    // Custom functional interface (minSdk 21 — java.util.function.Predicate requires API 24+)
+    interface Condition {
+        boolean test(@NonNull ModeState state);
+    }
+
+    private final Condition conditions;
+    private final ConnectionMode mode;
+    // + getters: getConditions(), getMode()
 }
 ```
 
-With hardcoded defaults, the resolver is a simple `ConnectionMode` value rather than a `Function<ModeState, ConnectionMode>`. When user-configurable mode selection is added later, `mode` can be replaced with a `Function<ModeState, ConnectionMode>` resolver to support indirection like `state -> state.foregroundMode`.
+Uses a custom `Condition` functional interface instead of `java.util.function.Predicate` to support minSdk 21. With hardcoded defaults, the resolver is a simple `ConnectionMode` value rather than a `Function<ModeState, ConnectionMode>`. When user-configurable mode selection is added later, `mode` can be replaced with a resolver function to support indirection like `state -> state.foregroundMode`.
 
 ### 6. `ModeResolutionTable` + `resolve()` (pure function)
 
@@ -269,13 +270,13 @@ With hardcoded defaults, the resolver is a simple `ConnectionMode` value rather 
 final class ModeResolutionTable {
     static final ModeResolutionTable MOBILE = new ModeResolutionTable(Arrays.asList(
         new ModeResolutionEntry(
-            state -> !state.networkAvailable,
+            state -> !state.isNetworkAvailable(),
             ConnectionMode.OFFLINE),
         new ModeResolutionEntry(
-            state -> !state.foreground,
+            state -> !state.isForeground(),
             ConnectionMode.BACKGROUND),
         new ModeResolutionEntry(
-            state -> state.foreground,
+            state -> true,                        // catch-all
             ConnectionMode.STREAMING)
     ));
 
@@ -283,9 +284,9 @@ final class ModeResolutionTable {
 }
 ```
 
-`resolve()` iterates entries in order. The first entry whose `conditions` predicate returns `true` wins, and its `mode` value is returned. Pure function — no side effects, no platform awareness.
+`resolve()` iterates entries in order. The first entry whose `conditions` predicate returns `true` wins, and its `mode` value is returned. The last entry is a true catch-all (`state -> true`) for robustness. Pure function — no side effects, no platform awareness.
 
-**Adaptation note:** This is a Java-idiomatic adaptation of Ryan Lamb's mode resolution code from js-core PR [#1146](https://github.com/launchdarkly/js-core/pull/1146). The js-core version uses `Partial<ModeState>` for conditions (partial object matching) and `ConfiguredMode` indirection for user-configurable modes. In this PR, we simplify: conditions become `Predicate<ModeState>` and modes are hardcoded `ConnectionMode` enum values. The data-driven table structure is preserved so that user-configurable mode selection can be added later by replacing the `ConnectionMode mode` field with a `Function<ModeState, ConnectionMode>` resolver.
+**Adaptation note:** This is a Java-idiomatic adaptation of Ryan Lamb's mode resolution code from js-core PR [#1146](https://github.com/launchdarkly/js-core/pull/1146). The js-core version uses `Partial<ModeState>` for conditions (partial object matching) and `ConfiguredMode` indirection for user-configurable modes. In this PR, we simplify: conditions use a custom `ModeResolutionEntry.Condition` functional interface (for minSdk 21 compatibility) and modes are hardcoded `ConnectionMode` enum values. The data-driven table structure is preserved so that user-configurable mode selection can be added later by replacing the `ConnectionMode mode` field with a resolver function.
 
 ### 7. `ModeAware` (package-private interface)
 
@@ -307,11 +308,11 @@ FDv2DataSource implements this. ConnectivityManager checks `instanceof ModeAware
    - `ModeAware` is a marker interface with a single method: `void switchMode(ConnectionMode newMode)`. All logic lives in `FDv2DataSource`.
    - Alternative: skip the interface entirely and have ConnectivityManager use `instanceof FDv2DataSource` directly. The interface is a thin abstraction; either approach works.
 2. **Add `switchMode(ConnectionMode)` method:**
-   - Look up the new mode in the mode table to get its `ModeDefinition`.
-   - Stop current synchronizers (close the active `SourceManager`).
-   - Create a new `SourceManager` with the new mode's synchronizer factories.
-   - Signal the background thread to resume the synchronizer loop with new factories.
-   - Do NOT re-run initializers (spec 2.0.1).
+   - Look up the new mode in the mode table to get its `ResolvedModeDefinition`.
+   - Create a new `SourceManager` with the new mode's synchronizer factories (no initializers — spec 2.0.1).
+   - Swap the `sourceManager` field (now `volatile`) and close the old one to interrupt its active source.
+   - Schedule a new executor task to run the new mode's synchronizers.
+   - `runSynchronizers()` takes an explicit `SourceManager` parameter to prevent the `finally` block from closing a SourceManager swapped in by a concurrent `switchMode()`.
 3. **Override `needsRefresh()`:**
    - Return `false` when only the background state changed (mode-aware data source handles this via `switchMode`).
    - Return `true` when the evaluation context changed (requires full teardown/rebuild).
@@ -331,7 +332,7 @@ FDv2DataSource implements this. ConnectivityManager checks `instanceof ModeAware
 - `DataSource` interface (public API)
 - `StreamingDataSource`, `PollingDataSource` (FDv1 paths)
 - `PlatformState`, `AndroidPlatformState`
-- `ClientContext`, `ClientContextImpl`
+- `ClientContext` (public API)
 - `LDConfig` public API
 
 ---
@@ -345,29 +346,23 @@ The work is decomposed into small commits that each build on the previous one. E
 | File | Description |
 |------|-------------|
 | `ConnectionMode.java` | Enum: STREAMING, POLLING, OFFLINE, ONE_SHOT, BACKGROUND |
-| `ModeDefinition.java` | `List<ComponentConfigurer<Initializer>>` + `List<ComponentConfigurer<Synchronizer>>` + DEFAULT_MODE_TABLE + helper factory methods |
-| `ModeState.java` | Platform state for mode resolution: `boolean foreground`, `boolean networkAvailable` |
-| `ModeResolutionEntry.java` | Predicate (`Predicate<ModeState>`) + hardcoded `ConnectionMode` |
+| `ModeDefinition.java` | `List<ComponentConfigurer<Initializer>>` + `List<ComponentConfigurer<Synchronizer>>` + DEFAULT_MODE_TABLE (stubbed configurers, no factory methods) |
+| `ModeState.java` | Platform state for mode resolution: `private boolean foreground`, `private boolean networkAvailable` + getters |
+| `ModeResolutionEntry.java` | Custom `Condition` functional interface (minSdk 21) + hardcoded `ConnectionMode` |
 | `ModeResolutionTable.java` | Ordered list + `resolve()` method + MOBILE constant |
 | `ModeAware.java` | Package-private interface extending DataSource with `switchMode(ConnectionMode)` |
 
 Tests: `ModeResolutionTable.resolve()` with various `ModeState` inputs.
 
-### Commit 2: `ModeAware` implementation on `FDv2DataSource`
+### Commit 2: `ModeAware` + `switchMode()` implementation on `FDv2DataSource`
 
 | File | Description |
 |------|-------------|
-| `FDv2DataSource.java` (modify) | Implement `ModeAware`, override `needsRefresh()`, add stub `switchMode()` |
+| `FDv2DataSource.java` (modify) | Implement `ModeAware`, override `needsRefresh()`, add `ResolvedModeDefinition` inner class (resolved factory lists per mode), mode-table constructors, full `switchMode()` implementation, refactor `runSynchronizers()` to take `SourceManager` parameter, guard exhaustion report in `start()` |
 
-Tests: `needsRefresh()` returns false for background-only changes, true for context changes.
+Tests: `needsRefresh()` returns false for background-only changes, true for context changes. `switchMode()` activates new mode synchronizers, skips initializers, handles offline/round-trip/no-mode-table/after-stop scenarios.
 
-### Commit 3: `switchMode()` implementation
-
-| File | Description |
-|------|-------------|
-| `FDv2DataSource.java` (modify) | Full `switchMode()` — stop synchronizers, swap to new mode's factories, resume |
-
-### Commit 4: `FDv2DataSourceBuilder`
+### Commit 3: `FDv2DataSourceBuilder` (stub resolution)
 
 | File | Description |
 |------|-------------|
@@ -375,11 +370,28 @@ Tests: `needsRefresh()` returns false for background-only changes, true for cont
 
 The builder resolves `ComponentConfigurer<Initializer/Synchronizer>` → `DataSourceFactory<Initializer/Synchronizer>` by partially applying the `ClientContext`. This bridges the SDK's `ComponentConfigurer` pattern (used in the mode table) with Todd's `DataSourceFactory` pattern (used inside `FDv2DataSource`).
 
+The configurers in `ModeDefinition.DEFAULT_MODE_TABLE` are currently stubbed (`ctx -> null`). The builder resolves the full table, constructs a `ScheduledExecutorService` (with a TODO for proper lifecycle management), and returns an `FDv2DataSource` using the mode-table constructor.
+
+Tests: builder returns non-null `ModeAware`, resolves configurers via `ClientContext`, respects starting mode, throws on missing starting mode, `switchMode()` works across resolved modes.
+
+### Commit 4: Wire real `ComponentConfigurer` implementations
+
+| File | Description |
+|------|-------------|
+| `StandardEndpoints.java` (modify) | Add FDv2 endpoint path constants (`FDV2_POLLING_REQUEST_GET_BASE_PATH`, `FDV2_POLLING_REQUEST_REPORT_BASE_PATH`, `FDV2_STREAMING_REQUEST_BASE_PATH`) |
+| `ClientContextImpl.java` (modify) | Add `TransactionalDataStore` field, getter, 7-arg constructor, and `forDataSource` overload with `@Nullable TransactionalDataStore` parameter |
+| `ConnectivityManager.java` (modify) | Store `ContextDataManager` as `TransactionalDataStore` and pass it through the new `forDataSource` overload so it's available to `FDv2DataSourceBuilder` via `ClientContext` |
+| `FDv2DataSourceBuilder.java` (modify) | Two build paths: default path creates real factories directly in `buildDefaultModeTable()` (shared `SelectorSource` and `ScheduledExecutorService`, fresh `DefaultFDv2Requestor` per factory call); custom path retains `resolveCustomModeTable()` for testing with mock `ComponentConfigurer`s |
+
+This commit wires up the concrete types from Todd's PR #325: `FDv2PollingInitializer`, `FDv2PollingSynchronizer`, `FDv2StreamingSynchronizer`, `DefaultFDv2Requestor`, `SelectorSourceFacade`. The stubs in `ModeDefinition.DEFAULT_MODE_TABLE` remain unchanged — the real factories are constructed directly in the builder's `buildDefaultModeTable()` method. The background poll interval references `LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS`; the foreground poll interval references `PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS`; the streaming reconnect delay references `StreamingDataSourceBuilder.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS`. Dependencies are extracted from `ClientContext`/`ClientContextImpl` at build time.
+
 ### Commit 5: ConnectivityManager mode resolution integration
 
 | File | Description |
 |------|-------------|
-| `ConnectivityManager.java` (modify) | Add mode resolution for `ModeAware` instances in foreground/network listeners |
+| `ConnectivityManager.java` (modify) | Removed static import of `ConnectionInformation.ConnectionMode` (qualified all 7 references) to free bare `ConnectionMode` for the FDv2 enum. Added `volatile ConnectionMode currentFDv2Mode` field. Updated foreground, connectivity, and force-offline listeners to check `instanceof ModeAware` and route to `resolveAndSwitchMode()` instead of `updateDataSource()`. Added `eventProcessor.setInBackground()`/`setOffline()` calls in the ModeAware paths (since they bypass `updateDataSource` which normally handles this). Added `resolveAndSwitchMode()` private method: resolves `ModeState` via `ModeResolutionTable.MOBILE`, calls `switchMode()` only when mode changes. Added initial mode resolution after `start()` in `updateDataSource` to correct the builder's default STREAMING mode when the app starts in background. |
+| `MockPlatformState.java` (modify) | Added `setAndNotifyConnectivityChangeListeners()` convenience method (mirrors existing `setAndNotifyForegroundChangeListeners()`) |
+| `ConnectivityManagerTest.java` (modify) | Added `MockModeAwareDataSource` inner class and 9 new tests covering foreground↔background, network loss/restore, force-offline on/off, no-op on unchanged mode, no teardown on foreground change, and initial background mode resolution |
 
 ### Future PR: State debouncing
 
@@ -391,9 +403,7 @@ The builder resolves `ComponentConfigurer<Initializer/Synchronizer>` → `DataSo
 
 Spec 5.3.8 says the SDK SHOULD retain active data sources when switching modes if the old and new modes have equivalent synchronizer configuration. This avoids unnecessary teardown/rebuild when, for example, a user configures both streaming and background modes to use the same synchronizers.
 
-**Approach: instance equality (`==`) on factories.** The simplest way to determine if two synchronizers are "equivalent" is to check if they are the *same instance*. This works if the `DEFAULT_MODE_TABLE` (and any future user overrides) shares `ComponentConfigurer` instances across modes where the configuration is identical. At build time, `FDv2DataSourceBuilder` resolves each `ComponentConfigurer` into a `DataSourceFactory`. If two modes reference the same `ComponentConfigurer` instance, they get the same `DataSourceFactory` instance, and `==` comparison identifies them as equivalent.
-
-**Implication for mode table construction:** factory helper methods (e.g., `pollingInitializer()`, `streamingSynchronizer()`) should return shared static instances for the default configurations. Different configurations (e.g., polling at 30s vs. 3600s) produce different instances, so `==` correctly identifies them as non-equivalent.
+**Approach: instance equality (`==`) on factories.** The simplest way to determine if two synchronizers are "equivalent" is to check if they are the *same instance*. `FDv2DataSourceBuilder.buildDefaultModeTable()` already shares `DataSourceFactory` instances across modes where the configuration is identical (e.g., `pollingInitFactory` is reused in STREAMING, POLLING, and ONE_SHOT; `foregroundPollSyncFactory` is reused in STREAMING and POLLING). Different configurations (e.g., foreground polling at 5 min vs. background polling at 1 hour) produce different factory instances, so `==` correctly identifies them as non-equivalent.
 
 **Implication for `SourceManager`:** Todd is interested in enhancing `SourceManager` to support this optimization. Instead of closing all synchronizers and building new ones on `switchMode()`, `SourceManager` could diff the old and new synchronizer factory lists using `==`, keep running any that are shared, and only tear down removed / start added synchronizers. This change is internal to `SourceManager` and `FDv2DataSource` — it doesn't affect the `ModeAware.switchMode(ConnectionMode)` contract or the mode resolution layer.
 
@@ -410,7 +420,7 @@ Our work builds on two of Todd's branches:
 | `ta/SDK-1817/composite-src-pt2` | (base) | In progress | `FDv2DataSource`, `SourceManager`, `FDv2DataSourceConditions`, `Initializer`/`Synchronizer` interfaces, `DataSourceFactory<T>`, `FDv2SourceResult`, `DataSourceUpdateSinkV2` |
 | `ta/SDK-1835/initializers-synchronizers` | [#325](https://github.com/launchdarkly/android-client-sdk/pull/325) | Open | `FDv2PollingInitializer`, `FDv2PollingSynchronizer`, `FDv2StreamingSynchronizer`, `FDv2Requestor`/`DefaultFDv2Requestor`, `FDv2ChangeSetTranslator`, `SelectorSource`/`SelectorSourceFacade`, `LDAsyncQueue`, `LDFutures.anyOf<T>` |
 
-**Our branching strategy:** Branch off `ta/SDK-1835/initializers-synchronizers` (which itself targets `ta/SDK-1817/composite-src-pt2`). Our commits (1–6) can be developed independently of PR #325 merging — we only need the types/interfaces, not the running implementations. However, Commit 5 (`FDv2DataSourceBuilder`) will reference the concrete constructors from PR #325 directly.
+**Our branching strategy:** Branch off `ta/SDK-1835/initializers-synchronizers` (which itself targets `ta/SDK-1817/composite-src-pt2`). Our commits (1–5) can be developed independently of PR #325 merging — we only need the types/interfaces, not the running implementations. However, Commit 4 (wiring real `ComponentConfigurer` implementations) will reference the concrete constructors from PR #325 directly.
 
 ---
 
@@ -424,20 +434,20 @@ When user-configurable mode selection is added in a future PR, ConnectivityManag
 
 ### 2. How does the mode table connect to concrete implementations?
 
-**Answered.** The mode table holds `ComponentConfigurer<Initializer>` and `ComponentConfigurer<Synchronizer>` entries (the SDK's established factory pattern). At build time, `FDv2DataSourceBuilder.build(clientContext)` resolves each one into a `DataSourceFactory` (Todd's zero-arg factory pattern) by partially applying the `ClientContext`:
+**Answered.** `FDv2DataSourceBuilder` has two build paths:
 
-```java
-DataSourceFactory<Initializer> factory = () -> configurer.build(clientContext);
-```
+1. **Default path** (no custom `ModeDefinition` table): the builder's `buildDefaultModeTable()` method creates `DataSourceFactory` instances directly using dependencies extracted from `ClientContext`. Shared dependencies (`SelectorSource`, `ScheduledExecutorService`) are created once and captured by factory closures. Each factory call creates a fresh `DefaultFDv2Requestor` for lifecycle isolation. The stubs in `ModeDefinition.DEFAULT_MODE_TABLE` are not used in this path.
 
-The concrete types created by the factory methods (from Todd's PR #325):
+2. **Custom path** (for testing): a custom `ModeDefinition` table is resolved by wrapping each `ComponentConfigurer` in a `DataSourceFactory` via `() -> configurer.build(clientContext)`.
 
-| Factory method | Creates |
-|---------------|---------|
-| `pollingInitializer()` | `FDv2PollingInitializer(requestor, selectorSource, executor, logger)` |
-| `pollingSynchronizer(intervalMs)` | `FDv2PollingSynchronizer(requestor, selectorSource, scheduledExecutor, initialDelayMs, intervalMs, logger)` |
-| `streamingSynchronizer()` | `FDv2StreamingSynchronizer(httpProperties, streamBaseUri, requestPath, context, useReport, evaluationReasons, selectorSource, requestor, initialReconnectDelayMs, diagnosticStore, logger)` |
-| `cacheInitializer()` | (stubbed for now; cache initializer not yet implemented on Android) |
+The concrete types created by the builder's default path (from Todd's PR #325):
+
+| Factory | Creates |
+|---------|---------|
+| Polling initializer | `FDv2PollingInitializer(requestor, selectorSource, executor, logger)` |
+| Foreground polling synchronizer | `FDv2PollingSynchronizer(requestor, selectorSource, executor, 0, DEFAULT_POLL_INTERVAL_MILLIS, logger)` |
+| Background polling synchronizer | `FDv2PollingSynchronizer(requestor, selectorSource, executor, 0, DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, logger)` |
+| Streaming synchronizer | `FDv2StreamingSynchronizer(httpProperties, streamBaseUri, requestPath, context, useReport, evaluationReasons, selectorSource, requestor, initialReconnectDelayMs, diagnosticStore, logger)` |
 
 All dependencies come from `ClientContext` at build time. `FDv2DataSource` only works with resolved `DataSourceFactory` instances — it never sees `ComponentConfigurer` or `ClientContext`.
 
@@ -453,9 +463,9 @@ We need to ensure that when mode resolution is active, the existing `updateDataS
 
 ### 5. Should `switchMode()` be synchronous or asynchronous?
 
-`switchMode()` is called from listener threads (foreground/network events). FDv2DataSource runs its synchronizer loop on a background thread. The call must signal the background thread to swap synchronizers.
+`switchMode()` is called from listener threads (foreground/network events). FDv2DataSource runs its synchronizer loop on a background thread.
 
-Design: `switchMode()` sets the desired mode atomically and closes the current `SourceManager` (which interrupts the active synchronizer's `next()` future). The background thread detects the mode change, creates a new `SourceManager` with the new mode's factories, and re-enters the synchronizer loop. This is the same pattern as the existing `stop()` method.
+**Implemented design:** `switchMode()` creates the new `SourceManager` on the calling thread, swaps the `volatile` field, closes the old SourceManager (interrupting its active synchronizer), and schedules a new executor task to run the new mode's synchronizers. Each task receives its `SourceManager` as a parameter (not via the field) so it operates on a stable reference even if another `switchMode()` swaps the field concurrently. The old task exits naturally when its SourceManager is closed; the exhaustion report in `start()` checks `sourceManager == sm` to skip reporting when the SourceManager was replaced by a mode switch.
 
 ---
 
