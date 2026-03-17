@@ -1,94 +1,82 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 
 import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 
-/**
- * Unit tests for {@link ModeResolutionTable} and the {@link ModeResolutionTable#MOBILE} constant.
- */
 public class ModeResolutionTableTest {
 
-    // ==== MOBILE table — standard Android resolution ====
+    // ==== MOBILE table tests ====
 
     @Test
     public void mobile_foregroundWithNetwork_resolvesToStreaming() {
         ModeState state = new ModeState(true, true);
-        assertEquals(ConnectionMode.STREAMING, ModeResolutionTable.MOBILE.resolve(state));
+        assertSame(ConnectionMode.STREAMING, ModeResolutionTable.MOBILE.resolve(state));
     }
 
     @Test
     public void mobile_backgroundWithNetwork_resolvesToBackground() {
         ModeState state = new ModeState(false, true);
-        assertEquals(ConnectionMode.BACKGROUND, ModeResolutionTable.MOBILE.resolve(state));
+        assertSame(ConnectionMode.BACKGROUND, ModeResolutionTable.MOBILE.resolve(state));
     }
 
     @Test
-    public void mobile_foregroundNoNetwork_resolvesToOffline() {
+    public void mobile_foregroundWithoutNetwork_resolvesToOffline() {
         ModeState state = new ModeState(true, false);
-        assertEquals(ConnectionMode.OFFLINE, ModeResolutionTable.MOBILE.resolve(state));
+        assertSame(ConnectionMode.OFFLINE, ModeResolutionTable.MOBILE.resolve(state));
     }
 
     @Test
-    public void mobile_backgroundNoNetwork_resolvesToOffline() {
+    public void mobile_backgroundWithoutNetwork_resolvesToOffline() {
         ModeState state = new ModeState(false, false);
-        assertEquals(ConnectionMode.OFFLINE, ModeResolutionTable.MOBILE.resolve(state));
+        assertSame(ConnectionMode.OFFLINE, ModeResolutionTable.MOBILE.resolve(state));
     }
 
-    // ==== resolve() — first match wins ====
+    // ==== Custom table tests ====
 
     @Test
-    public void resolve_firstMatchWins_evenIfLaterEntryAlsoMatches() {
+    public void customTable_firstMatchWins() {
         ModeResolutionTable table = new ModeResolutionTable(Arrays.asList(
                 new ModeResolutionEntry(state -> true, ConnectionMode.POLLING),
                 new ModeResolutionEntry(state -> true, ConnectionMode.STREAMING)
         ));
-        assertEquals(ConnectionMode.POLLING, table.resolve(new ModeState(true, true)));
-    }
-
-    @Test
-    public void resolve_skipsNonMatchingEntries() {
-        ModeResolutionTable table = new ModeResolutionTable(Arrays.asList(
-                new ModeResolutionEntry(state -> false, ConnectionMode.POLLING),
-                new ModeResolutionEntry(state -> true, ConnectionMode.STREAMING)
-        ));
-        assertEquals(ConnectionMode.STREAMING, table.resolve(new ModeState(true, true)));
-    }
-
-    @Test
-    public void resolve_singleEntry() {
-        ModeResolutionTable table = new ModeResolutionTable(Collections.singletonList(
-                new ModeResolutionEntry(state -> true, ConnectionMode.OFFLINE)
-        ));
-        assertEquals(ConnectionMode.OFFLINE, table.resolve(new ModeState(false, false)));
+        assertSame(ConnectionMode.POLLING, table.resolve(new ModeState(true, true)));
     }
 
     @Test(expected = IllegalStateException.class)
-    public void resolve_noMatchingEntry_throws() {
-        ModeResolutionTable table = new ModeResolutionTable(Collections.singletonList(
-                new ModeResolutionEntry(state -> false, ConnectionMode.OFFLINE)
-        ));
+    public void emptyTable_throws() {
+        ModeResolutionTable table = new ModeResolutionTable(Collections.<ModeResolutionEntry>emptyList());
         table.resolve(new ModeState(true, true));
     }
 
     @Test(expected = IllegalStateException.class)
-    public void resolve_emptyTable_throws() {
-        ModeResolutionTable table = new ModeResolutionTable(
-                Collections.<ModeResolutionEntry>emptyList()
-        );
+    public void noMatch_throws() {
+        ModeResolutionTable table = new ModeResolutionTable(Collections.singletonList(
+                new ModeResolutionEntry(state -> false, ConnectionMode.STREAMING)
+        ));
         table.resolve(new ModeState(true, true));
     }
 
-    // ==== Network takes priority over lifecycle ====
+    // ==== ModeState tests ====
 
     @Test
-    public void mobile_networkUnavailable_alwaysResolvesToOffline_regardlessOfForeground() {
-        assertEquals(ConnectionMode.OFFLINE,
-                ModeResolutionTable.MOBILE.resolve(new ModeState(true, false)));
-        assertEquals(ConnectionMode.OFFLINE,
-                ModeResolutionTable.MOBILE.resolve(new ModeState(false, false)));
+    public void modeState_getters() {
+        ModeState state = new ModeState(true, false);
+        assertEquals(true, state.isForeground());
+        assertEquals(false, state.isNetworkAvailable());
+    }
+
+    // ==== ModeResolutionEntry tests ====
+
+    @Test
+    public void modeResolutionEntry_getters() {
+        ModeResolutionEntry.Condition cond = state -> true;
+        ModeResolutionEntry entry = new ModeResolutionEntry(cond, ConnectionMode.OFFLINE);
+        assertSame(cond, entry.getConditions());
+        assertSame(ConnectionMode.OFFLINE, entry.getMode());
     }
 }

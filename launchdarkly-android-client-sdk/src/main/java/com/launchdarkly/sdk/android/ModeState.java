@@ -1,14 +1,15 @@
 package com.launchdarkly.sdk.android;
 
 /**
- * Snapshot of platform state used as input to {@link ModeResolutionTable#resolve(ModeState)}.
+ * Snapshot of the current platform state used as input to
+ * {@link ModeResolutionTable#resolve(ModeState)}.
  * <p>
- * In this initial implementation, {@code ModeState} carries only platform state with
- * hardcoded Android defaults for foreground/background modes. When user-configurable
- * mode selection is added (CONNMODE 2.2.2), {@code foregroundMode} and
- * {@code backgroundMode} fields will be introduced here.
+ * Immutable value object — all fields are set in the constructor with no setters.
  * <p>
  * Package-private — not part of the public SDK API.
+ *
+ * @see ModeResolutionTable
+ * @see ModeResolutionEntry
  */
 final class ModeState {
 

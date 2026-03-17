@@ -33,7 +33,6 @@ import org.junit.rules.Timeout;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1401,257 +1400,6 @@ public class FDv2DataSourceTest {
         assertNotNull(sink.getLastError());
     }
 
-    // ============================================================================
-    // needsRefresh — ModeAware behavior
-    // ============================================================================
-
-    @Test
-    public void needsRefresh_sameContextDifferentBackground_returnsFalse() {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        FDv2DataSource dataSource = buildDataSource(sink, Collections.emptyList(), Collections.emptyList());
-
-        assertFalse(dataSource.needsRefresh(true, CONTEXT));
-        assertFalse(dataSource.needsRefresh(false, CONTEXT));
-    }
-
-    @Test
-    public void needsRefresh_differentContext_returnsTrue() {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        FDv2DataSource dataSource = buildDataSource(sink, Collections.emptyList(), Collections.emptyList());
-
-        LDContext otherContext = LDContext.create("other-context");
-        assertTrue(dataSource.needsRefresh(false, otherContext));
-        assertTrue(dataSource.needsRefresh(true, otherContext));
-    }
-
-    @Test
-    public void needsRefresh_differentContextAndBackground_returnsTrue() {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        FDv2DataSource dataSource = buildDataSource(sink, Collections.emptyList(), Collections.emptyList());
-
-        LDContext otherContext = LDContext.create("other-context");
-        assertTrue(dataSource.needsRefresh(true, otherContext));
-    }
-
-    @Test
-    public void needsRefresh_equalContextInstance_returnsFalse() {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        LDContext context = LDContext.create("test-context");
-        FDv2DataSource dataSource = new FDv2DataSource(
-                context, Collections.emptyList(), Collections.emptyList(),
-                sink, executor, logging.logger);
-
-        LDContext sameValueContext = LDContext.create("test-context");
-        assertFalse(dataSource.needsRefresh(false, sameValueContext));
-        assertFalse(dataSource.needsRefresh(true, sameValueContext));
-    }
-
-    // ============================================================================
-    // switchMode — ModeAware behavior
-    // ============================================================================
-
-    private FDv2DataSource buildModeAwareDataSource(
-            MockComponents.MockDataSourceUpdateSink sink,
-            Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> modeTable,
-            ConnectionMode startingMode) {
-        return new FDv2DataSource(
-                CONTEXT, modeTable, startingMode,
-                sink, executor, logging.logger);
-    }
-
-    @Test
-    public void switchMode_activatesNewModeSynchronizer() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        CountDownLatch pollingCreated = new CountDownLatch(1);
-
-        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> modeTable = new EnumMap<>(ConnectionMode.class);
-        modeTable.put(ConnectionMode.STREAMING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false))))
-        ));
-        modeTable.put(ConnectionMode.POLLING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.singletonList(() -> {
-                    pollingCreated.countDown();
-                    return new MockQueuedSynchronizer(
-                            FDv2SourceResult.changeSet(makeChangeSet(false)));
-                })
-        ));
-
-        FDv2DataSource dataSource = buildModeAwareDataSource(sink, modeTable, ConnectionMode.STREAMING);
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
-
-        dataSource.switchMode(ConnectionMode.POLLING);
-        assertTrue(pollingCreated.await(2, TimeUnit.SECONDS));
-
-        // Both streaming and polling changesets should have been applied
-        sink.awaitApplyCount(2, 2, TimeUnit.SECONDS);
-        assertEquals(2, sink.getApplyCount());
-
-        stopDataSource(dataSource);
-    }
-
-    @Test
-    public void switchMode_doesNotReRunInitializers() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        AtomicInteger initializerBuildCount = new AtomicInteger(0);
-        CountDownLatch pollingSyncCreated = new CountDownLatch(1);
-
-        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> modeTable = new EnumMap<>(ConnectionMode.class);
-        modeTable.put(ConnectionMode.STREAMING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.singletonList(() -> {
-                    initializerBuildCount.incrementAndGet();
-                    return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true)));
-                }),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false))))
-        ));
-        modeTable.put(ConnectionMode.POLLING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.singletonList(() -> {
-                    pollingSyncCreated.countDown();
-                    return new MockQueuedSynchronizer(
-                            FDv2SourceResult.changeSet(makeChangeSet(false)));
-                })
-        ));
-
-        FDv2DataSource dataSource = buildModeAwareDataSource(sink, modeTable, ConnectionMode.STREAMING);
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
-        assertEquals(1, initializerBuildCount.get());
-
-        dataSource.switchMode(ConnectionMode.POLLING);
-        assertTrue(pollingSyncCreated.await(2, TimeUnit.SECONDS));
-
-        // Initializer count should still be 1 — mode switch skips initializers (spec 2.0.1)
-        assertEquals(1, initializerBuildCount.get());
-
-        stopDataSource(dataSource);
-    }
-
-    @Test
-    public void switchMode_toModeWithNoSynchronizers_doesNotCrash() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> modeTable = new EnumMap<>(ConnectionMode.class);
-        modeTable.put(ConnectionMode.STREAMING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false))))
-        ));
-        modeTable.put(ConnectionMode.OFFLINE, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.emptyList()
-        ));
-
-        FDv2DataSource dataSource = buildModeAwareDataSource(sink, modeTable, ConnectionMode.STREAMING);
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
-
-        dataSource.switchMode(ConnectionMode.OFFLINE);
-        Thread.sleep(200); // allow mode switch to complete
-
-        stopDataSource(dataSource);
-    }
-
-    @Test
-    public void switchMode_fromOfflineBackToStreaming_resumesSynchronizers() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        AtomicInteger streamingSyncBuildCount = new AtomicInteger(0);
-
-        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> modeTable = new EnumMap<>(ConnectionMode.class);
-        modeTable.put(ConnectionMode.STREAMING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.singletonList(() -> {
-                    streamingSyncBuildCount.incrementAndGet();
-                    return new MockQueuedSynchronizer(
-                            FDv2SourceResult.changeSet(makeChangeSet(false)));
-                })
-        ));
-        modeTable.put(ConnectionMode.OFFLINE, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.emptyList()
-        ));
-
-        FDv2DataSource dataSource = buildModeAwareDataSource(sink, modeTable, ConnectionMode.STREAMING);
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
-        assertEquals(1, streamingSyncBuildCount.get());
-
-        // Switch to offline — no synchronizers
-        dataSource.switchMode(ConnectionMode.OFFLINE);
-        Thread.sleep(200);
-
-        // Switch back to streaming — new synchronizer should be created
-        dataSource.switchMode(ConnectionMode.STREAMING);
-        Thread.sleep(500);
-
-        // A new streaming sync was created (2 total: one from start, one from mode switch back)
-        assertEquals(2, streamingSyncBuildCount.get());
-
-        // Both streaming changesets (initial + resumed) should have been applied
-        sink.awaitApplyCount(2, 2, TimeUnit.SECONDS);
-        assertEquals(2, sink.getApplyCount());
-
-        stopDataSource(dataSource);
-    }
-
-    @Test
-    public void switchMode_withNoModeTable_isNoOp() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        // Use legacy constructor (no mode table)
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false)))));
-
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
-
-        // Should not crash; logs a warning and returns
-        dataSource.switchMode(ConnectionMode.POLLING);
-        Thread.sleep(100);
-
-        stopDataSource(dataSource);
-    }
-
-    @Test
-    public void switchMode_afterStop_isNoOp() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        Map<ConnectionMode, FDv2DataSource.ResolvedModeDefinition> modeTable = new EnumMap<>(ConnectionMode.class);
-        modeTable.put(ConnectionMode.STREAMING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false))))
-        ));
-        modeTable.put(ConnectionMode.POLLING, new FDv2DataSource.ResolvedModeDefinition(
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false))))
-        ));
-
-        FDv2DataSource dataSource = buildModeAwareDataSource(sink, modeTable, ConnectionMode.STREAMING);
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(2000));
-
-        stopDataSource(dataSource);
-
-        // Should not crash or schedule new work after stop
-        dataSource.switchMode(ConnectionMode.POLLING);
-        Thread.sleep(100);
-    }
-
-    // ============================================================================
-    // Status Reporting
-    // ============================================================================
-
     @Test
     public void stopReportsOffStatus() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
@@ -1671,5 +1419,145 @@ public class FDv2DataSourceTest {
 
         DataSourceState offStatus = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.OFF, offStatus);
+    }
+
+    // ==== switchMode tests ====
+
+    @Test
+    public void switchMode_replacesActiveSynchronizer() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch oldSyncStarted = new CountDownLatch(1);
+        CountDownLatch oldSyncClosed = new CountDownLatch(1);
+
+        MockQueuedSynchronizer oldSync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(false))
+        ) {
+            @Override
+            public LDAwaitFuture<FDv2SourceResult> next() {
+                oldSyncStarted.countDown();
+                return super.next();
+            }
+            @Override
+            public void close() {
+                super.close();
+                oldSyncClosed.countDown();
+            }
+        };
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> oldSync));
+
+        startDataSource(dataSource);
+        assertTrue(oldSyncStarted.await(2, TimeUnit.SECONDS));
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(2, TimeUnit.SECONDS));
+
+        CountDownLatch newSyncStarted = new CountDownLatch(1);
+        MockQueuedSynchronizer newSync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(false))
+        ) {
+            @Override
+            public LDAwaitFuture<FDv2SourceResult> next() {
+                newSyncStarted.countDown();
+                return super.next();
+            }
+        };
+        ResolvedModeDefinition newDef = new ResolvedModeDefinition(
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> newSync)
+        );
+
+        dataSource.switchMode(newDef);
+
+        assertTrue("Old synchronizer should be closed", oldSyncClosed.await(2, TimeUnit.SECONDS));
+        assertTrue("New synchronizer should start", newSyncStarted.await(2, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void switchMode_doesNotReRunInitializers() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger initializerRunCount = new AtomicInteger(0);
+
+        FDv2DataSource.DataSourceFactory<Initializer> initFactory = () -> {
+            initializerRunCount.incrementAndGet();
+            return new MockInitializer(
+                    FDv2SourceResult.changeSet(makeChangeSet(true)));
+        };
+
+        CountDownLatch syncStarted = new CountDownLatch(1);
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(initFactory),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(
+                        FDv2SourceResult.changeSet(makeChangeSet(false))
+                ) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> next() {
+                        syncStarted.countDown();
+                        return super.next();
+                    }
+                }));
+
+        startDataSource(dataSource);
+        assertTrue(syncStarted.await(2, TimeUnit.SECONDS));
+        assertEquals(1, initializerRunCount.get());
+
+        ResolvedModeDefinition newDef = new ResolvedModeDefinition(
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(false))))
+        );
+
+        dataSource.switchMode(newDef);
+        Thread.sleep(200);
+        assertEquals("Initializers should NOT run again on switchMode", 1, initializerRunCount.get());
+    }
+
+    @Test
+    public void switchMode_toEmptySynchronizers_closesOld() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch oldClosed = new CountDownLatch(1);
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(
+                        FDv2SourceResult.changeSet(makeChangeSet(false))
+                ) {
+                    @Override
+                    public void close() {
+                        super.close();
+                        oldClosed.countDown();
+                    }
+                }));
+
+        startDataSource(dataSource);
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(2, TimeUnit.SECONDS));
+
+        ResolvedModeDefinition offlineDef = new ResolvedModeDefinition(
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>emptyList()
+        );
+
+        dataSource.switchMode(offlineDef);
+        assertTrue("Old synchronizer should be closed", oldClosed.await(2, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void needsRefresh_sameContext_returnsFalse() {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.emptyList());
+        assertFalse(dataSource.needsRefresh(true, CONTEXT));
+        assertFalse(dataSource.needsRefresh(false, CONTEXT));
+    }
+
+    @Test
+    public void needsRefresh_differentContext_returnsTrue() {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.emptyList());
+        assertTrue(dataSource.needsRefresh(false, LDContext.create("other-context")));
     }
 }

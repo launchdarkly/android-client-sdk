@@ -1,15 +1,15 @@
 package com.launchdarkly.sdk.android;
 
-import androidx.annotation.Nullable;
-
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
-import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+
+import androidx.annotation.Nullable;
 
 /**
  * This package-private subclass of {@link ClientContext} contains additional non-public SDK objects
@@ -36,6 +36,7 @@ final class ClientContextImpl extends ClientContext {
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
     private final PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
+    @Nullable
     private final TransactionalDataStore transactionalDataStore;
 
     ClientContextImpl(
@@ -56,7 +57,7 @@ final class ClientContextImpl extends ClientContext {
             PlatformState platformState,
             TaskExecutor taskExecutor,
             PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData,
-            TransactionalDataStore transactionalDataStore
+            @Nullable TransactionalDataStore transactionalDataStore
     ) {
         super(base);
         this.diagnosticStore = diagnosticStore;
@@ -119,22 +120,19 @@ final class ClientContextImpl extends ClientContext {
             boolean newInBackground,
             Boolean previouslyInBackground
     ) {
-        return forDataSource(baseClientContext, dataSourceUpdateSink, null,
-                newEvaluationContext, newInBackground, previouslyInBackground);
+        return forDataSource(baseClientContext, dataSourceUpdateSink, newEvaluationContext,
+                newInBackground, previouslyInBackground, null);
     }
 
     public static ClientContextImpl forDataSource(
             ClientContext baseClientContext,
             DataSourceUpdateSink dataSourceUpdateSink,
-            @Nullable TransactionalDataStore transactionalDataStore,
             LDContext newEvaluationContext,
             boolean newInBackground,
-            Boolean previouslyInBackground
+            Boolean previouslyInBackground,
+            @Nullable TransactionalDataStore transactionalDataStore
     ) {
         ClientContextImpl baseContextImpl = ClientContextImpl.get(baseClientContext);
-        TransactionalDataStore store = transactionalDataStore != null
-                ? transactionalDataStore
-                : baseContextImpl.transactionalDataStore;
         return new ClientContextImpl(
                 new ClientContext(
                         baseClientContext.getMobileKey(),
@@ -156,7 +154,7 @@ final class ClientContextImpl extends ClientContext {
                 baseContextImpl.getPlatformState(),
                 baseContextImpl.getTaskExecutor(),
                 baseContextImpl.getPerEnvironmentData(),
-                store
+                transactionalDataStore
         );
     }
 
@@ -197,6 +195,7 @@ final class ClientContextImpl extends ClientContext {
         return throwExceptionIfNull(perEnvironmentData);
     }
 
+    @Nullable
     public TransactionalDataStore getTransactionalDataStore() {
         return transactionalDataStore;
     }
