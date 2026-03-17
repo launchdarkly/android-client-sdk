@@ -151,27 +151,10 @@ class ConnectivityManager {
         readStoredConnectionState();
         this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();
 
-        connectivityChangeListener = networkAvailable -> {
-            DataSource dataSource = currentDataSource.get();
-            if (dataSource instanceof ModeAware) {
-                eventProcessor.setOffline(!networkAvailable);
-                resolveAndSwitchMode((ModeAware) dataSource);
-            } else {
-                updateDataSource(false, LDUtil.noOpCallback());
-            }
-        };
+        connectivityChangeListener = networkAvailable -> handleModeStateChange();
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
-        foregroundListener = foreground -> {
-            DataSource dataSource = currentDataSource.get();
-            if (dataSource instanceof ModeAware) {
-                eventProcessor.setInBackground(!foreground);
-                resolveAndSwitchMode((ModeAware) dataSource);
-            } else if (dataSource == null || dataSource.needsRefresh(!foreground,
-                    currentContext.get())) {
-                updateDataSource(true, LDUtil.noOpCallback());
-            }
-        };
+        foregroundListener = foreground -> handleModeStateChange();
         platformState.addForegroundChangeListener(foregroundListener);
     }
 
@@ -190,6 +173,7 @@ class ConnectivityManager {
             onCompletion.onSuccess(null);
         } else {
             if (dataSource == null || dataSource.needsRefresh(!platformState.isForeground(), context)) {
+                updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
                 updateDataSource(true, onCompletion);
             } else {
                 onCompletion.onSuccess(null);
@@ -209,9 +193,6 @@ class ConnectivityManager {
         boolean networkEnabled = platformState.isNetworkAvailable();
         boolean inBackground = !platformState.isForeground();
         LDContext context = currentContext.get();
-
-        eventProcessor.setOffline(forceOffline || !networkEnabled);
-        eventProcessor.setInBackground(inBackground);
 
         boolean shouldStopExistingDataSource = true,
                 shouldStartDataSourceIfStopped = false;
@@ -426,6 +407,7 @@ class ConnectivityManager {
             return false;
         }
         initialized = false;
+        updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
         return updateDataSource(true, onCompletion);
     }
 
@@ -448,18 +430,39 @@ class ConnectivityManager {
     void setForceOffline(boolean forceOffline) {
         boolean wasForcedOffline = forcedOffline.getAndSet(forceOffline);
         if (forceOffline != wasForcedOffline) {
-            DataSource dataSource = currentDataSource.get();
-            if (dataSource instanceof ModeAware) {
-                eventProcessor.setOffline(forceOffline || !platformState.isNetworkAvailable());
-                resolveAndSwitchMode((ModeAware) dataSource);
-            } else {
-                updateDataSource(false, LDUtil.noOpCallback());
-            }
+            handleModeStateChange();
         }
     }
 
     boolean isForcedOffline() {
         return forcedOffline.get();
+    }
+
+    private void updateEventProcessor(boolean forceOffline, boolean networkAvailable, boolean foreground) {
+        eventProcessor.setOffline(forceOffline || !networkAvailable);
+        eventProcessor.setInBackground(!foreground);
+    }
+
+    /**
+     * Unified handler for all platform/configuration state changes (foreground, connectivity,
+     * force-offline). Snapshots the current state once, updates the event processor, then
+     * routes to the appropriate data source update path.
+     */
+    private void handleModeStateChange() {
+        boolean forceOffline = forcedOffline.get();
+        boolean networkAvailable = platformState.isNetworkAvailable();
+        boolean foreground = platformState.isForeground();
+
+        updateEventProcessor(forceOffline, networkAvailable, foreground);
+
+        DataSource dataSource = currentDataSource.get();
+        if (dataSource instanceof ModeAware) {
+            resolveAndSwitchMode((ModeAware) dataSource);
+        } else if (dataSource != null && dataSource.needsRefresh(!foreground, currentContext.get())) {
+            updateDataSource(true, LDUtil.noOpCallback());
+        } else {
+            updateDataSource(false, LDUtil.noOpCallback());
+        }
     }
 
     /**

@@ -746,6 +746,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void modeAware_foregroundToBackground_switchesMode() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
         replayAll();
 
@@ -766,7 +767,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void modeAware_backgroundToForeground_switchesMode() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
         replayAll();
 
@@ -792,6 +795,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
         replayAll();
 
         MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
@@ -815,6 +819,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
         replayAll();
 
         MockModeAwareDataSource mockDS = new MockModeAwareDataSource(startedDataSources);
@@ -836,6 +841,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void modeAware_doesNotTearDownOnForegroundChange() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
         replayAll();
 
@@ -856,6 +862,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void modeAware_sameModeDoesNotTriggerSwitch() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
         replayAll();
 
@@ -877,6 +884,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void modeAware_switchModePassesResolvedDefinition() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
         replayAll();
 
