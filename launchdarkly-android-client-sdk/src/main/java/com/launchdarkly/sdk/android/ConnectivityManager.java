@@ -189,6 +189,24 @@ class ConnectivityManager {
             return false;
         }
 
+        DataSource existingDataSource = currentDataSource.get();
+
+        // FDv2 ModeAware data sources handle all state transitions (including
+        // offline/background) via mode resolution rather than teardown/rebuild.
+        if (!mustReinitializeDataSource && existingDataSource instanceof ModeAware) {
+            resolveAndSwitchMode((ModeAware) existingDataSource);
+            onCompletion.onSuccess(null);
+            return false;
+        }
+
+        // FDv1 path: check whether the data source needs a full rebuild.
+        if (!mustReinitializeDataSource && existingDataSource != null) {
+            boolean inBackground = !platformState.isForeground();
+            if (existingDataSource.needsRefresh(inBackground, currentContext.get())) {
+                mustReinitializeDataSource = true;
+            }
+        }
+
         boolean forceOffline = forcedOffline.get();
         boolean networkEnabled = platformState.isNetworkAvailable();
         boolean inBackground = !platformState.isForeground();
@@ -454,15 +472,7 @@ class ConnectivityManager {
         boolean foreground = platformState.isForeground();
 
         updateEventProcessor(forceOffline, networkAvailable, foreground);
-
-        DataSource dataSource = currentDataSource.get();
-        if (dataSource instanceof ModeAware) {
-            resolveAndSwitchMode((ModeAware) dataSource);
-        } else if (dataSource != null && dataSource.needsRefresh(!foreground, currentContext.get())) {
-            updateDataSource(true, LDUtil.noOpCallback());
-        } else {
-            updateDataSource(false, LDUtil.noOpCallback());
-        }
+        updateDataSource(false, LDUtil.noOpCallback());
     }
 
     /**

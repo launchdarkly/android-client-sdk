@@ -232,6 +232,7 @@ final class FDv2DataSource implements DataSource, ModeAware {
         for (DataSourceFactory<Synchronizer> factory : newDefinition.getSynchronizerFactories()) {
             newSyncFactories.add(new SynchronizerFactoryWithState(factory));
         }
+        // Per CONNMODE 2.0.1: mode switches only transition synchronizers, no initializers.
         sourceManager.switchSynchronizers(newSyncFactories);
 
         sharedExecutor.execute(() -> {
