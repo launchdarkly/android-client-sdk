@@ -248,11 +248,14 @@ public class LDClient implements LDClientInterface, Closeable {
             }
         }
 
+        HookRunner.AfterIdentifyMethod afterIdentify = primaryClient.hookRunner.identify(modifiedContext, null);
+
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
         Callback<Void> completeWhenCounterZero = new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (initCounter.decrementAndGet() == 0) {
+                    afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED));
                     resultFuture.set(primaryClient);
                 }
             }

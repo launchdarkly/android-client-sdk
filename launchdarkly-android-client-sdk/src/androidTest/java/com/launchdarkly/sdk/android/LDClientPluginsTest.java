@@ -51,6 +51,9 @@ public class LDClientPluginsTest {
         MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook));
 
         try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testPlugin)), ldContext, 1)) {
+            // This should get called because of an implicit identity.
+            assertEquals(1, testHook.beforeIdentifyCalls.size());
+
             ldClient.boolVariation("test-flag", false);
             assertEquals(1, testPlugin.getHooksCalls.size());
             assertEquals(1, testPlugin.registerCalls.size());
@@ -84,6 +87,7 @@ public class LDClientPluginsTest {
                         "secondaryEnvironment", secondaryMobileKey
                 ))
                 .plugins(Components.plugins().setPlugins(Collections.singletonList(testPlugin)))
+                //.hooks(Components.hooks().setHooks(Collections.singletonList(testHook)))
                 .offline(true)
                 .events(Components.noEvents())
                 .logAdapter(logging.logAdapter);
