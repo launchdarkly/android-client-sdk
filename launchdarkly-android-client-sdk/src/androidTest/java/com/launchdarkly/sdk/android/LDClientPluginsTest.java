@@ -87,7 +87,6 @@ public class LDClientPluginsTest {
                         "secondaryEnvironment", secondaryMobileKey
                 ))
                 .plugins(Components.plugins().setPlugins(Collections.singletonList(testPlugin)))
-                //.hooks(Components.hooks().setHooks(Collections.singletonList(testHook)))
                 .offline(true)
                 .events(Components.noEvents())
                 .logAdapter(logging.logAdapter);
