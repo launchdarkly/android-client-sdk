@@ -18,6 +18,8 @@ jobs:
 
       - name: Build and Test
         uses: ./.github/actions/ci
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Documentation
         uses: ./.github/actions/publish-docs
