@@ -15,7 +15,8 @@ start-contract-test-service:
 	@scripts/start-test-service.sh
 
 run-contract-tests:
-	@curl -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/v1.0.0/downloader/run.sh \
+	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
+      -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/main/downloader/run.sh \
       | VERSION=v2 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -skip-from testharness-suppressions.txt -debug $(TEST_HARNESS_PARAMS)" sh
 
 contract-tests: build-contract-tests start-emulator start-contract-test-service run-contract-tests

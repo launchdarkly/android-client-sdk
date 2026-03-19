@@ -34,3 +34,4 @@ jobs:
         with:
           android_api_level: ${{ matrix.android_api_level }}
           java_version: ${{ matrix.java_version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
