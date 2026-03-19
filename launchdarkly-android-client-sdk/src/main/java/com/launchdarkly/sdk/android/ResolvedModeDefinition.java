@@ -15,13 +15,10 @@ import java.util.List;
  * a {@link com.launchdarkly.sdk.android.subsystems.ClientContext}.
  * <p>
  * Instances are immutable and created by {@code FDv2DataSourceBuilder} at build time.
- * {@link ConnectivityManager} passes these to {@link ModeAware#switchMode} when the
- * resolved connection mode changes.
  * <p>
  * Package-private — not part of the public SDK API.
  *
  * @see ModeDefinition
- * @see ModeAware
  */
 final class ResolvedModeDefinition {
 

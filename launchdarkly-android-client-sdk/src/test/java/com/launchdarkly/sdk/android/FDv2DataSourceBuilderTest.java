@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -56,26 +57,10 @@ public class FDv2DataSourceBuilderTest {
         DataSource ds = builder.build(makeClientContext());
         assertNotNull(ds);
         assertTrue(ds instanceof FDv2DataSource);
-        assertTrue(ds instanceof ModeAware);
     }
 
     @Test
-    public void resolvedModeTable_availableAfterBuild() {
-        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
-        builder.build(makeClientContext());
-        Map<ConnectionMode, ResolvedModeDefinition> table = builder.getResolvedModeTable();
-        assertNotNull(table);
-        assertEquals(5, table.size());
-    }
-
-    @Test(expected = IllegalStateException.class)
-    public void resolvedModeTable_throwsBeforeBuild() {
-        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
-        builder.getResolvedModeTable();
-    }
-
-    @Test
-    public void customModeTable_resolvesCorrectly() {
+    public void customModeTable_buildsCorrectly() {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
@@ -85,10 +70,6 @@ public class FDv2DataSourceBuilderTest {
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.POLLING);
         DataSource ds = builder.build(makeClientContext());
         assertNotNull(ds);
-
-        Map<ConnectionMode, ResolvedModeDefinition> table = builder.getResolvedModeTable();
-        assertEquals(1, table.size());
-        assertTrue(table.containsKey(ConnectionMode.POLLING));
     }
 
     @Test
@@ -109,7 +90,25 @@ public class FDv2DataSourceBuilderTest {
     }
 
     @Test
-    public void resolvedDefinition_hasSameSizeAsOriginal() {
+    public void setActiveMode_buildUsesSpecifiedMode() {
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+        customTable.put(ConnectionMode.POLLING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
+        builder.setActiveMode(ConnectionMode.POLLING, true);
+        DataSource ds = builder.build(makeClientContext());
+        assertNotNull(ds);
+    }
+
+    @Test
+    public void setActiveMode_withoutInitializers_buildsWithEmptyInitializers() {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
@@ -117,11 +116,77 @@ public class FDv2DataSourceBuilderTest {
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
-        builder.build(makeClientContext());
+        builder.setActiveMode(ConnectionMode.STREAMING, false);
+        DataSource ds = builder.build(makeClientContext());
+        assertNotNull(ds);
+    }
 
-        ResolvedModeDefinition def = builder.getResolvedModeTable().get(ConnectionMode.STREAMING);
-        assertNotNull(def);
-        assertEquals(1, def.getInitializerFactories().size());
-        assertEquals(1, def.getSynchronizerFactories().size());
+    @Test
+    public void defaultBehavior_usesStartingMode() {
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
+        DataSource ds = builder.build(makeClientContext());
+        assertNotNull(ds);
+    }
+
+    @Test
+    public void getModeDefinition_returnsCorrectDefinition() {
+        ModeDefinition streamingDef = new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        );
+        ModeDefinition pollingDef = new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        );
+
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.STREAMING, streamingDef);
+        customTable.put(ConnectionMode.POLLING, pollingDef);
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
+        assertEquals(streamingDef, builder.getModeDefinition(ConnectionMode.STREAMING));
+        assertEquals(pollingDef, builder.getModeDefinition(ConnectionMode.POLLING));
+        assertNull(builder.getModeDefinition(ConnectionMode.OFFLINE));
+    }
+
+    @Test
+    public void getModeDefinition_sameObjectUsedForEquivalenceCheck() {
+        ModeDefinition sharedDef = new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        );
+
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.STREAMING, sharedDef);
+        customTable.put(ConnectionMode.POLLING, sharedDef);
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
+        // Identity check: same ModeDefinition object shared across modes enables 5.3.8 equivalence
+        assertTrue(builder.getModeDefinition(ConnectionMode.STREAMING)
+                == builder.getModeDefinition(ConnectionMode.POLLING));
+    }
+
+    @Test
+    public void setActiveMode_notInTable_throws() {
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
+        builder.setActiveMode(ConnectionMode.POLLING, true);
+        try {
+            builder.build(makeClientContext());
+            fail("Expected IllegalStateException");
+        } catch (IllegalStateException e) {
+            assertTrue(e.getMessage().contains("not found in mode table"));
+        }
     }
 }

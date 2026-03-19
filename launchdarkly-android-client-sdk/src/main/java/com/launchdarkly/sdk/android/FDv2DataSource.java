@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * switch to next synchronizer) and recovery (when on non-prime synchronizer, try
  * to return to the first after timeout).
  */
-final class FDv2DataSource implements DataSource, ModeAware {
+final class FDv2DataSource implements DataSource {
 
     /**
      * Factory for creating Initializer or Synchronizer instances.
@@ -50,8 +50,6 @@ final class FDv2DataSource implements DataSource, ModeAware {
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicBoolean startCompleted = new AtomicBoolean(false);
     private final AtomicBoolean stopped = new AtomicBoolean(false);
-    private final AtomicBoolean executionLoopRunning = new AtomicBoolean(false);
-
     /** Result of the first start (null = not yet completed). Used so second start() gets the same result. */
     private volatile Boolean startResult = null;
     private volatile Throwable startError = null;
@@ -140,7 +138,6 @@ final class FDv2DataSource implements DataSource, ModeAware {
         LDContext context = evaluationContext;
 
         sharedExecutor.execute(() -> {
-            executionLoopRunning.set(true);
             try {
                 if (!sourceManager.hasAvailableSources()) {
                     logger.info("No initializers or synchronizers; data source will not connect.");
@@ -167,8 +164,6 @@ final class FDv2DataSource implements DataSource, ModeAware {
             } catch (Throwable t) {
                 logger.warn("FDv2DataSource error: {}", t.toString());
                 tryCompleteStart(false, t);
-            } finally {
-                executionLoopRunning.set(false);
             }
         });
     }
@@ -221,30 +216,9 @@ final class FDv2DataSource implements DataSource, ModeAware {
 
     @Override
     public boolean needsRefresh(boolean newInBackground, @NonNull LDContext newEvaluationContext) {
-        // Mode-aware data sources handle background/foreground transitions via switchMode(),
-        // so only request a full rebuild when the evaluation context changes.
+        // FDv2 background/foreground transitions are handled externally by ConnectivityManager
+        // via teardown/rebuild, so only request a rebuild when the evaluation context changes.
         return !evaluationContext.equals(newEvaluationContext);
-    }
-
-    @Override
-    public void switchMode(@NonNull ResolvedModeDefinition newDefinition) {
-        List<SynchronizerFactoryWithState> newSyncFactories = new ArrayList<>();
-        for (DataSourceFactory<Synchronizer> factory : newDefinition.getSynchronizerFactories()) {
-            newSyncFactories.add(new SynchronizerFactoryWithState(factory));
-        }
-        // Per CONNMODE 2.0.1: mode switches only transition synchronizers, no initializers.
-        sourceManager.switchSynchronizers(newSyncFactories);
-
-        sharedExecutor.execute(() -> {
-            if (!executionLoopRunning.compareAndSet(false, true)) {
-                return;
-            }
-            try {
-                runSynchronizers(evaluationContext, dataSourceUpdateSink);
-            } finally {
-                executionLoopRunning.set(false);
-            }
-        });
     }
 
     private void runInitializers(

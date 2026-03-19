@@ -25,13 +25,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
- * Builds an {@link FDv2DataSource} and resolves the mode table from
- * {@link ComponentConfigurer} factories into zero-arg {@link FDv2DataSource.DataSourceFactory}
- * instances. The resolved table is stored and exposed via {@link #getResolvedModeTable()}
- * so that {@link ConnectivityManager} can perform mode→definition lookups when switching modes.
- * <p>
- * This is the key architectural difference in Approach 2: the builder owns the resolved
- * table rather than the data source itself.
+ * Builds an {@link FDv2DataSource} by resolving {@link ComponentConfigurer} factories
+ * into zero-arg {@link FDv2DataSource.DataSourceFactory} instances. The builder is the
+ * sole owner of mode resolution; {@link ConnectivityManager} configures the target mode
+ * via {@link #setActiveMode} before calling the standard {@link #build}.
  * <p>
  * Package-private — not part of the public SDK API.
  */
@@ -40,7 +37,9 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
     private final Map<ConnectionMode, ModeDefinition> modeTable;
     private final ConnectionMode startingMode;
 
-    private Map<ConnectionMode, ResolvedModeDefinition> resolvedModeTable;
+    private ConnectionMode activeMode;
+    private boolean includeInitializers = true; // false during mode switches to skip initializers (CONNMODE 2.0.1)
+    private ScheduledExecutorService sharedExecutor;
 
     FDv2DataSourceBuilder() {
         this(makeDefaultModeTable(), ConnectionMode.STREAMING);
@@ -175,40 +174,43 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
         this.startingMode = startingMode;
     }
 
-    /**
-     * Returns the resolved mode table after {@link #build} has been called.
-     * Each entry maps a {@link ConnectionMode} to a {@link ResolvedModeDefinition}
-     * containing zero-arg factories that capture the {@link ClientContext}.
-     *
-     * @return unmodifiable map of resolved mode definitions
-     * @throws IllegalStateException if called before {@link #build}
-     */
     @NonNull
     ConnectionMode getStartingMode() {
         return startingMode;
     }
 
-    @NonNull
-    Map<ConnectionMode, ResolvedModeDefinition> getResolvedModeTable() {
-        if (resolvedModeTable == null) {
-            throw new IllegalStateException("build() must be called before getResolvedModeTable()");
-        }
-        return resolvedModeTable;
+    /**
+     * Configures the mode to build for and whether to include initializers.
+     * Called by {@link ConnectivityManager} before each {@link #build} call.
+     *
+     * @param mode               the target connection mode
+     * @param includeInitializers true for initial startup / identify, false for mode switches
+     *                           (per CONNMODE 2.0.1: mode switches only transition synchronizers)
+     */
+    void setActiveMode(@NonNull ConnectionMode mode, boolean includeInitializers) {
+        this.activeMode = mode;
+        this.includeInitializers = includeInitializers;
+    }
+
+    /**
+     * Returns the raw {@link ModeDefinition} for the given mode, used by
+     * {@link ConnectivityManager} for the CSFDV2 5.3.8 equivalence check.
+     */
+    ModeDefinition getModeDefinition(@NonNull ConnectionMode mode) {
+        return modeTable.get(mode);
     }
 
     @Override
     public DataSource build(ClientContext clientContext) {
-        Map<ConnectionMode, ResolvedModeDefinition> resolved = new LinkedHashMap<>();
-        for (Map.Entry<ConnectionMode, ModeDefinition> entry : modeTable.entrySet()) {
-            resolved.put(entry.getKey(), resolve(entry.getValue(), clientContext));
-        }
-        this.resolvedModeTable = Collections.unmodifiableMap(resolved);
+        ConnectionMode mode = activeMode != null ? activeMode : startingMode;
 
-        ResolvedModeDefinition startDef = resolvedModeTable.get(startingMode);
-        if (startDef == null) {
+        ModeDefinition modeDef = modeTable.get(mode);
+        if (modeDef == null) {
             throw new IllegalStateException(
-                    "Starting mode " + startingMode + " not found in mode table");
+                    "Mode " + mode + " not found in mode table");
         }
+
+        ResolvedModeDefinition resolved = resolve(modeDef, clientContext);
 
         DataSourceUpdateSink baseSink = clientContext.getDataSourceUpdateSink();
         if (!(baseSink instanceof DataSourceUpdateSinkV2)) {
@@ -216,12 +218,20 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
                     "FDv2DataSource requires a DataSourceUpdateSinkV2 implementation");
         }
 
-        ScheduledExecutorService sharedExecutor = Executors.newScheduledThreadPool(2);
+        if (sharedExecutor == null) {
+            sharedExecutor = Executors.newScheduledThreadPool(2);
+        }
+
+        List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories =
+                includeInitializers ? resolved.getInitializerFactories() : Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList();
+
+        // Reset includeInitializers to default after each build to prevent stale state.
+        includeInitializers = true;
 
         return new FDv2DataSource(
                 clientContext.getEvaluationContext(),
-                startDef.getInitializerFactories(),
-                startDef.getSynchronizerFactories(),
+                initFactories,
+                resolved.getSynchronizerFactories(),
                 (DataSourceUpdateSinkV2) baseSink,
                 sharedExecutor,
                 clientContext.getBaseLogger()

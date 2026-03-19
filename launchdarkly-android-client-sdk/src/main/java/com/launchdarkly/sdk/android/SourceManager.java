@@ -18,7 +18,7 @@ import java.util.List;
  */
 final class SourceManager implements Closeable {
 
-    private List<SynchronizerFactoryWithState> synchronizerFactories;
+    private final List<SynchronizerFactoryWithState> synchronizerFactories;
     private final List<FDv2DataSource.DataSourceFactory<Initializer>> initializers;
 
     private final Object activeSourceLock = new Object();
@@ -46,24 +46,6 @@ final class SourceManager implements Closeable {
     void resetSourceIndex() {
         synchronized (activeSourceLock) {
             synchronizerIndex = -1;
-        }
-    }
-
-    /**
-     * Atomically replaces the synchronizer list, closing any active source and resetting
-     * the synchronizer index. Used by {@link FDv2DataSource#switchMode} to swap synchronizers
-     * without creating a new SourceManager, preventing concurrent loops from pushing data
-     * into the update sink simultaneously.
-     */
-    void switchSynchronizers(@NonNull List<SynchronizerFactoryWithState> newFactories) {
-        synchronized (activeSourceLock) {
-            if (activeSource != null) {
-                safeClose(activeSource);
-                activeSource = null;
-            }
-            synchronizerFactories = newFactories;
-            synchronizerIndex = -1;
-            currentSynchronizerFactory = null;
         }
     }
 
