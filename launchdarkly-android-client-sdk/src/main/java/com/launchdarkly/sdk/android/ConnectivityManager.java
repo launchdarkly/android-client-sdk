@@ -72,7 +72,7 @@ class ConnectivityManager {
     private final AtomicReference<Boolean> previouslyInBackground = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
-    private volatile Map<ConnectionMode, ResolvedModeDefinition> resolvedModeTable;
+    private final boolean useFDv2ModeResolution;
     private volatile ConnectionMode currentFDv2Mode;
 
     // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
@@ -150,6 +150,7 @@ class ConnectivityManager {
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
         this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();
+        this.useFDv2ModeResolution = (dataSourceFactory instanceof FDv2DataSourceBuilder);
 
         connectivityChangeListener = networkAvailable -> handleModeStateChange();
         platformState.addConnectivityChangeListener(connectivityChangeListener);
@@ -190,13 +191,27 @@ class ConnectivityManager {
         }
 
         DataSource existingDataSource = currentDataSource.get();
+        boolean isFDv2ModeSwitch = false;
 
-        // FDv2 ModeAware data sources handle all state transitions (including
-        // offline/background) via mode resolution rather than teardown/rebuild.
-        if (!mustReinitializeDataSource && existingDataSource instanceof ModeAware) {
-            resolveAndSwitchMode((ModeAware) existingDataSource);
-            onCompletion.onSuccess(null);
-            return false;
+        // FDv2 path: resolve mode and determine if a teardown/rebuild is needed.
+        if (useFDv2ModeResolution && !mustReinitializeDataSource) {
+            ConnectionMode newMode = resolveMode();
+            if (newMode == currentFDv2Mode) {
+                onCompletion.onSuccess(null);
+                return false;
+            }
+            // CSFDV2 5.3.8: retain active data source if old and new modes have equivalent config.
+            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
+            ModeDefinition oldDef = fdv2Builder.getModeDefinition(currentFDv2Mode);
+            ModeDefinition newDef = fdv2Builder.getModeDefinition(newMode);
+            if (oldDef != null && oldDef == newDef) {
+                currentFDv2Mode = newMode;
+                onCompletion.onSuccess(null);
+                return false;
+            }
+            currentFDv2Mode = newMode;
+            isFDv2ModeSwitch = true;
+            mustReinitializeDataSource = true;
         }
 
         // FDv1 path: check whether the data source needs a full rebuild.
@@ -215,7 +230,12 @@ class ConnectivityManager {
         boolean shouldStopExistingDataSource = true,
                 shouldStartDataSourceIfStopped = false;
 
-        if (forceOffline) {
+        if (useFDv2ModeResolution) {
+            // FDv2 mode resolution already accounts for offline/background states via
+            // the ModeResolutionTable, so we always rebuild when the mode changed.
+            shouldStopExistingDataSource = mustReinitializeDataSource;
+            shouldStartDataSourceIfStopped = true;
+        } else if (forceOffline) {
             logger.debug("Initialized in offline mode");
             initialized = true;
             dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.SET_OFFLINE, null);
@@ -249,40 +269,31 @@ class ConnectivityManager {
                 previouslyInBackground.get(),
                 transactionalDataStore
         );
+
+        if (useFDv2ModeResolution) {
+            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
+            // CONNMODE 2.0.1: mode switches only transition synchronizers, not initializers.
+            fdv2Builder.setActiveMode(currentFDv2Mode, !isFDv2ModeSwitch);
+        }
+
         DataSource dataSource = dataSourceFactory.build(clientContext);
         currentDataSource.set(dataSource);
         previouslyInBackground.set(Boolean.valueOf(inBackground));
-
-        if (dataSourceFactory instanceof FDv2DataSourceBuilder) {
-            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
-            resolvedModeTable = fdv2Builder.getResolvedModeTable();
-            currentFDv2Mode = fdv2Builder.getStartingMode();
-        }
 
         dataSource.start(new Callback<Boolean>() {
             @Override
             public void onSuccess(Boolean result) {
                 initialized = true;
-                // passing the current connection mode since we don't want to change the mode, just trigger
-                // the logic to update the last connection success.
                 updateConnectionInfoForSuccess(connectionInformation.getConnectionMode());
                 onCompletion.onSuccess(null);
             }
 
             @Override
             public void onError(Throwable error) {
-                // passing the current connection mode since we don't want to change the mode, just trigger
-                // the logic to update the last connection failure.
                 updateConnectionInfoForError(connectionInformation.getConnectionMode(), error);
                 onCompletion.onSuccess(null);
             }
         });
-
-        // If the app starts in the background, the builder creates the data source with
-        // STREAMING as the starting mode. Perform an initial mode resolution to correct this.
-        if (dataSource instanceof ModeAware) {
-            resolveAndSwitchMode((ModeAware) dataSource);
-        }
 
         return true;
     }
@@ -425,6 +436,13 @@ class ConnectivityManager {
             return false;
         }
         initialized = false;
+
+        if (useFDv2ModeResolution) {
+            currentFDv2Mode = resolveMode();
+            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
+            fdv2Builder.setActiveMode(currentFDv2Mode, true);
+        }
+
         updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
         return updateDataSource(true, onCompletion);
     }
@@ -476,15 +494,10 @@ class ConnectivityManager {
     }
 
     /**
-     * Resolves the current platform state to a ConnectionMode via the ModeResolutionTable,
-     * looks up the ResolvedModeDefinition from the resolved mode table, and calls
-     * switchMode() on the data source if the mode has changed.
+     * Resolves the current platform state to a {@link ConnectionMode} via the
+     * {@link ModeResolutionTable}.
      */
-    private void resolveAndSwitchMode(@NonNull ModeAware modeAware) {
-        Map<ConnectionMode, ResolvedModeDefinition> table = resolvedModeTable;
-        if (table == null) {
-            return;
-        }
+    private ConnectionMode resolveMode() {
         boolean forceOffline = forcedOffline.get();
         boolean networkAvailable = platformState.isNetworkAvailable();
         boolean foreground = platformState.isForeground();
@@ -492,18 +505,7 @@ class ConnectivityManager {
                 foreground && !forceOffline,
                 networkAvailable && !forceOffline
         );
-        ConnectionMode newMode = ModeResolutionTable.MOBILE.resolve(state);
-        if (newMode == currentFDv2Mode) {
-            return;
-        }
-        currentFDv2Mode = newMode;
-        ResolvedModeDefinition def = table.get(newMode);
-        if (def == null) {
-            logger.warn("No resolved definition for mode {}; skipping switchMode", newMode);
-            return;
-        }
-        logger.debug("Switching FDv2 mode to {}", newMode);
-        modeAware.switchMode(def);
+        return ModeResolutionTable.MOBILE.resolve(state);
     }
 
     synchronized ConnectionInformation getConnectionInformation() {
