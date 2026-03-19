@@ -251,6 +251,7 @@ public class LDClient implements LDClientInterface, Closeable {
         HookRunner.AfterIdentifyMethod afterIdentify = primaryClient.hookRunner.identify(modifiedContext, null);
 
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
+        final AtomicBoolean initErrorOccurred = new AtomicBoolean(false);
         Callback<Void> completeWhenCounterZero = new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
@@ -262,6 +263,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
             @Override
             public void onError(Throwable e) {
+                if (initErrorOccurred.compareAndSet(false, true)) {
+                    afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.ERROR));
+                }
                 resultFuture.setException(e);
             }
         };
