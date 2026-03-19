@@ -15,7 +15,7 @@ start-contract-test-service:
 	@scripts/start-test-service.sh
 
 run-contract-tests:
-	@curl $(if [ -n "$$GITHUB_TOKEN" ]; then echo '-H "Authorization: Token '$$GITHUB_TOKEN'"'; fi) \
+	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
       -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/main/downloader/run.sh \
       | VERSION=v2 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -skip-from testharness-suppressions.txt -debug $(TEST_HARNESS_PARAMS)" sh
 
