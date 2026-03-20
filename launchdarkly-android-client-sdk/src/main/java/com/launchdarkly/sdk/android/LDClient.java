@@ -248,31 +248,33 @@ public class LDClient implements LDClientInterface, Closeable {
             }
         }
 
-        HookRunner.AfterIdentifyMethod afterIdentify = primaryClient.hookRunner.identify(modifiedContext, null);
-
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
-        final AtomicBoolean initErrorOccurred = new AtomicBoolean(false);
-        Callback<Void> completeWhenCounterZero = new Callback<Void>() {
+        class CompleteWhenCounterZero implements Callback<Void> {
+            final private HookRunner.AfterIdentifyMethod afterIdentify;
+
+            CompleteWhenCounterZero(HookRunner.AfterIdentifyMethod afterIdentify) {
+                this.afterIdentify = afterIdentify;
+            }
+
             @Override
             public void onSuccess(Void result) {
+                afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED));
                 if (initCounter.decrementAndGet() == 0) {
-                    afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED));
                     resultFuture.set(primaryClient);
                 }
             }
 
             @Override
             public void onError(Throwable e) {
-                if (initErrorOccurred.compareAndSet(false, true)) {
-                    afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.ERROR));
-                }
+                afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.ERROR));
                 resultFuture.setException(e);
             }
         };
 
         // Start up all instances
         for (final LDClient instance : instances.values()) {
-            if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
+            HookRunner.AfterIdentifyMethod afterIdentify = instance.hookRunner.identify(modifiedContext, null);
+            if (instance.connectivityManager.startUp(new CompleteWhenCounterZero(afterIdentify))) {
                 instance.eventProcessor.recordIdentifyEvent(modifiedContext);
             }
         }
