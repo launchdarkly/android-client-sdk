@@ -17,18 +17,22 @@ import java.util.List;
  * At build time, {@code FDv2DataSourceBuilder} resolves each {@link ComponentConfigurer}
  * into a {@link FDv2DataSource.DataSourceFactory} by partially applying the
  * {@link com.launchdarkly.sdk.android.subsystems.ClientContext}.
- * <p>
- * Package-private — not part of the public SDK API.
  *
  * @see ConnectionMode
  * @see ResolvedModeDefinition
  */
-final class ModeDefinition {
+public final class ModeDefinition {
 
     private final List<ComponentConfigurer<Initializer>> initializers;
     private final List<ComponentConfigurer<Synchronizer>> synchronizers;
 
-    ModeDefinition(
+    /**
+     * Constructs a mode definition with the given initializers and synchronizers.
+     *
+     * @param initializers  the initializer configurers, in priority order
+     * @param synchronizers the synchronizer configurers, in priority order
+     */
+    public ModeDefinition(
             @NonNull List<ComponentConfigurer<Initializer>> initializers,
             @NonNull List<ComponentConfigurer<Synchronizer>> synchronizers
     ) {
@@ -36,13 +40,23 @@ final class ModeDefinition {
         this.synchronizers = Collections.unmodifiableList(synchronizers);
     }
 
+    /**
+     * Returns the initializer configurers for this mode.
+     *
+     * @return an unmodifiable list of initializer configurers
+     */
     @NonNull
-    List<ComponentConfigurer<Initializer>> getInitializers() {
+    public List<ComponentConfigurer<Initializer>> getInitializers() {
         return initializers;
     }
 
+    /**
+     * Returns the synchronizer configurers for this mode.
+     *
+     * @return an unmodifiable list of synchronizer configurers
+     */
     @NonNull
-    List<ComponentConfigurer<Synchronizer>> getSynchronizers() {
+    public List<ComponentConfigurer<Synchronizer>> getSynchronizers() {
         return synchronizers;
     }
 }

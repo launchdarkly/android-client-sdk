@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
+import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
@@ -221,4 +222,73 @@ public abstract class Components {
     public static PluginsConfigurationBuilder plugins() {
         return new ComponentsImpl.PluginsConfigurationBuilderImpl();
     }
+
+    /**
+     * Returns a builder for configuring the data system.
+     * <p>
+     * The data system controls how the SDK acquires and maintains feature flag data
+     * across different platform states (foreground, background, offline). It uses
+     * connection modes, each with its own pipeline of initializers and synchronizers.
+     * <p>
+     * When called with no further customization, the data system uses sensible defaults:
+     * streaming with polling fallback in the foreground and low-frequency polling in the
+     * background.
+     * <p>
+     * <b>Example — opting in to use the default data system:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(Components.dataSystem())
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — customize background polling to once every 6 hours:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .customizeConnectionMode(ConnectionMode.BACKGROUND,
+     *                     DataSystemComponents.customMode()
+     *                         .initializers(DataSystemComponents.pollingInitializer())
+     *                         .synchronizers(
+     *                             DataSystemComponents.pollingSynchronizer()
+     *                                 .pollIntervalMillis(21_600_000))))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — use polling instead of streaming in the foreground:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .foregroundConnectionMode(ConnectionMode.POLLING))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — disable automatic mode switching:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .automaticModeSwitching(false)
+     *                 .foregroundConnectionMode(ConnectionMode.STREAMING))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * Setting {@link LDConfig.Builder#dataSystem(DataSystemBuilder)} is mutually exclusive
+     * with {@link LDConfig.Builder#dataSource(ComponentConfigurer)}. The data system uses
+     * the FDv2 protocol, while {@code dataSource()} uses the legacy FDv1 protocol.
+     *
+     * @return a builder for configuring the data system
+     * @see DataSystemBuilder
+     * @see DataSystemComponents
+     * @see LDConfig.Builder#dataSystem(DataSystemBuilder)
+     */
+    public static DataSystemBuilder dataSystem() {
+        return new DataSystemBuilder();
+    }
+
 }
