@@ -304,91 +304,103 @@ final class FDv2DataSource implements DataSource {
             @NonNull LDContext context,
             @NonNull DataSourceUpdateSinkV2 sink
     ) {
-        Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
-        while (synchronizer != null) {
-            if (stopped.get()) {
-                return;
-            }
-            int synchronizerCount = sourceManager.getAvailableSynchronizerCount();
-            boolean isPrime = sourceManager.isPrimeSynchronizer();
-            try {
-                boolean running = true;
-                try (FDv2DataSourceConditions.Conditions conditions =
-                             new FDv2DataSourceConditions.Conditions(getConditions(synchronizerCount, isPrime))) {
-                    while (running) {
-                        Future<FDv2SourceResult> nextFuture = synchronizer.next();
-                        Object res = LDFutures.anyOf(conditions.getFuture(), nextFuture).get();
+        try {
+            Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+            while (synchronizer != null) {
+                if (stopped.get()) {
+                    return;
+                }
+                int synchronizerCount = sourceManager.getAvailableSynchronizerCount();
+                boolean isPrime = sourceManager.isPrimeSynchronizer();
+                try {
+                    boolean running = true;
+                    try (FDv2DataSourceConditions.Conditions conditions =
+                                 new FDv2DataSourceConditions.Conditions(getConditions(synchronizerCount, isPrime))) {
+                        while (running) {
+                            Future<FDv2SourceResult> nextFuture = synchronizer.next();
+                            // Race the next synchronizer result against any active conditions
+                            // (fallback/recovery timers). Whichever resolves first wins.
+                            Object res = LDFutures.anyOf(conditions.getFuture(), nextFuture).get();
 
-                        if (res instanceof FDv2DataSourceConditions.ConditionType) {
-                            FDv2DataSourceConditions.ConditionType ct = (FDv2DataSourceConditions.ConditionType) res;
-                            switch (ct) {
-                                case FALLBACK:
-                                    logger.debug("Synchronizer {} experienced an interruption; falling back to next synchronizer.",
-                                            synchronizer.getClass().getSimpleName());
+                            if (res instanceof FDv2DataSourceConditions.ConditionType) {
+                                FDv2DataSourceConditions.ConditionType ct = (FDv2DataSourceConditions.ConditionType) res;
+                                switch (ct) {
+                                    case FALLBACK:
+                                        logger.debug("Synchronizer {} experienced an interruption; falling back to next synchronizer.",
+                                                synchronizer.getClass().getSimpleName());
+                                        break;
+                                    case RECOVERY:
+                                        logger.debug("The data source is attempting to recover to a higher priority synchronizer.");
+                                        sourceManager.resetSourceIndex();
+                                        break;
+                                }
+                                running = false;
+                                break;
+                            }
+
+                            if (!(res instanceof FDv2SourceResult)) {
+                                logger.error("Unexpected result type from synchronizer: {}", res != null ? res.getClass().getName() : "null");
+                                continue;
+                            }
+
+                            FDv2SourceResult result = (FDv2SourceResult) res;
+                            // Let conditions observe the result before we act on it so
+                            // they can update their internal state (e.g. reset interruption timers).
+                            conditions.inform(result);
+
+                            switch (result.getResultType()) {
+                                case CHANGE_SET:
+                                    ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
+                                    if (changeSet != null) {
+                                        sink.apply(context, changeSet);
+                                        sink.setStatus(DataSourceState.VALID, null);
+                                        tryCompleteStart(true, null);
+                                    }
                                     break;
-                                case RECOVERY:
-                                    logger.debug("The data source is attempting to recover to a higher priority synchronizer.");
-                                    sourceManager.resetSourceIndex();
+                                case STATUS:
+                                    FDv2SourceResult.Status status = result.getStatus();
+                                    if (status != null) {
+                                        switch (status.getState()) {
+                                            case INTERRUPTED:
+                                                sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
+                                                break;
+                                            case SHUTDOWN:
+                                                // This synchronizer is shutting down cleanly/intentionally
+                                                running = false;
+                                                break;
+                                            case TERMINAL_ERROR:
+                                                // This synchronizer cannot recover; block it so the outer
+                                                // loop advances to the next available synchronizer.
+                                                sourceManager.blockCurrentSynchronizer();
+                                                running = false;
+                                                sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
+                                                break;
+                                            case GOODBYE:
+                                                // We let the synchronizer handle this internally.
+                                                break;
+                                            default:
+                                                break;
+                                        }
+                                    }
                                     break;
                             }
-                            running = false;
-                            break;
-                        }
-
-                        if (!(res instanceof FDv2SourceResult)) {
-                            logger.error("Unexpected result type from synchronizer: {}", res != null ? res.getClass().getName() : "null");
-                            continue;
-                        }
-
-                        FDv2SourceResult result = (FDv2SourceResult) res;
-                        conditions.inform(result);
-
-                        switch (result.getResultType()) {
-                            case CHANGE_SET:
-                                ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
-                                if (changeSet != null) {
-                                    sink.apply(context, changeSet);
-                                    sink.setStatus(DataSourceState.VALID, null);
-                                    tryCompleteStart(true, null);
-                                }
-                                break;
-                            case STATUS:
-                                FDv2SourceResult.Status status = result.getStatus();
-                                if (status != null) {
-                                    switch (status.getState()) {
-                                        case INTERRUPTED:
-                                            sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
-                                            break;
-                                        case SHUTDOWN:
-                                            running = false;
-                                            break;
-                                        case TERMINAL_ERROR:
-                                            sourceManager.blockCurrentSynchronizer();
-                                            running = false;
-                                            sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
-                                            break;
-                                        case GOODBYE:
-                                            break;
-                                        default:
-                                            break;
-                                    }
-                                }
-                                break;
                         }
                     }
+                } catch (ExecutionException e) {
+                    logger.warn("Synchronizer error: {}", e.getCause() != null ? e.getCause().toString() : e.toString());
+                    sink.setStatus(DataSourceState.INTERRUPTED, e.getCause() != null ? e.getCause() : e);
+                } catch (CancellationException e) {
+                    logger.warn("Synchronizer cancelled: {}", e.toString());
+                    sink.setStatus(DataSourceState.INTERRUPTED, e);
+                } catch (InterruptedException e) {
+                    logger.warn("Synchronizer interrupted: {}", e.toString());
+                    sink.setStatus(DataSourceState.INTERRUPTED, e);
+                    return;
                 }
-            } catch (ExecutionException e) {
-                logger.warn("Synchronizer error: {}", e.getCause() != null ? e.getCause().toString() : e.toString());
-                sink.setStatus(DataSourceState.INTERRUPTED, e.getCause() != null ? e.getCause() : e);
-            } catch (CancellationException e) {
-                logger.warn("Synchronizer cancelled: {}", e.toString());
-                sink.setStatus(DataSourceState.INTERRUPTED, e);
-            } catch (InterruptedException e) {
-                logger.warn("Synchronizer interrupted: {}", e.toString());
-                sink.setStatus(DataSourceState.INTERRUPTED, e);
-                return;
+                synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
             }
-            synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+        } finally {
+            sourceManager.close();
         }
     }
 }

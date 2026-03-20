@@ -144,23 +144,28 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
 
         Map<ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(ConnectionMode.STREAMING, new ModeDefinition(
-                Arrays.asList(pollingInitializer, pollingInitializer),
+                // TODO: cacheInitializer — add once implemented
+                Arrays.asList(/* cacheInitializer, */ pollingInitializer),
                 Arrays.asList(streamingSynchronizer, pollingSynchronizer)
         ));
         table.put(ConnectionMode.POLLING, new ModeDefinition(
-                Collections.singletonList(pollingInitializer),
+                // TODO: Arrays.asList(cacheInitializer) — add once implemented
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.singletonList(pollingSynchronizer)
         ));
         table.put(ConnectionMode.OFFLINE, new ModeDefinition(
-                Collections.singletonList(pollingInitializer),
+                // TODO: Arrays.asList(cacheInitializer) — add once implemented
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         table.put(ConnectionMode.ONE_SHOT, new ModeDefinition(
-                Arrays.asList(pollingInitializer, pollingInitializer, pollingInitializer),
+                // TODO: cacheInitializer and streamingInitializer — add once implemented
+                Arrays.asList(/* cacheInitializer, */ pollingInitializer /*, streamingInitializer, */),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         table.put(ConnectionMode.BACKGROUND, new ModeDefinition(
-                Collections.singletonList(pollingInitializer),
+                // TODO: Arrays.asList(cacheInitializer) — add once implemented
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.singletonList(backgroundPollingSynchronizer)
         ));
         return table;
@@ -170,7 +175,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
             @NonNull Map<ConnectionMode, ModeDefinition> modeTable,
             @NonNull ConnectionMode startingMode
     ) {
-        this.modeTable = Collections.unmodifiableMap(new LinkedHashMap<>(modeTable));
+        this.modeTable = Collections.unmodifiableMap(modeTable);
         this.startingMode = startingMode;
     }
 

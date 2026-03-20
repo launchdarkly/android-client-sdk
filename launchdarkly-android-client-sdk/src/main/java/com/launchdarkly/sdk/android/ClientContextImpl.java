@@ -39,6 +39,7 @@ final class ClientContextImpl extends ClientContext {
     @Nullable
     private final TransactionalDataStore transactionalDataStore;
 
+    /** Used by FDv1 code paths that do not need a {@link TransactionalDataStore}. */
     ClientContextImpl(
             ClientContext base,
             DiagnosticStore diagnosticStore,
@@ -50,6 +51,11 @@ final class ClientContextImpl extends ClientContext {
         this(base, diagnosticStore, fetcher, platformState, taskExecutor, perEnvironmentData, null);
     }
 
+    /**
+     * Used by FDv2 code paths. The {@code transactionalDataStore} is needed by
+     * {@link FDv2DataSourceBuilder} to create {@link SelectorSourceFacade} instances
+     * that provide selector state to initializers and synchronizers.
+     */
     ClientContextImpl(
             ClientContext base,
             DiagnosticStore diagnosticStore,
@@ -113,6 +119,7 @@ final class ClientContextImpl extends ClientContext {
         return new ClientContextImpl(context, null, null, null, null, null);
     }
 
+    /** Creates a context for FDv1 data sources that do not need a {@link TransactionalDataStore}. */
     public static ClientContextImpl forDataSource(
             ClientContext baseClientContext,
             DataSourceUpdateSink dataSourceUpdateSink,
@@ -124,6 +131,11 @@ final class ClientContextImpl extends ClientContext {
                 newInBackground, previouslyInBackground, null);
     }
 
+    /**
+     * Creates a context for data sources, optionally including a {@link TransactionalDataStore}.
+     * FDv2 data sources require the store so that {@link FDv2DataSourceBuilder} can provide
+     * selector state to initializers and synchronizers via {@link SelectorSourceFacade}.
+     */
     public static ClientContextImpl forDataSource(
             ClientContext baseClientContext,
             DataSourceUpdateSink dataSourceUpdateSink,

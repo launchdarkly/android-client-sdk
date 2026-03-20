@@ -840,6 +840,30 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
+    public void fdv2_contextChange_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        LDContext context2 = LDContext.create("context2");
+        contextDataManager.switchToContext(context2);
+        AwaitableCallback<Void> done = new AwaitableCallback<>();
+        connectivityManager.switchToContext(context2, done);
+        done.await();
+
+        verifyDataSourceWasStopped();
+        verifyForegroundDataSourceWasCreatedAndStarted(context2);
+        verifyNoMoreDataSourcesWereCreated();
+        verifyAll();
+    }
+
+    @Test
     public void fdv2_modeSwitchDoesNotIncludeInitializers() throws Exception {
         BlockingQueue<Boolean> initializerIncluded = new LinkedBlockingQueue<>();
 

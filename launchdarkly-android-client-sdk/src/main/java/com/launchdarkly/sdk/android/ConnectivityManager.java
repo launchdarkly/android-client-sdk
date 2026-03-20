@@ -214,7 +214,7 @@ class ConnectivityManager {
             mustReinitializeDataSource = true;
         }
 
-        // FDv1 path: check whether the data source needs a full rebuild.
+        // Check whether the existing data source needs a rebuild (e.g. evaluation context changed).
         if (!mustReinitializeDataSource && existingDataSource != null) {
             boolean inBackground = !platformState.isForeground();
             if (existingDataSource.needsRefresh(inBackground, currentContext.get())) {
@@ -271,9 +271,8 @@ class ConnectivityManager {
         );
 
         if (useFDv2ModeResolution) {
-            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
             // CONNMODE 2.0.1: mode switches only transition synchronizers, not initializers.
-            fdv2Builder.setActiveMode(currentFDv2Mode, !isFDv2ModeSwitch);
+            ((FDv2DataSourceBuilder) dataSourceFactory).setActiveMode(currentFDv2Mode, !isFDv2ModeSwitch);
         }
 
         DataSource dataSource = dataSourceFactory.build(clientContext);
@@ -439,8 +438,7 @@ class ConnectivityManager {
 
         if (useFDv2ModeResolution) {
             currentFDv2Mode = resolveMode();
-            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
-            fdv2Builder.setActiveMode(currentFDv2Mode, true);
+            ((FDv2DataSourceBuilder) dataSourceFactory).setActiveMode(currentFDv2Mode, true);
         }
 
         updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
@@ -495,15 +493,16 @@ class ConnectivityManager {
 
     /**
      * Resolves the current platform state to a {@link ConnectionMode} via the
-     * {@link ModeResolutionTable}.
+     * {@link ModeResolutionTable}. Force-offline is handled as a short-circuit
+     * so that {@link ModeState} faithfully represents actual platform state.
      */
     private ConnectionMode resolveMode() {
-        boolean forceOffline = forcedOffline.get();
-        boolean networkAvailable = platformState.isNetworkAvailable();
-        boolean foreground = platformState.isForeground();
+        if (forcedOffline.get()) {
+            return ConnectionMode.OFFLINE;
+        }
         ModeState state = new ModeState(
-                foreground && !forceOffline,
-                networkAvailable && !forceOffline
+                platformState.isForeground(),
+                platformState.isNetworkAvailable()
         );
         return ModeResolutionTable.MOBILE.resolve(state);
     }
