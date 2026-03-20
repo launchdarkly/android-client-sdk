@@ -7,7 +7,27 @@
       "languages": [
         "Java", "Kotlin"
       ],
-      "userAgents": ["AndroidClient"]
+      "userAgents": ["AndroidClient"],
+      "features": {
+        "allFlags": { "introduced": "1.0" },
+        "appMetadata": { "introduced": "3.6" },
+        "autoEnvAttrs": { "introduced": "5.0" },
+        "bigSegments": { "introduced": "1.0" },
+        "contexts": { "introduced": "4.0" },
+        "experimentation": { "introduced": "2.9" },
+        "flagChanges": { "introduced": "1.0" },
+        "hooks": { "introduced": "5.8" },
+        "inlineContextCustomEvents": { "introduced": "5.7" },
+        "multiEnv": { "introduced": "2.6" },
+        "offlineMode": { "introduced": "1.0" },
+        "perContextSummaryEvents": { "introduced": "5.11.0" },
+        "pluginSupport": { "introduced": "5.9" },
+        "privateAttrs": { "introduced": "2.2" },
+        "relayProxyProxy": { "introduced": "1.0" },
+        "testDataSource": { "introduced": "4.0" },
+        "track": { "introduced": "1.0" },
+        "variationDetail": { "introduced": "2.7" }
+      }
     }
   }
 }
