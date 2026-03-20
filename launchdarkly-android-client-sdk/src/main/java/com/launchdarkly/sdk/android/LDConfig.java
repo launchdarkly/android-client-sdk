@@ -8,6 +8,7 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
+import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PluginsConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
@@ -228,6 +229,7 @@ public class LDConfig {
 
         private ApplicationInfoBuilder applicationInfoBuilder = null;
         private ComponentConfigurer<DataSource> dataSource = null;
+        private DataSystemBuilder dataSystemBuilder = null;
         private ComponentConfigurer<EventProcessor> events = null;
         private HooksConfigurationBuilder hooksConfigurationBuilder = null;
         private PluginsConfigurationBuilder pluginsConfigurationBuilder = null;
@@ -383,6 +385,43 @@ public class LDConfig {
          */
         public Builder dataSource(ComponentConfigurer<DataSource> dataSourceConfigurer) {
             this.dataSource = dataSourceConfigurer;
+            this.dataSystemBuilder = null;
+            return this;
+        }
+
+        /**
+         * Configures the SDK's data system, which controls how the SDK acquires and
+         * maintains feature flag data using the FDv2 protocol.
+         * <p>
+         * The data system supports per-mode customization of initializers and synchronizers
+         * for foreground, background, and other platform states. This is the recommended
+         * way to configure FDv2 data sources.
+         * <p>
+         * This is mutually exclusive with {@link #dataSource(ComponentConfigurer)}. If both
+         * are called, the last one wins.
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+         *         .mobileKey("my-key")
+         *         .dataSystem(
+         *             Components.dataSystem()
+         *                 .customizeConnectionMode(ConnectionMode.STREAMING,
+ *                     DataSystemComponents.customMode()
+ *                         .initializers(DataSystemComponents.pollingInitializer())
+         *                         .synchronizers(
+         *                             DataSystemComponents.streamingSynchronizer()
+         *                                 .initialReconnectDelayMillis(500),
+         *                             DataSystemComponents.pollingSynchronizer())))
+         *         .build();
+         * </code></pre>
+         *
+         * @param dataSystemBuilder the data system configuration builder
+         * @return the main configuration builder
+         * @see Components#dataSystem()
+         * @see DataSystemBuilder
+         */
+        public Builder dataSystem(DataSystemBuilder dataSystemBuilder) {
+            this.dataSystemBuilder = dataSystemBuilder;
+            this.dataSource = null;
             return this;
         }
 
@@ -722,11 +761,27 @@ public class LDConfig {
                     null :
                     applicationInfoBuilder.createApplicationInfo();
 
+            ComponentConfigurer<DataSource> effectiveDataSource;
+            if (this.dataSystemBuilder != null) {
+                Map<ConnectionMode, ModeDefinition> modeTable =
+                        this.dataSystemBuilder.buildModeTable(disableBackgroundUpdating);
+                ConnectionMode startingMode = this.dataSystemBuilder.getForegroundConnectionMode();
+                ConnectionMode backgroundMode = this.dataSystemBuilder.getBackgroundConnectionMode();
+                ModeResolutionTable resolutionTable = ModeResolutionTable.createMobile(
+                        startingMode, backgroundMode);
+                boolean autoSwitch = this.dataSystemBuilder.isAutomaticModeSwitching();
+                effectiveDataSource = new FDv2DataSourceBuilder(
+                        modeTable, startingMode, resolutionTable, autoSwitch);
+            } else {
+                effectiveDataSource = this.dataSource == null
+                        ? Components.streamingDataSource() : this.dataSource;
+            }
+
             return new LDConfig(
                     mobileKeys,
                     serviceEndpoints,
                     applicationInfo,
-                    this.dataSource == null ? Components.streamingDataSource() : this.dataSource,
+                    effectiveDataSource,
                     this.events == null ? Components.sendEvents() : this.events,
                     (this.hooksConfigurationBuilder == null ? Components.hooks() : this.hooksConfigurationBuilder).build(),
                     (this.pluginsConfigurationBuilder == null ? Components.plugins() : this.pluginsConfigurationBuilder).build(),

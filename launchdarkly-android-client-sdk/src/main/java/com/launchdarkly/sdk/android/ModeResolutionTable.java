@@ -24,17 +24,38 @@ import java.util.List;
  */
 final class ModeResolutionTable {
 
-    static final ModeResolutionTable MOBILE = new ModeResolutionTable(Arrays.asList(
-            new ModeResolutionEntry(
-                    state -> !state.isNetworkAvailable(),
-                    ConnectionMode.OFFLINE),
-            new ModeResolutionEntry(
-                    state -> !state.isForeground(),
-                    ConnectionMode.BACKGROUND),
-            new ModeResolutionEntry(
-                    state -> true,
-                    ConnectionMode.STREAMING)
-    ));
+    static final ModeResolutionTable MOBILE = createMobile(
+            ConnectionMode.STREAMING, ConnectionMode.BACKGROUND);
+
+    /**
+     * Creates a mobile resolution table with configurable foreground and background modes.
+     * The resolution order is:
+     * <ol>
+     *   <li>No network &rarr; OFFLINE</li>
+     *   <li>Background &rarr; {@code backgroundMode}</li>
+     *   <li>Foreground (catch-all) &rarr; {@code foregroundMode}</li>
+     * </ol>
+     *
+     * @param foregroundMode the mode to use when in the foreground
+     * @param backgroundMode the mode to use when in the background
+     * @return a new resolution table
+     */
+    static ModeResolutionTable createMobile(
+            ConnectionMode foregroundMode,
+            ConnectionMode backgroundMode
+    ) {
+        return new ModeResolutionTable(Arrays.asList(
+                new ModeResolutionEntry(
+                        state -> !state.isNetworkAvailable(),
+                        ConnectionMode.OFFLINE),
+                new ModeResolutionEntry(
+                        state -> !state.isForeground(),
+                        backgroundMode),
+                new ModeResolutionEntry(
+                        state -> true,
+                        foregroundMode)
+        ));
+    }
 
     private final List<ModeResolutionEntry> entries;
 
