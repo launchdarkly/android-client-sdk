@@ -20,7 +20,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSource;
  * options if desired with the methods of this class, and pass it to
  * {@link Builder#dataSource(ComponentConfigurer)}:
  * <pre><code>
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .dataSource(Components.pollingDataSource().pollIntervalMillis(30000))
  *         .build();
  * </code></pre>

@@ -11,7 +11,7 @@ import com.launchdarkly.logging.SimpleFormat;
  * By default, the SDK sends logging to Timber. If you want to bypass Timber and use Android
  * logging directly instead, use this class with {@link LDConfig.Builder#logAdapter(LDLogAdapter)}:
  * <pre><code>
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .logAdapter(LDAndroidLogging.adapter())
  *         .build();
  * </code></pre>

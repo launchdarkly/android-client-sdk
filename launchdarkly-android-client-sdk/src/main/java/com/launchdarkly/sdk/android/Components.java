@@ -34,7 +34,7 @@ public abstract class Components {
      * Passing this to {@link LDConfig.Builder#applicationInfo(com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder)},
      * after setting any desired properties on the builder, applies this configuration to the SDK.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .applicationInfo(
      *             Components.applicationInfo()
      *                 .applicationId("authentication-service")
@@ -57,7 +57,7 @@ public abstract class Components {
      * Passing this to {@link LDConfig.Builder#http(ComponentConfigurer)} applies this configuration
      * to all HTTP/HTTPS requests made by the SDK.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .http(
      *              Components.httpConfiguration()
      *                  .connectTimeoutMillis(3000)
@@ -79,7 +79,7 @@ public abstract class Components {
      * Passing this to {@link LDConfig.Builder#events(ComponentConfigurer)} causes the SDK
      * to discard all analytics events and not send them to LaunchDarkly, regardless of any other configuration.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .events(Components.noEvents())
      *         .build();
      * </code></pre>
@@ -100,7 +100,7 @@ public abstract class Components {
      * the connection, call this method to obtain a builder, change its properties with the
      * {@link PollingDataSourceBuilder} methods, and pass it to {@link LDConfig.Builder#dataSource(ComponentConfigurer)}:
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .dataSource(Components.pollingDataSource().initialReconnectDelayMillis(500))
      *         .build();
      * </code></pre>
@@ -122,7 +122,7 @@ public abstract class Components {
      * customize this behavior, call this method to obtain a builder, change its properties
      * with the {@link EventProcessorBuilder} properties, and pass it to {@link LDConfig.Builder#events(ComponentConfigurer)}:
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .events(Components.sendEvents().capacity(500).flushIntervalMillis(2000))
      *         .build();
      * </code></pre>
@@ -145,7 +145,7 @@ public abstract class Components {
      * Passing this to {@link LDConfig.Builder#serviceEndpoints(com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder)},
      * after setting any desired properties on the builder, applies this configuration to the SDK.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .serviceEndpoints(
      *             Components.serviceEndpoints()
      *                 .relayProxy("http://my-relay-hostname:80")
@@ -168,7 +168,7 @@ public abstract class Components {
      * the connection, call this method to obtain a builder, change its properties with the
      * {@link StreamingDataSourceBuilder} methods, and pass it to {@link LDConfig.Builder#dataSource(ComponentConfigurer)}:
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .dataSource(Components.streamingDataSource().initialReconnectDelayMillis(500))
      *         .build();
      * </code></pre>
@@ -189,7 +189,7 @@ public abstract class Components {
      * after setting any desired hooks on the builder, applies this configuration to the SDK.
      * <pre><code>
      *     List hooks = myCreateHooksFunc();
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .hooks(
      *             Components.hooks()
      *                 .setHooks(hooks)
@@ -208,7 +208,7 @@ public abstract class Components {
      * after setting any desired plugins on the builder, applies this configuration to the SDK.
      * <pre><code>
      *     List plugins = getPluginsFunc();
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *         .plugins(
      *             Components.plugins()
      *                 .setPlugins(plugins)

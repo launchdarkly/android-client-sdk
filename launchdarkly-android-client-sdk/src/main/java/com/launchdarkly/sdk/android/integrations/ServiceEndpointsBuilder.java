@@ -35,7 +35,7 @@ import java.net.URI;
  *
  * <pre><code>
  *     // Example of specifying a Relay Proxy instance
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .serviceEndpoints(
  *             Components.serviceEndpoints()
  *                 .relayProxy("http://my-relay-hostname:80")
@@ -43,7 +43,7 @@ import java.net.URI;
  *         .build();
  *
  *     // Example of specifying a private LaunchDarkly instance
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .serviceEndpoints(
  *             Components.serviceEndpoints()
  *                 .streaming("https://stream.mycompany.launchdarkly.com")
@@ -79,7 +79,7 @@ public abstract class ServiceEndpointsBuilder {
      * (see {@link ServiceEndpointsBuilder}). If you are using the LaunchDarkly Relay Proxy,
      * call {@link #relayProxy(URI)} instead.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *       .serviceEndpoints(
      *           Components.serviceEndpoints()
      *               .streaming("https://stream.mycompany.launchdarkly.com")
@@ -113,7 +113,7 @@ public abstract class ServiceEndpointsBuilder {
      * (see {@link ServiceEndpointsBuilder}). If you are using the LaunchDarkly Relay Proxy,
      * call {@link #relayProxy(URI)} instead.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *       .serviceEndpoints(
      *           Components.serviceEndpoints()
      *               .streaming("https://stream.mycompany.launchdarkly.com")
@@ -146,7 +146,7 @@ public abstract class ServiceEndpointsBuilder {
      * When using the LaunchDarkly Relay Proxy, the SDK only needs to know the single base URI
      * of the Relay Proxy, which will provide all the proxied service endpoints.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *       .serviceEndpoints(
      *           Components.serviceEndpoints()
      *               .relayProxy("http://my-relay-hostname:8080")
@@ -180,7 +180,7 @@ public abstract class ServiceEndpointsBuilder {
      * (see {@link ServiceEndpointsBuilder}). If you are using the LaunchDarkly Relay Proxy,
      * call {@link #relayProxy(URI)} instead.
      * <pre><code>
-     *     LDConfig config = new LDConfig.Builder()
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *       .serviceEndpoints(
      *           Components.serviceEndpoints()
      *               .streaming("https://stream.mycompany.launchdarkly.com")
