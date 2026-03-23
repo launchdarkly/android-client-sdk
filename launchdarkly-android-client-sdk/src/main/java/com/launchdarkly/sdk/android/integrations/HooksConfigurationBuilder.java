@@ -15,7 +15,7 @@ import java.util.List;
  *
  * <pre><code>
  *     List hooks = createSomeHooks();
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .hooks(
  *             Components.hooks()
  *                 .setHooks(hooks)

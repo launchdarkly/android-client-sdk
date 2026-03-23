@@ -19,7 +19,7 @@ import com.launchdarkly.sdk.android.subsystems.ApplicationInfo;
  * {@link Components#applicationInfo()}, change its properties with the methods of this class,
  * and pass it to {@link com.launchdarkly.sdk.android.LDConfig.Builder#applicationInfo(ApplicationInfoBuilder)}:
  * <pre><code>
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .applicationInfo(
  *             Components.applicationInfo()
  *                 .applicationId("authentication-service")

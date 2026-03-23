@@ -189,7 +189,7 @@ public class LDConfig {
      * A <a href="http://en.wikipedia.org/wiki/Builder_pattern">builder</a> that helps construct
      * {@link LDConfig} objects. Builder calls can be chained, enabling the following pattern:
      * <pre>
-     * LDConfig config = new LDConfig.Builder()
+     * LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
      *          .mobileKey("mobile-key")
      *          .evaluationReasons(true)
      *          .build();
@@ -315,7 +315,7 @@ public class LDConfig {
          * This object is a configuration builder obtained from {@link Components#serviceEndpoints()},
          * which has methods for setting each external endpoint to a custom URI.
          * <pre><code>
-         *     LDConfig config = new LDConfig.Builder().mobileKey("key")
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled).mobileKey("key")
          *         .serviceEndpoints(
          *             Components.serviceEndpoints().relayProxy("http://my-relay-proxy-host")
          *         );
@@ -359,7 +359,7 @@ public class LDConfig {
          * and completely disable all data sources.
          * <pre><code>
          *     // Setting custom options when using streaming mode
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .dataSource(
          *             Components.streamingDataSource()
          *                 .initialReconnectDelayMillis(100)
@@ -367,7 +367,7 @@ public class LDConfig {
          *         .build();
          *
          *     // Using polling mode instead of streaming, and setting custom options for polling
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .dataSource(
          *             Components.pollingDataSource()
          *                 .pollingIntervalMillis(60_000)
@@ -398,12 +398,12 @@ public class LDConfig {
          * and completely disable network requests.
          * <pre><code>
          *     // Setting custom event processing options
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .events(Components.sendEvents().capacity(100))
          *         .build();
          *
          *     // Disabling events
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .events(Components.noEvents())
          *         .build();
          * </code></pre>
@@ -458,7 +458,7 @@ public class LDConfig {
          * obtained from {@link Components#httpConfiguration()}, and has methods for setting individual
          * HTTP-related properties.
          * <pre><code>
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .http(Components.httpConfiguration().connectTimeoutMillis(5000))
          *         .build();
          * </code></pre>
@@ -639,7 +639,7 @@ public class LDConfig {
          * {@link LDLogLevel#INFO}, meaning that {@code INFO}, {@code WARN}, and {@code ERROR} levels
          * are enabled, but {@code DEBUG} is disabled. To enable {@code DEBUG} level as well:
          * <pre><code>
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .logAdapter(LDAndroidLogging.adapter())
          *         .level(LDLogLevel.DEBUG)
          *         .build();
@@ -648,7 +648,7 @@ public class LDConfig {
          * Or, to raise the logging threshold so that only WARN and ERROR levels are enabled, and
          * DEBUG and INFO are disabled:
          * <pre><code>
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .logAdapter(LDAndroidLogging.adapter())
          *         .level(LDLogLevel.WARN)
          *         .build();
