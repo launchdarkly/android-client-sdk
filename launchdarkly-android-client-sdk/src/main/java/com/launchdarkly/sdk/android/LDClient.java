@@ -249,9 +249,16 @@ public class LDClient implements LDClientInterface, Closeable {
         }
 
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
-        Callback<Void> completeWhenCounterZero = new Callback<Void>() {
+        class CompleteWhenCounterZero implements Callback<Void> {
+            final private HookRunner.AfterIdentifyMethod afterIdentify;
+
+            CompleteWhenCounterZero(HookRunner.AfterIdentifyMethod afterIdentify) {
+                this.afterIdentify = afterIdentify;
+            }
+
             @Override
             public void onSuccess(Void result) {
+                afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED));
                 if (initCounter.decrementAndGet() == 0) {
                     resultFuture.set(primaryClient);
                 }
@@ -259,13 +266,15 @@ public class LDClient implements LDClientInterface, Closeable {
 
             @Override
             public void onError(Throwable e) {
+                afterIdentify.invoke(new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.ERROR));
                 resultFuture.setException(e);
             }
         };
 
         // Start up all instances
         for (final LDClient instance : instances.values()) {
-            if (instance.connectivityManager.startUp(completeWhenCounterZero)) {
+            HookRunner.AfterIdentifyMethod afterIdentify = instance.hookRunner.identify(modifiedContext, null);
+            if (instance.connectivityManager.startUp(new CompleteWhenCounterZero(afterIdentify))) {
                 instance.eventProcessor.recordIdentifyEvent(modifiedContext);
             }
         }
