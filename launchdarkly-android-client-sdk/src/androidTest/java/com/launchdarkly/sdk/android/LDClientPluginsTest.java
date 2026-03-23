@@ -122,6 +122,59 @@ public class LDClientPluginsTest {
         }
     }
 
+    @Test
+    public void identifyHooksRunForEachEnvironment() throws Exception {
+        MockHook testHook = new MockHook();
+        MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook));
+
+        LDConfig config = new LDConfig.Builder(LDConfig.Builder.AutoEnvAttributes.Disabled)
+                .mobileKey(mobileKey)
+                .secondaryMobileKeys(Map.of("secondaryEnvironment", secondaryMobileKey))
+                .plugins(Components.plugins().setPlugins(Collections.singletonList(testPlugin)))
+                .offline(true)
+                .events(Components.noEvents())
+                .logAdapter(logging.logAdapter)
+                .build();
+
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 10)) {
+            IdentifySeriesContext initCtx = new IdentifySeriesContext(ldContext, null);
+            IdentifySeriesResult completedResult = new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED);
+
+            // After init: implicit identify fires once per instance (primary + secondary)
+            assertEquals(2, testHook.beforeIdentifyCalls.size());
+            assertEquals(initCtx, testHook.beforeIdentifyCalls.get(0).get("seriesContext"));
+            assertEquals(initCtx, testHook.beforeIdentifyCalls.get(1).get("seriesContext"));
+            assertEquals(2, testHook.afterIdentifyCalls.size());
+            assertEquals(initCtx, testHook.afterIdentifyCalls.get(0).get("seriesContext"));
+            assertEquals(completedResult, testHook.afterIdentifyCalls.get(0).get("result"));
+            assertEquals(initCtx, testHook.afterIdentifyCalls.get(1).get("seriesContext"));
+            assertEquals(completedResult, testHook.afterIdentifyCalls.get(1).get("result"));
+
+            LDContext newContext = LDContext.create("newUserKey");
+            IdentifySeriesContext newCtx = new IdentifySeriesContext(newContext, null);
+            ldClient.identify(newContext).get();
+
+            // After identifying on the primary client: +1
+            assertEquals(3, testHook.beforeIdentifyCalls.size());
+            assertEquals(newCtx, testHook.beforeIdentifyCalls.get(2).get("seriesContext"));
+            assertEquals(3, testHook.afterIdentifyCalls.size());
+            assertEquals(newCtx, testHook.afterIdentifyCalls.get(2).get("seriesContext"));
+            assertEquals(completedResult, testHook.afterIdentifyCalls.get(2).get("result"));
+
+            LDClient.getForMobileKey("secondaryEnvironment").identify(newContext).get();
+
+            // After identifying on the secondary client: +1
+            assertEquals(4, testHook.beforeIdentifyCalls.size());
+            assertEquals(newCtx, testHook.beforeIdentifyCalls.get(3).get("seriesContext"));
+            assertEquals(4, testHook.afterIdentifyCalls.size());
+            assertEquals(newCtx, testHook.afterIdentifyCalls.get(3).get("seriesContext"));
+            assertEquals(completedResult, testHook.afterIdentifyCalls.get(3).get("result"));
+
+            logging.assertNoWarningsLogged();
+            logging.assertNoErrorsLogged();
+        }
+    }
+
     private LDConfig makeOfflineConfig(List<Plugin> plugins) {
         LDConfig.Builder builder = new LDConfig.Builder(LDConfig.Builder.AutoEnvAttributes.Disabled)
                 .mobileKey(mobileKey)
