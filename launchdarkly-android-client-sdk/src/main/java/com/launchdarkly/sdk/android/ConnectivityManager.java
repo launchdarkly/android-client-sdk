@@ -16,6 +16,8 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -233,6 +235,11 @@ class ConnectivityManager {
         if (useFDv2ModeResolution) {
             // FDv2 mode resolution already accounts for offline/background states via
             // the ModeResolutionTable, so we always rebuild when the mode changed.
+            // Note: unlike FDv1's forceOffline/noNetwork branches above, initialized=true
+            // is not set here eagerly — it is set in the dataSource.start() callback below.
+            // For OFFLINE mode this creates a brief async gap (one executor task) before
+            // isInitialized() returns true, but the OFFLINE data source fires its callback
+            // nearly instantaneously since it has no initializers or synchronizers.
             shouldStopExistingDataSource = mustReinitializeDataSource;
             shouldStartDataSourceIfStopped = true;
         } else if (forceOffline) {
@@ -457,6 +464,12 @@ class ConnectivityManager {
         if (oldDataSource != null) {
             oldDataSource.stop(LDUtil.noOpCallback());
         }
+        if (dataSourceFactory instanceof Closeable) {
+            try {
+                ((Closeable) dataSourceFactory).close();
+            } catch (IOException ignored) {
+            }
+        }
         platformState.removeForegroundChangeListener(foregroundListener);
         platformState.removeConnectivityChangeListener(connectivityChangeListener);
     }
@@ -502,7 +515,8 @@ class ConnectivityManager {
         }
         ModeState state = new ModeState(
                 platformState.isForeground(),
-                platformState.isNetworkAvailable()
+                platformState.isNetworkAvailable(),
+                backgroundUpdatingDisabled
         );
         return ModeResolutionTable.MOBILE.resolve(state);
     }

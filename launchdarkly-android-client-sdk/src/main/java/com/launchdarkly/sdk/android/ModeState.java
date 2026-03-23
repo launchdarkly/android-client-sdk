@@ -15,10 +15,12 @@ final class ModeState {
 
     private final boolean foreground;
     private final boolean networkAvailable;
+    private final boolean backgroundUpdatingDisabled;
 
-    ModeState(boolean foreground, boolean networkAvailable) {
+    ModeState(boolean foreground, boolean networkAvailable, boolean backgroundUpdatingDisabled) {
         this.foreground = foreground;
         this.networkAvailable = networkAvailable;
+        this.backgroundUpdatingDisabled = backgroundUpdatingDisabled;
     }
 
     boolean isForeground() {
@@ -27,5 +29,9 @@ final class ModeState {
 
     boolean isNetworkAvailable() {
         return networkAvailable;
+    }
+
+    boolean isBackgroundUpdatingDisabled() {
+        return backgroundUpdatingDisabled;
     }
 }

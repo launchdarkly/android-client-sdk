@@ -1,8 +1,10 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -22,6 +24,7 @@ import org.junit.Test;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class FDv2DataSourceBuilderTest {
 
@@ -170,6 +173,55 @@ public class FDv2DataSourceBuilderTest {
         // Identity check: same ModeDefinition object shared across modes enables 5.3.8 equivalence
         assertTrue(builder.getModeDefinition(ConnectionMode.STREAMING)
                 == builder.getModeDefinition(ConnectionMode.POLLING));
+    }
+
+    @Test
+    public void close_shutsDownSharedExecutor() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        // build() lazily creates the sharedExecutor
+        builder.build(makeClientContext());
+
+        // Access the executor via reflection to verify shutdown
+        ScheduledExecutorService executor = getSharedExecutor(builder);
+        assertNotNull(executor);
+        assertFalse(executor.isShutdown());
+
+        builder.close();
+        assertTrue(executor.isShutdown());
+    }
+
+    @Test
+    public void build_reusesSharedExecutorAcrossRebuilds() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+        ScheduledExecutorService first = getSharedExecutor(builder);
+
+        builder.build(makeClientContext());
+        ScheduledExecutorService second = getSharedExecutor(builder);
+
+        assertSame(first, second);
+        assertFalse(first.isShutdown());
+        builder.close();
+    }
+
+    @Test
+    public void close_isIdempotent() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        builder.close();
+        // second close should not throw
+        builder.close();
+    }
+
+    private static ScheduledExecutorService getSharedExecutor(FDv2DataSourceBuilder builder) {
+        try {
+            java.lang.reflect.Field f = FDv2DataSourceBuilder.class.getDeclaredField("sharedExecutor");
+            f.setAccessible(true);
+            return (ScheduledExecutorService) f.get(builder);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test

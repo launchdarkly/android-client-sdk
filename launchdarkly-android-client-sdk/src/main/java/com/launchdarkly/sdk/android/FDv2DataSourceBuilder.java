@@ -14,6 +14,7 @@ import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
+import java.io.Closeable;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,9 +33,9 @@ import java.util.concurrent.ScheduledExecutorService;
  * <p>
  * Package-private — not part of the public SDK API.
  */
-class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
+class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeable {
 
-    private final Map<ConnectionMode, ModeDefinition> modeTable;
+    private Map<ConnectionMode, ModeDefinition> modeTable;
     private final ConnectionMode startingMode;
 
     private ConnectionMode activeMode;
@@ -42,103 +43,50 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
     private ScheduledExecutorService sharedExecutor;
 
     FDv2DataSourceBuilder() {
-        this(makeDefaultModeTable(), ConnectionMode.STREAMING);
+        this.modeTable = null; // built lazily in build() so lambdas can capture sharedExecutor
+        this.startingMode = ConnectionMode.STREAMING;
     }
 
-    private static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
+    private Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
         ComponentConfigurer<Initializer> pollingInitializer = ctx -> {
-            ClientContextImpl impl = ClientContextImpl.get(ctx);
-            TransactionalDataStore store = impl.getTransactionalDataStore();
-            SelectorSource selectorSource = store != null
-                    ? new SelectorSourceFacade(store)
-                    : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
-            URI pollingBase = StandardEndpoints.selectBaseUri(
-                    ctx.getServiceEndpoints().getPollingBaseUri(),
-                    StandardEndpoints.DEFAULT_POLLING_BASE_URI,
-                    "polling", ctx.getBaseLogger());
-            HttpProperties httpProps = LDUtil.makeHttpProperties(ctx);
-            FDv2Requestor requestor = new DefaultFDv2Requestor(
-                    ctx.getEvaluationContext(), pollingBase,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                    httpProps, ctx.getHttp().isUseReport(),
-                    ctx.isEvaluationReasons(), null, ctx.getBaseLogger());
-            return new FDv2PollingInitializer(requestor, selectorSource,
-                    Executors.newSingleThreadExecutor(), ctx.getBaseLogger());
+            DataSourceSetup s = new DataSourceSetup(ctx);
+            FDv2Requestor requestor = makePollingRequestor(ctx, s.httpProps);
+            return new FDv2PollingInitializer(requestor, s.selectorSource,
+                    sharedExecutor, ctx.getBaseLogger());
         };
 
         ComponentConfigurer<Synchronizer> pollingSynchronizer = ctx -> {
-            ClientContextImpl impl = ClientContextImpl.get(ctx);
-            TransactionalDataStore store = impl.getTransactionalDataStore();
-            SelectorSource selectorSource = store != null
-                    ? new SelectorSourceFacade(store)
-                    : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
-            URI pollingBase = StandardEndpoints.selectBaseUri(
-                    ctx.getServiceEndpoints().getPollingBaseUri(),
-                    StandardEndpoints.DEFAULT_POLLING_BASE_URI,
-                    "polling", ctx.getBaseLogger());
-            HttpProperties httpProps = LDUtil.makeHttpProperties(ctx);
-            FDv2Requestor requestor = new DefaultFDv2Requestor(
-                    ctx.getEvaluationContext(), pollingBase,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                    httpProps, ctx.getHttp().isUseReport(),
-                    ctx.isEvaluationReasons(), null, ctx.getBaseLogger());
-            ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
-            return new FDv2PollingSynchronizer(requestor, selectorSource, exec,
+            DataSourceSetup s = new DataSourceSetup(ctx);
+            FDv2Requestor requestor = makePollingRequestor(ctx, s.httpProps);
+            return new FDv2PollingSynchronizer(requestor, s.selectorSource,
+                    sharedExecutor,
                     0, PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS, ctx.getBaseLogger());
         };
 
         ComponentConfigurer<Synchronizer> streamingSynchronizer = ctx -> {
-            ClientContextImpl impl = ClientContextImpl.get(ctx);
-            TransactionalDataStore store = impl.getTransactionalDataStore();
-            SelectorSource selectorSource = store != null
-                    ? new SelectorSourceFacade(store)
-                    : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
+            DataSourceSetup s = new DataSourceSetup(ctx);
+            // The streaming synchronizer uses a polling requestor for its internal
+            // polling fallback (e.g. when the stream cannot be established).
+            FDv2Requestor pollingRequestor = makePollingRequestor(ctx, s.httpProps);
             URI streamBase = StandardEndpoints.selectBaseUri(
                     ctx.getServiceEndpoints().getStreamingBaseUri(),
                     StandardEndpoints.DEFAULT_STREAMING_BASE_URI,
                     "streaming", ctx.getBaseLogger());
-            URI pollingBase = StandardEndpoints.selectBaseUri(
-                    ctx.getServiceEndpoints().getPollingBaseUri(),
-                    StandardEndpoints.DEFAULT_POLLING_BASE_URI,
-                    "polling", ctx.getBaseLogger());
-            HttpProperties httpProps = LDUtil.makeHttpProperties(ctx);
-            FDv2Requestor requestor = new DefaultFDv2Requestor(
-                    ctx.getEvaluationContext(), pollingBase,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                    httpProps, ctx.getHttp().isUseReport(),
-                    ctx.isEvaluationReasons(), null, ctx.getBaseLogger());
             return new FDv2StreamingSynchronizer(
-                    ctx.getEvaluationContext(), selectorSource, streamBase,
+                    ctx.getEvaluationContext(), s.selectorSource, streamBase,
                     StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
-                    requestor,
+                    pollingRequestor,
                     StreamingDataSourceBuilder.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS,
                     ctx.isEvaluationReasons(), ctx.getHttp().isUseReport(),
-                    httpProps, Executors.newSingleThreadExecutor(),
+                    s.httpProps, sharedExecutor,
                     ctx.getBaseLogger(), null);
         };
 
         ComponentConfigurer<Synchronizer> backgroundPollingSynchronizer = ctx -> {
-            ClientContextImpl impl = ClientContextImpl.get(ctx);
-            TransactionalDataStore store = impl.getTransactionalDataStore();
-            SelectorSource selectorSource = store != null
-                    ? new SelectorSourceFacade(store)
-                    : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
-            URI pollingBase = StandardEndpoints.selectBaseUri(
-                    ctx.getServiceEndpoints().getPollingBaseUri(),
-                    StandardEndpoints.DEFAULT_POLLING_BASE_URI,
-                    "polling", ctx.getBaseLogger());
-            HttpProperties httpProps = LDUtil.makeHttpProperties(ctx);
-            FDv2Requestor requestor = new DefaultFDv2Requestor(
-                    ctx.getEvaluationContext(), pollingBase,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
-                    StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                    httpProps, ctx.getHttp().isUseReport(),
-                    ctx.isEvaluationReasons(), null, ctx.getBaseLogger());
-            ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
-            return new FDv2PollingSynchronizer(requestor, selectorSource, exec,
+            DataSourceSetup s = new DataSourceSetup(ctx);
+            FDv2Requestor requestor = makePollingRequestor(ctx, s.httpProps);
+            return new FDv2PollingSynchronizer(requestor, s.selectorSource,
+                    sharedExecutor,
                     0, LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, ctx.getBaseLogger());
         };
 
@@ -207,6 +155,18 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
 
     @Override
     public DataSource build(ClientContext clientContext) {
+        if (sharedExecutor == null) {
+            // Pool size 4: supports the FDv2DataSource main loop (1), an active synchronizer
+            // such as the streaming event loop (1), FDv2DataSource condition timers for
+            // fallback/recovery (up to 2 short-lived scheduled tasks). Only one mode is active
+            // at a time (teardown/rebuild), so this pool serves all components.
+            sharedExecutor = Executors.newScheduledThreadPool(4);
+        }
+
+        if (modeTable == null) {
+            modeTable = Collections.unmodifiableMap(makeDefaultModeTable());
+        }
+
         ConnectionMode mode = activeMode != null ? activeMode : startingMode;
 
         ModeDefinition modeDef = modeTable.get(mode);
@@ -221,10 +181,6 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
         if (!(baseSink instanceof DataSourceUpdateSinkV2)) {
             throw new IllegalStateException(
                     "FDv2DataSource requires a DataSourceUpdateSinkV2 implementation");
-        }
-
-        if (sharedExecutor == null) {
-            sharedExecutor = Executors.newScheduledThreadPool(2);
         }
 
         List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories =
@@ -243,6 +199,14 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
         );
     }
 
+    @Override
+    public void close() {
+        if (sharedExecutor != null) {
+            sharedExecutor.shutdownNow();
+            sharedExecutor = null;
+        }
+    }
+
     private static ResolvedModeDefinition resolve(
             ModeDefinition def, ClientContext clientContext
     ) {
@@ -255,5 +219,44 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource> {
             syncFactories.add(() -> configurer.build(clientContext));
         }
         return new ResolvedModeDefinition(initFactories, syncFactories);
+    }
+
+    /**
+     * Holds the shared infrastructure needed by all FDv2 data source components:
+     * a {@link SelectorSource} backed by the {@link TransactionalDataStore} (or an empty
+     * fallback if none is configured), and the {@link HttpProperties} for the current
+     * client configuration. Polling-specific setup (the {@link FDv2Requestor}) is built
+     * separately via {@link #makePollingRequestor}.
+     */
+    private static final class DataSourceSetup {
+        final SelectorSource selectorSource;
+        final HttpProperties httpProps;
+
+        DataSourceSetup(ClientContext ctx) {
+            TransactionalDataStore store = ClientContextImpl.get(ctx).getTransactionalDataStore();
+            this.selectorSource = store != null
+                    ? new SelectorSourceFacade(store)
+                    : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
+            this.httpProps = LDUtil.makeHttpProperties(ctx);
+        }
+    }
+
+    /**
+     * Builds a {@link DefaultFDv2Requestor} configured for polling endpoints. Used
+     * directly by polling components and as the fallback requestor for the streaming
+     * synchronizer (which needs it for internal polling fallback when the stream cannot
+     * be established).
+     */
+    private static FDv2Requestor makePollingRequestor(ClientContext ctx, HttpProperties httpProps) {
+        URI pollingBase = StandardEndpoints.selectBaseUri(
+                ctx.getServiceEndpoints().getPollingBaseUri(),
+                StandardEndpoints.DEFAULT_POLLING_BASE_URI,
+                "polling", ctx.getBaseLogger());
+        return new DefaultFDv2Requestor(
+                ctx.getEvaluationContext(), pollingBase,
+                StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
+                StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
+                httpProps, ctx.getHttp().isUseReport(),
+                ctx.isEvaluationReasons(), null, ctx.getBaseLogger());
     }
 }

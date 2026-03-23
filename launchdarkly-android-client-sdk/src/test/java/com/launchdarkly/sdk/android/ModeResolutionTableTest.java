@@ -14,26 +14,38 @@ public class ModeResolutionTableTest {
 
     @Test
     public void mobile_foregroundWithNetwork_resolvesToStreaming() {
-        ModeState state = new ModeState(true, true);
+        ModeState state = new ModeState(true, true, false);
         assertSame(ConnectionMode.STREAMING, ModeResolutionTable.MOBILE.resolve(state));
     }
 
     @Test
     public void mobile_backgroundWithNetwork_resolvesToBackground() {
-        ModeState state = new ModeState(false, true);
+        ModeState state = new ModeState(false, true, false);
         assertSame(ConnectionMode.BACKGROUND, ModeResolutionTable.MOBILE.resolve(state));
     }
 
     @Test
+    public void mobile_backgroundWithNetworkAndBackgroundDisabled_resolvesToOffline() {
+        ModeState state = new ModeState(false, true, true);
+        assertSame(ConnectionMode.OFFLINE, ModeResolutionTable.MOBILE.resolve(state));
+    }
+
+    @Test
     public void mobile_foregroundWithoutNetwork_resolvesToOffline() {
-        ModeState state = new ModeState(true, false);
+        ModeState state = new ModeState(true, false, false);
         assertSame(ConnectionMode.OFFLINE, ModeResolutionTable.MOBILE.resolve(state));
     }
 
     @Test
     public void mobile_backgroundWithoutNetwork_resolvesToOffline() {
-        ModeState state = new ModeState(false, false);
+        ModeState state = new ModeState(false, false, false);
         assertSame(ConnectionMode.OFFLINE, ModeResolutionTable.MOBILE.resolve(state));
+    }
+
+    @Test
+    public void mobile_foregroundWithBackgroundDisabled_resolvesToStreaming() {
+        ModeState state = new ModeState(true, true, true);
+        assertSame(ConnectionMode.STREAMING, ModeResolutionTable.MOBILE.resolve(state));
     }
 
     // ==== Custom table tests ====
@@ -44,13 +56,13 @@ public class ModeResolutionTableTest {
                 new ModeResolutionEntry(state -> true, ConnectionMode.POLLING),
                 new ModeResolutionEntry(state -> true, ConnectionMode.STREAMING)
         ));
-        assertSame(ConnectionMode.POLLING, table.resolve(new ModeState(true, true)));
+        assertSame(ConnectionMode.POLLING, table.resolve(new ModeState(true, true, false)));
     }
 
     @Test(expected = IllegalStateException.class)
     public void emptyTable_throws() {
         ModeResolutionTable table = new ModeResolutionTable(Collections.<ModeResolutionEntry>emptyList());
-        table.resolve(new ModeState(true, true));
+        table.resolve(new ModeState(true, true, false));
     }
 
     @Test(expected = IllegalStateException.class)
@@ -58,16 +70,17 @@ public class ModeResolutionTableTest {
         ModeResolutionTable table = new ModeResolutionTable(Collections.singletonList(
                 new ModeResolutionEntry(state -> false, ConnectionMode.STREAMING)
         ));
-        table.resolve(new ModeState(true, true));
+        table.resolve(new ModeState(true, true, false));
     }
 
     // ==== ModeState tests ====
 
     @Test
     public void modeState_getters() {
-        ModeState state = new ModeState(true, false);
+        ModeState state = new ModeState(true, false, true);
         assertEquals(true, state.isForeground());
         assertEquals(false, state.isNetworkAvailable());
+        assertEquals(true, state.isBackgroundUpdatingDisabled());
     }
 
     // ==== ModeResolutionEntry tests ====

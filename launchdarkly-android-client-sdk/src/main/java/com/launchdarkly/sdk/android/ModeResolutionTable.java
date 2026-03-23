@@ -13,6 +13,7 @@ import java.util.List;
  * The {@link #MOBILE} constant defines the Android default resolution table:
  * <ol>
  *   <li>No network → {@link ConnectionMode#OFFLINE}</li>
+ *   <li>Background + background updating disabled → {@link ConnectionMode#OFFLINE}</li>
  *   <li>Background → {@link ConnectionMode#BACKGROUND}</li>
  *   <li>Foreground → {@link ConnectionMode#STREAMING}</li>
  * </ol>
@@ -27,6 +28,9 @@ final class ModeResolutionTable {
     static final ModeResolutionTable MOBILE = new ModeResolutionTable(Arrays.asList(
             new ModeResolutionEntry(
                     state -> !state.isNetworkAvailable(),
+                    ConnectionMode.OFFLINE),
+            new ModeResolutionEntry(
+                    state -> !state.isForeground() && state.isBackgroundUpdatingDisabled(),
                     ConnectionMode.OFFLINE),
             new ModeResolutionEntry(
                     state -> !state.isForeground(),
