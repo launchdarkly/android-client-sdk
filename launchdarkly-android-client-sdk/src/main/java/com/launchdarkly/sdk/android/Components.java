@@ -234,6 +234,9 @@ public abstract class Components {
      * streaming with polling fallback in the foreground and low-frequency polling in the
      * background.
      * <p>
+     * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+     * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
+     * <p>
      * <b>Example — opting in to use the default data system:</b>
      * <pre><code>
      *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
@@ -273,8 +276,22 @@ public abstract class Components {
      *         .mobileKey("my-key")
      *         .dataSystem(
      *             Components.dataSystem()
-     *                 .automaticModeSwitching(false)
+     *                 .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled())
      *                 .foregroundConnectionMode(ConnectionMode.STREAMING))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — disable lifecycle switching but keep network switching:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .automaticModeSwitching(
+     *                     DataSystemComponents.automaticModeSwitching()
+     *                         .lifecycle(false)
+     *                         .network(true)
+     *                         .build()))
      *         .build();
      * </code></pre>
      * <p>

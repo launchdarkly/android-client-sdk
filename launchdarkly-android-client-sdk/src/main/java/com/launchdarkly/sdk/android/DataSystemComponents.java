@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android;
 
+import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
 import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
 import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingInitializerBuilder;
@@ -20,7 +21,10 @@ import java.util.concurrent.ScheduledExecutorService;
  * Factory methods for FDv2 data source components used with the
  * {@link com.launchdarkly.sdk.android.integrations.DataSystemBuilder}.
  * <p>
- * Each factory method returns a builder that implements
+ * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+ * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
+ * <p>
+ * Most factory methods return a builder that implements
  * {@link com.launchdarkly.sdk.android.subsystems.ComponentConfigurer} for the
  * appropriate type ({@link Initializer} or {@link Synchronizer}). You may
  * configure properties on the builder and then pass it to
@@ -152,6 +156,32 @@ public abstract class DataSystemComponents {
      */
     public static StreamingSynchronizerBuilder streamingSynchronizer() {
         return new StreamingSynchronizerBuilderImpl();
+    }
+
+    /**
+     * Returns a builder for configuring automatic connection mode switching in response to
+     * platform events (foreground/background and network availability).
+     * <p>
+     * Pass the result of {@link AutomaticModeSwitchingConfig.Builder#build()} to
+     * {@link DataSystemBuilder#automaticModeSwitching(AutomaticModeSwitchingConfig)}.
+     * <pre><code>
+     *     Components.dataSystem()
+     *         .automaticModeSwitching(
+     *             DataSystemComponents.automaticModeSwitching()
+     *                 .lifecycle(false)
+     *                 .network(true)
+     *                 .build())
+     * </code></pre>
+     * <p>
+     * For all-on or all-off behavior, you may use {@link AutomaticModeSwitchingConfig#enabled()}
+     * or {@link AutomaticModeSwitchingConfig#disabled()} instead of this builder.
+     *
+     * @return a builder for automatic mode switching (both lifecycle and network enabled by default)
+     * @see AutomaticModeSwitchingConfig
+     * @see DataSystemBuilder#automaticModeSwitching(AutomaticModeSwitchingConfig)
+     */
+    public static AutomaticModeSwitchingConfig.Builder automaticModeSwitching() {
+        return new AutomaticModeSwitchingConfig.Builder();
     }
 
     /**

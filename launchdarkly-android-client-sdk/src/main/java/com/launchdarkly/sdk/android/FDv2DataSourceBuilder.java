@@ -33,21 +33,20 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private Map<ConnectionMode, ModeDefinition> modeTable;
     private final ConnectionMode startingMode;
     private final ModeResolutionTable resolutionTable;
-    private final boolean automaticModeSwitching;
 
     private ConnectionMode activeMode;
     private boolean includeInitializers = true; // false during mode switches to skip initializers (CONNMODE 2.0.1)
     private ScheduledExecutorService sharedExecutor;
 
     FDv2DataSourceBuilder() {
-        this(makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE, true);
+        this(makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE);
     }
 
     FDv2DataSourceBuilder(
             @NonNull Map<ConnectionMode, ModeDefinition> modeTable,
             @NonNull ConnectionMode startingMode
     ) {
-        this(modeTable, startingMode, ModeResolutionTable.MOBILE, true);
+        this(modeTable, startingMode, ModeResolutionTable.MOBILE);
     }
 
     FDv2DataSourceBuilder(
@@ -55,19 +54,9 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
             @NonNull ConnectionMode startingMode,
             @NonNull ModeResolutionTable resolutionTable
     ) {
-        this(modeTable, startingMode, resolutionTable, true);
-    }
-
-    FDv2DataSourceBuilder(
-            @NonNull Map<ConnectionMode, ModeDefinition> modeTable,
-            @NonNull ConnectionMode startingMode,
-            @NonNull ModeResolutionTable resolutionTable,
-            boolean automaticModeSwitching
-    ) {
         this.modeTable = modeTable;
         this.startingMode = startingMode;
         this.resolutionTable = resolutionTable;
-        this.automaticModeSwitching = automaticModeSwitching;
     }
 
     /**
@@ -78,15 +67,6 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     @NonNull
     ModeResolutionTable getResolutionTable() {
         return resolutionTable;
-    }
-
-    /**
-     * Returns whether automatic mode switching is enabled.
-     *
-     * @return true if automatic mode switching is enabled
-     */
-    boolean isAutomaticModeSwitching() {
-        return automaticModeSwitching;
     }
 
     @NonNull

@@ -17,6 +17,9 @@ import java.util.List;
  * Configures the data pipeline (initializers and synchronizers) for a single
  * {@link ConnectionMode}.
  * <p>
+ * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+ * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
+ * <p>
  * <b>Initializers</b> are one-shot data sources that run in order at startup to
  * obtain an initial set of feature flag data. The SDK tries each initializer in
  * sequence until one succeeds.
