@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
@@ -18,6 +19,9 @@ import java.util.Map;
 /**
  * Configures the SDK's data system: how and when the SDK acquires feature flag
  * data across different platform states (foreground, background, offline, etc.).
+ * <p>
+ * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+ * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
  * <p>
  * The data system is organized around {@link ConnectionMode connection modes}. Each
  * mode has a data pipeline consisting of <b>initializers</b> (one-shot data loads)
@@ -56,13 +60,23 @@ import java.util.Map;
  * <b>Disable automatic mode switching:</b>
  * <pre><code>
  *     Components.dataSystem()
- *         .automaticModeSwitching(false)
+ *         .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled())
  *         .foregroundConnectionMode(ConnectionMode.STREAMING)
  * </code></pre>
  * When automatic mode switching is disabled, the SDK stays in the
  * {@link #foregroundConnectionMode foreground connection mode} and does not react to
  * platform state changes (foreground/background, network availability). This can be
  * useful when you want full control over which mode the SDK uses.
+ * <p>
+ * <b>Granular automatic mode switching — disable switching on lifecycle change, keep switching on network availability change:</b>
+ * <pre><code>
+ *     Components.dataSystem()
+ *         .automaticModeSwitching(
+ *             DataSystemComponents.automaticModeSwitching()
+ *                 .lifecycle(false)
+ *                 .network(true)
+ *                 .build())
+ * </code></pre>
  * <p>
  * Obtain an instance from {@link com.launchdarkly.sdk.android.Components#dataSystem()}.
  *
@@ -74,7 +88,7 @@ public class DataSystemBuilder {
 
     private ConnectionMode foregroundConnectionMode = ConnectionMode.STREAMING;
     private ConnectionMode backgroundConnectionMode = ConnectionMode.BACKGROUND;
-    private boolean automaticModeSwitching = true;
+    private AutomaticModeSwitchingConfig automaticModeSwitchingConfig = AutomaticModeSwitchingConfig.enabled();
     private final Map<ConnectionMode, ConnectionModeBuilder> connectionModeOverrides = new LinkedHashMap<>();
 
     /**
@@ -109,24 +123,42 @@ public class DataSystemBuilder {
     }
 
     /**
-     * Enables or disables automatic mode switching based on platform state.
+     * Configures automatic mode switching based on platform state.
      * <p>
-     * When enabled (the default), the SDK automatically transitions between connection
-     * modes as the platform state changes (e.g., foreground to background, network loss).
+     * Automatic mode switching controls whether the SDK reacts to application lifecycle
+     * events (foreground/background) and network availability changes by transitioning
+     * between connection modes. Lifecycle and network switching can be controlled
+     * independently via
+     * {@link com.launchdarkly.sdk.android.DataSystemComponents#automaticModeSwitching()}.
      * <p>
-     * When disabled, the SDK stays in the {@link #foregroundConnectionMode foreground connection
-     * mode} for its entire lifecycle and ignores platform state changes. This is useful
-     * when you want explicit control over data acquisition behavior regardless of whether
-     * the app is foregrounded, backgrounded, or experiencing network changes.
+     * The default is {@link AutomaticModeSwitchingConfig#enabled()}, meaning the SDK
+     * reacts to both lifecycle and network events.
+     * <p>
+     * Use {@link AutomaticModeSwitchingConfig#disabled()} to disable all automatic
+     * switching. When disabled, the SDK stays in the
+     * {@link #foregroundConnectionMode foreground connection mode} for its entire
+     * lifecycle.
+     * <p>
+     * Example — disable lifecycle switching but keep network switching:
+     * <pre><code>
+     *     Components.dataSystem()
+     *         .automaticModeSwitching(
+     *             DataSystemComponents.automaticModeSwitching()
+     *                 .lifecycle(false)
+     *                 .network(true)
+     *                 .build())
+     * </code></pre>
      * <p>
      * Note that {@link com.launchdarkly.sdk.android.LDClient#setForceOffline(boolean)}
      * still works independently of this setting.
      *
-     * @param enabled true to enable automatic mode switching (default), false to disable
+     * @param config the automatic mode switching configuration
      * @return this builder
+     * @see AutomaticModeSwitchingConfig
+     * @see com.launchdarkly.sdk.android.DataSystemComponents#automaticModeSwitching()
      */
-    public DataSystemBuilder automaticModeSwitching(boolean enabled) {
-        this.automaticModeSwitching = enabled;
+    public DataSystemBuilder automaticModeSwitching(@NonNull AutomaticModeSwitchingConfig config) {
+        this.automaticModeSwitchingConfig = config;
         return this;
     }
 
@@ -182,12 +214,13 @@ public class DataSystemBuilder {
     }
 
     /**
-     * Returns whether automatic mode switching is enabled.
+     * Returns the automatic mode switching configuration.
      *
-     * @return true if automatic mode switching is enabled
+     * @return the automatic mode switching config
      */
-    public boolean isAutomaticModeSwitching() {
-        return automaticModeSwitching;
+    @NonNull
+    public AutomaticModeSwitchingConfig getAutomaticModeSwitchingConfig() {
+        return automaticModeSwitchingConfig;
     }
 
     /**

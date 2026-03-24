@@ -9,6 +9,7 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
@@ -74,6 +75,7 @@ class ConnectivityManager {
     private volatile boolean initialized = false;
     private final boolean useFDv2ModeResolution;
     private volatile ConnectionMode currentFDv2Mode;
+    private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
 
     // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
     // This has two purposes: 1. to decouple the data source implementation from the details of how
@@ -150,12 +152,27 @@ class ConnectivityManager {
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
         this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();
+        this.autoModeSwitchingConfig = ldConfig.getAutomaticModeSwitchingConfig();
         this.useFDv2ModeResolution = (dataSourceFactory instanceof FDv2DataSourceBuilder);
 
-        connectivityChangeListener = networkAvailable -> handleModeStateChange();
+        connectivityChangeListener = networkAvailable -> {
+            // TODO: discuss refactoring this with aaron
+            if (useFDv2ModeResolution && !autoModeSwitchingConfig.isNetwork()) {
+                updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
+                return;
+            }
+            handleModeStateChange();
+        };
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
-        foregroundListener = foreground -> handleModeStateChange();
+        foregroundListener = foreground -> {
+            // TODO: discuss refactoring this with aaron
+            if (useFDv2ModeResolution && !autoModeSwitchingConfig.isLifecycle()) {
+                updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
+                return;
+            }
+            handleModeStateChange();
+        };
         platformState.addForegroundChangeListener(foregroundListener);
     }
 
@@ -504,6 +521,11 @@ class ConnectivityManager {
                 platformState.isForeground(),
                 platformState.isNetworkAvailable()
         );
+        // TODO: these if checks and casts irk Todd, discuss
+        if (useFDv2ModeResolution) {
+            return ((FDv2DataSourceBuilder) dataSourceFactory).getResolutionTable().resolve(state);
+        }
+        // TODO: this is not reachable practically, so this indicates code smell and necessary refactor
         return ModeResolutionTable.MOBILE.resolve(state);
     }
 

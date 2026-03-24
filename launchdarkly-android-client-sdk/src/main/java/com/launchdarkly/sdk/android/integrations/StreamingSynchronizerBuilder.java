@@ -7,6 +7,9 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 /**
  * Contains methods for configuring the streaming synchronizer.
  * <p>
+ * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+ * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
+ * <p>
  * A streaming synchronizer maintains a persistent connection to LaunchDarkly's
  * Flag Delivery service and receives real-time feature flag updates. It is
  * typically the primary synchronizer for the foreground streaming mode.
