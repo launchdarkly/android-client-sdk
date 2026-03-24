@@ -53,7 +53,7 @@ public abstract class LDTimberLogging {
          * SDK will never create a {@code DebugTree} and the application is responsible for
          * doing so if desired.
          * <pre><code>
-         *     LDConfig config = new LDConfig.Builder()
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .mobileKey("mobile-key")
          *         .logAdapter(LDTimberLogging.adapter().autoPlantDebugTree(false))
          *         .build();

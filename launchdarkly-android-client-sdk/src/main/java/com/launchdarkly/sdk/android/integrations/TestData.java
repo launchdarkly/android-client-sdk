@@ -33,7 +33,7 @@ import androidx.annotation.NonNull;
  *     TestData td = TestData.dataSource();
  *     td.update(testData.flag("flag-key-1").booleanFlag().variation(true));
  *
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .mobileKey("my-mobile-key")
  *         .dataSource(td)
  *         .build();

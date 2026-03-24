@@ -61,11 +61,12 @@ public class LDClientHooksTest {
             IdentifySeriesContext identifySeriesContext = new IdentifySeriesContext(newContext, null);
             IdentifySeriesResult identifySeriesResult = new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED);
 
-            assertEquals(1, testHook.beforeIdentifyCalls.size());
-            assertEquals(identifySeriesContext, testHook.beforeIdentifyCalls.get(0).get("seriesContext"));
-            assertEquals(1, testHook.afterIdentifyCalls.size());
-            assertEquals(identifySeriesContext, testHook.afterIdentifyCalls.get(0).get("seriesContext"));
-            assertEquals(identifySeriesResult, testHook.afterIdentifyCalls.get(0).get("result"));
+            // index 0 is the implicit identify from init; index 1 is the explicit identify call
+            assertEquals(2, testHook.beforeIdentifyCalls.size());
+            assertEquals(identifySeriesContext, testHook.beforeIdentifyCalls.get(1).get("seriesContext"));
+            assertEquals(2, testHook.afterIdentifyCalls.size());
+            assertEquals(identifySeriesContext, testHook.afterIdentifyCalls.get(1).get("seriesContext"));
+            assertEquals(identifySeriesResult, testHook.afterIdentifyCalls.get(1).get("result"));
 
             ldClient.trackMetric("test-event", LDValue.buildObject().put("data", "test").build(), 123.45);
 
@@ -149,11 +150,12 @@ public class LDClientHooksTest {
             IdentifySeriesContext identifySeriesContext = new IdentifySeriesContext(newContext, null);
             IdentifySeriesResult identifySeriesResult = new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED);
 
-            assertEquals(1, testHook.beforeIdentifyCalls.size());
-            assertEquals(identifySeriesContext, testHook.beforeIdentifyCalls.get(0).get("seriesContext"));
-            assertEquals(1, testHook.afterIdentifyCalls.size());
-            assertEquals(identifySeriesContext, testHook.afterIdentifyCalls.get(0).get("seriesContext"));
-            assertEquals(identifySeriesResult, testHook.afterIdentifyCalls.get(0).get("result"));
+            // index 0 is the implicit identify from init; index 1 is the explicit identify call
+            assertEquals(2, testHook.beforeIdentifyCalls.size());
+            assertEquals(identifySeriesContext, testHook.beforeIdentifyCalls.get(1).get("seriesContext"));
+            assertEquals(2, testHook.afterIdentifyCalls.size());
+            assertEquals(identifySeriesContext, testHook.afterIdentifyCalls.get(1).get("seriesContext"));
+            assertEquals(identifySeriesResult, testHook.afterIdentifyCalls.get(1).get("result"));
 
             assertEquals(1, addedHook.beforeIdentifyCalls.size());
             assertEquals(identifySeriesContext, addedHook.beforeIdentifyCalls.get(0).get("seriesContext"));
