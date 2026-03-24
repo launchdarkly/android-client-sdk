@@ -617,13 +617,6 @@ public class StreamingDataSourceTest {
             LDInvalidResponseCodeFailure failure = (LDInvalidResponseCodeFailure) error;
             assertEquals(401, failure.getResponseCode());
             assertFalse(failure.isRetryable());
-            // The background thread calls resultCallback.onError() before
-            // dataSourceUpdateSink.shutDown(), so shutDownCalled may not be true yet.
-            // Poll briefly to allow the background thread to complete.
-            long deadline = System.currentTimeMillis() + 1000;
-            while (!dataSourceUpdateSink.shutDownCalled && System.currentTimeMillis() < deadline) {
-                Thread.sleep(10);
-            }
             assertTrue(dataSourceUpdateSink.shutDownCalled);
         }
     }
@@ -689,15 +682,6 @@ public class StreamingDataSourceTest {
             sds.start(callback1);
 
             assertNotNull(callback1.awaitError());
-
-            // The background thread calls resultCallback.onError() before setting
-            // connection401Error and calling dataSourceUpdateSink.shutDown(), so
-            // we need to wait for shutDown to complete before testing the second start.
-            long deadline = System.currentTimeMillis() + 1000;
-            while (!dataSourceUpdateSink.shutDownCalled && System.currentTimeMillis() < deadline) {
-                Thread.sleep(10);
-            }
-            assertTrue(dataSourceUpdateSink.shutDownCalled);
 
             // Second start should be a no-op due to connection401Error flag
             TrackingCallback callback2 = new TrackingCallback();
