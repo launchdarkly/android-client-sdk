@@ -9,13 +9,14 @@ import java.util.List;
 /**
  * An ordered list of {@link ModeResolutionEntry} values that maps a {@link ModeState}
  * to a {@link ConnectionMode}. The first entry whose condition matches wins.
+ * If no entry matches, a default {@link ConnectionMode} is returned.
  * <p>
  * The {@link #MOBILE} constant defines the Android default resolution table:
  * <ol>
  *   <li>No network → {@link ConnectionMode#OFFLINE}</li>
  *   <li>Background + background updating disabled → {@link ConnectionMode#OFFLINE}</li>
  *   <li>Background → {@link ConnectionMode#BACKGROUND}</li>
- *   <li>Foreground → {@link ConnectionMode#STREAMING}</li>
+ *   <li>Default → {@link ConnectionMode#STREAMING}</li>
  * </ol>
  * <p>
  * Package-private — not part of the public SDK API.
@@ -34,25 +35,23 @@ final class ModeResolutionTable {
                     ConnectionMode.OFFLINE),
             new ModeResolutionEntry(
                     state -> !state.isForeground(),
-                    ConnectionMode.BACKGROUND),
-            new ModeResolutionEntry(
-                    state -> true,
-                    ConnectionMode.STREAMING)
-    ));
+                    ConnectionMode.BACKGROUND)
+    ), ConnectionMode.STREAMING);
 
     private final List<ModeResolutionEntry> entries;
+    private final ConnectionMode defaultMode;
 
-    ModeResolutionTable(@NonNull List<ModeResolutionEntry> entries) {
+    ModeResolutionTable(@NonNull List<ModeResolutionEntry> entries, @NonNull ConnectionMode defaultMode) {
         this.entries = Collections.unmodifiableList(entries);
+        this.defaultMode = defaultMode;
     }
 
     /**
      * Evaluates the table against the given state and returns the first matching mode.
+     * If no entry matches, returns the default mode.
      *
      * @param state the current platform state
      * @return the resolved {@link ConnectionMode}
-     * @throws IllegalStateException if no entry matches (should not happen with a
-     *         well-formed table that has a catch-all final entry)
      */
     @NonNull
     ConnectionMode resolve(@NonNull ModeState state) {
@@ -61,9 +60,6 @@ final class ModeResolutionTable {
                 return entry.getMode();
             }
         }
-        throw new IllegalStateException(
-                "ModeResolutionTable has no matching entry for state: " +
-                        "foreground=" + state.isForeground() + ", networkAvailable=" + state.isNetworkAvailable()
-        );
+        return defaultMode;
     }
 }

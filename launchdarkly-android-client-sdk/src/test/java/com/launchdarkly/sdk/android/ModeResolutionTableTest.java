@@ -55,22 +55,23 @@ public class ModeResolutionTableTest {
         ModeResolutionTable table = new ModeResolutionTable(Arrays.asList(
                 new ModeResolutionEntry(state -> true, ConnectionMode.POLLING),
                 new ModeResolutionEntry(state -> true, ConnectionMode.STREAMING)
-        ));
+        ), ConnectionMode.OFFLINE);
         assertSame(ConnectionMode.POLLING, table.resolve(new ModeState(true, true, false)));
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void emptyTable_throws() {
-        ModeResolutionTable table = new ModeResolutionTable(Collections.<ModeResolutionEntry>emptyList());
-        table.resolve(new ModeState(true, true, false));
+    @Test
+    public void emptyTable_returnsDefault() {
+        ModeResolutionTable table = new ModeResolutionTable(
+                Collections.<ModeResolutionEntry>emptyList(), ConnectionMode.STREAMING);
+        assertSame(ConnectionMode.STREAMING, table.resolve(new ModeState(true, true, false)));
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void noMatch_throws() {
+    @Test
+    public void noMatch_returnsDefault() {
         ModeResolutionTable table = new ModeResolutionTable(Collections.singletonList(
-                new ModeResolutionEntry(state -> false, ConnectionMode.STREAMING)
-        ));
-        table.resolve(new ModeState(true, true, false));
+                new ModeResolutionEntry(state -> false, ConnectionMode.POLLING)
+        ), ConnectionMode.STREAMING);
+        assertSame(ConnectionMode.STREAMING, table.resolve(new ModeState(true, true, false)));
     }
 
     // ==== ModeState tests ====

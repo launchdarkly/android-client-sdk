@@ -571,6 +571,138 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyNoMoreDataSourcesWereCreated();
     }
 
+    // ==== FDv1 state-transition round-trip tests ====
+    //
+    // These tests exercise the FDv1 code path through state transitions that were added or
+    // restructured alongside the FDv2 work, ensuring the FDv1 flow is unaffected.
+
+    @Test
+    public void fdv1_shutDown_doesNotCallCloseOnFactory() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        connectivityManager.shutDown();
+        verifyDataSourceWasStopped();
+    }
+
+    @Test
+    public void fdv1_setOffline_thenBackOnline_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        connectivityManager.setForceOffline(true);
+        ConnectionMode offlineMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.SET_OFFLINE, offlineMode);
+        verifyDataSourceWasStopped();
+        verifyAll();
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        connectivityManager.setForceOffline(false);
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_networkLost_thenRestored_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+        ConnectionMode offlineMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.OFFLINE, offlineMode);
+        verifyDataSourceWasStopped();
+        verifyAll();
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_foregroundToBackground_thenBackToForeground_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+        ConnectionMode bgMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.BACKGROUND_POLLING, bgMode);
+        verifyDataSourceWasStopped();
+        verifyBackgroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(true);
+        verifyDataSourceWasStopped();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_forDataSource_transactionalDataStoreIsPassedThrough() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, clientContext -> {
+            receivedClientContexts.add(clientContext);
+            ClientContextImpl impl = ClientContextImpl.get(clientContext);
+            assertNotNull(impl.getTransactionalDataStore());
+            return MockComponents.successfulDataSource(clientContext, DATA,
+                    ConnectionMode.POLLING, startedDataSources, stoppedDataSources);
+        });
+
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+    }
+
     @Test
     public void notifyListenersWhenStatusChanges() throws Exception {
         createTestManager(false, false, makeSuccessfulDataSourceFactory());

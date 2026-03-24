@@ -123,7 +123,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
             @NonNull Map<ConnectionMode, ModeDefinition> modeTable,
             @NonNull ConnectionMode startingMode
     ) {
-        this.modeTable = Collections.unmodifiableMap(modeTable);
+        this.modeTable = modeTable;
         this.startingMode = startingMode;
     }
 
@@ -164,7 +164,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         }
 
         if (modeTable == null) {
-            modeTable = Collections.unmodifiableMap(makeDefaultModeTable());
+            modeTable = makeDefaultModeTable();
         }
 
         ConnectionMode mode = activeMode != null ? activeMode : startingMode;

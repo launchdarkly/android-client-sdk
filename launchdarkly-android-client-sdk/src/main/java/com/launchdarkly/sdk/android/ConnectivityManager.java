@@ -203,10 +203,13 @@ class ConnectivityManager {
                 return false;
             }
             // CSFDV2 5.3.8: retain active data source if old and new modes have equivalent config.
+            // ModeDefinition currently relies on Object.equals (reference equality) because
+            // makeDefaultModeTable() reuses the same instance for modes that share identical
+            // configuration.
             FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
             ModeDefinition oldDef = fdv2Builder.getModeDefinition(currentFDv2Mode);
             ModeDefinition newDef = fdv2Builder.getModeDefinition(newMode);
-            if (oldDef != null && oldDef == newDef) {
+            if (oldDef != null && oldDef.equals(newDef)) {
                 currentFDv2Mode = newMode;
                 onCompletion.onSuccess(null);
                 return false;
@@ -495,7 +498,7 @@ class ConnectivityManager {
      * force-offline). Snapshots the current state once, updates the event processor, then
      * routes to the appropriate data source update path.
      */
-    private void handleModeStateChange() {
+    private synchronized void handleModeStateChange() {
         boolean forceOffline = forcedOffline.get();
         boolean networkAvailable = platformState.isNetworkAvailable();
         boolean foreground = platformState.isForeground();
