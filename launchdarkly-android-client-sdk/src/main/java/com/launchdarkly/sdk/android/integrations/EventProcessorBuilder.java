@@ -16,7 +16,7 @@ import java.util.Set;
  * to customize this behavior, create a builder with {@link Components#sendEvents()}, change its
  * properties with the methods of this class, and pass it to {@link Builder#events(ComponentConfigurer)}:
  * <pre><code>
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .events(Components.sendEvents().capacity(500).flushIntervalMillis(2000))
  *         .build();
  * </code></pre>

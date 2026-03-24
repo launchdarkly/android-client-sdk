@@ -12,7 +12,7 @@ import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
  * {@link Components#httpConfiguration()}, change its properties with the methods of this class,
  * and pass it to {@link com.launchdarkly.sdk.android.LDConfig.Builder#http(ComponentConfigurer)}:
  * <pre><code>
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .http(
  *           Components.httpConfiguration()
  *             .connectTimeoutMillis(3000)

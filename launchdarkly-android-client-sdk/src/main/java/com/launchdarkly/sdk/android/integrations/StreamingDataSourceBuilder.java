@@ -13,7 +13,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSource;
  * to customize the behavior of the connection, create a builder with {@link Components#streamingDataSource()},
  * change its properties with the methods of this class, and pass it to {@link Builder#dataSource(ComponentConfigurer)}:
  * <pre><code>
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .dataSource(Components.streamingDataSource().initialReconnectDelayMillis(500))
  *         .build();
  * </code></pre>

@@ -15,7 +15,7 @@ import java.util.List;
  *
  * <pre><code>
  *     List plugins = getPluginsFunc();
- *     LDConfig config = new LDConfig.Builder()
+ *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .plugins(
  *             Components.plugins()
  *                 .setPlugins(plugins)
