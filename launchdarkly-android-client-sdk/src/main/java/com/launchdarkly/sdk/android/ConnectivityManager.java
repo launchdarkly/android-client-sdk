@@ -195,28 +195,32 @@ class ConnectivityManager {
         DataSource existingDataSource = currentDataSource.get();
         boolean isFDv2ModeSwitch = false;
 
-        // FDv2 path: resolve mode and determine if a teardown/rebuild is needed.
-        if (useFDv2ModeResolution && !mustReinitializeDataSource) {
+        // FDv2 path: resolve mode for both startup (mustReinitializeDataSource=true) and
+        // state-change (mustReinitializeDataSource=false) cases.
+        if (useFDv2ModeResolution) {
             ConnectionMode newMode = resolveMode();
-            if (newMode == currentFDv2Mode) {
-                onCompletion.onSuccess(null);
-                return false;
-            }
-            // CSFDV2 5.3.8: retain active data source if old and new modes have equivalent config.
-            // ModeDefinition currently relies on Object.equals (reference equality) because
-            // makeDefaultModeTable() reuses the same instance for modes that share identical
-            // configuration.
-            FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
-            ModeDefinition oldDef = fdv2Builder.getModeDefinition(currentFDv2Mode);
-            ModeDefinition newDef = fdv2Builder.getModeDefinition(newMode);
-            if (oldDef != null && oldDef.equals(newDef)) {
-                currentFDv2Mode = newMode;
-                onCompletion.onSuccess(null);
-                return false;
+            if (!mustReinitializeDataSource) {
+                // State-change path: check for no-op or equivalent config before rebuilding.
+                if (newMode == currentFDv2Mode) {
+                    onCompletion.onSuccess(null);
+                    return false;
+                }
+                // CSFDV2 5.3.8: retain active data source if old and new modes have equivalent config.
+                // ModeDefinition currently relies on Object.equals (reference equality) because
+                // makeDefaultModeTable() reuses the same instance for modes that share identical
+                // configuration.
+                FDv2DataSourceBuilder fdv2Builder = (FDv2DataSourceBuilder) dataSourceFactory;
+                ModeDefinition oldDef = fdv2Builder.getModeDefinition(currentFDv2Mode);
+                ModeDefinition newDef = fdv2Builder.getModeDefinition(newMode);
+                if (oldDef != null && oldDef.equals(newDef)) {
+                    currentFDv2Mode = newMode;
+                    onCompletion.onSuccess(null);
+                    return false;
+                }
+                isFDv2ModeSwitch = true;
+                mustReinitializeDataSource = true;
             }
             currentFDv2Mode = newMode;
-            isFDv2ModeSwitch = true;
-            mustReinitializeDataSource = true;
         }
 
         // Check whether the existing data source needs a rebuild (e.g. evaluation context changed).
@@ -445,11 +449,6 @@ class ConnectivityManager {
             return false;
         }
         initialized = false;
-
-        if (useFDv2ModeResolution) {
-            currentFDv2Mode = resolveMode();
-            ((FDv2DataSourceBuilder) dataSourceFactory).setActiveMode(currentFDv2Mode, true);
-        }
 
         updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
         return updateDataSource(true, onCompletion);
