@@ -135,9 +135,11 @@ final class StreamingDataSource implements DataSource {
                             running = false;
                             if (code == 401) {
                                 connection401Error = true;
-                                dataSourceUpdateSink.shutDown();
                             }
                             resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
+                            if (code == 401) {
+                                dataSourceUpdateSink.shutDown();
+                            }
                             stop(null);
                         } else {
                             eventSourceStarted = System.currentTimeMillis();
