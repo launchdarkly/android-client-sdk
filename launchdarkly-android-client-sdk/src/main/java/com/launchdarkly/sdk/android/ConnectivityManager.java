@@ -303,6 +303,7 @@ class ConnectivityManager {
 
         if (useFDv2ModeResolution) {
             // CONNMODE 2.0.1: mode switches only transition synchronizers, not initializers.
+            // TODO: SDK-2071 - refactor running initializers to use existence of selector
             ((FDv2DataSourceBuilder) dataSourceFactory).setActiveMode(currentFDv2Mode, !isFDv2ModeSwitch);
         }
 

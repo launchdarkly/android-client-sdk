@@ -30,15 +30,10 @@ final class ModeResolutionTable {
 
     /**
      * Creates a mobile resolution table with configurable foreground and background modes.
-     * The resolution order is:
-     * <ol>
-     *   <li>No network &rarr; OFFLINE</li>
-     *   <li>Background &rarr; {@code backgroundMode}</li>
-     *   <li>Foreground (catch-all) &rarr; {@code foregroundMode}</li>
-     * </ol>
      *
-     * @param foregroundMode the mode to use when in the foreground
-     * @param backgroundMode the mode to use when in the background
+     * @param foregroundMode the mode to use when in the foreground with network available
+     * @param backgroundMode the mode to use when in the background with network available
+     *                         and background updating not disabled
      * @return a new resolution table
      */
     static ModeResolutionTable createMobile(
@@ -47,15 +42,15 @@ final class ModeResolutionTable {
     ) {
         return new ModeResolutionTable(Arrays.asList(
             new ModeResolutionEntry(
-                state -> !state.isNetworkAvailable(),
-                ConnectionMode.OFFLINE),
+                    state -> !state.isNetworkAvailable(),
+                    ConnectionMode.OFFLINE),
             new ModeResolutionEntry(
-                state -> !state.isForeground() && state.isBackgroundUpdatingDisabled(),
-                ConnectionMode.OFFLINE),
+                    state -> !state.isForeground() && state.isBackgroundUpdatingDisabled(),
+                    ConnectionMode.OFFLINE),
             new ModeResolutionEntry(
-                state -> !state.isForeground(),
-                ConnectionMode.BACKGROUND)
-        ), ConnectionMode.STREAMING);
+                    state -> !state.isForeground(),
+                    backgroundMode)
+        ), foregroundMode);
     }
 
     private final List<ModeResolutionEntry> entries;
