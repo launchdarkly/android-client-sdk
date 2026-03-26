@@ -102,14 +102,14 @@ public abstract class Components {
      * {@link PollingDataSourceBuilder} methods, and pass it to {@link LDConfig.Builder#dataSource(ComponentConfigurer)}:
      * <pre><code>
      *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
-     *         .dataSource(Components.pollingDataSource().initialReconnectDelayMillis(500))
+     *         .dataSource(Components.pollingDataSource().pollIntervalMillis(900_000))
      *         .build();
      * </code></pre>
      * <p>
      * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
      * and completely disable network requests.
      *
-     * @return a builder for setting streaming connection properties
+     * @return a builder for setting polling connection properties
      * @see LDConfig.Builder#dataSource(ComponentConfigurer)
      */
     public static PollingDataSourceBuilder pollingDataSource() {

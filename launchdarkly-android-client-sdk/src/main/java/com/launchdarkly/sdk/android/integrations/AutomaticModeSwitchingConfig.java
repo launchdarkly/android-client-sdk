@@ -16,16 +16,19 @@ package com.launchdarkly.sdk.android.integrations;
  * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
  * <p>
  * <b>Examples:</b>
+ * <p>
+ * Disable all automatic mode switching (SDK stays in the connection mode it starts in):
  * <pre><code>
- *     // Disable all automatic mode switching (SDK stays in the connection mode it starts in)
  *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .mobileKey("my-key")
  *         .dataSystem(
  *             Components.dataSystem()
  *                 .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled()))
  *         .build();
- * 
- *     // Granular: disable lifecycle switching, keep network switching
+ * </code></pre>
+ * <p>
+ * Granular: disable lifecycle switching, keep network switching:
+ * <pre><code>
  *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
  *         .mobileKey("my-key")
  *         .dataSystem(

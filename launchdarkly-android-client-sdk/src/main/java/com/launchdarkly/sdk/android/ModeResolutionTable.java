@@ -11,12 +11,16 @@ import java.util.List;
  * to a {@link ConnectionMode}. The first entry whose condition matches wins.
  * If no entry matches, a default {@link ConnectionMode} is returned.
  * <p>
- * The {@link #MOBILE} constant defines the Android default resolution table:
+ * The {@link #MOBILE} constant defines the Android default resolution table
+ * ({@link #createMobile(ConnectionMode, ConnectionMode)} with foreground
+ * {@link ConnectionMode#STREAMING} and background {@link ConnectionMode#BACKGROUND}):
  * <ol>
  *   <li>No network → {@link ConnectionMode#OFFLINE}</li>
  *   <li>Background + background updating disabled → {@link ConnectionMode#OFFLINE}</li>
- *   <li>Background → {@link ConnectionMode#BACKGROUND}</li>
- *   <li>Default → {@link ConnectionMode#STREAMING}</li>
+ *   <li>Background (network available, background updates allowed) → {@code backgroundMode}
+ *       ({@link ConnectionMode#BACKGROUND} for {@link #MOBILE})</li>
+ *   <li>Foreground with network → {@code foregroundMode}
+ *       ({@link ConnectionMode#STREAMING} for {@link #MOBILE})</li>
  * </ol>
  * <p>
  * Package-private — not part of the public SDK API.

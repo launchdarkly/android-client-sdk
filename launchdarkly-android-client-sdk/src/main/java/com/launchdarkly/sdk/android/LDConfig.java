@@ -418,14 +418,17 @@ public class LDConfig {
          * per-mode initializer and synchronizer customization.
          * <p>
          * <b>Examples:</b>
+         * <p>
+         * Default configuration with quick initialization and streaming flag updates:
          * <pre><code>
-         *     // Default configuration with quick initialization and streaming flag updates
          *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .mobileKey("my-key")
          *         .dataSystem(Components.dataSystem())
          *         .build();
-         *
-         *     // Polling in the foreground instead of the default streaming mode
+         * </code></pre>
+         * <p>
+         * Polling in the foreground instead of the default streaming mode:
+         * <pre><code>
          *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .mobileKey("my-key")
          *         .dataSystem(
@@ -455,13 +458,15 @@ public class LDConfig {
          * <p>
          * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
          * and completely disable network requests.
+         * Setting custom event processing options:
          * <pre><code>
-         *     // Setting custom event processing options
          *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .events(Components.sendEvents().capacity(100))
          *         .build();
-         *
-         *     // Disabling events
+         * </code></pre>
+         * <p>
+         * Disabling events:
+         * <pre><code>
          *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .events(Components.noEvents())
          *         .build();

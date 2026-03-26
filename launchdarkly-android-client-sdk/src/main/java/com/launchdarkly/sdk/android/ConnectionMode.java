@@ -19,14 +19,19 @@ package com.launchdarkly.sdk.android;
  * The SDK's {@link com.launchdarkly.sdk.android.integrations.DataSystemBuilder}
  * allows you to customize which initializers and synchronizers run in each mode.
  * <p>
- * On mobile, the SDK automatically transitions between modes based on
- * platform state (foreground/background, network availability). The default
- * resolution is:
- * <ul>
+ * On mobile, when automatic mode switching is enabled, the SDK resolves a
+ * {@link ConnectionMode} from platform state in the same order as
+ * {@link ModeResolutionTable} (see {@link com.launchdarkly.sdk.android.integrations.DataSystemBuilder#foregroundConnectionMode}
+ * and {@link com.launchdarkly.sdk.android.integrations.DataSystemBuilder#backgroundConnectionMode}).
+ * The default built-in table ({@link ModeResolutionTable#MOBILE}) evaluates as follows:
+ * <ol>
  *   <li>No network &rarr; {@link #OFFLINE}</li>
- *   <li>Background &rarr; {@link #BACKGROUND}</li>
- *   <li>Foreground &rarr; {@link #STREAMING}</li>
- * </ul>
+ *   <li>Background with {@link LDConfig.Builder#disableBackgroundUpdating(boolean)} set
+ *       &rarr; {@link #OFFLINE}</li>
+ *   <li>Background (network available, background updates not disabled) &rarr;
+ *       configured background mode (default {@link #BACKGROUND})</li>
+ *   <li>Foreground with network &rarr; configured foreground mode (default {@link #STREAMING})</li>
+ * </ol>
  *
  * @see com.launchdarkly.sdk.android.integrations.DataSystemBuilder
  * @see com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder
