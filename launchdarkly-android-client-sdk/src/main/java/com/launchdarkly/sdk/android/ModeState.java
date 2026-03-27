@@ -34,4 +34,22 @@ final class ModeState {
     boolean isBackgroundUpdatingDisabled() {
         return backgroundUpdatingDisabled;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof ModeState)) return false;
+        ModeState that = (ModeState) o;
+        return foreground == that.foreground
+                && networkAvailable == that.networkAvailable
+                && backgroundUpdatingDisabled == that.backgroundUpdatingDisabled;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Boolean.hashCode(foreground);
+        result = 31 * result + Boolean.hashCode(networkAvailable);
+        result = 31 * result + Boolean.hashCode(backgroundUpdatingDisabled);
+        return result;
+    }
 }
