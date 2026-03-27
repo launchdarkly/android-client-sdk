@@ -37,8 +37,14 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
+import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.Synchronizer;
+
 import java.io.IOException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -565,6 +571,185 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyNoMoreDataSourcesWereCreated();
     }
 
+    // ==== FDv1 state-transition round-trip tests ====
+    //
+    // These tests exercise the FDv1 code path through state transitions that were added or
+    // restructured alongside the FDv2 work, ensuring the FDv1 flow is unaffected.
+
+    @Test
+    public void fdv1_shutDown_doesNotCallCloseOnFactory() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        connectivityManager.shutDown();
+        verifyDataSourceWasStopped();
+    }
+
+    @Test
+    public void fdv1_setOffline_thenBackOnline_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        connectivityManager.setForceOffline(true);
+        ConnectionMode offlineMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.SET_OFFLINE, offlineMode);
+        verifyDataSourceWasStopped();
+        verifyAll();
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        connectivityManager.setForceOffline(false);
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_networkLost_thenRestored_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+        ConnectionMode offlineMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.OFFLINE, offlineMode);
+        verifyDataSourceWasStopped();
+        verifyAll();
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_foregroundToBackground_thenBackToForeground_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+        ConnectionMode bgMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.BACKGROUND_POLLING, bgMode);
+        verifyDataSourceWasStopped();
+        verifyBackgroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(true);
+        verifyDataSourceWasStopped();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_connectivityChange_whileOnline_doesNotRebuildPollingDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        // Fire a connectivity change while the network remains available — the existing
+        // polling data source should NOT be torn down and rebuilt.
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_foregroundToBackground_rebuildsPollingDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+        ConnectionMode bgMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.BACKGROUND_POLLING, bgMode);
+        verifyDataSourceWasStopped();
+        verifyBackgroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_forDataSource_transactionalDataStoreIsPassedThrough() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, clientContext -> {
+            receivedClientContexts.add(clientContext);
+            ClientContextImpl impl = ClientContextImpl.get(clientContext);
+            assertNotNull(impl.getTransactionalDataStore());
+            return MockComponents.successfulDataSource(clientContext, DATA,
+                    ConnectionMode.POLLING, startedDataSources, stoppedDataSources);
+        });
+
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+    }
+
     @Test
     public void notifyListenersWhenStatusChanges() throws Exception {
         createTestManager(false, false, makeSuccessfulDataSourceFactory());
@@ -656,5 +841,272 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     private void verifyNoMoreDataSourcesWereStopped() {
         requireNoMoreValues(stoppedDataSources, 1, TimeUnit.SECONDS, "stopping of data source");
+    }
+
+    // ==== FDv2 mode resolution tests ====
+
+    /**
+     * Creates a test FDv2DataSourceBuilder that returns mock data sources
+     * which track start/stop via the shared queues. Each build() call creates
+     * a new mock data source.
+     */
+    private FDv2DataSourceBuilder makeFDv2DataSourceFactory() {
+        Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+        ));
+        return new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
+            @Override
+            public DataSource build(ClientContext clientContext) {
+                receivedClientContexts.add(clientContext);
+                return MockComponents.successfulDataSource(clientContext, DATA,
+                        ConnectionMode.STREAMING, startedDataSources, stoppedDataSources);
+            }
+        };
+    }
+
+    @Test
+    public void fdv2_foregroundToBackground_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "new data source creation");
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "new data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_backgroundToForeground_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "bg data source creation");
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "bg data source started");
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(true);
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "fg data source creation");
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "fg data source started");
+
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_networkLost_rebuildsToOffline() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+
+        verifyDataSourceWasStopped();
+        // OFFLINE mode should still build a new data source (with no synchronizers)
+        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "offline data source creation");
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "offline data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_forceOffline_rebuildsToOffline() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        connectivityManager.setForceOffline(true);
+
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "offline data source creation");
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "offline data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_connectivityChange_withSameMode_doesNotRebuildDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        // Fire a connectivity change while the network remains available — the resolved
+        // mode is still STREAMING, so no rebuild should occur.
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_sameModeDoesNotRebuild() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(true);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_equivalentConfigDoesNotRebuild() throws Exception {
+        ModeDefinition sharedDef = new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        );
+        Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, sharedDef);
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, sharedDef);
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
+            @Override
+            public DataSource build(ClientContext clientContext) {
+                receivedClientContexts.add(clientContext);
+                return MockComponents.successfulDataSource(clientContext, DATA,
+                        ConnectionMode.STREAMING, startedDataSources, stoppedDataSources);
+            }
+        };
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        createTestManager(false, false, builder);
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        // STREAMING and BACKGROUND share the same ModeDefinition object, so 5.3.8 says no rebuild
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_contextChange_rebuildsDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(false, false, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        LDContext context2 = LDContext.create("context2");
+        contextDataManager.switchToContext(context2);
+        AwaitableCallback<Void> done = new AwaitableCallback<>();
+        connectivityManager.switchToContext(context2, done);
+        done.await();
+
+        verifyDataSourceWasStopped();
+        verifyForegroundDataSourceWasCreatedAndStarted(context2);
+        verifyNoMoreDataSourcesWereCreated();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_modeSwitchDoesNotIncludeInitializers() throws Exception {
+        BlockingQueue<Boolean> initializerIncluded = new LinkedBlockingQueue<>();
+
+        Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
+            @Override
+            public DataSource build(ClientContext clientContext) {
+                // After setActiveMode(mode, includeInitializers), build() resets includeInitializers
+                // to true. We can observe this by checking what build() would produce. The super.build()
+                // uses the includeInitializers flag internally.
+                receivedClientContexts.add(clientContext);
+                return MockComponents.successfulDataSource(clientContext, DATA,
+                        ConnectionMode.STREAMING, startedDataSources, stoppedDataSources);
+            }
+        };
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        createTestManager(false, false, builder);
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "bg data source creation");
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "bg data source started");
+        verifyAll();
     }
 }

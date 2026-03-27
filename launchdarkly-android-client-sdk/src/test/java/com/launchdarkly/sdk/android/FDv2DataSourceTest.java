@@ -1420,4 +1420,23 @@ public class FDv2DataSourceTest {
         DataSourceState offStatus = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.OFF, offStatus);
     }
+
+    @Test
+    public void needsRefresh_sameContext_returnsFalse() {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.emptyList());
+        assertFalse(dataSource.needsRefresh(true, CONTEXT));
+        assertFalse(dataSource.needsRefresh(false, CONTEXT));
+    }
+
+    @Test
+    public void needsRefresh_differentContext_returnsTrue() {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.emptyList());
+        assertTrue(dataSource.needsRefresh(false, LDContext.create("other-context")));
+    }
 }

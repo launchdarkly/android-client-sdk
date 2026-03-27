@@ -7,17 +7,17 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
-import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.util.ArrayList;
-import java.util.Map;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -50,7 +50,6 @@ final class FDv2DataSource implements DataSource {
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicBoolean startCompleted = new AtomicBoolean(false);
     private final AtomicBoolean stopped = new AtomicBoolean(false);
-
     /** Result of the first start (null = not yet completed). Used so second start() gets the same result. */
     private volatile Boolean startResult = null;
     private volatile Throwable startError = null;
@@ -213,6 +212,13 @@ final class FDv2DataSource implements DataSource {
         // Caller owns sharedExecutor; we do not shut it down.
         dataSourceUpdateSink.setStatus(DataSourceState.OFF, null);
         completionCallback.onSuccess(null);
+    }
+
+    @Override
+    public boolean needsRefresh(boolean newInBackground, @NonNull LDContext newEvaluationContext) {
+        // FDv2 background/foreground transitions are handled externally by ConnectivityManager
+        // via teardown/rebuild, so only request a rebuild when the evaluation context changes.
+        return !evaluationContext.equals(newEvaluationContext);
     }
 
     private void runInitializers(
