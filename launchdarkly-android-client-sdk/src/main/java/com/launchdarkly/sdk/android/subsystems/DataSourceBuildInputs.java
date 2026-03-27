@@ -5,6 +5,8 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.SelectorSource;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 
+import java.util.concurrent.ScheduledExecutorService;
+
 /**
  * Build inputs (dependencies and configuration) provided to
  * {@link DataSourceBuilder#build(DataSourceBuildInputs)} when constructing
@@ -24,6 +26,7 @@ public final class DataSourceBuildInputs {
     private final HttpConfiguration http;
     private final boolean evaluationReasons;
     private final SelectorSource selectorSource;
+    private final ScheduledExecutorService sharedExecutor;
     private final LDLogger baseLogger;
 
     /**
@@ -34,6 +37,8 @@ public final class DataSourceBuildInputs {
      * @param http              the HTTP configuration
      * @param evaluationReasons whether evaluation reasons are enabled
      * @param selectorSource    the source for obtaining the current selector
+     * @param sharedExecutor    shared executor for scheduling tasks; owned and shut down by
+     *                          the calling data source, so components must not shut it down
      * @param baseLogger        the base logger instance
      */
     public DataSourceBuildInputs(
@@ -42,6 +47,7 @@ public final class DataSourceBuildInputs {
             HttpConfiguration http,
             boolean evaluationReasons,
             SelectorSource selectorSource,
+            ScheduledExecutorService sharedExecutor,
             LDLogger baseLogger
     ) {
         this.evaluationContext = evaluationContext;
@@ -49,6 +55,7 @@ public final class DataSourceBuildInputs {
         this.http = http;
         this.evaluationReasons = evaluationReasons;
         this.selectorSource = selectorSource;
+        this.sharedExecutor = sharedExecutor;
         this.baseLogger = baseLogger;
     }
 
@@ -95,6 +102,18 @@ public final class DataSourceBuildInputs {
      */
     public SelectorSource getSelectorSource() {
         return selectorSource;
+    }
+
+    /**
+     * Returns the shared executor service for scheduling tasks.
+     * <p>
+     * This executor is owned by the parent data source and will be shut down when the
+     * data source is closed. Components must not call {@code shutdown()} on it.
+     *
+     * @return the shared scheduled executor service
+     */
+    public ScheduledExecutorService getSharedExecutor() {
+        return sharedExecutor;
     }
 
     /**

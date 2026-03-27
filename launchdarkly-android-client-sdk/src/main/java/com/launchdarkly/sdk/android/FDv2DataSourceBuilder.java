@@ -153,7 +153,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         }
     }
 
-    private static DataSourceBuildInputs makeInputs(ClientContext clientContext) {
+    private DataSourceBuildInputs makeInputs(ClientContext clientContext) {
         TransactionalDataStore store = ClientContextImpl.get(clientContext).getTransactionalDataStore();
         SelectorSource selectorSource = store != null
                 ? new SelectorSourceFacade(store)
@@ -164,6 +164,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 clientContext.getHttp(),
                 clientContext.isEvaluationReasons(),
                 selectorSource,
+                sharedExecutor,
                 clientContext.getBaseLogger()
         );
     }

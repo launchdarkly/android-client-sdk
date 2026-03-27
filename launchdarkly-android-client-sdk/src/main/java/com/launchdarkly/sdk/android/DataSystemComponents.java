@@ -13,8 +13,6 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
 import java.net.URI;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * Factory methods for FDv2 data source components used with the
@@ -63,7 +61,7 @@ public abstract class DataSystemComponents {
                     : inputs.getServiceEndpoints();
             FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
             return new FDv2PollingInitializer(requestor, inputs.getSelectorSource(),
-                    Executors.newSingleThreadExecutor(), inputs.getBaseLogger());
+                    inputs.getSharedExecutor(), inputs.getBaseLogger());
         }
     }
 
@@ -75,8 +73,8 @@ public abstract class DataSystemComponents {
                     ? serviceEndpointsOverride
                     : inputs.getServiceEndpoints();
             FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
-            ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
-            return new FDv2PollingSynchronizer(requestor, inputs.getSelectorSource(), exec,
+            return new FDv2PollingSynchronizer(requestor, inputs.getSelectorSource(),
+                    inputs.getSharedExecutor(),
                     0, pollIntervalMillis, inputs.getBaseLogger());
         }
     }
@@ -99,7 +97,7 @@ public abstract class DataSystemComponents {
                     requestor,
                     initialReconnectDelayMillis,
                     inputs.isEvaluationReasons(), inputs.getHttp().isUseReport(),
-                    httpProps, Executors.newSingleThreadExecutor(),
+                    httpProps, inputs.getSharedExecutor(),
                     inputs.getBaseLogger(), null);
         }
     }
@@ -112,8 +110,8 @@ public abstract class DataSystemComponents {
                     ? serviceEndpointsOverride
                     : inputs.getServiceEndpoints();
             FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
-            ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
-            return new FDv2PollingSynchronizer(requestor, inputs.getSelectorSource(), exec,
+            return new FDv2PollingSynchronizer(requestor, inputs.getSelectorSource(),
+                    inputs.getSharedExecutor(),
                     0, LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, inputs.getBaseLogger());
         }
     }
