@@ -4,7 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
 import com.launchdarkly.sdk.android.DataSystemComponents;
-import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
@@ -14,8 +14,8 @@ public class ConnectionModeBuilderTest {
 
     @Test
     public void initializers_lastCallReplacesPrevious() {
-        ComponentConfigurer<Initializer> first = DataSystemComponents.pollingInitializer();
-        ComponentConfigurer<Initializer> second = DataSystemComponents.pollingInitializer();
+        DataSourceBuilder<Initializer> first = DataSystemComponents.pollingInitializer();
+        DataSourceBuilder<Initializer> second = DataSystemComponents.pollingInitializer();
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .initializers(first)
                 .initializers(second);
@@ -25,8 +25,8 @@ public class ConnectionModeBuilderTest {
 
     @Test
     public void synchronizers_lastCallReplacesPrevious() {
-        ComponentConfigurer<Synchronizer> first = DataSystemComponents.pollingSynchronizer();
-        ComponentConfigurer<Synchronizer> second = DataSystemComponents.streamingSynchronizer();
+        DataSourceBuilder<Synchronizer> first = DataSystemComponents.pollingSynchronizer();
+        DataSourceBuilder<Synchronizer> second = DataSystemComponents.streamingSynchronizer();
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .synchronizers(first)
                 .synchronizers(second);

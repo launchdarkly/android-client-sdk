@@ -1,7 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
-import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 /**
@@ -16,7 +16,7 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
  * <p>
  * Obtain an instance from {@link com.launchdarkly.sdk.android.DataSystemComponents#streamingSynchronizer()},
  * configure it, and pass it to
- * {@link ConnectionModeBuilder#synchronizers(ComponentConfigurer[])}:
+ * {@link ConnectionModeBuilder#synchronizers(DataSourceBuilder[])}:
  * <pre><code>
  *     DataSystemComponents.customMode()
  *         .synchronizers(
@@ -30,7 +30,7 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
  * @see com.launchdarkly.sdk.android.DataSystemComponents
  * @see ConnectionModeBuilder
  */
-public abstract class StreamingSynchronizerBuilder implements ComponentConfigurer<Synchronizer> {
+public abstract class StreamingSynchronizerBuilder implements DataSourceBuilder<Synchronizer> {
 
     /**
      * The default value for {@link #initialReconnectDelayMillis(int)}: 1000 milliseconds.

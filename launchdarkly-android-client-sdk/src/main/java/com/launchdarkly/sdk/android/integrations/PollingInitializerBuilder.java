@@ -1,7 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
-import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 
 /**
@@ -16,7 +16,7 @@ import com.launchdarkly.sdk.android.subsystems.Initializer;
  * <p>
  * Obtain an instance from {@link com.launchdarkly.sdk.android.DataSystemComponents#pollingInitializer()},
  * configure it, and pass it to
- * {@link ConnectionModeBuilder#initializers(ComponentConfigurer[])}:
+ * {@link ConnectionModeBuilder#initializers(DataSourceBuilder[])}:
  * <pre><code>
  *     DataSystemComponents.customMode()
  *         .initializers(DataSystemComponents.pollingInitializer())
@@ -28,7 +28,7 @@ import com.launchdarkly.sdk.android.subsystems.Initializer;
  * @see com.launchdarkly.sdk.android.DataSystemComponents
  * @see ConnectionModeBuilder
  */
-public abstract class PollingInitializerBuilder implements ComponentConfigurer<Initializer> {
+public abstract class PollingInitializerBuilder implements DataSourceBuilder<Initializer> {
 
     /**
      * Per-source service endpoint override, or null to use the SDK-level endpoints.

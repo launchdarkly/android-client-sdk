@@ -7,10 +7,9 @@ import com.launchdarkly.sdk.android.integrations.PollingInitializerBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
-import com.launchdarkly.sdk.android.subsystems.ClientContext;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
-import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
 import java.net.URI;
@@ -25,7 +24,7 @@ import java.util.concurrent.ScheduledExecutorService;
  * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
  * <p>
  * Most factory methods return a builder that implements
- * {@link com.launchdarkly.sdk.android.subsystems.ComponentConfigurer} for the
+ * {@link com.launchdarkly.sdk.android.subsystems.DataSourceBuilder} for the
  * appropriate type ({@link Initializer} or {@link Synchronizer}). You may
  * configure properties on the builder and then pass it to
  * {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#initializers}
@@ -57,65 +56,65 @@ public abstract class DataSystemComponents {
 
     static final class PollingInitializerBuilderImpl extends PollingInitializerBuilder {
         @Override
-        public Initializer build(ClientContext clientContext) {
-            DataSourceSetup s = new DataSourceSetup(clientContext);
+        public Initializer build(DataSourceBuildInputs inputs) {
+            HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
             ServiceEndpoints endpoints = serviceEndpointsOverride != null
                     ? serviceEndpointsOverride
-                    : clientContext.getServiceEndpoints();
-            FDv2Requestor requestor = makePollingRequestor(clientContext, s.httpProps, endpoints);
-            return new FDv2PollingInitializer(requestor, s.selectorSource,
-                    Executors.newSingleThreadExecutor(), clientContext.getBaseLogger());
+                    : inputs.getServiceEndpoints();
+            FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
+            return new FDv2PollingInitializer(requestor, inputs.getSelectorSource(),
+                    Executors.newSingleThreadExecutor(), inputs.getBaseLogger());
         }
     }
 
     static final class PollingSynchronizerBuilderImpl extends PollingSynchronizerBuilder {
         @Override
-        public Synchronizer build(ClientContext clientContext) {
-            DataSourceSetup s = new DataSourceSetup(clientContext);
+        public Synchronizer build(DataSourceBuildInputs inputs) {
+            HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
             ServiceEndpoints endpoints = serviceEndpointsOverride != null
                     ? serviceEndpointsOverride
-                    : clientContext.getServiceEndpoints();
-            FDv2Requestor requestor = makePollingRequestor(clientContext, s.httpProps, endpoints);
+                    : inputs.getServiceEndpoints();
+            FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
             ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
-            return new FDv2PollingSynchronizer(requestor, s.selectorSource, exec,
-                    0, pollIntervalMillis, clientContext.getBaseLogger());
+            return new FDv2PollingSynchronizer(requestor, inputs.getSelectorSource(), exec,
+                    0, pollIntervalMillis, inputs.getBaseLogger());
         }
     }
 
     static final class StreamingSynchronizerBuilderImpl extends StreamingSynchronizerBuilder {
         @Override
-        public Synchronizer build(ClientContext clientContext) {
-            DataSourceSetup s = new DataSourceSetup(clientContext);
+        public Synchronizer build(DataSourceBuildInputs inputs) {
+            HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
             ServiceEndpoints endpoints = serviceEndpointsOverride != null
                     ? serviceEndpointsOverride
-                    : clientContext.getServiceEndpoints();
-            FDv2Requestor requestor = makePollingRequestor(clientContext, s.httpProps, endpoints);
+                    : inputs.getServiceEndpoints();
+            FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
             URI streamBase = StandardEndpoints.selectBaseUri(
                     endpoints.getStreamingBaseUri(),
                     StandardEndpoints.DEFAULT_STREAMING_BASE_URI,
-                    "streaming", clientContext.getBaseLogger());
+                    "streaming", inputs.getBaseLogger());
             return new FDv2StreamingSynchronizer(
-                    clientContext.getEvaluationContext(), s.selectorSource, streamBase,
+                    inputs.getEvaluationContext(), inputs.getSelectorSource(), streamBase,
                     StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
                     requestor,
                     initialReconnectDelayMillis,
-                    clientContext.isEvaluationReasons(), clientContext.getHttp().isUseReport(),
-                    s.httpProps, Executors.newSingleThreadExecutor(),
-                    clientContext.getBaseLogger(), null);
+                    inputs.isEvaluationReasons(), inputs.getHttp().isUseReport(),
+                    httpProps, Executors.newSingleThreadExecutor(),
+                    inputs.getBaseLogger(), null);
         }
     }
 
     static final class BackgroundPollingSynchronizerBuilderImpl extends PollingSynchronizerBuilder {
         @Override
-        public Synchronizer build(ClientContext clientContext) {
-            DataSourceSetup s = new DataSourceSetup(clientContext);
+        public Synchronizer build(DataSourceBuildInputs inputs) {
+            HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
             ServiceEndpoints endpoints = serviceEndpointsOverride != null
                     ? serviceEndpointsOverride
-                    : clientContext.getServiceEndpoints();
-            FDv2Requestor requestor = makePollingRequestor(clientContext, s.httpProps, endpoints);
+                    : inputs.getServiceEndpoints();
+            FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
             ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
-            return new FDv2PollingSynchronizer(requestor, s.selectorSource, exec,
-                    0, LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, clientContext.getBaseLogger());
+            return new FDv2PollingSynchronizer(requestor, inputs.getSelectorSource(), exec,
+                    0, LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, inputs.getBaseLogger());
         }
     }
 
@@ -212,41 +211,22 @@ public abstract class DataSystemComponents {
     }
 
     /**
-     * Holds the shared infrastructure needed by all FDv2 data source components:
-     * a {@link SelectorSource} backed by the {@link TransactionalDataStore} (or an empty
-     * fallback if none is configured), and the {@link HttpProperties} for the current
-     * client configuration.
-     */
-    private static final class DataSourceSetup {
-        final SelectorSource selectorSource;
-        final HttpProperties httpProps;
-
-        DataSourceSetup(ClientContext ctx) {
-            TransactionalDataStore store = ClientContextImpl.get(ctx).getTransactionalDataStore();
-            this.selectorSource = store != null
-                    ? new SelectorSourceFacade(store)
-                    : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
-            this.httpProps = LDUtil.makeHttpProperties(ctx);
-        }
-    }
-
-    /**
      * Builds a {@link DefaultFDv2Requestor} configured for polling endpoints. Used
      * directly by polling components and as the fallback requestor for the streaming
      * synchronizer (which needs it for internal polling fallback when the stream cannot
      * be established).
      */
-    private static FDv2Requestor makePollingRequestor(ClientContext ctx, HttpProperties httpProps,
-            ServiceEndpoints endpoints) {
+    private static FDv2Requestor makePollingRequestor(DataSourceBuildInputs inputs,
+            ServiceEndpoints endpoints, HttpProperties httpProps) {
         URI pollingBase = StandardEndpoints.selectBaseUri(
                 endpoints.getPollingBaseUri(),
                 StandardEndpoints.DEFAULT_POLLING_BASE_URI,
-                "polling", ctx.getBaseLogger());
+                "polling", inputs.getBaseLogger());
         return new DefaultFDv2Requestor(
-                ctx.getEvaluationContext(), pollingBase,
+                inputs.getEvaluationContext(), pollingBase,
                 StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
                 StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                httpProps, ctx.getHttp().isUseReport(),
-                ctx.isEvaluationReasons(), null, ctx.getBaseLogger());
+                httpProps, inputs.getHttp().isUseReport(),
+                inputs.isEvaluationReasons(), null, inputs.getBaseLogger());
     }
 }

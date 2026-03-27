@@ -4,7 +4,7 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
-import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
@@ -44,8 +44,8 @@ import java.util.List;
  */
 public class ConnectionModeBuilder {
 
-    private final List<ComponentConfigurer<Initializer>> initializers = new ArrayList<>();
-    private final List<ComponentConfigurer<Synchronizer>> synchronizers = new ArrayList<>();
+    private final List<DataSourceBuilder<Initializer>> initializers = new ArrayList<>();
+    private final List<DataSourceBuilder<Synchronizer>> synchronizers = new ArrayList<>();
 
     /**
      * Sets the initializers for this connection mode.
@@ -59,11 +59,11 @@ public class ConnectionModeBuilder {
      *     builder.initializers(DataSystemComponents.pollingInitializer())
      * </code></pre>
      *
-     * @param initializers the initializer configurers, in priority order
+     * @param initializers the initializer builders, in priority order
      * @return this builder
      */
     @SafeVarargs
-    public final ConnectionModeBuilder initializers(@NonNull ComponentConfigurer<Initializer>... initializers) {
+    public final ConnectionModeBuilder initializers(@NonNull DataSourceBuilder<Initializer>... initializers) {
         this.initializers.clear();
         this.initializers.addAll(Arrays.asList(initializers));
         return this;
@@ -83,11 +83,11 @@ public class ConnectionModeBuilder {
      *         DataSystemComponents.pollingSynchronizer())
      * </code></pre>
      *
-     * @param synchronizers the synchronizer configurers, in priority order
+     * @param synchronizers the synchronizer builders, in priority order
      * @return this builder
      */
     @SafeVarargs
-    public final ConnectionModeBuilder synchronizers(@NonNull ComponentConfigurer<Synchronizer>... synchronizers) {
+    public final ConnectionModeBuilder synchronizers(@NonNull DataSourceBuilder<Synchronizer>... synchronizers) {
         this.synchronizers.clear();
         this.synchronizers.addAll(Arrays.asList(synchronizers));
         return this;
@@ -96,20 +96,20 @@ public class ConnectionModeBuilder {
     /**
      * Returns the configured initializers as an unmodifiable list.
      *
-     * @return the initializer configurers
+     * @return the initializer builders
      */
     @NonNull
-    public List<ComponentConfigurer<Initializer>> getInitializers() {
+    public List<DataSourceBuilder<Initializer>> getInitializers() {
         return Collections.unmodifiableList(initializers);
     }
 
     /**
      * Returns the configured synchronizers as an unmodifiable list.
      *
-     * @return the synchronizer configurers
+     * @return the synchronizer builders
      */
     @NonNull
-    public List<ComponentConfigurer<Synchronizer>> getSynchronizers() {
+    public List<DataSourceBuilder<Synchronizer>> getSynchronizers() {
         return Collections.unmodifiableList(synchronizers);
     }
 }

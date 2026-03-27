@@ -5,10 +5,13 @@ import androidx.annotation.NonNull;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
+import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 
 import java.io.Closeable;
 import java.net.URI;
@@ -22,7 +25,7 @@ import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * Builds an {@link FDv2DataSource} and resolves the mode table from
- * {@link ComponentConfigurer} factories into zero-arg {@link FDv2DataSource.DataSourceFactory}
+ * {@link DataSourceBuilder} factories into zero-arg {@link FDv2DataSource.DataSourceFactory}
  * instances. The resolved table is stored and exposed via {@link #getResolvedModeTable()}
  * so that {@link ConnectivityManager} can perform mode-to-definition lookups when switching modes.
  * <p>
@@ -117,7 +120,8 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                     "Mode " + mode + " not found in mode table");
         }
 
-        ResolvedModeDefinition resolved = resolve(modeDef, clientContext);
+        DataSourceBuildInputs inputs = makeInputs(clientContext);
+        ResolvedModeDefinition resolved = resolve(modeDef, inputs);
 
         DataSourceUpdateSink baseSink = clientContext.getDataSourceUpdateSink();
         if (!(baseSink instanceof DataSourceUpdateSinkV2)) {
@@ -149,16 +153,31 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         }
     }
 
+    private static DataSourceBuildInputs makeInputs(ClientContext clientContext) {
+        TransactionalDataStore store = ClientContextImpl.get(clientContext).getTransactionalDataStore();
+        SelectorSource selectorSource = store != null
+                ? new SelectorSourceFacade(store)
+                : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
+        return new DataSourceBuildInputs(
+                clientContext.getEvaluationContext(),
+                clientContext.getServiceEndpoints(),
+                clientContext.getHttp(),
+                clientContext.isEvaluationReasons(),
+                selectorSource,
+                clientContext.getBaseLogger()
+        );
+    }
+
     private static ResolvedModeDefinition resolve(
-            ModeDefinition def, ClientContext clientContext
+            ModeDefinition def, DataSourceBuildInputs inputs
     ) {
         List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories = new ArrayList<>();
-        for (ComponentConfigurer<Initializer> configurer : def.getInitializers()) {
-            initFactories.add(() -> configurer.build(clientContext));
+        for (DataSourceBuilder<Initializer> builder : def.getInitializers()) {
+            initFactories.add(() -> builder.build(inputs));
         }
         List<FDv2DataSource.DataSourceFactory<Synchronizer>> syncFactories = new ArrayList<>();
-        for (ComponentConfigurer<Synchronizer> configurer : def.getSynchronizers()) {
-            syncFactories.add(() -> configurer.build(clientContext));
+        for (DataSourceBuilder<Synchronizer> builder : def.getSynchronizers()) {
+            syncFactories.add(() -> builder.build(inputs));
         }
         return new ResolvedModeDefinition(initFactories, syncFactories);
     }

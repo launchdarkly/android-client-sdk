@@ -7,7 +7,7 @@ import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
 import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.ModeDefinition;
-import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
@@ -255,8 +255,8 @@ public class DataSystemBuilder {
 
         if (disableBackgroundUpdating) {
             table.put(ConnectionMode.BACKGROUND, new ModeDefinition(
-                    Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                    Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                    Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                    Collections.<DataSourceBuilder<Synchronizer>>emptyList()
             ));
         }
 
@@ -268,13 +268,13 @@ public class DataSystemBuilder {
      */
     @NonNull
     private static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
-        ComponentConfigurer<Initializer> pollingInitializer = DataSystemComponents.pollingInitializer();
+        DataSourceBuilder<Initializer> pollingInitializer = DataSystemComponents.pollingInitializer();
 
-        ComponentConfigurer<Synchronizer> pollingSynchronizer = DataSystemComponents.pollingSynchronizer();
+        DataSourceBuilder<Synchronizer> pollingSynchronizer = DataSystemComponents.pollingSynchronizer();
 
-        ComponentConfigurer<Synchronizer> streamingSynchronizer = DataSystemComponents.streamingSynchronizer();
+        DataSourceBuilder<Synchronizer> streamingSynchronizer = DataSystemComponents.streamingSynchronizer();
 
-        ComponentConfigurer<Synchronizer> backgroundPollingSynchronizer =
+        DataSourceBuilder<Synchronizer> backgroundPollingSynchronizer =
                 DataSystemComponents.pollingSynchronizer()
                         .pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
 
@@ -286,22 +286,22 @@ public class DataSystemBuilder {
         ));
         table.put(ConnectionMode.POLLING, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
                 Collections.singletonList(pollingSynchronizer)
         ));
         table.put(ConnectionMode.OFFLINE, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList()
         ));
         table.put(ConnectionMode.ONE_SHOT, new ModeDefinition(
                 // TODO: cacheInitializer and streamingInitializer — add once implemented
                 Arrays.asList(/* cacheInitializer, */ pollingInitializer /*, streamingInitializer, */),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList()
         ));
         table.put(ConnectionMode.BACKGROUND, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
                 Collections.singletonList(backgroundPollingSynchronizer)
         ));
         return table;
