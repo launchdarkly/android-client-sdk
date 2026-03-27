@@ -18,6 +18,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
+import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.Callback;
@@ -37,6 +38,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
@@ -101,17 +103,19 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         taskExecutor.close();
     }
 
-    private void createTestManager(
-            boolean setOffline,
-            boolean backgroundDisabled,
-            ComponentConfigurer<DataSource> dataSourceConfigurer
-    ) {
-        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+    /** LDConfig with {@link #MOBILE_KEY} and the usual offline / disable-background flags. */
+    private static LDConfig defaultTestConfig(boolean setOffline, boolean backgroundDisabled) {
+        return new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .offline(setOffline)
                 .disableBackgroundUpdating(backgroundDisabled)
                 .build();
+    }
 
+    private void createTestManager(
+            @NonNull LDConfig config,
+            ComponentConfigurer<DataSource> dataSourceConfigurer
+    ) {
         ClientContext clientContext = ClientContextImpl.fromConfig(
                 config,
                 MOBILE_KEY,
@@ -179,7 +183,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         replayAll();
 
-        createTestManager(true, false, mockDataSourceConfigurerIsNeverCalled);
+        createTestManager(defaultTestConfig(true, false), mockDataSourceConfigurerIsNeverCalled);
 
         awaitStartUp();
         verifyAll();
@@ -202,7 +206,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         mockPlatformState.setNetworkAvailable(false);
 
-        createTestManager(false, true, mockDataSourceConfigurerIsNeverCalled);
+        createTestManager(defaultTestConfig(false, true), mockDataSourceConfigurerIsNeverCalled);
 
         awaitStartUp();
         verifyAll();
@@ -225,7 +229,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         mockPlatformState.setForeground(false);
 
-        createTestManager(false, true, mockDataSourceConfigurerIsNeverCalled);
+        createTestManager(defaultTestConfig(false, true), mockDataSourceConfigurerIsNeverCalled);
 
         awaitStartUp();
         verifyAll();
@@ -242,7 +246,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
         verifyAll();
@@ -267,7 +271,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         mockPlatformState.setForeground(false);
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
         verifyAll();
@@ -295,7 +299,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext ->
                 MockComponents.failingDataSource(clientContext, ConnectionMode.POLLING, testFailure);
 
-        createTestManager(false, false, dataSourceConfigurer);
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer);
 
         awaitStartUp();
         verifyAll();
@@ -322,7 +326,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext ->
                 MockComponents.failingDataSource(clientContext, ConnectionMode.POLLING, testError);
 
-        createTestManager(false, false, dataSourceConfigurer);
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer);
 
         awaitStartUp();
         verifyAll();
@@ -345,7 +349,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
 
@@ -380,7 +384,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
 
@@ -433,7 +437,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 }
             };
         };
-        createTestManager(false, false, makeDataSourceThatDoesNotRefresh);
+        createTestManager(defaultTestConfig(false, false), makeDataSourceThatDoesNotRefresh);
 
         awaitStartUp();
 
@@ -455,7 +459,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
 
-        createTestManager(false, true, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, true), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
 
@@ -489,7 +493,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
         verifyAll();
@@ -523,7 +527,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false); // we expect this call
         replayAll();
 
-        createTestManager(true, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(true, false), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
         verifyAll();
@@ -551,7 +555,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         mockPlatformState.setForeground(false);
 
-        createTestManager(false, true, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, true), makeSuccessfulDataSourceFactory());
 
         awaitStartUp();
         verifyAll();
@@ -582,7 +586,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -596,7 +600,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -627,7 +631,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -658,7 +662,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -691,7 +695,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, clientContext -> {
+        createTestManager(defaultTestConfig(false, false), clientContext -> {
             receivedClientContexts.add(clientContext);
             ClientContextImpl impl = ClientContextImpl.get(clientContext);
             assertNotNull(impl.getTransactionalDataStore());
@@ -705,7 +709,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
     @Test
     public void notifyListenersWhenStatusChanges() throws Exception {
-        createTestManager(false, false, makeSuccessfulDataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
         awaitStartUp();
 
         LDStatusListener mockListener = mock(LDStatusListener.class);
@@ -806,16 +810,16 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private FDv2DataSourceBuilder makeFDv2DataSourceFactory() {
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
-                Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
-                Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, new ModeDefinition(
-                Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList()
         ));
         return new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
             @Override
@@ -835,7 +839,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(true);
         replayAll();
 
-        createTestManager(false, false, makeFDv2DataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -857,7 +861,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeFDv2DataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -882,7 +886,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeFDv2DataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -903,7 +907,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeFDv2DataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -923,7 +927,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeFDv2DataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -937,8 +941,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     @Test
     public void fdv2_equivalentConfigDoesNotRebuild() throws Exception {
         ModeDefinition sharedDef = new ModeDefinition(
-                Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
         );
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, sharedDef);
@@ -959,7 +963,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(true);
         replayAll();
 
-        createTestManager(false, false, builder);
+        createTestManager(defaultTestConfig(false, false), builder);
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -979,7 +983,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         replayAll();
 
-        createTestManager(false, false, makeFDv2DataSourceFactory());
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
@@ -1001,20 +1005,18 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
-                Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
-                Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
             @Override
             public DataSource build(ClientContext clientContext) {
-                // After setActiveMode(mode, includeInitializers), build() resets includeInitializers
-                // to true. We can observe this by checking what build() would produce. The super.build()
-                // uses the includeInitializers flag internally.
+                initializerIncluded.offer(readIncludeInitializersFlag(this));
                 receivedClientContexts.add(clientContext);
                 return MockComponents.successfulDataSource(clientContext, DATA,
                         ConnectionMode.STREAMING, startedDataSources, stoppedDataSources);
@@ -1027,15 +1029,139 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(true);
         replayAll();
 
-        createTestManager(false, false, builder);
+        createTestManager(defaultTestConfig(false, false), builder);
         awaitStartUp();
+        assertEquals(Boolean.TRUE, initializerIncluded.poll(1, TimeUnit.SECONDS));
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
 
         verifyDataSourceWasStopped();
+        assertEquals(Boolean.FALSE, initializerIncluded.poll(1, TimeUnit.SECONDS));
         requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "bg data source creation");
         requireValue(startedDataSources, 1, TimeUnit.SECONDS, "bg data source started");
         verifyAll();
+    }
+
+    @Test
+    public void fdv2_lifecycleSwitchingDisabled_doesNotRebuildOnForegroundChange() throws Exception {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey(MOBILE_KEY)
+                .dataSystem(
+                        Components.dataSystem()
+                                .automaticModeSwitching(
+                                        DataSystemComponents.automaticModeSwitching()
+                                                .lifecycle(false)
+                                                .network(true)
+                                                .build()))
+                .build();
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        createTestManager(config, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_networkSwitchingDisabled_doesNotRebuildOnConnectivityChange() throws Exception {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey(MOBILE_KEY)
+                .dataSystem(
+                        Components.dataSystem()
+                                .automaticModeSwitching(
+                                        DataSystemComponents.automaticModeSwitching()
+                                                .lifecycle(true)
+                                                .network(false)
+                                                .build()))
+                .build();
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(config, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_fullyDisabled_lifecycleChangeDoesNotRebuildDataSource() throws Exception {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey(MOBILE_KEY)
+                .dataSystem(
+                        Components.dataSystem()
+                                .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled()))
+                .build();
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        createTestManager(config, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_fullyDisabled_connectivityChangeDoesNotRebuildDataSource() throws Exception {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey(MOBILE_KEY)
+                .dataSystem(
+                        Components.dataSystem()
+                                .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled()))
+                .build();
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(config, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    private static boolean readIncludeInitializersFlag(FDv2DataSourceBuilder builder) {
+        try {
+            java.lang.reflect.Field f = FDv2DataSourceBuilder.class.getDeclaredField("includeInitializers");
+            f.setAccessible(true);
+            return f.getBoolean(builder);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
