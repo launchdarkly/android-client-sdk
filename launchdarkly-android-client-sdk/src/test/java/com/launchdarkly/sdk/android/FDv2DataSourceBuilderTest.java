@@ -225,6 +225,30 @@ public class FDv2DataSourceBuilderTest {
     }
 
     @Test
+    public void threeArgConstructor_retainsCustomResolutionTable() {
+        ModeResolutionTable custom = new ModeResolutionTable(
+                Collections.singletonList(
+                        new ModeResolutionEntry(ModeState::isForeground, ConnectionMode.POLLING)),
+                ConnectionMode.OFFLINE);
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.POLLING, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+        ));
+        customTable.put(ConnectionMode.OFFLINE, new ModeDefinition(
+                Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+        ));
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(
+                customTable, ConnectionMode.OFFLINE, custom);
+        assertSame(custom, builder.getResolutionTable());
+        assertSame(ConnectionMode.OFFLINE, builder.getStartingMode());
+        assertSame(ConnectionMode.POLLING,
+                custom.resolve(new ModeState(true, true, false)));
+    }
+
+    @Test
     public void setActiveMode_notInTable_throws() {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
