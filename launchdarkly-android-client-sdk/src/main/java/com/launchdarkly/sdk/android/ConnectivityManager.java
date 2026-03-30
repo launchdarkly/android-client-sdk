@@ -76,6 +76,7 @@ class ConnectivityManager {
     private final LDLogger logger;
     private volatile boolean initialized = false;
     private final boolean useFDv2ModeResolution;
+    private final ModeResolutionTable modeResolutionTable;
     private volatile ConnectionMode currentFDv2Mode;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
 
@@ -156,9 +157,11 @@ class ConnectivityManager {
         this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();
         this.autoModeSwitchingConfig = ldConfig.getAutomaticModeSwitchingConfig();
         this.useFDv2ModeResolution = (dataSourceFactory instanceof FDv2DataSourceBuilder);
+        this.modeResolutionTable = useFDv2ModeResolution
+                ? ((FDv2DataSourceBuilder) dataSourceFactory).getResolutionTable()
+                : null;
 
         connectivityChangeListener = networkAvailable -> {
-            // TODO: discuss refactoring this with aaron
             if (useFDv2ModeResolution && !autoModeSwitchingConfig.isNetwork()) {
                 updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
                 return;
@@ -168,7 +171,6 @@ class ConnectivityManager {
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
         foregroundListener = foreground -> {
-            // TODO: discuss refactoring this with aaron
             if (useFDv2ModeResolution && !autoModeSwitchingConfig.isLifecycle()) {
                 updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
                 return;
@@ -547,7 +549,7 @@ class ConnectivityManager {
         if (forcedOffline.get()) {
             return ConnectionMode.OFFLINE;
         }
-        return ModeResolutionTable.MOBILE.resolve(state);
+        return modeResolutionTable.resolve(state);
     }
 
     synchronized ConnectionInformation getConnectionInformation() {

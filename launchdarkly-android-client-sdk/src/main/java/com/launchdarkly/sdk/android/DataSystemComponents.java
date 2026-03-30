@@ -102,20 +102,6 @@ public abstract class DataSystemComponents {
         }
     }
 
-    static final class BackgroundPollingSynchronizerBuilderImpl extends PollingSynchronizerBuilder {
-        @Override
-        public Synchronizer build(DataSourceBuildInputs inputs) {
-            HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
-            ServiceEndpoints endpoints = serviceEndpointsOverride != null
-                    ? serviceEndpointsOverride
-                    : inputs.getServiceEndpoints();
-            FDv2Requestor requestor = makePollingRequestor(inputs, endpoints, httpProps);
-            return new FDv2PollingSynchronizer(requestor, inputs.getSelectorSource(),
-                    inputs.getSharedExecutor(),
-                    0, LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS, inputs.getBaseLogger());
-        }
-    }
-
     /**
      * Returns a builder for a polling initializer.
      * <p>

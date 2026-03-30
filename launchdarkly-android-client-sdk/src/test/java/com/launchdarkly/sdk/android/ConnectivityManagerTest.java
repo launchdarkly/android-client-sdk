@@ -1010,6 +1010,62 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
     }
 
+    /**
+     * Regression: ConnectivityManager must resolve modes using
+     * {@link FDv2DataSourceBuilder#getResolutionTable()}, not {@link ModeResolutionTable#MOBILE}.
+     * <p>
+     * With the bug, foreground + network always resolved to STREAMING (MOBILE default). A custom
+     * table with foreground POLLING would still activate STREAMING. This test would fail in that
+     * case because we assert POLLING.
+     */
+    @Test
+    public void fdv2_customResolutionTable_determinesActiveModeOnStartup() throws Exception {
+        ModeResolutionTable custom = ModeResolutionTable.createMobile(
+                com.launchdarkly.sdk.android.ConnectionMode.POLLING,
+                com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND);
+
+        ModeDefinition def = new ModeDefinition(
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null));
+        Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> modeTable = new LinkedHashMap<>();
+        modeTable.put(com.launchdarkly.sdk.android.ConnectionMode.POLLING, def);
+        modeTable.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, def);
+        modeTable.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, def);
+        modeTable.put(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, new ModeDefinition(
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList()));
+
+        final com.launchdarkly.sdk.android.ConnectionMode[] activeModeCapture = new com.launchdarkly.sdk.android.ConnectionMode[1];
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(
+                modeTable,
+                com.launchdarkly.sdk.android.ConnectionMode.STREAMING,
+                custom) {
+            @Override
+            void setActiveMode(com.launchdarkly.sdk.android.ConnectionMode mode, boolean includeInitializers) {
+                activeModeCapture[0] = mode;
+                super.setActiveMode(mode, includeInitializers);
+            }
+
+            @Override
+            public DataSource build(ClientContext clientContext) {
+                receivedClientContexts.add(clientContext);
+                return MockComponents.successfulDataSource(clientContext, DATA,
+                        ConnectionMode.STREAMING, startedDataSources, stoppedDataSources);
+            }
+        };
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), builder);
+        awaitStartUp();
+
+        assertEquals(com.launchdarkly.sdk.android.ConnectionMode.POLLING, activeModeCapture[0]);
+        verifyAll();
+    }
+
     @Test
     public void fdv2_equivalentConfigDoesNotRebuild() throws Exception {
         ModeDefinition sharedDef = new ModeDefinition(

@@ -21,7 +21,7 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
  *     DataSystemComponents.customMode()
  *         .synchronizers(
  *             DataSystemComponents.pollingSynchronizer()
- *                 .pollIntervalMillis(60_000))
+ *                 .pollIntervalMillis(900_000))
  * </code></pre>
  * <p>
  * Note that this class is abstract; the actual implementation is created by calling
