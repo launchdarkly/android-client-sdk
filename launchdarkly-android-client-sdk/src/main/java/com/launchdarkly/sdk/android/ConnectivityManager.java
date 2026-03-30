@@ -72,7 +72,7 @@ class ConnectivityManager {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
     private final AtomicReference<LDContext> currentContext = new AtomicReference<>();
-    private final AtomicReference<Boolean> previouslyInBackground = new AtomicReference<>();
+    private final AtomicReference<ModeState> previousModeState = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
     private final boolean useFDv2ModeResolution;
@@ -189,12 +189,14 @@ class ConnectivityManager {
     void switchToContext(@NonNull LDContext context, @NonNull Callback<Void> onCompletion) {
         DataSource dataSource = currentDataSource.get();
         LDContext oldContext = currentContext.getAndSet(context);
+
         if (oldContext == context || oldContext.equals(context)) {
             onCompletion.onSuccess(null);
         } else {
-            if (dataSource == null || dataSource.needsRefresh(!platformState.isForeground(), context)) {
-                updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
-                updateDataSource(true, onCompletion);
+            ModeState state = snapshotModeState();
+            if (dataSource == null || dataSource.needsRefresh(!state.isForeground(), context)) {
+                updateEventProcessor(forcedOffline.get(), state.isNetworkAvailable(), state.isForeground());
+                updateDataSource(true, state, onCompletion);
             } else {
                 onCompletion.onSuccess(null);
             }
@@ -203,6 +205,7 @@ class ConnectivityManager {
 
     private synchronized boolean updateDataSource(
             boolean mustReinitializeDataSource,
+            @NonNull ModeState newState,
             @NonNull Callback<Void> onCompletion
     ) {
         if (!started.get()) {
@@ -211,11 +214,11 @@ class ConnectivityManager {
 
         DataSource existingDataSource = currentDataSource.get();
         boolean isFDv2ModeSwitch = false;
-
+        
         // FDv2 path: resolve mode for both startup (mustReinitializeDataSource=true) and
         // state-change (mustReinitializeDataSource=false) cases.
         if (useFDv2ModeResolution) {
-            ConnectionMode newMode = resolveMode();
+            ConnectionMode newMode = resolveMode(newState);
             if (!mustReinitializeDataSource) {
                 // State-change path: check for no-op or equivalent config before rebuilding.
                 if (newMode == currentFDv2Mode) {
@@ -240,17 +243,22 @@ class ConnectivityManager {
             currentFDv2Mode = newMode;
         }
 
-        // Check whether the existing data source needs a rebuild (e.g. evaluation context changed).
+        // Only consult needsRefresh() when the platform state has actually changed since the
+        // last data source was built. Duplicate notifications (e.g. a connectivity event that
+        // doesn't change the network state) are filtered out, preventing unnecessary rebuilds.
+        // Context changes are handled by switchToContext(), which passes
+        // mustReinitializeDataSource=true directly.
         if (!mustReinitializeDataSource && existingDataSource != null) {
-            boolean inBackground = !platformState.isForeground();
-            if (existingDataSource.needsRefresh(inBackground, currentContext.get())) {
-                mustReinitializeDataSource = true;
+            boolean inBackground = !newState.isForeground();
+            ModeState prevState = previousModeState.get();
+            if (prevState != null && !prevState.equals(newState)) {
+                if (existingDataSource.needsRefresh(inBackground, currentContext.get())) {
+                    mustReinitializeDataSource = true;
+                }
             }
         }
 
         boolean forceOffline = forcedOffline.get();
-        boolean networkEnabled = platformState.isNetworkAvailable();
-        boolean inBackground = !platformState.isForeground();
         LDContext context = currentContext.get();
 
         boolean shouldStopExistingDataSource = true,
@@ -270,9 +278,9 @@ class ConnectivityManager {
             logger.debug("Initialized in offline mode");
             initialized = true;
             dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.SET_OFFLINE, null);
-        } else if (!networkEnabled) {
+        } else if (!newState.isNetworkAvailable()) {
             dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.OFFLINE, null);
-        } else if (inBackground && backgroundUpdatingDisabled) {
+        } else if (!newState.isForeground() && newState.isBackgroundUpdatingDisabled()) {
             dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.BACKGROUND_DISABLED, null);
         } else {
             shouldStopExistingDataSource = mustReinitializeDataSource;
@@ -291,13 +299,13 @@ class ConnectivityManager {
             return false;
         }
 
-        logger.debug("Creating data source (background={})", inBackground);
+        logger.debug("Creating data source (background={})", !newState.isForeground());
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext,
                 dataSourceUpdateSink,
                 context,
-                inBackground,
-                previouslyInBackground.get(),
+                !newState.isForeground(),
+                previousModeState.get() != null ? !previousModeState.get().isForeground() : null,
                 transactionalDataStore
         );
 
@@ -309,7 +317,7 @@ class ConnectivityManager {
 
         DataSource dataSource = dataSourceFactory.build(clientContext);
         currentDataSource.set(dataSource);
-        previouslyInBackground.set(Boolean.valueOf(inBackground));
+        previousModeState.set(newState);
 
         dataSource.start(new Callback<Boolean>() {
             @Override
@@ -468,8 +476,9 @@ class ConnectivityManager {
         }
         initialized = false;
 
-        updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
-        return updateDataSource(true, onCompletion);
+        ModeState state = snapshotModeState();
+        updateEventProcessor(forcedOffline.get(), state.isNetworkAvailable(), state.isForeground());
+        return updateDataSource(true, state, onCompletion);
     }
 
     /**
@@ -516,12 +525,17 @@ class ConnectivityManager {
      * routes to the appropriate data source update path.
      */
     private synchronized void handleModeStateChange() {
-        boolean forceOffline = forcedOffline.get();
-        boolean networkAvailable = platformState.isNetworkAvailable();
-        boolean foreground = platformState.isForeground();
+        ModeState state = snapshotModeState();
+        updateEventProcessor(forcedOffline.get(), state.isNetworkAvailable(), state.isForeground());
+        updateDataSource(false, state, LDUtil.noOpCallback());
+    }
 
-        updateEventProcessor(forceOffline, networkAvailable, foreground);
-        updateDataSource(false, LDUtil.noOpCallback());
+    private ModeState snapshotModeState() {
+        return new ModeState(
+            platformState.isForeground(),
+            platformState.isNetworkAvailable(),
+            backgroundUpdatingDisabled
+        );
     }
 
     /**
@@ -529,20 +543,10 @@ class ConnectivityManager {
      * {@link ModeResolutionTable}. Force-offline is handled as a short-circuit
      * so that {@link ModeState} faithfully represents actual platform state.
      */
-    private ConnectionMode resolveMode() {
+    private ConnectionMode resolveMode(ModeState state) {
         if (forcedOffline.get()) {
             return ConnectionMode.OFFLINE;
         }
-        ModeState state = new ModeState(
-                platformState.isForeground(),
-                platformState.isNetworkAvailable(),
-                backgroundUpdatingDisabled
-        );
-        // TODO: these if checks and casts irk Todd, discuss
-        if (useFDv2ModeResolution) {
-            return ((FDv2DataSourceBuilder) dataSourceFactory).getResolutionTable().resolve(state);
-        }
-        // TODO: this is not reachable practically, so this indicates code smell and necessary refactor
         return ModeResolutionTable.MOBILE.resolve(state);
     }
 

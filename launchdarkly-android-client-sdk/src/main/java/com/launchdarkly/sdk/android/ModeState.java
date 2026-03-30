@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import java.util.Objects;
+
 /**
  * Snapshot of the current platform state used as input to
  * {@link ModeResolutionTable#resolve(ModeState)}.
@@ -33,5 +35,17 @@ final class ModeState {
 
     boolean isBackgroundUpdatingDisabled() {
         return backgroundUpdatingDisabled;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        ModeState modeState = (ModeState) o;
+        return foreground == modeState.foreground && networkAvailable == modeState.networkAvailable && backgroundUpdatingDisabled == modeState.backgroundUpdatingDisabled;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(foreground, networkAvailable, backgroundUpdatingDisabled);
     }
 }

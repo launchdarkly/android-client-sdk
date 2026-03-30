@@ -690,6 +690,53 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
+    public void fdv1_connectivityChange_whileOnline_doesNotRebuildPollingDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        // Fire a connectivity change while the network remains available — the existing
+        // polling data source should NOT be torn down and rebuilt.
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_foregroundToBackground_rebuildsPollingDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        replayAll();
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+        ConnectionMode bgMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.BACKGROUND_POLLING, bgMode);
+        verifyDataSourceWasStopped();
+        verifyBackgroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+    }
+
+    @Test
     public void fdv1_forDataSource_transactionalDataStoreIsPassedThrough() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
@@ -916,6 +963,31 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyDataSourceWasStopped();
         requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "offline data source creation");
         requireValue(startedDataSources, 1, TimeUnit.SECONDS, "offline data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_connectivityChange_withSameMode_doesNotRebuildDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        // Fire a connectivity change while the network remains available — the resolved
+        // mode is still STREAMING, so no rebuild should occur.
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
         verifyAll();
     }
 
