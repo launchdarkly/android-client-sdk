@@ -81,6 +81,7 @@ public class FDv2DataSourceTest {
                 CONTEXT,
                 initializers,
                 synchronizers,
+                null,
                 sink,
                 executor,
                 logging.logger);
@@ -96,6 +97,7 @@ public class FDv2DataSourceTest {
                 CONTEXT,
                 initializers,
                 synchronizers,
+                null,
                 sink,
                 executor,
                 logging.logger,
@@ -1419,6 +1421,91 @@ public class FDv2DataSourceTest {
 
         DataSourceState offStatus = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.OFF, offStatus);
+    }
+
+    // ---- FDv1 fallback ----
+
+    @Test
+    public void fdv1FallbackSwitchesToFdv1Synchronizer() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+
+        MockQueuedSynchronizer fdv2Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), true));
+
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
+
+        FDv2DataSource dataSource = new FDv2DataSource(
+                CONTEXT,
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv1Sync),
+                sink,
+                executor,
+                logging.logger);
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        DataSourceState secondValid = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(DataSourceState.VALID, secondValid);
+
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void fdv1FallbackNotTriggeredWhenAlreadyOnFdv1() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+
+        MockQueuedSynchronizer fdv2Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), true));
+
+        AtomicInteger fdv1BuildCount = new AtomicInteger(0);
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
+
+        FDv2DataSource dataSource = new FDv2DataSource(
+                CONTEXT,
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> {
+                    fdv1BuildCount.incrementAndGet();
+                    return fdv1Sync;
+                }),
+                sink,
+                executor,
+                logging.logger);
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        assertEquals(1, fdv1BuildCount.get());
+
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void fdv1FallbackNotTriggeredWhenNoFdv1SlotExists() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+
+        MockQueuedSynchronizer fdv2Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), true));
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync));
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        stopDataSource(dataSource);
     }
 
     @Test

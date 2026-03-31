@@ -59,14 +59,21 @@ final class SourceManager implements Closeable {
         return false;
     }
 
-    /** Block all non-FDv1 synchronizers and unblock the FDv1 fallback. Android: no-op for now. */
+    /**
+     * Block all non-FDv1 synchronizers, unblock the FDv1 fallback, and reset the
+     * synchronizer index so the next {@link #getNextAvailableSynchronizerAndSetActive()}
+     * picks the now-unblocked FDv1 slot.
+     */
     void fdv1Fallback() {
-        for (SynchronizerFactoryWithState s : synchronizerFactories) {
-            if (s.isFDv1Fallback()) {
-                s.unblock();
-            } else {
-                s.block();
+        synchronized (activeSourceLock) {
+            for (SynchronizerFactoryWithState s : synchronizerFactories) {
+                if (s.isFDv1Fallback()) {
+                    s.unblock();
+                } else {
+                    s.block();
+                }
             }
+            synchronizerIndex = -1;
         }
     }
 

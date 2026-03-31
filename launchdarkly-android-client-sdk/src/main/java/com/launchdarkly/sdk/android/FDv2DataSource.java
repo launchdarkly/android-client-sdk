@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
@@ -58,39 +59,46 @@ final class FDv2DataSource implements DataSource {
 
     /**
      * Convenience constructor using default fallback and recovery timeouts.
-     * See {@link #FDv2DataSource(LDContext, List, List, DataSourceUpdateSinkV2,
+     * See {@link #FDv2DataSource(LDContext, List, List, List, DataSourceUpdateSinkV2,
      * ScheduledExecutorService, LDLogger, long, long)} for parameter documentation.
      */
     FDv2DataSource(
             @NonNull LDContext evaluationContext,
             @NonNull List<DataSourceFactory<Initializer>> initializers,
             @NonNull List<DataSourceFactory<Synchronizer>> synchronizers,
+            @Nullable List<DataSourceFactory<Synchronizer>> fdv1FallbackSynchronizers,
             @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
             @NonNull ScheduledExecutorService sharedExecutor,
             @NonNull LDLogger logger
     ) {
-        this(evaluationContext, initializers, synchronizers, dataSourceUpdateSink, sharedExecutor, logger,
+        this(evaluationContext, initializers, synchronizers, fdv1FallbackSynchronizers,
+                dataSourceUpdateSink, sharedExecutor, logger,
                 FDv2DataSourceConditions.DEFAULT_FALLBACK_TIMEOUT_SECONDS,
                 FDv2DataSourceConditions.DEFAULT_RECOVERY_TIMEOUT_SECONDS);
     }
 
     /**
-     * @param evaluationContext    the context to evaluate flags for
-     * @param initializers         factories for one-shot initializers, tried in order
-     * @param synchronizers        factories for recurring synchronizers, tried in order
-     * @param dataSourceUpdateSink sink to apply changesets and status updates to
-     * @param sharedExecutor       executor used for internal background tasks; must have at least
-     *                             2 threads available for this data source to run properly.
-     * @param logger               logger
-     * @param fallbackTimeoutSeconds  seconds of INTERRUPTED state before falling back to the
-     *                                next synchronizer
-     * @param recoveryTimeoutSeconds  seconds before attempting to recover to the primary
-     *                                synchronizer
+     * @param evaluationContext          the context to evaluate flags for
+     * @param initializers               factories for one-shot initializers, tried in order
+     * @param synchronizers              factories for recurring synchronizers, tried in order
+     * @param fdv1FallbackSynchronizers  factories for FDv1 fallback synchronizers, or null if none;
+     *                                   these are appended after the regular synchronizers in a
+     *                                   blocked state and only activated when the server sends the
+     *                                   {@code x-ld-fd-fallback} header
+     * @param dataSourceUpdateSink       sink to apply changesets and status updates to
+     * @param sharedExecutor             executor used for internal background tasks; must have at least
+     *                                   2 threads available for this data source to run properly.
+     * @param logger                     logger
+     * @param fallbackTimeoutSeconds     seconds of INTERRUPTED state before falling back to the
+     *                                   next synchronizer
+     * @param recoveryTimeoutSeconds     seconds before attempting to recover to the primary
+     *                                   synchronizer
      */
     FDv2DataSource(
             @NonNull LDContext evaluationContext,
             @NonNull List<DataSourceFactory<Initializer>> initializers,
             @NonNull List<DataSourceFactory<Synchronizer>> synchronizers,
+            @Nullable List<DataSourceFactory<Synchronizer>> fdv1FallbackSynchronizers,
             @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
             @NonNull ScheduledExecutorService sharedExecutor,
             @NonNull LDLogger logger,
@@ -100,11 +108,20 @@ final class FDv2DataSource implements DataSource {
         this.evaluationContext = evaluationContext;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.logger = logger;
-        List<SynchronizerFactoryWithState> synchronizerFactoriesWithState = new ArrayList<>();
+
+        List<SynchronizerFactoryWithState> allSynchronizers = new ArrayList<>();
         for (DataSourceFactory<Synchronizer> factory : synchronizers) {
-            synchronizerFactoriesWithState.add(new SynchronizerFactoryWithState(factory));
+            allSynchronizers.add(new SynchronizerFactoryWithState(factory));
         }
-        this.sourceManager = new SourceManager(synchronizerFactoriesWithState, new ArrayList<>(initializers));
+        if (fdv1FallbackSynchronizers != null) {
+            for (DataSourceFactory<Synchronizer> factory : fdv1FallbackSynchronizers) {
+                SynchronizerFactoryWithState fdv1 = new SynchronizerFactoryWithState(factory, true);
+                fdv1.block();
+                allSynchronizers.add(fdv1);
+            }
+        }
+
+        this.sourceManager = new SourceManager(allSynchronizers, new ArrayList<>(initializers));
         this.fallbackTimeoutSeconds = fallbackTimeoutSeconds;
         this.recoveryTimeoutSeconds = recoveryTimeoutSeconds;
         this.sharedExecutor = sharedExecutor;
@@ -383,6 +400,15 @@ final class FDv2DataSource implements DataSource {
                                         }
                                     }
                                     break;
+                            }
+
+                            if (running
+                                    && result.isFdv1Fallback()
+                                    && sourceManager.hasFDv1Fallback()
+                                    && !sourceManager.isCurrentSynchronizerFDv1Fallback()) {
+                                logger.info("Server signaled FDv1 fallback; switching to FDv1 polling synchronizer.");
+                                sourceManager.fdv1Fallback();
+                                running = false;
                             }
                         }
                     }

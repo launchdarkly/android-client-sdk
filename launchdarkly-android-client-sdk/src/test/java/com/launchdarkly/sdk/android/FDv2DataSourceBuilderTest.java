@@ -224,6 +224,68 @@ public class FDv2DataSourceBuilderTest {
         }
     }
 
+    // ---- Default mode table FDv1 fallback slot configuration ----
+
+    @Test
+    public void defaultModeTable_streamingHasFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition streaming = builder.getModeDefinition(ConnectionMode.STREAMING);
+        assertNotNull(streaming);
+        assertEquals(1, streaming.getInitializers().size());
+        assertEquals(2, streaming.getSynchronizers().size());
+        assertEquals(1, streaming.getFdv1FallbackSynchronizers().size());
+    }
+
+    @Test
+    public void defaultModeTable_pollingHasFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition polling = builder.getModeDefinition(ConnectionMode.POLLING);
+        assertNotNull(polling);
+        assertEquals(0, polling.getInitializers().size());
+        assertEquals(1, polling.getSynchronizers().size());
+        assertEquals(1, polling.getFdv1FallbackSynchronizers().size());
+    }
+
+    @Test
+    public void defaultModeTable_backgroundHasFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition background = builder.getModeDefinition(ConnectionMode.BACKGROUND);
+        assertNotNull(background);
+        assertEquals(0, background.getInitializers().size());
+        assertEquals(1, background.getSynchronizers().size());
+        assertEquals(1, background.getFdv1FallbackSynchronizers().size());
+    }
+
+    @Test
+    public void defaultModeTable_offlineHasNoFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition offline = builder.getModeDefinition(ConnectionMode.OFFLINE);
+        assertNotNull(offline);
+        assertEquals(0, offline.getInitializers().size());
+        assertEquals(0, offline.getSynchronizers().size());
+        assertEquals(0, offline.getFdv1FallbackSynchronizers().size());
+    }
+
+    @Test
+    public void defaultModeTable_oneShotHasNoFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition oneShot = builder.getModeDefinition(ConnectionMode.ONE_SHOT);
+        assertNotNull(oneShot);
+        assertEquals(1, oneShot.getInitializers().size());
+        assertEquals(0, oneShot.getSynchronizers().size());
+        assertEquals(0, oneShot.getFdv1FallbackSynchronizers().size());
+    }
+
     @Test
     public void setActiveMode_notInTable_throws() {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
