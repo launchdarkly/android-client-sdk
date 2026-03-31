@@ -13,6 +13,7 @@ import com.launchdarkly.eventsource.MessageEvent;
 import com.launchdarkly.eventsource.RetryDelayStrategy;
 import com.launchdarkly.eventsource.StreamClosedByCallerException;
 import com.launchdarkly.eventsource.StreamEvent;
+import com.launchdarkly.eventsource.ResponseHeaders;
 import com.launchdarkly.eventsource.StreamException;
 import com.launchdarkly.eventsource.StreamHttpErrorException;
 import com.launchdarkly.logging.LDLogger;
@@ -258,6 +259,14 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
     }
 
+    private static boolean isFdv1Fallback(@Nullable ResponseHeaders headers) {
+        if (headers == null) {
+            return false;
+        }
+        String value = headers.value(HeaderConstants.FDV1_FALLBACK_HEADER);
+        return value != null && value.equalsIgnoreCase("true");
+    }
+
     @VisibleForTesting
     void handleMessage(MessageEvent event) {
         String eventName = event.getEventName();
@@ -269,6 +278,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             return;
         }
 
+        boolean fdv1Fallback = isFdv1Fallback(event.getHeaders());
+
         FDv2Event fdv2Event;
         try {
             fdv2Event = new FDv2Event(eventName,
@@ -278,7 +289,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             resultQueue.put(FDv2SourceResult.status(
                     FDv2SourceResult.Status.interrupted(
                             new LDFailure("Failed to parse SSE event", e,
-                                    LDFailure.FailureType.INVALID_RESPONSE_BODY))));
+                                    LDFailure.FailureType.INVALID_RESPONSE_BODY)),
+                    fdv1Fallback));
             restartStream(true);
             return;
         }
@@ -291,7 +303,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             resultQueue.put(FDv2SourceResult.status(
                     FDv2SourceResult.Status.interrupted(
                             new LDFailure("Protocol handler error", e,
-                                    LDFailure.FailureType.INVALID_RESPONSE_BODY))));
+                                    LDFailure.FailureType.INVALID_RESPONSE_BODY)),
+                    fdv1Fallback));
             restartStream(true);
             return;
         }
@@ -304,12 +317,13 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                             FDv2ChangeSetTranslator.toChangeSet(raw, logger);
                     recordStreamInit(false);
                     streamStarted = 0;
-                    resultQueue.put(FDv2SourceResult.changeSet(changeSet));
+                    resultQueue.put(FDv2SourceResult.changeSet(changeSet, fdv1Fallback));
                 } catch (Exception e) {
                     LDUtil.logExceptionAtErrorLevel(logger, e, "Failed to translate changeset");
                     FDv2SourceResult result = FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(
                         new LDFailure("Failed to translate changeset", e,
-                                LDFailure.FailureType.INVALID_RESPONSE_BODY)));
+                                LDFailure.FailureType.INVALID_RESPONSE_BODY)),
+                        fdv1Fallback);
                     resultQueue.put(result);
                     restartStream(true);
                 }
@@ -327,7 +341,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             case GOODBYE: {
                 String reason = ((FDv2ProtocolHandler.FDv2ActionGoodbye) action).getReason();
                 logger.info("Stream received GOODBYE with reason: '{}'", reason);
-                resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason)));
+                resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason), fdv1Fallback));
                 restartStream(false);
                 break;
             }
@@ -339,7 +353,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 resultQueue.put(FDv2SourceResult.status(
                         FDv2SourceResult.Status.interrupted(
                                 new LDFailure("FDv2 protocol internal error: " + internalError.getMessage(),
-                                        LDFailure.FailureType.INVALID_RESPONSE_BODY))));
+                                        LDFailure.FailureType.INVALID_RESPONSE_BODY)),
+                        fdv1Fallback));
                 // Only restart for invalid-data errors (bad payload or JSON); for unknown events
                 // or protocol sequence violations the stream may still be healthy.
                 FDv2ProtocolHandler.FDv2ProtocolErrorType errorType = internalError.getErrorType();
@@ -380,8 +395,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         recordStreamInit(true);
         protocolHandler.reset();
 
+        boolean fdv1Fallback = isFdv1Fallback(event.getHeaders());
+
         if (t instanceof StreamHttpErrorException) {
-            int code = ((StreamHttpErrorException) t).getCode();
+            StreamHttpErrorException httpError = (StreamHttpErrorException) t;
+            fdv1Fallback = fdv1Fallback || isFdv1Fallback(httpError.getHeaders());
+            int code = httpError.getCode();
             boolean recoverable = LDUtil.isHttpErrorRecoverable(code);
             LDFailure failure = new LDInvalidResponseCodeFailure(
                     "Unexpected response code from stream", t, code, recoverable);
@@ -389,7 +408,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             if (!recoverable) {
                 logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                 shutdownFuture.set(FDv2SourceResult.status(
-                        FDv2SourceResult.Status.terminalError(failure)));
+                        FDv2SourceResult.Status.terminalError(failure), fdv1Fallback));
                 EventSource es;
                 synchronized (closeLock) {
                     closed = true;
@@ -408,7 +427,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             } else {
                 logger.warn("Stream received HTTP error {}; will retry", code);
                 streamStarted = System.currentTimeMillis();
-                resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure)));
+                resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback));
             }
         } else {
             LDUtil.logExceptionAtWarnLevel(logger, t, "Stream network error");
@@ -416,7 +435,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             resultQueue.put(FDv2SourceResult.status(
                     FDv2SourceResult.Status.interrupted(
                             new LDFailure("Stream network error", t,
-                                    LDFailure.FailureType.NETWORK_FAILURE))));
+                                    LDFailure.FailureType.NETWORK_FAILURE)),
+                    fdv1Fallback));
         }
     }
 

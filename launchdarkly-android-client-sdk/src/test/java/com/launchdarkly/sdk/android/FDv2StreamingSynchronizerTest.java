@@ -1197,6 +1197,116 @@ public class FDv2StreamingSynchronizerTest {
         }
     }
 
+    // ---- x-ld-fd-fallback header detection ----
+
+    @Test
+    public void fdv1FallbackHeaderOnMessageEvent() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "true"),
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+            assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
+            assertTrue(result.isFdv1Fallback());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderAbsentOnMessageEvent() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+            assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
+            assertFalse(result.isFdv1Fallback());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderOnHttpError() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "true"),
+                Handlers.status(401)))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+            assertEquals(SourceResultType.STATUS, result.getResultType());
+            assertEquals(SourceSignal.TERMINAL_ERROR, result.getStatus().getState());
+            assertTrue(result.isFdv1Fallback());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderOnRecoverableHttpError() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(
+                        Handlers.header("x-ld-fd-fallback", "true"),
+                        Handlers.status(503)),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred),
+                        Handlers.SSE.leaveOpen())))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+            assertEquals(SourceResultType.STATUS, result.getResultType());
+            assertEquals(SourceSignal.INTERRUPTED, result.getStatus().getState());
+            assertTrue(result.isFdv1Fallback());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderCaseInsensitive() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "TRUE"),
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+            assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
+            assertTrue(result.isFdv1Fallback());
+
+            sync.close();
+        }
+    }
+
     private static String makeEvent(String type, String data) {
         return "event: " + type + "\ndata: " + data;
     }
