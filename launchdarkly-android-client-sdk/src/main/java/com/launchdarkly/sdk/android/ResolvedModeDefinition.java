@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
@@ -24,16 +25,16 @@ final class ResolvedModeDefinition {
 
     private final List<FDv2DataSource.DataSourceFactory<Initializer>> initializerFactories;
     private final List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizerFactories;
-    private final List<FDv2DataSource.DataSourceFactory<Synchronizer>> fdv1FallbackSynchronizerFactories;
+    private final FDv2DataSource.DataSourceFactory<Synchronizer> fdv1FallbackSynchronizerFactory;
 
     ResolvedModeDefinition(
             @NonNull List<FDv2DataSource.DataSourceFactory<Initializer>> initializerFactories,
             @NonNull List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizerFactories,
-            @NonNull List<FDv2DataSource.DataSourceFactory<Synchronizer>> fdv1FallbackSynchronizerFactories
+            @Nullable FDv2DataSource.DataSourceFactory<Synchronizer> fdv1FallbackSynchronizerFactory
     ) {
         this.initializerFactories = Collections.unmodifiableList(initializerFactories);
         this.synchronizerFactories = Collections.unmodifiableList(synchronizerFactories);
-        this.fdv1FallbackSynchronizerFactories = Collections.unmodifiableList(fdv1FallbackSynchronizerFactories);
+        this.fdv1FallbackSynchronizerFactory = fdv1FallbackSynchronizerFactory;
     }
 
     @NonNull
@@ -46,8 +47,8 @@ final class ResolvedModeDefinition {
         return synchronizerFactories;
     }
 
-    @NonNull
-    List<FDv2DataSource.DataSourceFactory<Synchronizer>> getFdv1FallbackSynchronizerFactories() {
-        return fdv1FallbackSynchronizerFactories;
+    @Nullable
+    FDv2DataSource.DataSourceFactory<Synchronizer> getFdv1FallbackSynchronizerFactory() {
+        return fdv1FallbackSynchronizerFactory;
     }
 }

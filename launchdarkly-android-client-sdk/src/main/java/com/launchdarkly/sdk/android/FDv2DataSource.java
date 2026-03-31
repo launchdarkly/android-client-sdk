@@ -59,19 +59,19 @@ final class FDv2DataSource implements DataSource {
 
     /**
      * Convenience constructor using default fallback and recovery timeouts.
-     * See {@link #FDv2DataSource(LDContext, List, List, List, DataSourceUpdateSinkV2,
+     * See {@link #FDv2DataSource(LDContext, List, List, DataSourceFactory, DataSourceUpdateSinkV2,
      * ScheduledExecutorService, LDLogger, long, long)} for parameter documentation.
      */
     FDv2DataSource(
             @NonNull LDContext evaluationContext,
             @NonNull List<DataSourceFactory<Initializer>> initializers,
             @NonNull List<DataSourceFactory<Synchronizer>> synchronizers,
-            @Nullable List<DataSourceFactory<Synchronizer>> fdv1FallbackSynchronizers,
+            @Nullable DataSourceFactory<Synchronizer> fdv1FallbackSynchronizer,
             @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
             @NonNull ScheduledExecutorService sharedExecutor,
             @NonNull LDLogger logger
     ) {
-        this(evaluationContext, initializers, synchronizers, fdv1FallbackSynchronizers,
+        this(evaluationContext, initializers, synchronizers, fdv1FallbackSynchronizer,
                 dataSourceUpdateSink, sharedExecutor, logger,
                 FDv2DataSourceConditions.DEFAULT_FALLBACK_TIMEOUT_SECONDS,
                 FDv2DataSourceConditions.DEFAULT_RECOVERY_TIMEOUT_SECONDS);
@@ -81,9 +81,9 @@ final class FDv2DataSource implements DataSource {
      * @param evaluationContext          the context to evaluate flags for
      * @param initializers               factories for one-shot initializers, tried in order
      * @param synchronizers              factories for recurring synchronizers, tried in order
-     * @param fdv1FallbackSynchronizers  factories for FDv1 fallback synchronizers, or null if none;
-     *                                   these are appended after the regular synchronizers in a
-     *                                   blocked state and only activated when the server sends the
+     * @param fdv1FallbackSynchronizer   factory for the FDv1 fallback synchronizer, or null if none;
+     *                                   appended after the regular synchronizers in a blocked state
+     *                                   and only activated when the server sends the
      *                                   {@code x-ld-fd-fallback} header
      * @param dataSourceUpdateSink       sink to apply changesets and status updates to
      * @param sharedExecutor             executor used for internal background tasks; must have at least
@@ -98,7 +98,7 @@ final class FDv2DataSource implements DataSource {
             @NonNull LDContext evaluationContext,
             @NonNull List<DataSourceFactory<Initializer>> initializers,
             @NonNull List<DataSourceFactory<Synchronizer>> synchronizers,
-            @Nullable List<DataSourceFactory<Synchronizer>> fdv1FallbackSynchronizers,
+            @Nullable DataSourceFactory<Synchronizer> fdv1FallbackSynchronizer,
             @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
             @NonNull ScheduledExecutorService sharedExecutor,
             @NonNull LDLogger logger,
@@ -113,12 +113,10 @@ final class FDv2DataSource implements DataSource {
         for (DataSourceFactory<Synchronizer> factory : synchronizers) {
             allSynchronizers.add(new SynchronizerFactoryWithState(factory));
         }
-        if (fdv1FallbackSynchronizers != null) {
-            for (DataSourceFactory<Synchronizer> factory : fdv1FallbackSynchronizers) {
-                SynchronizerFactoryWithState fdv1 = new SynchronizerFactoryWithState(factory, true);
-                fdv1.block();
-                allSynchronizers.add(fdv1);
-            }
+        if (fdv1FallbackSynchronizer != null) {
+            SynchronizerFactoryWithState fdv1 = new SynchronizerFactoryWithState(fdv1FallbackSynchronizer, true);
+            fdv1.block();
+            allSynchronizers.add(fdv1);
         }
 
         this.sourceManager = new SourceManager(allSynchronizers, new ArrayList<>(initializers));

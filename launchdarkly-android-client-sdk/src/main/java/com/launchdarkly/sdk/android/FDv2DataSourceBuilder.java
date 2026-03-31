@@ -104,39 +104,36 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                     ctx.getBaseLogger());
         };
 
-        List<ComponentConfigurer<Synchronizer>> fdv1FallbackList =
-                Collections.singletonList(fdv1FallbackPollingSynchronizer);
-
         Map<ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(ConnectionMode.STREAMING, new ModeDefinition(
                 // TODO: cacheInitializer — add once implemented
                 Arrays.asList(/* cacheInitializer, */ pollingInitializer),
                 Arrays.asList(streamingSynchronizer, pollingSynchronizer),
-                fdv1FallbackList
+                fdv1FallbackPollingSynchronizer
         ));
         table.put(ConnectionMode.POLLING, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.singletonList(pollingSynchronizer),
-                fdv1FallbackList
+                fdv1FallbackPollingSynchronizer
         ));
         table.put(ConnectionMode.OFFLINE, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         ));
         table.put(ConnectionMode.ONE_SHOT, new ModeDefinition(
                 // TODO: cacheInitializer and streamingInitializer — add once implemented
                 Arrays.asList(/* cacheInitializer, */ pollingInitializer /*, streamingInitializer, */),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         ));
         table.put(ConnectionMode.BACKGROUND, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.singletonList(backgroundPollingSynchronizer),
-                fdv1FallbackList
+                fdv1FallbackPollingSynchronizer
         ));
         return table;
     }
@@ -211,14 +208,11 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         // Reset includeInitializers to default after each build to prevent stale state.
         includeInitializers = true;
 
-        List<FDv2DataSource.DataSourceFactory<Synchronizer>> fdv1Factories =
-                resolved.getFdv1FallbackSynchronizerFactories();
-
         return new FDv2DataSource(
                 clientContext.getEvaluationContext(),
                 initFactories,
                 resolved.getSynchronizerFactories(),
-                fdv1Factories.isEmpty() ? null : fdv1Factories,
+                resolved.getFdv1FallbackSynchronizerFactory(),
                 (DataSourceUpdateSinkV2) baseSink,
                 sharedExecutor,
                 clientContext.getBaseLogger()
@@ -244,11 +238,10 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         for (ComponentConfigurer<Synchronizer> configurer : def.getSynchronizers()) {
             syncFactories.add(() -> configurer.build(clientContext));
         }
-        List<FDv2DataSource.DataSourceFactory<Synchronizer>> fdv1FallbackFactories = new ArrayList<>();
-        for (ComponentConfigurer<Synchronizer> configurer : def.getFdv1FallbackSynchronizers()) {
-            fdv1FallbackFactories.add(() -> configurer.build(clientContext));
-        }
-        return new ResolvedModeDefinition(initFactories, syncFactories, fdv1FallbackFactories);
+        ComponentConfigurer<Synchronizer> fdv1Configurer = def.getFdv1FallbackSynchronizer();
+        FDv2DataSource.DataSourceFactory<Synchronizer> fdv1Factory =
+                fdv1Configurer != null ? () -> fdv1Configurer.build(clientContext) : null;
+        return new ResolvedModeDefinition(initFactories, syncFactories, fdv1Factory);
     }
 
     /**

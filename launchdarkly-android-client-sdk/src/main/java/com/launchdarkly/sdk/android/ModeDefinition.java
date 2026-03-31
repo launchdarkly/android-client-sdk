@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
@@ -27,16 +28,16 @@ final class ModeDefinition {
 
     private final List<ComponentConfigurer<Initializer>> initializers;
     private final List<ComponentConfigurer<Synchronizer>> synchronizers;
-    private final List<ComponentConfigurer<Synchronizer>> fdv1FallbackSynchronizers;
+    private final ComponentConfigurer<Synchronizer> fdv1FallbackSynchronizer;
 
     ModeDefinition(
             @NonNull List<ComponentConfigurer<Initializer>> initializers,
             @NonNull List<ComponentConfigurer<Synchronizer>> synchronizers,
-            @NonNull List<ComponentConfigurer<Synchronizer>> fdv1FallbackSynchronizers
+            @Nullable ComponentConfigurer<Synchronizer> fdv1FallbackSynchronizer
     ) {
         this.initializers = Collections.unmodifiableList(initializers);
         this.synchronizers = Collections.unmodifiableList(synchronizers);
-        this.fdv1FallbackSynchronizers = Collections.unmodifiableList(fdv1FallbackSynchronizers);
+        this.fdv1FallbackSynchronizer = fdv1FallbackSynchronizer;
     }
 
     @NonNull
@@ -49,8 +50,8 @@ final class ModeDefinition {
         return synchronizers;
     }
 
-    @NonNull
-    List<ComponentConfigurer<Synchronizer>> getFdv1FallbackSynchronizers() {
-        return fdv1FallbackSynchronizers;
+    @Nullable
+    ComponentConfigurer<Synchronizer> getFdv1FallbackSynchronizer() {
+        return fdv1FallbackSynchronizer;
     }
 }

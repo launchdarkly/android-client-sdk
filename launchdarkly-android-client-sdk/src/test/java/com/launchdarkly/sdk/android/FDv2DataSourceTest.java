@@ -1439,7 +1439,7 @@ public class FDv2DataSourceTest {
                 CONTEXT,
                 Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
-                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv1Sync),
+                () -> fdv1Sync,
                 sink,
                 executor,
                 logging.logger);
@@ -1470,10 +1470,10 @@ public class FDv2DataSourceTest {
                 CONTEXT,
                 Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
-                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> {
+                () -> {
                     fdv1BuildCount.incrementAndGet();
                     return fdv1Sync;
-                }),
+                },
                 sink,
                 executor,
                 logging.logger);

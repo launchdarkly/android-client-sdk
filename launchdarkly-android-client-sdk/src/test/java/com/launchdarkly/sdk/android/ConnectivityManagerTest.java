@@ -855,17 +855,17 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         ));
         return new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
             @Override
@@ -1013,7 +1013,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         ModeDefinition sharedDef = new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         );
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, sharedDef);
@@ -1078,12 +1078,12 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
                 Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
                 Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
