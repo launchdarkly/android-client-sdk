@@ -27,13 +27,23 @@ final class ModeDefinition {
 
     private final List<ComponentConfigurer<Initializer>> initializers;
     private final List<ComponentConfigurer<Synchronizer>> synchronizers;
+    private final List<ComponentConfigurer<Synchronizer>> fdv1FallbackSynchronizers;
 
     ModeDefinition(
             @NonNull List<ComponentConfigurer<Initializer>> initializers,
             @NonNull List<ComponentConfigurer<Synchronizer>> synchronizers
     ) {
+        this(initializers, synchronizers, Collections.<ComponentConfigurer<Synchronizer>>emptyList());
+    }
+
+    ModeDefinition(
+            @NonNull List<ComponentConfigurer<Initializer>> initializers,
+            @NonNull List<ComponentConfigurer<Synchronizer>> synchronizers,
+            @NonNull List<ComponentConfigurer<Synchronizer>> fdv1FallbackSynchronizers
+    ) {
         this.initializers = Collections.unmodifiableList(initializers);
         this.synchronizers = Collections.unmodifiableList(synchronizers);
+        this.fdv1FallbackSynchronizers = Collections.unmodifiableList(fdv1FallbackSynchronizers);
     }
 
     @NonNull
@@ -44,5 +54,10 @@ final class ModeDefinition {
     @NonNull
     List<ComponentConfigurer<Synchronizer>> getSynchronizers() {
         return synchronizers;
+    }
+
+    @NonNull
+    List<ComponentConfigurer<Synchronizer>> getFdv1FallbackSynchronizers() {
+        return fdv1FallbackSynchronizers;
     }
 }
