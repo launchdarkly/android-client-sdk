@@ -41,11 +41,6 @@ interface FDv2Requestor extends Closeable {
         }
 
         /** Creates a successful response with parsed events. */
-        static FDv2PayloadResponse success(@NonNull List<FDv2Event> events, int statusCode) {
-            return new FDv2PayloadResponse(events, true, statusCode, false);
-        }
-
-        /** Creates a successful response with parsed events and an FDv1 fallback indicator. */
         static FDv2PayloadResponse success(@NonNull List<FDv2Event> events, int statusCode, boolean fdv1Fallback) {
             return new FDv2PayloadResponse(events, true, statusCode, fdv1Fallback);
         }
@@ -59,11 +54,6 @@ interface FDv2Requestor extends Closeable {
         }
 
         /** Creates an unsuccessful response with the HTTP status code. */
-        static FDv2PayloadResponse failure(int statusCode) {
-            return new FDv2PayloadResponse(null, false, statusCode, false);
-        }
-
-        /** Creates an unsuccessful response with the HTTP status code and an FDv1 fallback indicator. */
         static FDv2PayloadResponse failure(int statusCode, boolean fdv1Fallback) {
             return new FDv2PayloadResponse(null, false, statusCode, fdv1Fallback);
         }

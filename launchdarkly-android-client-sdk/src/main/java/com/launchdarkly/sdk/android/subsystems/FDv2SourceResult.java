@@ -87,18 +87,8 @@ public final class FDv2SourceResult {
     }
 
     @NonNull
-    public static FDv2SourceResult changeSet(@NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet) {
-        return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null, false);
-    }
-
-    @NonNull
     public static FDv2SourceResult changeSet(@NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet, boolean fdv1Fallback) {
         return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null, fdv1Fallback);
-    }
-
-    @NonNull
-    public static FDv2SourceResult status(@NonNull Status status) {
-        return new FDv2SourceResult(SourceResultType.STATUS, null, status, false);
     }
 
     @NonNull

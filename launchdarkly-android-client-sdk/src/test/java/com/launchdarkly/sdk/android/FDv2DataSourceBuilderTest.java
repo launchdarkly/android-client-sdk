@@ -67,7 +67,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.POLLING);
@@ -80,7 +81,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -97,11 +99,13 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -115,7 +119,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -129,7 +134,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -141,11 +147,13 @@ public class FDv2DataSourceBuilderTest {
     public void getModeDefinition_returnsCorrectDefinition() {
         ModeDefinition streamingDef = new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         );
         ModeDefinition pollingDef = new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         );
 
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
@@ -162,7 +170,8 @@ public class FDv2DataSourceBuilderTest {
     public void getModeDefinition_sameObjectUsedForEquivalenceCheck() {
         ModeDefinition sharedDef = new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         );
 
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
@@ -291,7 +300,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);

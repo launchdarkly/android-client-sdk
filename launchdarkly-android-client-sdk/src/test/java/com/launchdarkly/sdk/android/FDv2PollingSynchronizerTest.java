@@ -76,7 +76,7 @@ public class FDv2PollingSynchronizerTest {
             Future<FDv2SourceResult> nextFuture = synchronizer.next();
 
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
 
             FDv2SourceResult result = nextFuture.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
@@ -94,7 +94,7 @@ public class FDv2PollingSynchronizerTest {
             // First poll
             Future<FDv2SourceResult> nextFuture1 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll1 = requestor.awaitNextPoll();
-            poll1.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+            poll1.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
             FDv2SourceResult result1 = nextFuture1.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result1.getResultType());
 
@@ -169,7 +169,7 @@ public class FDv2PollingSynchronizerTest {
             Future<FDv2SourceResult> nextFuture = synchronizer.next();
 
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(401));
+            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(401, false));
 
             FDv2SourceResult result = nextFuture.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.STATUS, result.getResultType());
@@ -188,7 +188,7 @@ public class FDv2PollingSynchronizerTest {
         try {
             Future<FDv2SourceResult> firstFuture = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(401));
+            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(401, false));
             firstFuture.get(1, TimeUnit.SECONDS);
 
             // Second next() — shutdownFuture is already completed with TERMINAL_ERROR.
@@ -215,14 +215,14 @@ public class FDv2PollingSynchronizerTest {
             // First poll → INTERRUPTED (recoverable 500).
             Future<FDv2SourceResult> nextFuture1 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll1 = requestor.awaitNextPoll();
-            poll1.set(FDv2Requestor.FDv2PayloadResponse.failure(500));
+            poll1.set(FDv2Requestor.FDv2PayloadResponse.failure(500, false));
             FDv2SourceResult result1 = nextFuture1.get(1, TimeUnit.SECONDS);
             assertEquals(SourceSignal.INTERRUPTED, result1.getStatus().getState());
 
             // Second poll fires normally (task was not cancelled).
             Future<FDv2SourceResult> nextFuture2 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll2 = requestor.awaitNextPoll();
-            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
             FDv2SourceResult result2 = nextFuture2.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result2.getResultType());
         } finally {
@@ -296,7 +296,7 @@ public class FDv2PollingSynchronizerTest {
             Future<FDv2SourceResult> nextFuture = synchronizer.next();
 
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll2 = delegate.awaitNextPoll();
-            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
 
             FDv2SourceResult result = nextFuture.get(2, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
@@ -324,14 +324,14 @@ public class FDv2PollingSynchronizerTest {
             // First poll → INTERNAL_ERROR → INTERRUPTED (task must NOT be cancelled).
             Future<FDv2SourceResult> nextFuture1 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll1 = requestor.awaitNextPoll();
-            poll1.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(malformedJson), 200));
+            poll1.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(malformedJson), 200, false));
             FDv2SourceResult result1 = nextFuture1.get(1, TimeUnit.SECONDS);
             assertEquals(SourceSignal.INTERRUPTED, result1.getStatus().getState());
 
             // Second poll fires normally (task was not cancelled).
             Future<FDv2SourceResult> nextFuture2 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll2 = requestor.awaitNextPoll();
-            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
             FDv2SourceResult result2 = nextFuture2.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result2.getResultType());
         } finally {
@@ -351,13 +351,13 @@ public class FDv2PollingSynchronizerTest {
         try {
             Future<FDv2SourceResult> nextFuture1 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll1 = requestor.awaitNextPoll();
-            poll1.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(unknownEventJson), 200));
+            poll1.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(unknownEventJson), 200, false));
             FDv2SourceResult result1 = nextFuture1.get(1, TimeUnit.SECONDS);
             assertEquals(SourceSignal.INTERRUPTED, result1.getStatus().getState());
 
             Future<FDv2SourceResult> nextFuture2 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll2 = requestor.awaitNextPoll();
-            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+            poll2.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
             FDv2SourceResult result2 = nextFuture2.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result2.getResultType());
         } finally {

@@ -159,7 +159,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             } catch (IOException ignored) {
             }
         }
-        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
     }
 
     private void startStream() {
@@ -234,7 +234,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 resultQueue.put(FDv2SourceResult.status(
                         FDv2SourceResult.Status.interrupted(
                                 new LDFailure("Stream thread ended unexpectedly", e,
-                                        LDFailure.FailureType.UNKNOWN_ERROR))));
+                                        LDFailure.FailureType.UNKNOWN_ERROR)),
+                        false));
             } finally {
                 es.close();
             }

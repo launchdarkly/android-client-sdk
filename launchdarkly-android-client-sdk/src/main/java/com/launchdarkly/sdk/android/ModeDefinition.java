@@ -31,13 +31,6 @@ final class ModeDefinition {
 
     ModeDefinition(
             @NonNull List<ComponentConfigurer<Initializer>> initializers,
-            @NonNull List<ComponentConfigurer<Synchronizer>> synchronizers
-    ) {
-        this(initializers, synchronizers, Collections.<ComponentConfigurer<Synchronizer>>emptyList());
-    }
-
-    ModeDefinition(
-            @NonNull List<ComponentConfigurer<Initializer>> initializers,
             @NonNull List<ComponentConfigurer<Synchronizer>> synchronizers,
             @NonNull List<ComponentConfigurer<Synchronizer>> fdv1FallbackSynchronizers
     ) {

@@ -118,7 +118,7 @@ public class FDv2PollingBaseTest {
     @Test
     public void recoverableHttpError_oneShot_returnsTerminalError() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
-        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(500));
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(500, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -130,7 +130,7 @@ public class FDv2PollingBaseTest {
     @Test
     public void recoverableHttpError_notOneShot_returnsInterrupted() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
-        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(500));
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(500, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 
@@ -142,7 +142,7 @@ public class FDv2PollingBaseTest {
     @Test
     public void nonRecoverableHttpError_oneShot_returnsTerminalError() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
-        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(401));
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(401, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -155,7 +155,7 @@ public class FDv2PollingBaseTest {
     public void nonRecoverableHttpError_notOneShot_alsoReturnsTerminalError() {
         // Non-recoverable (e.g. 401) always maps to TERMINAL_ERROR regardless of oneShot.
         MockFDv2Requestor requestor = new MockFDv2Requestor();
-        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(401));
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(401, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 
@@ -196,7 +196,7 @@ public class FDv2PollingBaseTest {
     public void emptyEventsArray_oneShot_returnsTerminalError() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                Collections.emptyList(), 200));
+                Collections.emptyList(), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -209,7 +209,7 @@ public class FDv2PollingBaseTest {
     public void emptyEventsArray_notOneShot_returnsInterrupted() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                Collections.emptyList(), 200));
+                Collections.emptyList(), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 
@@ -225,7 +225,7 @@ public class FDv2PollingBaseTest {
         // xfer-full server-intent without payload-transferred: loop ends with no CHANGESET.
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(XFER_FULL_NO_PAYLOAD_TRANSFERRED_JSON), 200));
+                parseEvents(XFER_FULL_NO_PAYLOAD_TRANSFERRED_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -238,7 +238,7 @@ public class FDv2PollingBaseTest {
     public void eventsWithNoChangesetAfterLoop_notOneShot_returnsInterrupted() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(XFER_FULL_NO_PAYLOAD_TRANSFERRED_JSON), 200));
+                parseEvents(XFER_FULL_NO_PAYLOAD_TRANSFERRED_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 
@@ -253,7 +253,7 @@ public class FDv2PollingBaseTest {
     public void goodbyeEvent_returnsGoodbye() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(GOODBYE_JSON), 200));
+                parseEvents(GOODBYE_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -269,7 +269,7 @@ public class FDv2PollingBaseTest {
     public void serverErrorEvent_oneShot_returnsTerminalError() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(ERROR_EVENT_JSON), 200));
+                parseEvents(ERROR_EVENT_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -282,7 +282,7 @@ public class FDv2PollingBaseTest {
     public void serverErrorEvent_notOneShot_returnsInterrupted() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(ERROR_EVENT_JSON), 200));
+                parseEvents(ERROR_EVENT_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 
@@ -297,7 +297,7 @@ public class FDv2PollingBaseTest {
     public void successfulXferFull_emptyPayload_returnsChangeSet() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(XFER_NONE_JSON), 200));
+                parseEvents(XFER_NONE_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -309,7 +309,7 @@ public class FDv2PollingBaseTest {
     public void successfulXferFull_withData_returnsChangeSet() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(XFER_FULL_EMPTY_JSON), 200));
+                parseEvents(XFER_FULL_EMPTY_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -331,7 +331,7 @@ public class FDv2PollingBaseTest {
 
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(malformedPayloadTransferredJson), 200));
+                parseEvents(malformedPayloadTransferredJson), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -350,7 +350,7 @@ public class FDv2PollingBaseTest {
 
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(malformedPayloadTransferredJson), 200));
+                parseEvents(malformedPayloadTransferredJson), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 
@@ -369,7 +369,7 @@ public class FDv2PollingBaseTest {
 
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(unknownEventJson), 200));
+                parseEvents(unknownEventJson), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -384,7 +384,7 @@ public class FDv2PollingBaseTest {
 
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(unknownEventJson), 200));
+                parseEvents(unknownEventJson), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 
@@ -425,7 +425,7 @@ public class FDv2PollingBaseTest {
     public void fdv1FallbackFalseByDefault() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
         requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
-                parseEvents(XFER_FULL_EMPTY_JSON), 200));
+                parseEvents(XFER_FULL_EMPTY_JSON), 200, false));
 
         FDv2SourceResult result = doPoll(requestor, false);
 

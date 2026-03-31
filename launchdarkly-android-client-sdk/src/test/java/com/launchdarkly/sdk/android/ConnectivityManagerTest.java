@@ -854,14 +854,17 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.OFFLINE, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         return new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
@@ -1009,7 +1012,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_equivalentConfigDoesNotRebuild() throws Exception {
         ModeDefinition sharedDef = new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         );
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, sharedDef);
@@ -1073,11 +1077,13 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
                 Collections.<ComponentConfigurer<Initializer>>singletonList(ctx -> null),
-                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null)
+                Collections.<ComponentConfigurer<Synchronizer>>singletonList(ctx -> null),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {

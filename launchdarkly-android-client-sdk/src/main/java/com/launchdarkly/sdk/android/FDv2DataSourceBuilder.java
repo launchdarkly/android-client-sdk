@@ -123,11 +123,13 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         table.put(ConnectionMode.OFFLINE, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
                 Collections.<ComponentConfigurer<Initializer>>emptyList(),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         table.put(ConnectionMode.ONE_SHOT, new ModeDefinition(
                 // TODO: cacheInitializer and streamingInitializer — add once implemented
                 Arrays.asList(/* cacheInitializer, */ pollingInitializer /*, streamingInitializer, */),
+                Collections.<ComponentConfigurer<Synchronizer>>emptyList(),
                 Collections.<ComponentConfigurer<Synchronizer>>emptyList()
         ));
         table.put(ConnectionMode.BACKGROUND, new ModeDefinition(

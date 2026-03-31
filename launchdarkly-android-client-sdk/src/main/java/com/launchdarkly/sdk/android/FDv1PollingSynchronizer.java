@@ -131,7 +131,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
             resultQueue.put(result);
         } catch (RuntimeException e) {
             LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in FDv1 polling synchronizer task");
-            resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e)));
+            resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false));
         }
     }
 
@@ -174,7 +174,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
 
             return pollFuture.get();
         } catch (InterruptedException e) {
-            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e));
+            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false);
         } catch (Exception e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             if (cause instanceof IOException) {
@@ -182,7 +182,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
             } else {
                 LDUtil.logExceptionAtErrorLevel(logger, cause, "FDv1 fallback polling failed");
             }
-            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause));
+            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause), false);
         }
     }
 
@@ -199,9 +199,9 @@ final class FDv1PollingSynchronizer implements Synchronizer {
                 LDFailure failure = new LDInvalidResponseCodeFailure(
                         "FDv1 fallback polling request failed", null, code, recoverable);
                 if (!recoverable) {
-                    future.set(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure)));
+                    future.set(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), false));
                 } else {
-                    future.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure)));
+                    future.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), false));
                 }
                 return;
             }
@@ -231,7 +231,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
             LDUtil.logExceptionAtErrorLevel(logger, e, "FDv1 fallback polling failed to parse response");
             LDFailure failure = new LDFailure(
                     "FDv1 fallback: invalid JSON response", e, LDFailure.FailureType.INVALID_RESPONSE_BODY);
-            future.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure)));
+            future.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), false));
         } catch (Exception e) {
             future.setException(e);
         }
@@ -251,7 +251,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
                 scheduledTask = null;
             }
         }
-        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
         closeHttpClient();
     }
 

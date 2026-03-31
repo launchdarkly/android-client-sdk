@@ -89,7 +89,7 @@ abstract class FDv2PollingBase {
             Future<FDv2Requestor.FDv2PayloadResponse> future = requestor.poll(selector);
             response = future.get();
         } catch (InterruptedException e) {
-            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e));
+            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             if (cause instanceof IOException) {
@@ -98,8 +98,8 @@ abstract class FDv2PollingBase {
                 LDUtil.logExceptionAtErrorLevel(logger, cause, "Polling failed");
             }
             return oneShot
-                    ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(cause))
-                    : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause));
+                    ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(cause), false)
+                    : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause), false);
         }
 
         boolean fdv1Fallback = response.isFdv1Fallback();
@@ -112,7 +112,7 @@ abstract class FDv2PollingBase {
                     selector,
                     Collections.emptyMap(),
                     null,
-                    true));
+                    true), fdv1Fallback);
         }
 
         if (!response.isSuccess()) {
