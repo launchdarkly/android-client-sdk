@@ -120,7 +120,16 @@ class ConnectivityManager {
 
         @Override
         public void setStatus(@NonNull DataSourceState state, Throwable failure) {
-            // TODO: SDK-1820 DataSource status handling
+            // TODO: SDK-1820 — this is a temporary implementation to support e2e tests
+            ConnectionInformation.ConnectionMode publicMode = mapFDv2ToPublicMode(state);
+            if (publicMode == null) {
+                return;
+            }
+            if (failure == null) {
+                updateConnectionInfoForSuccess(publicMode);
+            } else {
+                updateConnectionInfoForError(publicMode, failure);
+            }
         }
 
         @Override
@@ -269,11 +278,10 @@ class ConnectivityManager {
         if (useFDv2ModeResolution) {
             // FDv2 mode resolution already accounts for offline/background states via
             // the ModeResolutionTable, so we always rebuild when the mode changed.
-            // Note: unlike FDv1's forceOffline/noNetwork branches above, initialized=true
-            // is not set here eagerly — it is set in the dataSource.start() callback below.
-            // For OFFLINE mode this creates a brief async gap (one executor task) before
-            // isInitialized() returns true, but the OFFLINE data source fires its callback
-            // nearly instantaneously since it has no initializers or synchronizers.
+            // Eagerly set the public ConnectionMode so getConnectionInformation() is
+            // never null — mirrors what FDv1 data source builders do in build().
+            // TODO: SDK-1820 — this is a temporary implementation
+            connectionInformation.setConnectionMode(fdv2ModeToPublicMode(currentFDv2Mode));
             shouldStopExistingDataSource = mustReinitializeDataSource;
             shouldStartDataSourceIfStopped = true;
         } else if (forceOffline) {
@@ -411,6 +419,43 @@ class ConnectivityManager {
             LDUtil.logExceptionAtErrorLevel(logger, ex, "Error saving connection information");
         }
         updateStatusListeners(connectionInformation);
+    }
+
+    /**
+     * TODO: SDK-1820 — this is a temporary implementation to support e2e tests
+     */
+    private ConnectionInformation.ConnectionMode mapFDv2ToPublicMode(DataSourceState state) {
+        switch (state) {
+            case VALID:
+                return fdv2ModeToPublicMode(currentFDv2Mode);
+            case INTERRUPTED:
+                ConnectionInformation.ConnectionMode current = connectionInformation.getConnectionMode();
+                return current != null ? current : fdv2ModeToPublicMode(currentFDv2Mode);
+            case OFF:
+                return ConnectionInformation.ConnectionMode.OFFLINE;
+            case INITIALIZING:
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * TODO: SDK-1820 — this is a temporary implementation to support e2e tests
+     */
+    private static ConnectionInformation.ConnectionMode fdv2ModeToPublicMode(ConnectionMode mode) {
+        if (mode == null) {
+            return ConnectionInformation.ConnectionMode.POLLING;
+        }
+        if (mode == ConnectionMode.STREAMING) {
+            return ConnectionInformation.ConnectionMode.STREAMING;
+        } else if (mode == ConnectionMode.POLLING || mode == ConnectionMode.ONE_SHOT) {
+            return ConnectionInformation.ConnectionMode.POLLING;
+        } else if (mode == ConnectionMode.BACKGROUND) {
+            return ConnectionInformation.ConnectionMode.BACKGROUND_POLLING;
+        } else if (mode == ConnectionMode.OFFLINE) {
+            return ConnectionInformation.ConnectionMode.OFFLINE;
+        }
+        return ConnectionInformation.ConnectionMode.POLLING;
     }
 
     private void readStoredConnectionState() {
