@@ -6,6 +6,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -39,8 +40,8 @@ public final class ModeDefinition {
             @NonNull List<DataSourceBuilder<Initializer>> initializers,
             @NonNull List<DataSourceBuilder<Synchronizer>> synchronizers
     ) {
-        this.initializers = Collections.unmodifiableList(initializers);
-        this.synchronizers = Collections.unmodifiableList(synchronizers);
+        this.initializers = Collections.unmodifiableList(new ArrayList<>(initializers));
+        this.synchronizers = Collections.unmodifiableList(new ArrayList<>(synchronizers));
     }
 
     /**

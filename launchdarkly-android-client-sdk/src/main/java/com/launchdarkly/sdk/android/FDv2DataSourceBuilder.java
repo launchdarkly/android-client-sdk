@@ -33,7 +33,7 @@ import java.util.concurrent.ScheduledExecutorService;
  */
 class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeable {
 
-    private Map<ConnectionMode, ModeDefinition> modeTable;
+    private final Map<ConnectionMode, ModeDefinition> modeTable;
     private final ConnectionMode startingMode;
     private final ModeResolutionTable resolutionTable;
 
@@ -106,10 +106,6 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
             // fallback/recovery (up to 2 short-lived scheduled tasks). Only one mode is active
             // at a time (teardown/rebuild), so this pool serves all components.
             sharedExecutor = Executors.newScheduledThreadPool(4);
-        }
-
-        if (modeTable == null) {
-            modeTable = makeDefaultModeTable();
         }
 
         ConnectionMode mode = activeMode != null ? activeMode : startingMode;
