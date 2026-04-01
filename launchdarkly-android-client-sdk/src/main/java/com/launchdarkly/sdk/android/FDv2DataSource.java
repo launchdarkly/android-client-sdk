@@ -282,6 +282,18 @@ final class FDv2DataSource implements DataSource {
                         }
                         break;
                 }
+
+                if (result.isFdv1Fallback()
+                        && sourceManager.hasFDv1Fallback()) {
+                    logger.info("Server signaled FDv1 fallback during initialization; " +
+                            "skipping remaining initializers.");
+                    sourceManager.fdv1Fallback();
+                    if (anyDataReceived) {
+                        sink.setStatus(DataSourceState.VALID, null);
+                        tryCompleteStart(true, null);
+                    }
+                    return;
+                }
             } catch (ExecutionException e) {
                 logger.warn("Initializer error: {}", e.getCause() != null ? e.getCause().toString() : e.toString());
                 sink.setStatus(DataSourceState.INTERRUPTED, e.getCause() != null ? e.getCause() : e);
@@ -400,6 +412,11 @@ final class FDv2DataSource implements DataSource {
                                     break;
                             }
 
+                            // After processing the result, check whether the server signaled
+                            // that this environment should fall back to FDv1 (via the
+                            // x-ld-fd-fallback response header). Only act on the signal if the
+                            // synchronizer is still running (not shut down or terminally errored),
+                            // a fallback slot exists, and we aren't already on FDv1.
                             if (running
                                     && result.isFdv1Fallback()
                                     && sourceManager.hasFDv1Fallback()

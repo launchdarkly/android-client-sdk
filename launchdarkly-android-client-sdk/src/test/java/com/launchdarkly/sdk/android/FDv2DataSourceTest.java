@@ -1426,6 +1426,39 @@ public class FDv2DataSourceTest {
     // ---- FDv1 fallback ----
 
     @Test
+    public void fdv1FallbackDuringInitializationSkipsRemainingInitializers() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicBoolean secondInitCalled = new AtomicBoolean(false);
+
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
+
+        FDv2DataSource dataSource = new FDv2DataSource(
+                CONTEXT,
+                Arrays.<FDv2DataSource.DataSourceFactory<Initializer>>asList(
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), true)),
+                        () -> {
+                            secondInitCalled.set(true);
+                            return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
+                        }),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(
+                        () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
+                () -> fdv1Sync,
+                sink,
+                executor,
+                logging.logger);
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        assertFalse(secondInitCalled.get());
+
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        stopDataSource(dataSource);
+    }
+
+    @Test
     public void fdv1FallbackSwitchesToFdv1Synchronizer() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
