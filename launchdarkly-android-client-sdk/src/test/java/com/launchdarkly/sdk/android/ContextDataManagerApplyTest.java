@@ -107,26 +107,28 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
     }
 
     @Test
-    public void applyPartialRespectsVersion() {
+    public void applyPartialOverwritesEvenWhenIncomingVersionIsLower() {
+        // FDv2 / java-core: partial changesets apply without per-item version gating (see InMemoryDataStore.applyPartialData).
         Flag flag1 = new FlagBuilder("flag1").version(2).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).build();
         ContextDataManager manager = createDataManager();
         manager.switchToContext(CONTEXT);
         manager.initData(CONTEXT, initialData);
 
-        Flag flag1Lower = new FlagBuilder("flag1").version(1).value(false).build();
+        Flag flag1LowerVersion = new FlagBuilder("flag1").version(1).value(false).build();
         ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Partial,
                 Selector.EMPTY,
-                Collections.singletonMap(flag1Lower.getKey(), flag1Lower),
+                Collections.singletonMap(flag1LowerVersion.getKey(), flag1LowerVersion),
                 null,
                 true
         );
         manager.apply(CONTEXT, changeSet);
 
-        assertFlagsEqual(flag1, manager.getNonDeletedFlag(flag1.getKey()));
-        assertDataSetsEqual(initialData, manager.getAllNonDeleted());
-        assertContextIsCached(CONTEXT, initialData);
+        assertFlagsEqual(flag1LowerVersion, manager.getNonDeletedFlag(flag1.getKey()));
+        EnvironmentData expected = new DataSetBuilder().add(flag1LowerVersion).build();
+        assertDataSetsEqual(expected, manager.getAllNonDeleted());
+        assertContextIsCached(CONTEXT, expected);
     }
 
     @Test

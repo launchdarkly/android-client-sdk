@@ -15,7 +15,11 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
+import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import org.junit.After;
 import org.junit.Before;
@@ -25,14 +29,19 @@ import org.junit.runner.RunWith;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 
 /**
  * End-to-end tests for LDClient configured with the FDv2 data system
  * ({@link Components#dataSystem()}). These tests use {@link MockWebServer}
- * to simulate FDv2 polling responses.
+ * to simulate FDv2 polling and streaming responses.
  * <p>
  * Comprehensive FDv2 protocol coverage is intended for the sdk-test-harness
  * integration.
@@ -41,6 +50,9 @@ import okhttp3.mockwebserver.MockWebServer;
 public class LDClientDataSystemEndToEndTest {
     private static final String MOBILE_KEY = "test-mobile-key";
     private static final LDContext CONTEXT = LDContext.create("context");
+
+    /** Timeout for stream-delivered partial updates (no polling-interval delay). */
+    private static final int STREAM_PARTIAL_TEST_TIMEOUT_MS = 15_000;
 
     private Application application;
     private MockWebServer mockPollingServer;
@@ -90,6 +102,23 @@ public class LDClientDataSystemEndToEndTest {
                 .logAdapter(logging.logAdapter)
                 .loggerName(logging.loggerName)
                 .logLevel(LDLogLevel.DEBUG);
+    }
+
+    private static MockResponse sseResponse(String sseBody) {
+        return new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream; charset=utf-8")
+                .setBody(sseBody);
+    }
+
+    /**
+     * JSON for a {@code flag-eval} object that omits {@code version}, derived from
+     * {@link Flag#toJson()} so deserialization matches the full-transfer shape.
+     */
+    private static String flagEvalObjectJsonWithoutVersion(Flag flagWithDesiredValue) {
+        JsonObject o = JsonParser.parseString(flagWithDesiredValue.toJson()).getAsJsonObject();
+        o.remove("version");
+        return o.toString();
     }
 
     @Test
@@ -167,6 +196,77 @@ public class LDClientDataSystemEndToEndTest {
 
             client.identify(contextB).get();
             assertEquals(flagValueB, client.stringVariation(flagKeyB, "defaultB"));
+        }
+    }
+
+    @Test
+    public void partialXferChangesNotifiesFeatureFlagListener() throws Exception {
+        String flagKey = "flag-key-listener";
+        String before = "before";
+        String after = "after";
+        Flag flagInitial = new FlagBuilder(flagKey).version(1).value(LDValue.of(before)).build();
+        Flag flagUpdatedShape = new FlagBuilder(flagKey).version(999).value(LDValue.of(after)).build();
+        String partialObjectJson = flagEvalObjectJsonWithoutVersion(flagUpdatedShape);
+
+        String sseFullOnly = FDv2TestResponses.streamingSseBodyXferFullOnly(flagInitial, flagKey);
+        String ssePartialOnly =
+                FDv2TestResponses.streamingSseBodyXferChangesPartialOnly(
+                        flagKey, 376, partialObjectJson);
+        CountDownLatch releaseUpdate = new CountDownLatch(1);
+        AtomicInteger streamConnections = new AtomicInteger(0);
+        mockPollingServer.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                if (!request.getPath().startsWith("/sdk/stream/eval")) {
+                    return new MockResponse().setResponseCode(404);
+                }
+                if (streamConnections.getAndIncrement() == 0) {
+                    return sseResponse(sseFullOnly);
+                }
+                try {
+                    releaseUpdate.await(STREAM_PARTIAL_TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return sseResponse(ssePartialOnly);
+            }
+        });
+
+        LDConfig config = baseConfig()
+                .dataSystem(
+                        Components.dataSystem()
+                                .foregroundConnectionMode(ConnectionMode.STREAMING)
+                                .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled())
+                                .customizeConnectionMode(
+                                        ConnectionMode.STREAMING,
+                                        DataSystemComponents.customMode()
+                                                .synchronizers(
+                                                        DataSystemComponents.streamingSynchronizer())))
+                .serviceEndpoints(
+                        Components.serviceEndpoints()
+                                .streaming(mockPollingServerUri)
+                                .polling(mockPollingServerUri))
+                .build();
+
+        CountDownLatch listenerFired = new CountDownLatch(1);
+        try (LDClient client = LDClient.init(application, config, CONTEXT, 30)) {
+            assertTrue(client.isInitialized());
+            assertEquals(before, client.stringVariation(flagKey, "default-unset"));
+
+            client.registerFeatureFlagListener(
+                    flagKey,
+                    key -> {
+                        if (after.equals(client.stringVariation(key, "default-unset"))) {
+                            listenerFired.countDown();
+                        }
+                    });
+
+            releaseUpdate.countDown();
+
+            assertTrue(
+                    "listener should fire after partial xfer-changes",
+                    listenerFired.await(STREAM_PARTIAL_TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS));
+            assertEquals(after, client.stringVariation(flagKey, "default-unset"));
         }
     }
 }

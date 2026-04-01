@@ -297,13 +297,8 @@ final class ContextDataManager implements TransactionalDataStore {
             currentSelector = selector;
             Map<String, Flag> merged = new HashMap<>(flags.getAll());
             for (Map.Entry<String, Flag> entry : items.entrySet()) {
-                String key = entry.getKey();
-                Flag incoming = entry.getValue();
-                Flag existing = merged.get(key);
-                if (existing == null || existing.getVersion() < incoming.getVersion()) {
-                    merged.put(key, incoming);
-                    updatedFlagKeys.add(key);
-                }
+                merged.put(entry.getKey(), entry.getValue());
+                updatedFlagKeys.add(entry.getKey());
             }
             updatedFlags = EnvironmentData.usingExistingFlagsMap(merged);
             flags = updatedFlags;
