@@ -48,6 +48,22 @@ public class ModeResolutionTableTest {
         assertSame(ConnectionMode.STREAMING, ModeResolutionTable.MOBILE.resolve(state));
     }
 
+    @Test
+    public void createMobile_customForeground_resolvesForegroundMode() {
+        ModeResolutionTable table = ModeResolutionTable.createMobile(
+                ConnectionMode.ONE_SHOT, ConnectionMode.BACKGROUND);
+        assertSame(ConnectionMode.ONE_SHOT,
+                table.resolve(new ModeState(true, true, false)));
+    }
+
+    @Test
+    public void createMobile_customBackground_resolvesBackgroundMode() {
+        ModeResolutionTable table = ModeResolutionTable.createMobile(
+                ConnectionMode.STREAMING, ConnectionMode.POLLING);
+        assertSame(ConnectionMode.POLLING,
+                table.resolve(new ModeState(false, true, false)));
+    }
+
     // ==== Custom table tests ====
 
     @Test

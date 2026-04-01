@@ -11,12 +11,16 @@ import java.util.List;
  * to a {@link ConnectionMode}. The first entry whose condition matches wins.
  * If no entry matches, a default {@link ConnectionMode} is returned.
  * <p>
- * The {@link #MOBILE} constant defines the Android default resolution table:
+ * The {@link #MOBILE} constant defines the Android default resolution table
+ * ({@link #createMobile(ConnectionMode, ConnectionMode)} with foreground
+ * {@link ConnectionMode#STREAMING} and background {@link ConnectionMode#BACKGROUND}):
  * <ol>
  *   <li>No network → {@link ConnectionMode#OFFLINE}</li>
  *   <li>Background + background updating disabled → {@link ConnectionMode#OFFLINE}</li>
- *   <li>Background → {@link ConnectionMode#BACKGROUND}</li>
- *   <li>Default → {@link ConnectionMode#STREAMING}</li>
+ *   <li>Background (network available, background updates allowed) → {@code backgroundMode}
+ *       ({@link ConnectionMode#BACKGROUND} for {@link #MOBILE})</li>
+ *   <li>Foreground with network → {@code foregroundMode}
+ *       ({@link ConnectionMode#STREAMING} for {@link #MOBILE})</li>
  * </ol>
  * <p>
  * Package-private — not part of the public SDK API.
@@ -25,8 +29,22 @@ import java.util.List;
  * @see ModeResolutionEntry
  */
 final class ModeResolutionTable {
+    static final ModeResolutionTable MOBILE = createMobile(
+            ConnectionMode.STREAMING, ConnectionMode.BACKGROUND);
 
-    static final ModeResolutionTable MOBILE = new ModeResolutionTable(Arrays.asList(
+    /**
+     * Creates a mobile resolution table with configurable foreground and background modes.
+     *
+     * @param foregroundMode the mode to use when in the foreground with network available
+     * @param backgroundMode the mode to use when in the background with network available
+     *                         and background updating not disabled
+     * @return a new resolution table
+     */
+    static ModeResolutionTable createMobile(
+            ConnectionMode foregroundMode,
+            ConnectionMode backgroundMode
+    ) {
+        return new ModeResolutionTable(Arrays.asList(
             new ModeResolutionEntry(
                     state -> !state.isNetworkAvailable(),
                     ConnectionMode.OFFLINE),
@@ -35,8 +53,9 @@ final class ModeResolutionTable {
                     ConnectionMode.OFFLINE),
             new ModeResolutionEntry(
                     state -> !state.isForeground(),
-                    ConnectionMode.BACKGROUND)
-    ), ConnectionMode.STREAMING);
+                    backgroundMode)
+        ), foregroundMode);
+    }
 
     private final List<ModeResolutionEntry> entries;
     private final ConnectionMode defaultMode;

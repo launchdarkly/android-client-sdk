@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
+import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
@@ -101,14 +102,14 @@ public abstract class Components {
      * {@link PollingDataSourceBuilder} methods, and pass it to {@link LDConfig.Builder#dataSource(ComponentConfigurer)}:
      * <pre><code>
      *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
-     *         .dataSource(Components.pollingDataSource().initialReconnectDelayMillis(500))
+     *         .dataSource(Components.pollingDataSource().pollIntervalMillis(900_000))
      *         .build();
      * </code></pre>
      * <p>
      * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
      * and completely disable network requests.
      *
-     * @return a builder for setting streaming connection properties
+     * @return a builder for setting polling connection properties
      * @see LDConfig.Builder#dataSource(ComponentConfigurer)
      */
     public static PollingDataSourceBuilder pollingDataSource() {
@@ -221,4 +222,90 @@ public abstract class Components {
     public static PluginsConfigurationBuilder plugins() {
         return new ComponentsImpl.PluginsConfigurationBuilderImpl();
     }
+
+    /**
+     * Returns a builder for configuring the data system.
+     * <p>
+     * The data system controls how the SDK acquires and maintains feature flag data
+     * across different platform states (foreground, background, offline). It uses
+     * connection modes, each with its own pipeline of initializers and synchronizers.
+     * <p>
+     * When called with no further customization, the data system uses sensible defaults:
+     * streaming with polling fallback in the foreground and low-frequency polling in the
+     * background.
+     * <p>
+     * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+     * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
+     * <p>
+     * <b>Example — opting in to use the default data system:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(Components.dataSystem())
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — customize background polling to once every 6 hours:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .customizeConnectionMode(ConnectionMode.BACKGROUND,
+     *                     DataSystemComponents.customMode()
+     *                         .initializers(DataSystemComponents.pollingInitializer())
+     *                         .synchronizers(
+     *                             DataSystemComponents.pollingSynchronizer()
+     *                                 .pollIntervalMillis(21_600_000))))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — use polling instead of streaming in the foreground:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .foregroundConnectionMode(ConnectionMode.POLLING))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — disable automatic mode switching:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled())
+     *                 .foregroundConnectionMode(ConnectionMode.STREAMING))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * <b>Example — disable lifecycle switching but keep network switching:</b>
+     * <pre><code>
+     *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+     *         .mobileKey("my-key")
+     *         .dataSystem(
+     *             Components.dataSystem()
+     *                 .automaticModeSwitching(
+     *                     DataSystemComponents.automaticModeSwitching()
+     *                         .lifecycle(false)
+     *                         .network(true)
+     *                         .build()))
+     *         .build();
+     * </code></pre>
+     * <p>
+     * Setting {@link LDConfig.Builder#dataSystem(DataSystemBuilder)} is mutually exclusive
+     * with {@link LDConfig.Builder#dataSource(ComponentConfigurer)}. The data system uses
+     * the FDv2 protocol, while {@code dataSource()} uses the legacy FDv1 protocol.
+     *
+     * @return a builder for configuring the data system
+     * @see DataSystemBuilder
+     * @see DataSystemComponents
+     * @see LDConfig.Builder#dataSystem(DataSystemBuilder)
+     */
+    public static DataSystemBuilder dataSystem() {
+        return new DataSystemBuilder();
+    }
+
 }

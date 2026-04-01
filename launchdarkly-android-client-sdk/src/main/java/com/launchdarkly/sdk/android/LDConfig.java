@@ -8,6 +8,8 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
+import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
+import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.PluginsConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
@@ -71,6 +73,7 @@ public class LDConfig {
 
     private final boolean diagnosticOptOut;
     private final boolean disableBackgroundUpdating;
+    private final AutomaticModeSwitchingConfig automaticModeSwitchingConfig;
     private final boolean evaluationReasons;
     private final boolean generateAnonymousKeys;
     private final boolean autoEnvAttributes;
@@ -90,6 +93,7 @@ public class LDConfig {
              ComponentConfigurer<HttpConfiguration> http,
              boolean offline,
              boolean disableBackgroundUpdating,
+             AutomaticModeSwitchingConfig automaticModeSwitchingConfig,
              boolean evaluationReasons,
              boolean diagnosticOptOut,
              int maxCachedContexts,
@@ -108,6 +112,7 @@ public class LDConfig {
         this.http = http;
         this.offline = offline;
         this.disableBackgroundUpdating = disableBackgroundUpdating;
+        this.automaticModeSwitchingConfig = automaticModeSwitchingConfig;
         this.evaluationReasons = evaluationReasons;
         this.diagnosticOptOut = diagnosticOptOut;
         this.maxCachedContexts = maxCachedContexts;
@@ -144,6 +149,15 @@ public class LDConfig {
      */
     public boolean isDisableBackgroundPolling() {
         return disableBackgroundUpdating;
+    }
+
+    /**
+     * Returns the automatic mode switching configuration for the FDv2 data system.
+     *
+     * @return the automatic mode switching config
+     */
+    AutomaticModeSwitchingConfig getAutomaticModeSwitchingConfig() {
+        return automaticModeSwitchingConfig;
     }
 
     /**
@@ -228,6 +242,7 @@ public class LDConfig {
 
         private ApplicationInfoBuilder applicationInfoBuilder = null;
         private ComponentConfigurer<DataSource> dataSource = null;
+        private DataSystemBuilder dataSystemBuilder = null;
         private ComponentConfigurer<EventProcessor> events = null;
         private HooksConfigurationBuilder hooksConfigurationBuilder = null;
         private PluginsConfigurationBuilder pluginsConfigurationBuilder = null;
@@ -383,6 +398,53 @@ public class LDConfig {
          */
         public Builder dataSource(ComponentConfigurer<DataSource> dataSourceConfigurer) {
             this.dataSource = dataSourceConfigurer;
+            this.dataSystemBuilder = null;
+            return this;
+        }
+
+        /**
+         * Sets the data system configuration. The data system controls how the SDK acquires and
+         * maintains feature flag data using the FDv2 protocol.
+         * <p>
+         * When the data system configuration is used, it overrides {@link #dataSource(ComponentConfigurer)}.
+         * If both {@link #dataSource(ComponentConfigurer)} and this method are called, the last one wins.
+         * <p>
+         * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+         * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
+         * <p>
+         * {@link Components#dataSystem()} provides sensible defaults for most applications. You can
+         * adjust high-level behavior with methods such as {@link DataSystemBuilder#foregroundConnectionMode}
+         * and {@link DataSystemBuilder#backgroundConnectionMode}; see {@link DataSystemBuilder} for
+         * per-mode initializer and synchronizer customization.
+         * <p>
+         * <b>Examples:</b>
+         * <p>
+         * Default configuration with quick initialization and streaming flag updates:
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+         *         .mobileKey("my-key")
+         *         .dataSystem(Components.dataSystem())
+         *         .build();
+         * </code></pre>
+         * <p>
+         * Polling in the foreground instead of the default streaming mode:
+         * <pre><code>
+         *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+         *         .mobileKey("my-key")
+         *         .dataSystem(
+         *             Components.dataSystem()
+         *                 .foregroundConnectionMode(ConnectionMode.POLLING))
+         *         .build();
+         * </code></pre>
+         *
+         * @param dataSystemBuilder the data system configuration builder
+         * @return the main configuration builder
+         * @see Components#dataSystem()
+         * @see DataSystemBuilder
+         */
+        public Builder dataSystem(DataSystemBuilder dataSystemBuilder) {
+            this.dataSystemBuilder = dataSystemBuilder;
+            this.dataSource = null;
             return this;
         }
 
@@ -396,13 +458,15 @@ public class LDConfig {
          * <p>
          * Setting {@link LDConfig.Builder#offline(boolean)} to {@code true} will supersede this setting
          * and completely disable network requests.
+         * Setting custom event processing options:
          * <pre><code>
-         *     // Setting custom event processing options
          *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .events(Components.sendEvents().capacity(100))
          *         .build();
-         *
-         *     // Disabling events
+         * </code></pre>
+         * <p>
+         * Disabling events:
+         * <pre><code>
          *     LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Enabled)
          *         .events(Components.noEvents())
          *         .build();
@@ -722,17 +786,36 @@ public class LDConfig {
                     null :
                     applicationInfoBuilder.createApplicationInfo();
 
+            ComponentConfigurer<DataSource> effectiveDataSource;
+            AutomaticModeSwitchingConfig effectiveAutoModeSwitching;
+            if (this.dataSystemBuilder != null) {
+                Map<ConnectionMode, ModeDefinition> modeTable =
+                        this.dataSystemBuilder.buildModeTable(disableBackgroundUpdating);
+                ConnectionMode startingMode = this.dataSystemBuilder.getForegroundConnectionMode();
+                ConnectionMode backgroundMode = this.dataSystemBuilder.getBackgroundConnectionMode();
+                ModeResolutionTable resolutionTable = ModeResolutionTable.createMobile(
+                        startingMode, backgroundMode);
+                effectiveDataSource = new FDv2DataSourceBuilder(
+                        modeTable, startingMode, resolutionTable);
+                effectiveAutoModeSwitching = this.dataSystemBuilder.getAutomaticModeSwitchingConfig();
+            } else {
+                effectiveDataSource = this.dataSource == null
+                        ? Components.streamingDataSource() : this.dataSource;
+                effectiveAutoModeSwitching = AutomaticModeSwitchingConfig.enabled();
+            }
+
             return new LDConfig(
                     mobileKeys,
                     serviceEndpoints,
                     applicationInfo,
-                    this.dataSource == null ? Components.streamingDataSource() : this.dataSource,
+                    effectiveDataSource,
                     this.events == null ? Components.sendEvents() : this.events,
                     (this.hooksConfigurationBuilder == null ? Components.hooks() : this.hooksConfigurationBuilder).build(),
                     (this.pluginsConfigurationBuilder == null ? Components.plugins() : this.pluginsConfigurationBuilder).build(),
                     this.http == null ? Components.httpConfiguration() : this.http,
                     offline,
                     disableBackgroundUpdating,
+                    effectiveAutoModeSwitching,
                     evaluationReasons,
                     diagnosticOptOut,
                     maxCachedContexts,

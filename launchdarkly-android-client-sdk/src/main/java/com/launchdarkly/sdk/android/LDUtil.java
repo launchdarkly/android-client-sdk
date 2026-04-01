@@ -159,7 +159,10 @@ public class LDUtil {
     }
 
     static HttpProperties makeHttpProperties(ClientContext clientContext) {
-        HttpConfiguration httpConfig = clientContext.getHttp();
+        return makeHttpProperties(clientContext.getHttp());
+    }
+
+    static HttpProperties makeHttpProperties(HttpConfiguration httpConfig) {
         HashMap<String, String> baseHeaders = new HashMap<>();
         for (Map.Entry<String, String> kv: httpConfig.getDefaultHeaders()) {
             baseHeaders.put(kv.getKey(), kv.getValue());

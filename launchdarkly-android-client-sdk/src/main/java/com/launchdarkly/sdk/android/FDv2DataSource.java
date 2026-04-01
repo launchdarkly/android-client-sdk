@@ -117,10 +117,8 @@ final class FDv2DataSource implements DataSource {
             if (startResult != null) {
                 if (startResult) {
                     resultCallback.onSuccess(true);
-                } else if (startError != null) {
-                    resultCallback.onError(startError);
                 } else {
-                    resultCallback.onSuccess(false);
+                    resultCallback.onError(startError);
                 }
                 return;
             }
@@ -152,15 +150,15 @@ final class FDv2DataSource implements DataSource {
 
                 if (!sourceManager.hasAvailableSynchronizers()) {
                     if (!startCompleted.get()) {
-                        maybeReportUnexpectedExhaustion("All initializers exhausted and there are no available synchronizers.");
+                        LDFailure failure = maybeReportUnexpectedExhaustion("All initializers exhausted and there are no available synchronizers.");
+                        tryCompleteStart(false, failure);
                     }
-                    tryCompleteStart(false, null);
                     return;
                 }
 
                 runSynchronizers(context, dataSourceUpdateSink);
-                maybeReportUnexpectedExhaustion("All data source acquisition methods have been exhausted.");
-                tryCompleteStart(false, null);
+                LDFailure failure = maybeReportUnexpectedExhaustion("All data source acquisition methods have been exhausted.");
+                tryCompleteStart(false, failure);
             } catch (Throwable t) {
                 logger.warn("FDv2DataSource error: {}", t.toString());
                 tryCompleteStart(false, t);
@@ -170,16 +168,19 @@ final class FDv2DataSource implements DataSource {
 
     /**
      * If not stopped, reports OFF with the given message (e.g. exhaustion).
+     * Returns the failure so callers can forward it to {@link #tryCompleteStart}.
      */
-    private void maybeReportUnexpectedExhaustion(String message) {
+    private LDFailure maybeReportUnexpectedExhaustion(String message) {
+        LDFailure failure = new LDFailure(message, LDFailure.FailureType.UNKNOWN_ERROR);
         if (!stopped.get()) {
-            dataSourceUpdateSink.setStatus(DataSourceState.OFF, new LDFailure(message, LDFailure.FailureType.UNKNOWN_ERROR));
+            dataSourceUpdateSink.setStatus(DataSourceState.OFF, failure);
         }
+        return failure;
     }
 
     /**
      * Records the start result and notifies all callbacks (first and any subsequent start() callers).
-     * No-op if start has already completed.
+     * No-op if start has already completed. If success is false, error is not null.
      */
     private void tryCompleteStart(boolean success, Throwable error) {
         // Idempotent: only the first call wins. Later calls (e.g. from runSynchronizers after
@@ -197,10 +198,8 @@ final class FDv2DataSource implements DataSource {
         for (Callback<Boolean> c : toNotify) {
             if (success) {
                 c.onSuccess(true);
-            } else if (error != null) {
-                c.onError(error);
             } else {
-                c.onSuccess(false);
+                c.onError(error);
             }
         }
     }
