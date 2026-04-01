@@ -11,10 +11,13 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.Selector;
+import com.launchdarkly.sdk.fdv2.SourceResultType;
+import com.launchdarkly.sdk.fdv2.SourceSignal;
 import com.launchdarkly.sdk.json.SerializationException;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -72,16 +75,15 @@ final class FDv1PollingSynchronizer implements Synchronizer {
         try {
             FDv2SourceResult result = doPoll();
 
-            if (result.getResultType() == com.launchdarkly.sdk.fdv2.SourceResultType.STATUS) {
+            if (result.getResultType() == SourceResultType.STATUS) {
                 FDv2SourceResult.Status status = result.getStatus();
-                if (status != null && status.getState() == com.launchdarkly.sdk.fdv2.SourceSignal.TERMINAL_ERROR) {
+                if (status != null && status.getState() == SourceSignal.TERMINAL_ERROR) {
                     synchronized (taskLock) {
                         if (scheduledTask != null) {
                             scheduledTask.cancel(false);
                             scheduledTask = null;
                         }
                     }
-                    closeFetcher();
                     shutdownFuture.set(result);
                     return;
                 }
@@ -94,70 +96,76 @@ final class FDv1PollingSynchronizer implements Synchronizer {
         }
     }
 
+    /**
+     * Fetches flags via FDv1 polling and converts the result to an {@link FDv2SourceResult}.
+     * <p>
+     * All result/error processing happens inside the {@link Callback} so the future carries a
+     * fully-formed {@link FDv2SourceResult}. This keeps application-level error classification
+     * (e.g. {@link LDInvalidResponseCodeFailure}) at the callback layer rather than unwrapping
+     * it from an {@link ExecutionException}.
+     */
     private FDv2SourceResult doPoll() {
-        LDAwaitFuture<String> jsonFuture = new LDAwaitFuture<>();
+        LDAwaitFuture<FDv2SourceResult> resultFuture = new LDAwaitFuture<>();
 
         fetcher.fetch(evaluationContext, new Callback<String>() {
             @Override
-            public void onSuccess(String result) {
-                jsonFuture.set(result);
+            public void onSuccess(String json) {
+                try {
+                    logger.debug("FDv1 fallback polling response received");
+                    EnvironmentData envData = EnvironmentData.fromJson(json);
+                    Map<String, Flag> flags = envData.getAll();
+
+                    ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
+                            ChangeSetType.Full,
+                            Selector.EMPTY,
+                            flags,
+                            null,
+                            true);
+                    resultFuture.set(FDv2SourceResult.changeSet(changeSet, false));
+                } catch (SerializationException e) {
+                    LDUtil.logExceptionAtErrorLevel(logger, e, "FDv1 fallback polling failed to parse response");
+                    LDFailure failure = new LDFailure(
+                            "FDv1 fallback: invalid JSON response", e, LDFailure.FailureType.INVALID_RESPONSE_BODY);
+                    resultFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), false));
+                }
             }
 
             @Override
             public void onError(Throwable e) {
-                jsonFuture.setException(e);
+                if (e instanceof LDInvalidResponseCodeFailure) {
+                    int code = ((LDInvalidResponseCodeFailure) e).getResponseCode();
+                    if (code == 400) {
+                        logger.error("Received 400 response when fetching flag values. " +
+                                "Please check recommended R8 and/or ProGuard settings");
+                    }
+                    boolean recoverable = LDUtil.isHttpErrorRecoverable(code);
+                    logger.warn("FDv1 fallback polling failed with HTTP {}", code);
+                    LDFailure failure = new LDInvalidResponseCodeFailure(
+                            "FDv1 fallback polling request failed", e, code, recoverable);
+                    if (!recoverable) {
+                        resultFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), false));
+                    } else {
+                        resultFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), false));
+                    }
+                } else if (e instanceof IOException) {
+                    LDUtil.logExceptionAtErrorLevel(logger, e, "FDv1 fallback polling failed with network error");
+                    resultFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false));
+                } else {
+                    LDUtil.logExceptionAtErrorLevel(logger, e, "FDv1 fallback polling failed");
+                    resultFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false));
+                }
             }
         });
 
         try {
-            String json = jsonFuture.get();
-            logger.debug("FDv1 fallback polling response received");
-
-            EnvironmentData envData = EnvironmentData.fromJson(json);
-            Map<String, Flag> flags = envData.getAll();
-
-            ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
-                    ChangeSetType.Full,
-                    Selector.EMPTY,
-                    flags,
-                    null,
-                    true);
-
-            return FDv2SourceResult.changeSet(changeSet, false);
-
+            return resultFuture.get();
         } catch (InterruptedException e) {
             return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false);
-        } catch (java.util.concurrent.ExecutionException e) {
+        } catch (ExecutionException e) {
+            // Should not happen — all callback paths call set(), never setException()
             Throwable cause = e.getCause() != null ? e.getCause() : e;
-
-            if (cause instanceof LDInvalidResponseCodeFailure) {
-                int code = ((LDInvalidResponseCodeFailure) cause).getResponseCode();
-                if (code == 400) {
-                    logger.error("Received 400 response when fetching flag values. " +
-                            "Please check recommended R8 and/or ProGuard settings");
-                }
-                boolean recoverable = LDUtil.isHttpErrorRecoverable(code);
-                logger.warn("FDv1 fallback polling failed with HTTP {}", code);
-                LDFailure failure = new LDInvalidResponseCodeFailure(
-                        "FDv1 fallback polling request failed", cause, code, recoverable);
-                if (!recoverable) {
-                    return FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), false);
-                } else {
-                    return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), false);
-                }
-            }
-
-            if (cause instanceof IOException) {
-                LDUtil.logExceptionAtErrorLevel(logger, cause, "FDv1 fallback polling failed with network error");
-            } else {
-                LDUtil.logExceptionAtErrorLevel(logger, cause, "FDv1 fallback polling failed");
-            }
+            LDUtil.logExceptionAtErrorLevel(logger, cause, "FDv1 fallback polling failed unexpectedly");
             return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause), false);
-        } catch (SerializationException e) {
-            LDUtil.logExceptionAtErrorLevel(logger, e, "FDv1 fallback polling failed to parse response");
-            LDFailure failure = new LDFailure(
-                    "FDv1 fallback: invalid JSON response", e, LDFailure.FailureType.INVALID_RESPONSE_BODY);
-            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), false);
         }
     }
 
@@ -176,10 +184,6 @@ final class FDv1PollingSynchronizer implements Synchronizer {
             }
         }
         shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
-        closeFetcher();
-    }
-
-    private void closeFetcher() {
         try {
             fetcher.close();
         } catch (IOException ignored) {
