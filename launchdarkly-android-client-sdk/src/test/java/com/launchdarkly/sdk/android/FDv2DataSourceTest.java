@@ -1459,6 +1459,36 @@ public class FDv2DataSourceTest {
     }
 
     @Test
+    public void fdv1FallbackDuringInitializationWithNonEmptySelectorSwitchesToFdv1() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
+
+        // Initializer returns a fully current payload (non-empty selector) AND fdv1Fallback=true.
+        // The fallback should still be detected even though the non-empty selector would normally
+        // complete initialization immediately.
+        FDv2DataSource dataSource = new FDv2DataSource(
+                CONTEXT,
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>singletonList(
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), true))),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(
+                        () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                () -> fdv1Sync,
+                sink,
+                executor,
+                logging.logger);
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        // The FDv1 synchronizer should receive data, proving it was activated.
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        stopDataSource(dataSource);
+    }
+
+    @Test
     public void fdv1FallbackSwitchesToFdv1Synchronizer() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 

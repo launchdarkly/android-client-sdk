@@ -258,6 +258,12 @@ final class FDv2DataSource implements DataSource {
                             // A non-empty selector means the payload is fully current; the
                             // initializer is done and synchronizers can take over from here.
                             if (!changeSet.getSelector().isEmpty()) {
+                                if (result.isFdv1Fallback()
+                                        && sourceManager.hasFDv1Fallback()) {
+                                    logger.info("Server signaled FDv1 fallback during initialization; " +
+                                            "switching to FDv1 synchronizer.");
+                                    sourceManager.fdv1Fallback();
+                                }
                                 sink.setStatus(DataSourceState.VALID, null);
                                 tryCompleteStart(true, null);
                                 return;
