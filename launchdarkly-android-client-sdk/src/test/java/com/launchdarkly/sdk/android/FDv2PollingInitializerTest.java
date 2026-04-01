@@ -148,7 +148,7 @@ public class FDv2PollingInitializerTest {
         assertEquals(SourceSignal.SHUTDOWN, result.getStatus().getState());
 
         // Allow the background thread to unblock cleanly.
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
     }
 
     @Test
@@ -159,7 +159,7 @@ public class FDv2PollingInitializerTest {
         Future<FDv2SourceResult> future = initializer.run();
 
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         // Wait for poll to complete, then close — should not throw.
         future.get(1, TimeUnit.SECONDS);
@@ -236,7 +236,7 @@ public class FDv2PollingInitializerTest {
 
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
         initializer.close();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         assertEquals(1, requestor.closeCount);
     }

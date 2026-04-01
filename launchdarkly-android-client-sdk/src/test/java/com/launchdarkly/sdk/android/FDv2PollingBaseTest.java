@@ -90,7 +90,7 @@ public class FDv2PollingBaseTest {
     @Test
     public void http304_returnsNoneChangeSet() {
         MockFDv2Requestor requestor = new MockFDv2Requestor();
-        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.notModified());
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         FDv2SourceResult result = doPoll(requestor, true);
 
@@ -103,7 +103,7 @@ public class FDv2PollingBaseTest {
     public void http304_preservesCurrentSelector() {
         Selector selector = Selector.make(5, "cached-state");
         MockFDv2Requestor requestor = new MockFDv2Requestor();
-        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.notModified());
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         FDv2SourceResult result = FDv2PollingBase.doPoll(requestor, LOGGER, selector, false);
 
@@ -399,7 +399,7 @@ public class FDv2PollingBaseTest {
     public void selectorIsPassedToRequestor() {
         Selector selector = Selector.make(7, "my-state");
         MockFDv2Requestor requestor = new MockFDv2Requestor();
-        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.notModified());
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         FDv2PollingBase.doPoll(requestor, LOGGER, selector, true);
 

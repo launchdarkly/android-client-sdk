@@ -101,7 +101,7 @@ public class FDv2PollingSynchronizerTest {
             // Second poll (scheduleWithFixedDelay fires after interval elapses)
             Future<FDv2SourceResult> nextFuture2 = synchronizer.next();
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> poll2 = requestor.awaitNextPoll();
-            poll2.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+            poll2.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
             FDv2SourceResult result2 = nextFuture2.get(1, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result2.getResultType());
         } finally {
@@ -141,7 +141,7 @@ public class FDv2PollingSynchronizerTest {
         assertEquals(SourceSignal.SHUTDOWN, result.getStatus().getState());
 
         // Unblock the background thread.
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
     }
 
     @Test
@@ -152,7 +152,7 @@ public class FDv2PollingSynchronizerTest {
         Future<FDv2SourceResult> nextFuture = synchronizer.next();
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
         synchronizer.close();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         nextFuture.get(1, TimeUnit.SECONDS);
         assertEquals(1, requestor.closeCount);
@@ -378,7 +378,7 @@ public class FDv2PollingSynchronizerTest {
             Future<FDv2SourceResult> nextFuture = synchronizer.next();
 
             LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+            pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
             nextFuture.get(1, TimeUnit.SECONDS);
             assertEquals(selector, requestor.receivedSelectors.poll(1, TimeUnit.SECONDS));

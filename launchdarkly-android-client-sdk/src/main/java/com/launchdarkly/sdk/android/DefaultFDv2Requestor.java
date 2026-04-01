@@ -191,7 +191,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
 
             if (code == 304) {
                 logger.debug("FDv2 polling: 304 Not Modified");
-                future.set(FDv2PayloadResponse.notModified());
+                future.set(FDv2PayloadResponse.notModified(fdv1Fallback));
                 return;
             }
 

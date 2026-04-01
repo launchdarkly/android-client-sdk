@@ -49,8 +49,8 @@ interface FDv2Requestor extends Closeable {
          * Creates a successful 304 Not Modified response indicating no change since the
          * last request.
          */
-        static FDv2PayloadResponse notModified() {
-            return new FDv2PayloadResponse(null, true, 304, false);
+        static FDv2PayloadResponse notModified(boolean fdv1Fallback) {
+            return new FDv2PayloadResponse(null, true, 304, fdv1Fallback);
         }
 
         /** Creates an unsuccessful response with the HTTP status code. */
