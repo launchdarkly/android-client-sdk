@@ -90,7 +90,7 @@ public class FDv1PollingSynchronizerTest {
 
     private FDv1PollingSynchronizer makeSynchronizer(MockFetcher fetcher, long initialDelay, long pollInterval) {
         return new FDv1PollingSynchronizer(
-                CONTEXT, fetcher, false, executor,
+                CONTEXT, fetcher, executor,
                 initialDelay, pollInterval, LOGGER);
     }
 

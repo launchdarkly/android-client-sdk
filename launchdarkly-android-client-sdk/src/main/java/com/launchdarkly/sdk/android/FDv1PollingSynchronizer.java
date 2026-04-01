@@ -32,7 +32,6 @@ final class FDv1PollingSynchronizer implements Synchronizer {
 
     private final LDContext evaluationContext;
     private final FeatureFetcher fetcher;
-    private final boolean ownsFetcher;
     private final LDLogger logger;
 
     private final LDAsyncQueue<FDv2SourceResult> resultQueue = new LDAsyncQueue<>();
@@ -44,8 +43,6 @@ final class FDv1PollingSynchronizer implements Synchronizer {
     /**
      * @param evaluationContext  the context to evaluate flags for
      * @param fetcher            the HTTP transport for FDv1 polling requests
-     * @param ownsFetcher        true if this synchronizer should close the fetcher on shutdown;
-     *                           false if the fetcher is shared and managed externally
      * @param executor           scheduler for recurring poll tasks
      * @param initialDelayMillis delay before the first poll in milliseconds
      * @param pollIntervalMillis delay between the end of one poll and the start of the next
@@ -54,14 +51,12 @@ final class FDv1PollingSynchronizer implements Synchronizer {
     FDv1PollingSynchronizer(
             @NonNull LDContext evaluationContext,
             @NonNull FeatureFetcher fetcher,
-            boolean ownsFetcher,
             @NonNull ScheduledExecutorService executor,
             long initialDelayMillis,
             long pollIntervalMillis,
             @NonNull LDLogger logger) {
         this.evaluationContext = evaluationContext;
         this.fetcher = fetcher;
-        this.ownsFetcher = ownsFetcher;
         this.logger = logger;
 
         synchronized (taskLock) {
@@ -185,11 +180,9 @@ final class FDv1PollingSynchronizer implements Synchronizer {
     }
 
     private void closeFetcher() {
-        if (ownsFetcher) {
-            try {
-                fetcher.close();
-            } catch (IOException ignored) {
-            }
+        try {
+            fetcher.close();
+        } catch (IOException ignored) {
         }
     }
 }

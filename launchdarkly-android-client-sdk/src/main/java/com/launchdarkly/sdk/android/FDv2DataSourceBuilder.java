@@ -93,7 +93,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         ComponentConfigurer<Synchronizer> fdv1FallbackPollingSynchronizer = ctx -> {
             FeatureFetcher fetcher = new HttpFeatureFlagFetcher(ClientContextImpl.get(ctx));
             return new FDv1PollingSynchronizer(
-                    ctx.getEvaluationContext(), fetcher, true,
+                    ctx.getEvaluationContext(), fetcher,
                     sharedExecutor, 0,
                     PollingDataSourceBuilder.DEFAULT_POLL_INTERVAL_MILLIS,
                     ctx.getBaseLogger());
