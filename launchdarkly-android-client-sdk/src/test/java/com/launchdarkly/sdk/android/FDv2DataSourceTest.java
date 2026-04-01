@@ -1459,6 +1459,43 @@ public class FDv2DataSourceTest {
     }
 
     @Test
+    public void fdv1FallbackOnTerminalErrorDuringInitializationSwitchesToFdv1() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicBoolean secondInitCalled = new AtomicBoolean(false);
+
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
+
+        // First initializer returns TERMINAL_ERROR with fdv1Fallback=true.
+        // The fallback should be honored and remaining initializers skipped.
+        FDv2DataSource dataSource = new FDv2DataSource(
+                CONTEXT,
+                Arrays.<FDv2DataSource.DataSourceFactory<Initializer>>asList(
+                        () -> new MockInitializer(FDv2SourceResult.status(
+                                FDv2SourceResult.Status.terminalError(new RuntimeException("fail")), true)),
+                        () -> {
+                            secondInitCalled.set(true);
+                            return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
+                        }),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(
+                        () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
+                () -> fdv1Sync,
+                sink,
+                executor,
+                logging.logger);
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        assertFalse(secondInitCalled.get());
+
+        // The FDv1 synchronizer should receive data, proving it was activated.
+        sink.awaitApplyCount(1, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        stopDataSource(dataSource);
+    }
+
+    @Test
     public void fdv1FallbackDuringInitializationWithNonEmptySelectorSwitchesToFdv1() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
@@ -1514,6 +1551,41 @@ public class FDv2DataSourceTest {
 
         DataSourceState secondValid = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.VALID, secondValid);
+
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void fdv1FallbackOnTerminalErrorSwitchesToFdv1Synchronizer() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+
+        // FDv2 synchronizer returns a terminal error (e.g., HTTP 401) with fdv1Fallback=true.
+        // The fallback should still be honored even though the error is non-recoverable.
+        MockQueuedSynchronizer fdv2Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.status(
+                        FDv2SourceResult.Status.terminalError(new RuntimeException("401")),
+                        true));
+
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
+
+        FDv2DataSource dataSource = new FDv2DataSource(
+                CONTEXT,
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
+                () -> fdv1Sync,
+                sink,
+                executor,
+                logging.logger);
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+
+        // The terminal error from the FDv2 synchronizer produces INTERRUPTED first.
+        assertEquals(DataSourceState.INTERRUPTED, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        // Then the FDv1 synchronizer takes over and produces VALID.
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         stopDataSource(dataSource);
     }

@@ -420,11 +420,11 @@ final class FDv2DataSource implements DataSource {
 
                             // After processing the result, check whether the server signaled
                             // that this environment should fall back to FDv1 (via the
-                            // x-ld-fd-fallback response header). Only act on the signal if the
-                            // synchronizer is still running (not shut down or terminally errored),
-                            // a fallback slot exists, and we aren't already on FDv1.
-                            if (running
-                                    && result.isFdv1Fallback()
+                            // x-ld-fd-fallback response header). We check regardless of
+                            // whether the synchronizer is still running — a terminal error
+                            // response can still carry the fallback header, and the server's
+                            // instruction to use FDv1 should take precedence.
+                            if (result.isFdv1Fallback()
                                     && sourceManager.hasFDv1Fallback()
                                     && !sourceManager.isCurrentSynchronizerFDv1Fallback()) {
                                 logger.info("Server signaled FDv1 fallback; switching to FDv1 polling synchronizer.");
