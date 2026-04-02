@@ -17,7 +17,6 @@ import com.launchdarkly.sdk.json.SerializationException;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -102,7 +101,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
      * All result/error processing happens inside the {@link Callback} so the future carries a
      * fully-formed {@link FDv2SourceResult}. This keeps application-level error classification
      * (e.g. {@link LDInvalidResponseCodeFailure}) at the callback layer rather than unwrapping
-     * it from an {@link ExecutionException}.
+     * it from a {@link java.util.concurrent.Future#get()} exception.
      */
     private FDv2SourceResult doPoll() {
         LDAwaitFuture<FDv2SourceResult> resultFuture = new LDAwaitFuture<>();
@@ -161,7 +160,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
             return resultFuture.get();
         } catch (InterruptedException e) {
             return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false);
-        } catch (ExecutionException e) {
+        } catch (Exception e) {
             // Should not happen — all callback paths call set(), never setException()
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             LDUtil.logExceptionAtErrorLevel(logger, cause, "FDv1 fallback polling failed unexpectedly");
