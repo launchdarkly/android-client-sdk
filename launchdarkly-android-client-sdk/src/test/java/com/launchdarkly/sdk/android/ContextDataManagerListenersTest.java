@@ -7,9 +7,13 @@ import static org.junit.Assert.fail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
+import com.launchdarkly.sdk.fdv2.Selector;
 
 import org.junit.Test;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -133,6 +137,34 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         // verify callbacks
         assertEquals(FLAG_KEY, specific2.expectUpdate(5, TimeUnit.SECONDS));
         assertEquals(FLAG_KEY, all2.expectUpdate(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void partialApplyNotifiesListenersForEachKeyEvenWhenEvaluatedValueUnchanged()
+            throws InterruptedException {
+        Flag initial = new FlagBuilder("flag").version(1).value(true).build();
+        ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT);
+        manager.initData(CONTEXT, new DataSetBuilder().add(initial).build());
+
+        AwaitableFlagListener listener = new AwaitableFlagListener();
+        AwaitableFlagListener allFlagsListener = new AwaitableFlagListener();
+        manager.registerListener("flag", listener);
+        manager.registerAllFlagsListener(allFlagsListener);
+
+        // Same evaluated value, higher version — FDv2 partial still notifies (matches JS FlagUpdater).
+        Flag sameValue = new FlagBuilder("flag").version(2).value(true).build();
+        manager.apply(
+                CONTEXT,
+                new ChangeSet<>(
+                        ChangeSetType.Partial,
+                        Selector.EMPTY,
+                        Collections.singletonMap(sameValue.getKey(), sameValue),
+                        null,
+                        false));
+
+        assertEquals("flag", listener.expectUpdate(5, TimeUnit.SECONDS));
+        assertEquals("flag", allFlagsListener.expectUpdate(5, TimeUnit.SECONDS));
     }
 
     @Test

@@ -12,8 +12,8 @@ import java.util.List;
 /**
  * A fully resolved mode definition containing zero-arg factories for initializers
  * and synchronizers. This is the result of resolving a {@link ModeDefinition}'s
- * {@link com.launchdarkly.sdk.android.subsystems.ComponentConfigurer} entries against
- * a {@link com.launchdarkly.sdk.android.subsystems.ClientContext}.
+ * {@link com.launchdarkly.sdk.android.subsystems.DataSourceBuilder} entries against
+ * a {@link com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs}.
  * <p>
  * Instances are immutable and created by {@code FDv2DataSourceBuilder} at build time.
  * <p>

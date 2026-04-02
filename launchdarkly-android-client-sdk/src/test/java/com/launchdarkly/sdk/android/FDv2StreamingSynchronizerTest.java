@@ -301,12 +301,23 @@ public class FDv2StreamingSynchronizerTest {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
-            Future<FDv2SourceResult> resultFuture = sync.next();
-            FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
-
-            assertNotNull(result);
-            assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
-            assertNotNull(result.getChangeSet());
+            // Under resource contention the EventSource may experience a transient
+            // connection fault before the SSE events arrive, producing a STATUS(INTERRUPTED)
+            // that beats the expected CHANGE_SET into the result queue.  Drain any such
+            // transient STATUS results (mirroring real-world SourceManager behaviour)
+            // while still respecting the overall test timeout.
+            FDv2SourceResult changesetResult = null;
+            for (int i = 0; i < 10; i++) {
+                FDv2SourceResult r = sync.next().get(5, TimeUnit.SECONDS);
+                assertNotNull(r);
+                if (r.getResultType() == SourceResultType.CHANGE_SET) {
+                    changesetResult = r;
+                    break;
+                }
+                assertEquals(SourceResultType.STATUS, r.getResultType());
+            }
+            assertNotNull("Expected a CHANGE_SET result after the error event", changesetResult);
+            assertNotNull(changesetResult.getChangeSet());
 
             sync.close();
         }

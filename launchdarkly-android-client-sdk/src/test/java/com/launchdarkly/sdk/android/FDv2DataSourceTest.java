@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import androidx.annotation.NonNull;
 
@@ -110,6 +111,16 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> cb = new AwaitableCallback<>();
         dataSource.start(cb);
         return cb;
+    }
+
+    /** Awaits the callback, expecting it to report an error (onError was called). */
+    private void awaitExpectingError(AwaitableCallback<?> cb) throws Exception {
+        try {
+            cb.await(AWAIT_TIMEOUT_SECONDS * 1000);
+            fail("Expected callback to report an error");
+        } catch (ExecutionException expected) {
+            // The callback reported an error, as expected.
+        }
     }
 
     /** Stops the data source synchronously. */
@@ -367,7 +378,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitExpectingError(startCallback);
     }
 
     @Test
@@ -572,7 +583,7 @@ public class FDv2DataSourceTest {
                         () -> new MockQueuedSynchronizer(terminalError())));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitExpectingError(startCallback);
 
         List<DataSourceState> statuses = sink.awaitStatuses(4, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(4, statuses.size());
@@ -615,7 +626,7 @@ public class FDv2DataSourceTest {
                         () -> new MockQueuedSynchronizer(terminalError())));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitExpectingError(startCallback);
     }
 
     @Test
@@ -766,12 +777,11 @@ public class FDv2DataSourceTest {
         stopDataSource(dataSource); // close() completes slowFuture with SHUTDOWN via MockInitializer.close()
 
         // Start callback must eventually complete (not hang)
-        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitExpectingError(startCallback);
 
         DataSourceState offStatus = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(offStatus);
         assertEquals(DataSourceState.OFF, offStatus);
-        assertNull(sink.getLastError());
     }
 
     @Test
@@ -896,7 +906,11 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         stopDataSource(dataSource); // stop immediately after starting
 
-        startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000); // should not hang regardless of result
+        // Should not hang regardless of whether the callback reports success or error.
+        try {
+            startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000);
+        } catch (ExecutionException ignored) {
+        }
     }
 
     @Test
@@ -1074,7 +1088,11 @@ public class FDv2DataSourceTest {
 
         stopDataSource(dataSource);
         // slowFuture is now completed with SHUTDOWN by MockInitializer.close()
-        startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000); // must not hang
+        // Must not hang; error is acceptable since stop triggered exhaustion.
+        try {
+            startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000);
+        } catch (ExecutionException ignored) {
+        }
     }
 
     // ============================================================================
@@ -1348,7 +1366,7 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(terminalErr), false))));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertFalse(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitExpectingError(startCallback);
 
         DataSourceState first = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(DataSourceState.INTERRUPTED, first);
