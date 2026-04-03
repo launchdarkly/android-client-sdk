@@ -8,6 +8,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.DataModel;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.SourceResultType;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
@@ -248,6 +249,27 @@ final class FDv2DataSource implements DataSource {
             try {
                 FDv2SourceResult result = initializer.run().get();
 
+                // FDv1 fallback takes priority over all other result processing.
+                // The spec requires honoring the fallback signal from any response,
+                // regardless of whether data was included or what the selector state is.
+                if (result.isFdv1Fallback() && sourceManager.hasFDv1Fallback()) {
+                    if (result.getResultType() == SourceResultType.CHANGE_SET) {
+                        ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
+                        if (changeSet != null) {
+                            sink.apply(context, changeSet);
+                            anyDataReceived = true;
+                        }
+                    }
+                    logger.info("Server signaled FDv1 fallback during initialization; " +
+                            "switching to FDv1 synchronizer.");
+                    sourceManager.fdv1Fallback();
+                    if (anyDataReceived) {
+                        sink.setStatus(DataSourceState.VALID, null);
+                        tryCompleteStart(true, null);
+                    }
+                    return;
+                }
+
                 switch (result.getResultType()) {
                     case CHANGE_SET:
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
@@ -257,12 +279,6 @@ final class FDv2DataSource implements DataSource {
                             // A non-empty selector means the payload is fully current; the
                             // initializer is done and synchronizers can take over from here.
                             if (!changeSet.getSelector().isEmpty()) {
-                                if (result.isFdv1Fallback()
-                                        && sourceManager.hasFDv1Fallback()) {
-                                    logger.info("Server signaled FDv1 fallback during initialization; " +
-                                            "switching to FDv1 synchronizer.");
-                                    sourceManager.fdv1Fallback();
-                                }
                                 sink.setStatus(DataSourceState.VALID, null);
                                 tryCompleteStart(true, null);
                                 return;
@@ -286,18 +302,6 @@ final class FDv2DataSource implements DataSource {
                             }
                         }
                         break;
-                }
-
-                if (result.isFdv1Fallback()
-                        && sourceManager.hasFDv1Fallback()) {
-                    logger.info("Server signaled FDv1 fallback during initialization; " +
-                            "skipping remaining initializers.");
-                    sourceManager.fdv1Fallback();
-                    if (anyDataReceived) {
-                        sink.setStatus(DataSourceState.VALID, null);
-                        tryCompleteStart(true, null);
-                    }
-                    return;
                 }
             } catch (ExecutionException e) {
                 logger.warn("Initializer error: {}", e.getCause() != null ? e.getCause().toString() : e.toString());
