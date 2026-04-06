@@ -7,6 +7,7 @@ import com.launchdarkly.sdk.android.integrations.PollingInitializerBuilder;
 import com.launchdarkly.sdk.android.integrations.PollingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
+import com.launchdarkly.sdk.android.subsystems.CachedFlagStore;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
@@ -134,6 +135,18 @@ public abstract class DataSystemComponents {
                 inputs.getSharedExecutor(), 0,
                 pollIntervalMillis,
                 inputs.getBaseLogger()
+            );
+        }
+    }
+
+    static final class CacheInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
+        @Override
+        public Initializer build(DataSourceBuildInputs inputs) {
+            return new FDv2CacheInitializer(
+                    inputs.getCachedFlagStore(),
+                    inputs.getEvaluationContext(),
+                    inputs.getSharedExecutor(),
+                    inputs.getBaseLogger()
             );
         }
     }
