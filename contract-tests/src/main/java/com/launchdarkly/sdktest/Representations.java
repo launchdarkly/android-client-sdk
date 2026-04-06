@@ -39,6 +39,7 @@ public abstract class Representations {
         SdkConfigClientSideParams clientSide;
         SdkConfigServiceEndpointParams serviceEndpoints;
         SdkConfigHookParams hooks;
+        SdkConfigDataSystemParams dataSystem;
     }
 
     public static class SdkConfigStreamParams {
@@ -100,6 +101,37 @@ public abstract class Representations {
         String beforeEvaluation;
         String afterEvaluation;
         String afterTrack;
+    }
+
+    public static class SdkConfigDataSystemParams {
+        Boolean useDefaultDataSystem;
+        SdkConfigConnectionModeConfig connectionModeConfig;
+        /**
+         * FDv2 / data-system tests: pipelines when {@link #connectionModeConfig} does not define
+         * {@link SdkConfigConnectionModeConfig#customConnectionModes}. If both are present, custom
+         * connection modes take precedence and these lists are ignored.
+         */
+        List<SdkConfigDataInitializer> initializers;
+        List<SdkConfigDataSynchronizer> synchronizers;
+    }
+
+    public static class SdkConfigConnectionModeConfig {
+        String initialConnectionMode;
+        Map<String, SdkConfigModeDefinition> customConnectionModes;
+    }
+
+    public static class SdkConfigModeDefinition {
+        List<SdkConfigDataInitializer> initializers;
+        List<SdkConfigDataSynchronizer> synchronizers;
+    }
+
+    public static class SdkConfigDataInitializer {
+        SdkConfigPollParams polling;
+    }
+
+    public static class SdkConfigDataSynchronizer {
+        SdkConfigStreamParams streaming;
+        SdkConfigPollParams polling;
     }
 
     public static class CommandParams {

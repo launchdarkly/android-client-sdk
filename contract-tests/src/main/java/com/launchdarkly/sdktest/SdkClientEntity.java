@@ -9,16 +9,27 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConfigHelper;
+import com.launchdarkly.sdk.android.ConnectionMode;
+import com.launchdarkly.sdk.android.DataSystemComponents;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
+import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
+import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
+import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingInitializerBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
+import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import com.launchdarkly.sdktest.Representations.CommandParams;
@@ -37,6 +48,11 @@ import com.launchdarkly.sdktest.Representations.HookData;
 import com.launchdarkly.sdktest.Representations.HookErrors;
 import com.launchdarkly.sdktest.Representations.IdentifyEventParams;
 import com.launchdarkly.sdktest.Representations.SdkConfigParams;
+import com.launchdarkly.sdktest.Representations.SdkConfigDataSystemParams;
+import com.launchdarkly.sdktest.Representations.SdkConfigConnectionModeConfig;
+import com.launchdarkly.sdktest.Representations.SdkConfigModeDefinition;
+import com.launchdarkly.sdktest.Representations.SdkConfigDataInitializer;
+import com.launchdarkly.sdktest.Representations.SdkConfigDataSynchronizer;
 
 import android.app.Application;
 
@@ -268,26 +284,29 @@ public class SdkClientEntity {
     // to be affected by each other's cached flag values.
     ConfigHelper.configureIsolatedInMemoryPersistence(builder);
 
-    if (params.polling != null && params.polling.baseUri != null) {
-      // Note that this property can be set even if streaming is enabled
-      endpoints.polling(params.polling.baseUri);
-    }
+    if (params.dataSystem != null) {
+      configureDataSystem(builder, params.dataSystem);
+    } else {
+      if (params.polling != null && params.polling.baseUri != null) {
+        endpoints.polling(params.polling.baseUri);
+      }
 
-    if (params.polling != null && params.streaming == null) {
-      PollingDataSourceBuilder pollingBuilder = Components.pollingDataSource();
-      if (params.polling.pollIntervalMs != null) {
-        pollingBuilder.pollIntervalMillis(params.polling.pollIntervalMs.intValue());
+      if (params.polling != null && params.streaming == null) {
+        PollingDataSourceBuilder pollingBuilder = Components.pollingDataSource();
+        if (params.polling.pollIntervalMs != null) {
+          pollingBuilder.pollIntervalMillis(params.polling.pollIntervalMs.intValue());
+        }
+        builder.dataSource(pollingBuilder);
+      } else if (params.streaming != null) {
+        if (params.streaming.baseUri != null) {
+          endpoints.streaming(params.streaming.baseUri);
+        }
+        StreamingDataSourceBuilder streamingBuilder = Components.streamingDataSource();
+        if (params.streaming.initialRetryDelayMs != null) {
+          streamingBuilder.initialReconnectDelayMillis(params.streaming.initialRetryDelayMs.intValue());
+        }
+        builder.dataSource(streamingBuilder);
       }
-      builder.dataSource(pollingBuilder);
-    } else if (params.streaming != null) {
-      if (params.streaming.baseUri != null) {
-        endpoints.streaming(params.streaming.baseUri);
-      }
-      StreamingDataSourceBuilder streamingBuilder = Components.streamingDataSource();
-      if (params.streaming.initialRetryDelayMs != null) {
-        streamingBuilder.initialReconnectDelayMillis(params.streaming.initialRetryDelayMs.intValue());
-      }
-      builder.dataSource(streamingBuilder);
     }
 
     if (params.events == null) {
@@ -371,6 +390,122 @@ public class SdkClientEntity {
     }
 
     return builder.build();
+  }
+
+  private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem) {
+    if (Boolean.TRUE.equals(dataSystem.useDefaultDataSystem)) {
+      builder.dataSystem(Components.dataSystem());
+      return;
+    }
+
+    SdkConfigConnectionModeConfig connModeConfig = dataSystem.connectionModeConfig;
+    boolean hasTopLevelPipelines = hasTopLevelDataSystemPipelines(dataSystem);
+
+    if (connModeConfig == null && !hasTopLevelPipelines) {
+      return;
+    }
+
+    DataSystemBuilder dsBuilder = Components.dataSystem();
+
+    if (connModeConfig != null && connModeConfig.initialConnectionMode != null) {
+      dsBuilder.foregroundConnectionMode(connectionModeFromString(connModeConfig.initialConnectionMode));
+    }
+
+    // at the time of writing this, we did not have contract tests that could test platform state changes,
+    // disabling automatic mode simplifies the behavior being tested
+    dsBuilder.automaticModeSwitching(AutomaticModeSwitchingConfig.disabled());
+
+    // Prefer connectionModeConfig when the harness sends both that and top-level pipelines.
+    if (hasConnectionModeCustomPipelines(connModeConfig)) {
+      for (Map.Entry<String, SdkConfigModeDefinition> entry : connModeConfig.customConnectionModes.entrySet()) {
+        ConnectionMode mode = connectionModeFromString(entry.getKey());
+        ConnectionModeBuilder modeBuilder = buildConnectionModeBuilder(entry.getValue());
+        dsBuilder.customizeConnectionMode(mode, modeBuilder);
+      }
+    } else if (hasTopLevelPipelines) {
+      SdkConfigModeDefinition topLevel = new SdkConfigModeDefinition();
+      topLevel.initializers = dataSystem.initializers;
+      topLevel.synchronizers = dataSystem.synchronizers;
+      dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING, buildConnectionModeBuilder(topLevel));
+    }
+
+    builder.dataSystem(dsBuilder);
+  }
+
+  private static boolean hasTopLevelDataSystemPipelines(SdkConfigDataSystemParams dataSystem) {
+    return (dataSystem.initializers != null && !dataSystem.initializers.isEmpty())
+            || (dataSystem.synchronizers != null && !dataSystem.synchronizers.isEmpty());
+  }
+
+  /** True when {@code connectionModeConfig.customConnectionModes} defines at least one mode pipeline. */
+  private static boolean hasConnectionModeCustomPipelines(SdkConfigConnectionModeConfig connModeConfig) {
+    return connModeConfig != null
+            && connModeConfig.customConnectionModes != null
+            && !connModeConfig.customConnectionModes.isEmpty();
+  }
+
+  private static ConnectionModeBuilder buildConnectionModeBuilder(SdkConfigModeDefinition modeDef) {
+    ConnectionModeBuilder modeBuilder = DataSystemComponents.customMode();
+
+    if (modeDef.initializers != null) {
+      List<DataSourceBuilder<Initializer>> initList = new ArrayList<>();
+      for (SdkConfigDataInitializer init : modeDef.initializers) {
+        if (init.polling != null) {
+          PollingInitializerBuilder initBuilder = DataSystemComponents.pollingInitializer();
+          if (init.polling.baseUri != null) {
+            initBuilder.serviceEndpointsOverride(
+                    Components.serviceEndpoints().polling(init.polling.baseUri));
+          }
+          initList.add(initBuilder);
+        }
+      }
+      @SuppressWarnings("unchecked")
+      DataSourceBuilder<Initializer>[] initArray = initList.toArray(new DataSourceBuilder[0]);
+      modeBuilder.initializers(initArray);
+    }
+
+    if (modeDef.synchronizers != null) {
+      List<DataSourceBuilder<Synchronizer>> syncList = new ArrayList<>();
+      for (SdkConfigDataSynchronizer sync : modeDef.synchronizers) {
+        if (sync.streaming != null) {
+          StreamingSynchronizerBuilder syncBuilder = DataSystemComponents.streamingSynchronizer();
+          if (sync.streaming.initialRetryDelayMs != null) {
+            syncBuilder.initialReconnectDelayMillis(sync.streaming.initialRetryDelayMs.intValue());
+          }
+          if (sync.streaming.baseUri != null) {
+            syncBuilder.serviceEndpointsOverride(
+                    Components.serviceEndpoints().streaming(sync.streaming.baseUri));
+          }
+          syncList.add(syncBuilder);
+        } else if (sync.polling != null) {
+          PollingSynchronizerBuilder syncBuilder = DataSystemComponents.pollingSynchronizer();
+          if (sync.polling.pollIntervalMs != null) {
+            syncBuilder.pollIntervalMillis(sync.polling.pollIntervalMs.intValue());
+          }
+          if (sync.polling.baseUri != null) {
+            syncBuilder.serviceEndpointsOverride(
+                    Components.serviceEndpoints().polling(sync.polling.baseUri));
+          }
+          syncList.add(syncBuilder);
+        }
+      }
+      @SuppressWarnings("unchecked")
+      DataSourceBuilder<Synchronizer>[] syncArray = syncList.toArray(new DataSourceBuilder[0]);
+      modeBuilder.synchronizers(syncArray);
+    }
+
+    return modeBuilder;
+  }
+
+  private static ConnectionMode connectionModeFromString(String name) {
+    switch (name) {
+      case "streaming": return ConnectionMode.STREAMING;
+      case "polling": return ConnectionMode.POLLING;
+      case "offline": return ConnectionMode.OFFLINE;
+      case "one-shot": return ConnectionMode.ONE_SHOT;
+      case "background": return ConnectionMode.BACKGROUND;
+      default: throw new IllegalArgumentException("Unknown connection mode: " + name);
+    }
   }
 
   public void close() {
