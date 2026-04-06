@@ -249,8 +249,6 @@ public class DataSystemBuilder {
             DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer = null;
             if (!cmb.getInitializers().isEmpty() || !cmb.getSynchronizers().isEmpty()) {
                 fdv1FallbackSynchronizer = table.get(entry.getKey()).getFdv1FallbackSynchronizer(); // use fdv1 fallback from default mode table
-            } else {
-                fdv1FallbackSynchronizer = null;
             }
 
             table.put(entry.getKey(), new ModeDefinition(
