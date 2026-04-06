@@ -109,7 +109,16 @@ public abstract class DataSystemComponents {
         }
     }
 
-    static final class FDv1PollingSynchronizerBuilderImpl implements DataSourceBuilder<Synchronizer> {
+    final class FDv1PollingSynchronizerBuilderImpl implements DataSourceBuilder<Synchronizer> {
+
+        protected int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+
+        public FDv1PollingSynchronizerBuilderImpl pollIntervalMillis(int pollIntervalMillis) {
+            this.pollIntervalMillis = pollIntervalMillis <= LDConfig.DEFAULT_POLL_INTERVAL_MILLIS ?
+                    LDConfig.DEFAULT_POLL_INTERVAL_MILLIS : pollIntervalMillis;
+            return this;
+        }
+
         @Override
         public Synchronizer build(DataSourceBuildInputs inputs) {
             FeatureFetcher fetcher = new HttpFeatureFlagFetcher(
@@ -123,7 +132,7 @@ public abstract class DataSystemComponents {
             return new FDv1PollingSynchronizer(
                 inputs.getEvaluationContext(), fetcher,
                 inputs.getSharedExecutor(), 0,
-                PollingSynchronizerBuilder.DEFAULT_POLL_INTERVAL_MILLIS,
+                pollIntervalMillis,
                 inputs.getBaseLogger()
             );
         }
@@ -185,21 +194,24 @@ public abstract class DataSystemComponents {
         DataSourceBuilder<Synchronizer> backgroundPollingSynchronizer =
                 pollingSynchronizer()
                         .pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
-        DataSourceBuilder<Synchronizer> fdv1FallbackPollingSynchronizer =
+        DataSourceBuilder<Synchronizer> fdv1FallbackPollingSynchronizerForeground =
                 new FDv1PollingSynchronizerBuilderImpl();
+
+        DataSourceBuilder<Synchronizer> fdv1FallbackPollingSynchronizerBackground =
+                new FDv1PollingSynchronizerBuilderImpl().pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
 
         Map<ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(ConnectionMode.STREAMING, new ModeDefinition(
                 // TODO: cacheInitializer — add once implemented
                 Arrays.asList(/* cacheInitializer, */ pollingInitializer),
                 Arrays.asList(streamingSynchronizer, pollingSynchronizer),
-                fdv1FallbackPollingSynchronizer
+                fdv1FallbackPollingSynchronizerForeground
         ));
         table.put(ConnectionMode.POLLING, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
                 Collections.singletonList(pollingSynchronizer),
-                fdv1FallbackPollingSynchronizer
+                fdv1FallbackPollingSynchronizerForeground
         ));
         table.put(ConnectionMode.OFFLINE, new ModeDefinition(
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
@@ -217,7 +229,7 @@ public abstract class DataSystemComponents {
                 // TODO: Arrays.asList(cacheInitializer) — add once implemented
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
                 Collections.singletonList(backgroundPollingSynchronizer),
-                fdv1FallbackPollingSynchronizer
+                fdv1FallbackPollingSynchronizerBackground
         ));
         return table;
     }

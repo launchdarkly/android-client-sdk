@@ -36,6 +36,12 @@ import okhttp3.MediaType;
  * must be constructed with {@link LDConfig.Builder}.
  */
 public class LDConfig {
+
+    /**
+     * The default value for {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#pollIntervalMillis(int)}: 5 minutes (300,000 ms).
+     */
+        public static final int DEFAULT_POLL_INTERVAL_MILLIS = 300_000;
+    
     /**
      * The default value for {@link com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder#backgroundPollIntervalMillis(int)}
      * and {@link com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder#backgroundPollIntervalMillis(int)}:
