@@ -201,6 +201,7 @@ public abstract class DataSystemComponents {
      */
     @NonNull
     public static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
+        DataSourceBuilder<Initializer> cacheInitializer = new CacheInitializerBuilderImpl();
         DataSourceBuilder<Initializer> pollingInitializer = pollingInitializer();
         DataSourceBuilder<Synchronizer> pollingSynchronizer = pollingSynchronizer();
         DataSourceBuilder<Synchronizer> streamingSynchronizer = streamingSynchronizer();
@@ -215,32 +216,28 @@ public abstract class DataSystemComponents {
 
         Map<ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
         table.put(ConnectionMode.STREAMING, new ModeDefinition(
-                // TODO: cacheInitializer — add once implemented
-                Arrays.asList(/* cacheInitializer, */ pollingInitializer),
+                Arrays.asList(cacheInitializer, pollingInitializer),
                 Arrays.asList(streamingSynchronizer, pollingSynchronizer),
                 fdv1FallbackPollingSynchronizerForeground
         ));
         table.put(ConnectionMode.POLLING, new ModeDefinition(
-                // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.singletonList(cacheInitializer),
                 Collections.singletonList(pollingSynchronizer),
                 fdv1FallbackPollingSynchronizerForeground
         ));
         table.put(ConnectionMode.OFFLINE, new ModeDefinition(
-                // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.singletonList(cacheInitializer),
                 Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
                 null
         ));
         table.put(ConnectionMode.ONE_SHOT, new ModeDefinition(
-                // TODO: cacheInitializer and streamingInitializer — add once implemented
-                Arrays.asList(/* cacheInitializer, */ pollingInitializer /*, streamingInitializer, */),
+                // TODO: streamingInitializer — add once implemented
+                Arrays.asList(cacheInitializer, pollingInitializer /*, streamingInitializer */),
                 Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
                 null
         ));
         table.put(ConnectionMode.BACKGROUND, new ModeDefinition(
-                // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.singletonList(cacheInitializer),
                 Collections.singletonList(backgroundPollingSynchronizer),
                 fdv1FallbackPollingSynchronizerBackground
         ));
