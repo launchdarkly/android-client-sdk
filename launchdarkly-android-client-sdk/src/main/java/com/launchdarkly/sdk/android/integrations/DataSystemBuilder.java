@@ -5,13 +5,11 @@ import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
-import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.ModeDefinition;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -243,7 +241,7 @@ public class DataSystemBuilder {
      */
     @NonNull
     public Map<ConnectionMode, ModeDefinition> buildModeTable(boolean disableBackgroundUpdating) {
-        Map<ConnectionMode, ModeDefinition> table = makeDefaultModeTable();
+        Map<ConnectionMode, ModeDefinition> table = DataSystemComponents.makeDefaultModeTable();
 
         for (Map.Entry<ConnectionMode, ConnectionModeBuilder> entry : connectionModeOverrides.entrySet()) {
             ConnectionModeBuilder cmb = entry.getValue();
@@ -265,54 +263,4 @@ public class DataSystemBuilder {
         return table;
     }
 
-    /**
-     * Produces the default mode table.
-     */
-    @NonNull
-    private static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
-        DataSourceBuilder<Initializer> pollingInitializer = DataSystemComponents.pollingInitializer();
-
-        DataSourceBuilder<Synchronizer> pollingSynchronizer = DataSystemComponents.pollingSynchronizer();
-
-        DataSourceBuilder<Synchronizer> streamingSynchronizer = DataSystemComponents.streamingSynchronizer();
-
-        DataSourceBuilder<Synchronizer> backgroundPollingSynchronizer =
-                DataSystemComponents.pollingSynchronizer()
-                        .pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
-
-        DataSourceBuilder<Synchronizer> fdv1FallbackPollingSynchronizer = DataSystemComponents.fdv1PollingSynchronizer();
-   
-        Map<ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
-        table.put(ConnectionMode.STREAMING, new ModeDefinition(
-                // TODO: cacheInitializer — add once implemented
-                Arrays.asList(/* cacheInitializer, */ pollingInitializer),
-                Arrays.asList(streamingSynchronizer, pollingSynchronizer),
-                fdv1FallbackPollingSynchronizer
-        ));
-        table.put(ConnectionMode.POLLING, new ModeDefinition(
-                // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.singletonList(pollingSynchronizer),
-                fdv1FallbackPollingSynchronizer
-        ));
-        table.put(ConnectionMode.OFFLINE, new ModeDefinition(
-                // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
-                null
-        ));
-        table.put(ConnectionMode.ONE_SHOT, new ModeDefinition(
-                // TODO: cacheInitializer and streamingInitializer — add once implemented
-                Arrays.asList(/* cacheInitializer, */ pollingInitializer /*, streamingInitializer, */),
-                Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
-                null
-        ));
-        table.put(ConnectionMode.BACKGROUND, new ModeDefinition(
-                // TODO: Arrays.asList(cacheInitializer) — add once implemented
-                Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.singletonList(backgroundPollingSynchronizer),
-                fdv1FallbackPollingSynchronizer
-        ));
-        return table;
-    }
 }

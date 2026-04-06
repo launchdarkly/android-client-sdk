@@ -44,6 +44,9 @@ final class FDv2DataSource implements DataSource {
     private final LDLogger logger;
     private final LDContext evaluationContext;
     private final DataSourceUpdateSinkV2 dataSourceUpdateSink;
+    private static final String FDV1_FALLBACK_MESSAGE =
+            "Server signaled FDv1 fallback; switching to FDv1 polling synchronizer.";
+
     private final SourceManager sourceManager;
     private final long fallbackTimeoutSeconds;
     private final long recoveryTimeoutSeconds;
@@ -260,8 +263,7 @@ final class FDv2DataSource implements DataSource {
                             anyDataReceived = true;
                         }
                     }
-                    logger.info("Server signaled FDv1 fallback during initialization; " +
-                            "switching to FDv1 synchronizer.");
+                    logger.info(FDV1_FALLBACK_MESSAGE);
                     sourceManager.fdv1Fallback();
                     if (anyDataReceived) {
                         sink.setStatus(DataSourceState.VALID, null);
@@ -430,7 +432,7 @@ final class FDv2DataSource implements DataSource {
                             if (result.isFdv1Fallback()
                                     && sourceManager.hasFDv1Fallback()
                                     && !sourceManager.isCurrentSynchronizerFDv1Fallback()) {
-                                logger.info("Server signaled FDv1 fallback; switching to FDv1 polling synchronizer.");
+                                logger.info(FDV1_FALLBACK_MESSAGE);
                                 sourceManager.fdv1Fallback();
                                 running = false;
                             }
