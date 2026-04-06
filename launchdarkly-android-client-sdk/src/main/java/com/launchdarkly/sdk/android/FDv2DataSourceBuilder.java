@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
 
+import com.launchdarkly.sdk.android.subsystems.CachedFlagStore;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
@@ -149,10 +150,21 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     }
 
     private DataSourceBuildInputs makeInputs(ClientContext clientContext) {
-        TransactionalDataStore store = ClientContextImpl.get(clientContext).getTransactionalDataStore();
+        ClientContextImpl impl = ClientContextImpl.get(clientContext);
+        TransactionalDataStore store = impl.getTransactionalDataStore();
         SelectorSource selectorSource = store != null
                 ? new SelectorSourceFacade(store)
                 : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
+
+        PersistentDataStoreWrapper.PerEnvironmentData envData = impl.getPerEnvironmentDataIfAvailable();
+        CachedFlagStore cachedFlagStore = envData != null
+                ? context -> {
+                    String hashedId = LDUtil.urlSafeBase64HashedContextId(context);
+                    EnvironmentData stored = envData.getContextData(hashedId);
+                    return stored != null ? stored.getAll() : null;
+                }
+                : null;
+
         return new DataSourceBuildInputs(
                 clientContext.getEvaluationContext(),
                 clientContext.getServiceEndpoints(),
@@ -160,7 +172,8 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 clientContext.isEvaluationReasons(),
                 selectorSource,
                 sharedExecutor,
-                ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
+                impl.getPlatformState().getCacheDir(),
+                cachedFlagStore,
                 clientContext.getBaseLogger()
         );
     }
