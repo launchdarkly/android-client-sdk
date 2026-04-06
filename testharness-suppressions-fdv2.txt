@@ -1,15 +1,1 @@
-streaming/requests/URL path is computed correctly/no environment filter/base URI has no trailing slash/GET
-streaming/requests/URL path is computed correctly/no environment filter/base URI has no trailing slash/REPORT
-streaming/requests/URL path is computed correctly/no environment filter/base URI has a trailing slash/GET
-streaming/requests/URL path is computed correctly/no environment filter/base URI has a trailing slash/REPORT
-streaming/requests/context properties/single kind minimal/GET
-streaming/requests/context properties/single kind with all attributes/GET
-streaming/requests/context properties/multi-kind/GET
-polling/requests/URL path is computed correctly/no environment filter/base URI has no trailing slash/GET
-polling/requests/URL path is computed correctly/no environment filter/base URI has no trailing slash/REPORT
-polling/requests/URL path is computed correctly/no environment filter/base URI has a trailing slash/GET
-polling/requests/URL path is computed correctly/no environment filter/base URI has a trailing slash/REPORT
-polling/requests/context properties/single kind minimal/GET
-polling/requests/context properties/single kind with all attributes/GET
-polling/requests/context properties/multi-kind/GET
 streaming/fdv2/fallback to FDv1 handling
