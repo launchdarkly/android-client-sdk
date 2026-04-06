@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
+import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
@@ -33,14 +34,9 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 public abstract class PollingSynchronizerBuilder implements DataSourceBuilder<Synchronizer> {
 
     /**
-     * The default value for {@link #pollIntervalMillis(int)}: 5 minutes (300,000 ms).
-     */
-    public static final int DEFAULT_POLL_INTERVAL_MILLIS = 300_000;
-
-    /**
      * The polling interval in milliseconds.
      */
-    protected int pollIntervalMillis = DEFAULT_POLL_INTERVAL_MILLIS;
+    protected int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
 
     /**
      * Per-source service endpoint override, or null to use the SDK-level endpoints.
@@ -50,14 +46,14 @@ public abstract class PollingSynchronizerBuilder implements DataSourceBuilder<Sy
     /**
      * Sets the interval at which the SDK will poll for feature flag updates.
      * <p>
-     * The default and minimum value is {@link #DEFAULT_POLL_INTERVAL_MILLIS}. Values
+     * The default and minimum value is {@link LDConfig#DEFAULT_POLL_INTERVAL_MILLIS}. Values
      * less than this will be set to the default.
      *
      * @param pollIntervalMillis the polling interval in milliseconds
      * @return this builder
      */
     public PollingSynchronizerBuilder pollIntervalMillis(int pollIntervalMillis) {
-        this.pollIntervalMillis = Math.max(pollIntervalMillis, DEFAULT_POLL_INTERVAL_MILLIS);
+        this.pollIntervalMillis = Math.max(pollIntervalMillis, LDConfig.DEFAULT_POLL_INTERVAL_MILLIS);
         return this;
     }
 

@@ -1,6 +1,8 @@
 package com.launchdarkly.sdk.android.integrations;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -62,6 +64,7 @@ public class DataSystemBuilderTest {
         ModeDefinition bg = table.get(ConnectionMode.BACKGROUND);
         assertTrue(bg.getInitializers().isEmpty());
         assertTrue(bg.getSynchronizers().isEmpty());
+        assertNull(bg.getFdv1FallbackSynchronizer());
     }
 
     @Test
@@ -76,6 +79,48 @@ public class DataSystemBuilderTest {
         ModeDefinition bg = table.get(ConnectionMode.BACKGROUND);
         assertTrue(bg.getInitializers().isEmpty());
         assertTrue(bg.getSynchronizers().isEmpty());
+        assertNull(bg.getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void customizeConnectionMode_preservesFdv1FallbackWhenModeHasSynchronizers() {
+        DataSystemBuilder b = Components.dataSystem()
+                .customizeConnectionMode(
+                        ConnectionMode.STREAMING,
+                        DataSystemComponents.customMode()
+                                .synchronizers(DataSystemComponents.pollingSynchronizer()));
+        Map<ConnectionMode, ModeDefinition> table = b.buildModeTable(false);
+        ModeDefinition streaming = table.get(ConnectionMode.STREAMING);
+        assertEquals(0, streaming.getInitializers().size());
+        assertEquals(1, streaming.getSynchronizers().size());
+        assertNotNull(streaming.getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void customizeConnectionMode_preservesFdv1FallbackWhenModeHasOnlyInitializers() {
+        DataSystemBuilder b = Components.dataSystem()
+                .customizeConnectionMode(
+                        ConnectionMode.STREAMING,
+                        DataSystemComponents.customMode()
+                                .initializers(DataSystemComponents.pollingInitializer()));
+        Map<ConnectionMode, ModeDefinition> table = b.buildModeTable(false);
+        ModeDefinition streaming = table.get(ConnectionMode.STREAMING);
+        assertEquals(1, streaming.getInitializers().size());
+        assertEquals(0, streaming.getSynchronizers().size());
+        assertNotNull(streaming.getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void customizeConnectionMode_nullsFdv1FallbackWhenModeIsEmpty() {
+        DataSystemBuilder b = Components.dataSystem()
+                .customizeConnectionMode(
+                        ConnectionMode.STREAMING,
+                        DataSystemComponents.customMode());
+        Map<ConnectionMode, ModeDefinition> table = b.buildModeTable(false);
+        ModeDefinition streaming = table.get(ConnectionMode.STREAMING);
+        assertTrue(streaming.getInitializers().isEmpty());
+        assertTrue(streaming.getSynchronizers().isEmpty());
+        assertNull(streaming.getFdv1FallbackSynchronizer());
     }
 
     @Test
