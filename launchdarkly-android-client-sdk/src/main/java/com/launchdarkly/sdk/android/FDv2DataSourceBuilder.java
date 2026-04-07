@@ -40,7 +40,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private ScheduledExecutorService sharedExecutor;
 
     FDv2DataSourceBuilder() {
-        this(makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE);
+        this(DataSystemComponents.makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE);
     }
 
     FDv2DataSourceBuilder(
@@ -180,10 +180,5 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         FDv2DataSource.DataSourceFactory<Synchronizer> fdv1Factory =
                 fdv1FallbackSynchronizer != null ? () -> fdv1FallbackSynchronizer.build(inputs) : null;
         return new ResolvedModeDefinition(initFactories, syncFactories, fdv1Factory);
-    }
-
-    private static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
-        return new com.launchdarkly.sdk.android.integrations.DataSystemBuilder()
-                .buildModeTable(false);
     }
 }
