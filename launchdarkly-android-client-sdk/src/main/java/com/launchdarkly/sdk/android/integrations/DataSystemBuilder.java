@@ -246,6 +246,11 @@ public class DataSystemBuilder {
         for (Map.Entry<ConnectionMode, ConnectionModeBuilder> entry : connectionModeOverrides.entrySet()) {
             ConnectionModeBuilder cmb = entry.getValue();
 
+            // Carry forward the default FDv1 fallback synchronizer only when the
+            // override supplies at least one initializer or synchronizer.  An entirely
+            // empty override means "do nothing in this mode" (like OFFLINE), so there is
+            // no synchronizer that could receive the x-ld-fd-fallback header and the
+            // fallback slot would never be reached by FDv2DataSource.runSynchronizers().
             DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer = null;
             if (!cmb.getInitializers().isEmpty() || !cmb.getSynchronizers().isEmpty()) {
                 ModeDefinition defaultForMode = table.get(entry.getKey());
