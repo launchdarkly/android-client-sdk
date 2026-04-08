@@ -37,7 +37,7 @@ public class FDv2DataSourceBuilderTest {
     private ClientContext makeClientContext() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).build();
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        return new ClientContext(
+        ClientContext base = new ClientContext(
                 "mobile-key",
                 ENV_REPORTER,
                 logging.logger,
@@ -52,6 +52,7 @@ public class FDv2DataSourceBuilderTest {
                 config.serviceEndpoints,
                 false
         );
+        return new ClientContextImpl(base, null, null, new MockPlatformState(), null, null);
     }
 
     @Test
@@ -67,7 +68,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.POLLING);
@@ -80,7 +82,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -97,11 +100,13 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -115,7 +120,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -129,7 +135,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);
@@ -141,11 +148,13 @@ public class FDv2DataSourceBuilderTest {
     public void getModeDefinition_returnsCorrectDefinition() {
         ModeDefinition streamingDef = new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         );
         ModeDefinition pollingDef = new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         );
 
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
@@ -162,7 +171,8 @@ public class FDv2DataSourceBuilderTest {
     public void getModeDefinition_sameObjectUsedForEquivalenceCheck() {
         ModeDefinition sharedDef = new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         );
 
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
@@ -224,6 +234,68 @@ public class FDv2DataSourceBuilderTest {
         }
     }
 
+    // ---- Default mode table FDv1 fallback slot configuration ----
+
+    @Test
+    public void defaultModeTable_streamingHasFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition streaming = builder.getModeDefinition(ConnectionMode.STREAMING);
+        assertNotNull(streaming);
+        assertEquals(1, streaming.getInitializers().size());
+        assertEquals(2, streaming.getSynchronizers().size());
+        assertNotNull(streaming.getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void defaultModeTable_pollingHasFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition polling = builder.getModeDefinition(ConnectionMode.POLLING);
+        assertNotNull(polling);
+        assertEquals(0, polling.getInitializers().size());
+        assertEquals(1, polling.getSynchronizers().size());
+        assertNotNull(polling.getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void defaultModeTable_backgroundHasFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition background = builder.getModeDefinition(ConnectionMode.BACKGROUND);
+        assertNotNull(background);
+        assertEquals(0, background.getInitializers().size());
+        assertEquals(1, background.getSynchronizers().size());
+        assertNotNull(background.getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void defaultModeTable_offlineHasNoFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition offline = builder.getModeDefinition(ConnectionMode.OFFLINE);
+        assertNotNull(offline);
+        assertEquals(0, offline.getInitializers().size());
+        assertEquals(0, offline.getSynchronizers().size());
+        assertNull(offline.getFdv1FallbackSynchronizer());
+    }
+
+    @Test
+    public void defaultModeTable_oneShotHasNoFdv1Fallback() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext());
+
+        ModeDefinition oneShot = builder.getModeDefinition(ConnectionMode.ONE_SHOT);
+        assertNotNull(oneShot);
+        assertEquals(1, oneShot.getInitializers().size());
+        assertEquals(0, oneShot.getSynchronizers().size());
+        assertNull(oneShot.getFdv1FallbackSynchronizer());
+    }
+
     @Test
     public void threeArgConstructor_retainsCustomResolutionTable() {
         ModeResolutionTable custom = new ModeResolutionTable(
@@ -233,11 +305,13 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.POLLING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
         customTable.put(ConnectionMode.OFFLINE, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>emptyList()
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(
@@ -253,7 +327,8 @@ public class FDv2DataSourceBuilderTest {
         Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
         customTable.put(ConnectionMode.STREAMING, new ModeDefinition(
                 Collections.<DataSourceBuilder<Initializer>>emptyList(),
-                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null)
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
         ));
 
         FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(customTable, ConnectionMode.STREAMING);

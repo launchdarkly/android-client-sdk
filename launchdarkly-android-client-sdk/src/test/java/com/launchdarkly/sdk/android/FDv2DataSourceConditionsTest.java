@@ -46,16 +46,16 @@ public class FDv2DataSourceConditionsTest {
     // ---- helpers ----
 
     private static FDv2SourceResult interrupted() {
-        return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(new RuntimeException("interrupted")));
+        return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(new RuntimeException("interrupted")), false);
     }
 
     private static FDv2SourceResult terminalError() {
-        return FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(new RuntimeException("terminal")));
+        return FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(new RuntimeException("terminal")), false);
     }
 
     private static FDv2SourceResult changeSet() {
         return FDv2SourceResult.changeSet(
-                new ChangeSet<>(ChangeSetType.None, Selector.EMPTY, new HashMap<>(), null, true));
+                new ChangeSet<>(ChangeSetType.None, Selector.EMPTY, new HashMap<>(), null, true), false);
     }
 
     // ==== FallbackCondition ====
@@ -145,7 +145,7 @@ public class FDv2DataSourceConditionsTest {
         FallbackCondition condition = new FallbackCondition(executor, 0);
         LDAwaitFuture<ConditionType> future = condition.getFuture();
 
-        condition.inform(FDv2SourceResult.status(FDv2SourceResult.Status.goodbye("bye")));
+        condition.inform(FDv2SourceResult.status(FDv2SourceResult.Status.goodbye("bye"), false));
 
         try {
             future.get(100, TimeUnit.MILLISECONDS);

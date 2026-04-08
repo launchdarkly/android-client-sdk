@@ -83,7 +83,7 @@ public class MockPlatformState implements PlatformState {
 
     @Override
     public File getCacheDir() {
-        return null;
+        return new File(System.getProperty("java.io.tmpdir"));
     }
 
     @Override
