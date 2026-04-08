@@ -497,10 +497,12 @@ public class LDClient implements LDClientInterface, Closeable {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
 
-        // Calling initFromStoredData updates the current flag state *if* stored flags exist for
+        // Calling switchToContext updates the current flag state *if* stored flags exist for
         // this context. If they don't, it has no effect. Currently we do *not* return early from
         // initialization just because stored flags exist; we're just making them available in case
         // initialization times out or otherwise fails.
+        // Note: In the FDv2 path, this cache load is redundant with FDv2CacheInitializer
+        // (which runs as the first initializer). It can be removed once FDv1 is retired.
         contextDataManager.switchToContext(context);
         connectivityManager.switchToContext(context, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);

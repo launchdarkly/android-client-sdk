@@ -82,6 +82,11 @@ final class ContextDataManager implements TransactionalDataStore {
      * <p>
      * If the context provided is different than the current state, switches to internally
      * stored flag data and notifies flag listeners.
+     * <p>
+     * Note: In the FDv2 path, this cache load is redundant with {@code FDv2CacheInitializer},
+     * which performs the same read as the first step in the initializer chain. The duplicate
+     * apply is harmless (same data, persist=false) but could be removed once FDv2 is the
+     * default and FDv1 code paths are retired.
      *
      * @param context the to switch to
      */
