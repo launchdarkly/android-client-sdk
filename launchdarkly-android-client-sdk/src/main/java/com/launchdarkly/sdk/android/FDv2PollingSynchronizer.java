@@ -93,7 +93,7 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
             // cancels the task on any unchecked exception, ending all future polls with no
             // error signal. Log and enqueue an INTERRUPTED result so the consumer is notified
             LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in polling synchronizer task");
-            resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e)));
+            resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false));
         }
     }
 
@@ -111,7 +111,7 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
                 scheduledTask = null;
             }
         }
-        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
         closeRequestor();
     }
 }

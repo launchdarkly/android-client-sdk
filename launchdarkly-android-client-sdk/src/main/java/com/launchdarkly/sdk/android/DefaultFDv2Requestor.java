@@ -177,15 +177,21 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
         return future;
     }
 
+    private static boolean isFdv1Fallback(@NonNull Response response) {
+        String value = response.header(HeaderConstants.FDV1_FALLBACK_HEADER);
+        return value != null && value.equalsIgnoreCase("true");
+    }
+
     private void handleResponse(
             @NonNull Response response,
             @NonNull LDAwaitFuture<FDv2PayloadResponse> future) {
         try {
             int code = response.code();
+            boolean fdv1Fallback = isFdv1Fallback(response);
 
             if (code == 304) {
                 logger.debug("FDv2 polling: 304 Not Modified");
-                future.set(FDv2PayloadResponse.notModified());
+                future.set(FDv2PayloadResponse.notModified(fdv1Fallback));
                 return;
             }
 
@@ -197,7 +203,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                 } else {
                     logger.warn("Polling request failed with HTTP {}", code);
                 }
-                future.set(FDv2PayloadResponse.failure(code));
+                future.set(FDv2PayloadResponse.failure(code, fdv1Fallback));
                 return;
             }
 
@@ -216,7 +222,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             String bodyStr = body.string();
             logger.debug("Polling response received");
             List<FDv2Event> events = FDv2Event.parseEventsArray(bodyStr);
-            future.set(FDv2PayloadResponse.success(events, code));
+            future.set(FDv2PayloadResponse.success(events, code, fdv1Fallback));
 
         } catch (Exception e) {
             future.setException(e);

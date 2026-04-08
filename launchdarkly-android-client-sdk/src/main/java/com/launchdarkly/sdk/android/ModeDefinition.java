@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
@@ -29,19 +30,25 @@ public final class ModeDefinition {
 
     private final List<DataSourceBuilder<Initializer>> initializers;
     private final List<DataSourceBuilder<Synchronizer>> synchronizers;
+    private final DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer;
 
     /**
-     * Constructs a mode definition with the given initializers and synchronizers.
+     * Constructs a mode definition with the given initializers, synchronizers,
+     * and an optional FDv1 fallback synchronizer.
      *
      * @param initializers  the initializer builders, in priority order
      * @param synchronizers the synchronizer builders, in priority order
+     * @param fdv1FallbackSynchronizer the FDv1 fallback synchronizer builder, or null if
+     *                                 this mode should not support FDv1 fallback
      */
     public ModeDefinition(
             @NonNull List<DataSourceBuilder<Initializer>> initializers,
-            @NonNull List<DataSourceBuilder<Synchronizer>> synchronizers
+            @NonNull List<DataSourceBuilder<Synchronizer>> synchronizers,
+            @Nullable DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer
     ) {
         this.initializers = Collections.unmodifiableList(new ArrayList<>(initializers));
         this.synchronizers = Collections.unmodifiableList(new ArrayList<>(synchronizers));
+        this.fdv1FallbackSynchronizer = fdv1FallbackSynchronizer;
     }
 
     /**
@@ -62,5 +69,16 @@ public final class ModeDefinition {
     @NonNull
     public List<DataSourceBuilder<Synchronizer>> getSynchronizers() {
         return synchronizers;
+    }
+
+    /**
+     * Returns the FDv1 fallback synchronizer builder for this mode, or null if this
+     * mode does not support FDv1 fallback.
+     *
+     * @return the FDv1 fallback synchronizer builder, or null
+     */
+    @Nullable
+    public DataSourceBuilder<Synchronizer> getFdv1FallbackSynchronizer() {
+        return fdv1FallbackSynchronizer;
     }
 }

@@ -27,32 +27,35 @@ interface FDv2Requestor extends Closeable {
         private final List<FDv2Event> events;
         private final boolean successful;
         private final int statusCode;
+        private final boolean fdv1Fallback;
 
         private FDv2PayloadResponse(
                 @Nullable List<FDv2Event> events,
                 boolean successful,
-                int statusCode) {
+                int statusCode,
+                boolean fdv1Fallback) {
             this.events = events;
             this.successful = successful;
             this.statusCode = statusCode;
+            this.fdv1Fallback = fdv1Fallback;
         }
 
         /** Creates a successful response with parsed events. */
-        static FDv2PayloadResponse success(@NonNull List<FDv2Event> events, int statusCode) {
-            return new FDv2PayloadResponse(events, true, statusCode);
+        static FDv2PayloadResponse success(@NonNull List<FDv2Event> events, int statusCode, boolean fdv1Fallback) {
+            return new FDv2PayloadResponse(events, true, statusCode, fdv1Fallback);
         }
 
         /**
          * Creates a successful 304 Not Modified response indicating no change since the
          * last request.
          */
-        static FDv2PayloadResponse notModified() {
-            return new FDv2PayloadResponse(null, true, 304);
+        static FDv2PayloadResponse notModified(boolean fdv1Fallback) {
+            return new FDv2PayloadResponse(null, true, 304, fdv1Fallback);
         }
 
         /** Creates an unsuccessful response with the HTTP status code. */
-        static FDv2PayloadResponse failure(int statusCode) {
-            return new FDv2PayloadResponse(null, false, statusCode);
+        static FDv2PayloadResponse failure(int statusCode, boolean fdv1Fallback) {
+            return new FDv2PayloadResponse(null, false, statusCode, fdv1Fallback);
         }
 
         /** The parsed FDv2 events; null for 304 or unsuccessful responses. */
@@ -69,6 +72,14 @@ interface FDv2Requestor extends Closeable {
         /** The HTTP status code, e.g. 200, 304, 401, 500. */
         public int getStatusCode() {
             return statusCode;
+        }
+
+        /**
+         * True if the server sent the {@code x-ld-fd-fallback: true} header, indicating
+         * that the SDK should fall back to FDv1 data sources.
+         */
+        public boolean isFdv1Fallback() {
+            return fdv1Fallback;
         }
     }
 

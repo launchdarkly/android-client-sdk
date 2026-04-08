@@ -54,7 +54,7 @@ final class FDv2PollingInitializer extends FDv2PollingBase implements Initialize
                 pollFuture.set(result);
             } catch (RuntimeException e) {
                 LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in polling initializer");
-                pollFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(e)));
+                pollFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(e), false));
             }
         });
 
@@ -63,7 +63,7 @@ final class FDv2PollingInitializer extends FDv2PollingBase implements Initialize
 
     @Override
     public void close() {
-        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
         closeRequestor();
     }
 }
