@@ -131,7 +131,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         contextDataManager = new ContextDataManager(
                 clientContext,
                 environmentStore,
-                1
+                1,
+                false
         );
         contextDataManager.registerAllFlagsListener(flagsUpdated -> {
             allFlagsReceived.add(flagsUpdated);

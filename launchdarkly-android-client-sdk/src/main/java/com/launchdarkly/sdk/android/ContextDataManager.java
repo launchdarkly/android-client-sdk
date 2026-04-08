@@ -64,17 +64,39 @@ final class ContextDataManager implements TransactionalDataStore {
     /** Selector from the last applied changeset that carried one; in-memory only, not persisted. */
     @NonNull private Selector currentSelector = Selector.EMPTY;
 
+    /**
+     * @param skipCacheLoad true when an FDv2 cache initializer will handle loading cached
+     *                      flags as the first step in the initializer chain, making the
+     *                      cache load in {@link #switchToContext} redundant
+     */
     ContextDataManager(
             @NonNull ClientContext clientContext,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
-            int maxCachedContexts
+            int maxCachedContexts,
+            boolean skipCacheLoad
     ) {
         this.environmentStore = environmentStore;
         this.index = environmentStore.getIndex();
         this.maxCachedContexts = maxCachedContexts;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
-        switchToContext(clientContext.getEvaluationContext());
+        if (skipCacheLoad) {
+            setCurrentContext(clientContext.getEvaluationContext());
+        } else {
+            switchToContext(clientContext.getEvaluationContext());
+        }
+    }
+
+    /**
+     * Sets the current context without loading cached data. Used in the FDv2 path where
+     * the {@code FDv2CacheInitializer} handles cache loading as part of the initializer chain.
+     *
+     * @param context the context to switch to
+     */
+    public void setCurrentContext(@NonNull LDContext context) {
+        synchronized (lock) {
+            currentContext = context;
+        }
     }
 
     /**
@@ -82,11 +104,6 @@ final class ContextDataManager implements TransactionalDataStore {
      * <p>
      * If the context provided is different than the current state, switches to internally
      * stored flag data and notifies flag listeners.
-     * <p>
-     * Note: In the FDv2 path, this cache load is redundant with {@code FDv2CacheInitializer},
-     * which performs the same read as the first step in the initializer chain. The duplicate
-     * apply is harmless (same data, persist=false) but could be removed once FDv2 is the
-     * default and FDv1 code paths are retired.
      *
      * @param context the to switch to
      */

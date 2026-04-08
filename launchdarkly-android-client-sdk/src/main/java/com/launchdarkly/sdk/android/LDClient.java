@@ -421,10 +421,12 @@ public class LDClient implements LDClientInterface, Closeable {
                 taskExecutor
         );
 
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
         this.contextDataManager = new ContextDataManager(
                 clientContextImpl,
                 environmentStore,
-                config.getMaxCachedContexts()
+                config.getMaxCachedContexts(),
+                usingFDv2
         );
 
         eventProcessor = config.events.build(clientContextImpl);
@@ -497,13 +499,17 @@ public class LDClient implements LDClientInterface, Closeable {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
 
-        // Calling switchToContext updates the current flag state *if* stored flags exist for
-        // this context. If they don't, it has no effect. Currently we do *not* return early from
-        // initialization just because stored flags exist; we're just making them available in case
-        // initialization times out or otherwise fails.
-        // Note: In the FDv2 path, this cache load is redundant with FDv2CacheInitializer
-        // (which runs as the first initializer). It can be removed once FDv1 is retired.
-        contextDataManager.switchToContext(context);
+        // Load cached flags for the new context so they're available in case initialization
+        // times out or otherwise fails. This does not short-circuit initialization — the data
+        // source still performs its network request regardless.
+        if (config.dataSource instanceof FDv2DataSourceBuilder) {
+            // FDv2: just set the context; the FDv2CacheInitializer handles cache loading
+            // as the first step in the initializer chain.
+            contextDataManager.setCurrentContext(context);
+        } else {
+            // FDv1: load cached flags immediately while the data source fetches from the network.
+            contextDataManager.switchToContext(context);
+        }
         connectivityManager.switchToContext(context, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
