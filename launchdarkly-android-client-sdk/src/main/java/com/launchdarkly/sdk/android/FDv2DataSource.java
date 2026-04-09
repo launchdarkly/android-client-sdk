@@ -1,11 +1,11 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
-import com.launchdarkly.sdk.android.DataModel;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
@@ -47,14 +47,17 @@ final class FDv2DataSource implements DataSource {
     private final long recoveryTimeoutSeconds;
     private final ScheduledExecutorService sharedExecutor;
 
-    private final AtomicBoolean started = new AtomicBoolean(false);
+    private final AtomicBoolean startCalled = new AtomicBoolean(false);
     private final AtomicBoolean startCompleted = new AtomicBoolean(false);
-    private final AtomicBoolean stopped = new AtomicBoolean(false);
-    /** Result of the first start (null = not yet completed). Used so second start() gets the same result. */
+    // Result of the first tryCompleteStart. Given to subsequent calls to start() so they get the same result
     private volatile Boolean startResult = null;
     private volatile Throwable startError = null;
-    private final Object startResultLock = new Object();
     private final List<Callback<Boolean>> pendingStartCallbacks = new ArrayList<>();
+
+    private final AtomicBoolean stopCalled = new AtomicBoolean(false);
+    private final AtomicBoolean stopCompleted = new AtomicBoolean(false);
+    private final List<Callback<Void>> pendingStopCallbacks = new ArrayList<>();
+    private final LDAwaitFuture<Void> stopRequestedFuture = new LDAwaitFuture<>();
 
     /**
      * Convenience constructor using default fallback and recovery timeouts.
@@ -112,7 +115,7 @@ final class FDv2DataSource implements DataSource {
 
     @Override
     public void start(@NonNull Callback<Boolean> resultCallback) {
-        synchronized (startResultLock) {
+        synchronized (pendingStartCallbacks) {
             // Late caller: the first start already finished, so replay its result immediately.
             if (startResult != null) {
                 if (startResult) {
@@ -128,7 +131,7 @@ final class FDv2DataSource implements DataSource {
         }
 
         // Only the first caller spawns the background thread; subsequent callers just queued above.
-        if (!started.compareAndSet(false, true)) {
+        if (!startCalled.compareAndSet(false, true)) {
             return;
         }
         // Do not reset stopped here: it is initialized false and start() runs once. Resetting would
@@ -136,6 +139,7 @@ final class FDv2DataSource implements DataSource {
         LDContext context = evaluationContext;
 
         sharedExecutor.execute(() -> {
+            LDFailure maybeFailure = null;
             try {
                 if (!sourceManager.hasAvailableSources()) {
                     logger.info("No initializers or synchronizers; data source will not connect.");
@@ -149,33 +153,26 @@ final class FDv2DataSource implements DataSource {
                 }
 
                 if (!sourceManager.hasAvailableSynchronizers()) {
-                    if (!startCompleted.get()) {
-                        LDFailure failure = maybeReportUnexpectedExhaustion("All initializers exhausted and there are no available synchronizers.");
-                        tryCompleteStart(false, failure);
-                    }
+                    maybeFailure = new LDFailure("All initializers exhausted and there are no available synchronizers.", LDFailure.FailureType.UNKNOWN_ERROR);
+                    tryCompleteStart(false, maybeFailure);
                     return;
                 }
 
                 runSynchronizers(context, dataSourceUpdateSink);
-                LDFailure failure = maybeReportUnexpectedExhaustion("All data source acquisition methods have been exhausted.");
-                tryCompleteStart(false, failure);
+                maybeFailure = new LDFailure("All data source acquisition methods have been exhausted.", LDFailure.FailureType.UNKNOWN_ERROR);
+                tryCompleteStart(false, maybeFailure);
             } catch (Throwable t) {
                 logger.warn("FDv2DataSource error: {}", t.toString());
                 tryCompleteStart(false, t);
+            } finally {
+                try {
+                    stopRequestedFuture.get();
+                } catch (InterruptedException | ExecutionException ignored) {
+                }
+                dataSourceUpdateSink.setStatus(DataSourceState.OFF, maybeFailure);
+                tryCompleteStop();
             }
         });
-    }
-
-    /**
-     * If not stopped, reports OFF with the given message (e.g. exhaustion).
-     * Returns the failure so callers can forward it to {@link #tryCompleteStart}.
-     */
-    private LDFailure maybeReportUnexpectedExhaustion(String message) {
-        LDFailure failure = new LDFailure(message, LDFailure.FailureType.UNKNOWN_ERROR);
-        if (!stopped.get()) {
-            dataSourceUpdateSink.setStatus(DataSourceState.OFF, failure);
-        }
-        return failure;
     }
 
     /**
@@ -189,7 +186,7 @@ final class FDv2DataSource implements DataSource {
             return;
         }
         List<Callback<Boolean>> toNotify;
-        synchronized (startResultLock) {
+        synchronized (pendingStartCallbacks) {
             startResult = success;
             startError = error;
             toNotify = new ArrayList<>(pendingStartCallbacks);
@@ -204,13 +201,48 @@ final class FDv2DataSource implements DataSource {
         }
     }
 
+    /**
+     * Notifies all stop callbacks (first and any subsequent stop() callers).
+     * No-op if stop has already completed.
+     */
+    private void tryCompleteStop() {
+        // Idempotent: only the first call wins.
+        if (!stopCompleted.compareAndSet(false, true)) {
+            return;
+        }
+
+        List<Callback<Void>> toNotify;
+        synchronized (pendingStopCallbacks) {
+            toNotify = new ArrayList<>(pendingStopCallbacks);
+            pendingStopCallbacks.clear();
+        }
+
+        for (Callback<Void> c : toNotify) {
+            c.onSuccess(null);
+        }
+    }
+
     @Override
     public void stop(@NonNull Callback<Void> completionCallback) {
-        stopped.set(true);
+        synchronized (pendingStopCallbacks) {
+            if (stopCompleted.get()) {
+                // we have already stopped
+                completionCallback.onSuccess(null);
+                return;
+            }
+
+            // stopping is still in progress; queue the callback to be fired by tryCompleteStop.
+            pendingStopCallbacks.add(completionCallback);
+        }
+
+        // Only the first call to stop does anything
+        if (!stopCalled.compareAndSet(false, true)) {
+            return;
+        }
+
+        // Unblock the worker thread so it can report OFF and notify stop callbacks.
+        stopRequestedFuture.set(null);
         sourceManager.close();
-        // Caller owns sharedExecutor; we do not shut it down.
-        dataSourceUpdateSink.setStatus(DataSourceState.OFF, null);
-        completionCallback.onSuccess(null);
     }
 
     @Override
@@ -227,7 +259,7 @@ final class FDv2DataSource implements DataSource {
         boolean anyDataReceived = false;
         Initializer initializer = sourceManager.getNextInitializerAndSetActive();
         while (initializer != null) {
-            if (stopped.get()) {
+            if (stopCalled.get()) {
                 return;
             }
             try {
@@ -306,7 +338,7 @@ final class FDv2DataSource implements DataSource {
         try {
             Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
             while (synchronizer != null) {
-                if (stopped.get()) {
+                if (stopCalled.get()) {
                     return;
                 }
                 int synchronizerCount = sourceManager.getAvailableSynchronizerCount();

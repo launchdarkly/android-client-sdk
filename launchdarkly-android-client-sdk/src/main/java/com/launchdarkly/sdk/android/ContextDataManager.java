@@ -91,6 +91,7 @@ final class ContextDataManager implements TransactionalDataStore {
                 return;
             }
             currentContext = context;
+            currentSelector = Selector.EMPTY;
         }
 
         EnvironmentData storedData = getStoredData(context);
