@@ -106,11 +106,6 @@ public abstract class Representations {
     public static class SdkConfigDataSystemParams {
         Boolean useDefaultDataSystem;
         SdkConfigConnectionModeConfig connectionModeConfig;
-        /**
-         * FDv2 / data-system tests: pipelines when {@link #connectionModeConfig} does not define
-         * {@link SdkConfigConnectionModeConfig#customConnectionModes}. If both are present, custom
-         * connection modes take precedence and these lists are ignored.
-         */
         List<SdkConfigDataInitializer> initializers;
         List<SdkConfigDataSynchronizer> synchronizers;
     }

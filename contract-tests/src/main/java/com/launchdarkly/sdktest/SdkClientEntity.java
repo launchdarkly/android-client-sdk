@@ -399,33 +399,29 @@ public class SdkClientEntity {
     }
 
     SdkConfigConnectionModeConfig connModeConfig = dataSystem.connectionModeConfig;
-    boolean hasTopLevelPipelines = hasTopLevelDataSystemPipelines(dataSystem);
-
-    if (connModeConfig == null && !hasTopLevelPipelines) {
-      return;
-    }
 
     DataSystemBuilder dsBuilder = Components.dataSystem();
-
-    if (connModeConfig != null && connModeConfig.initialConnectionMode != null) {
-      dsBuilder.foregroundConnectionMode(connectionModeFromString(connModeConfig.initialConnectionMode));
-    }
 
     // at the time of writing this, we did not have contract tests that could test platform state changes,
     // disabling automatic mode simplifies the behavior being tested
     dsBuilder.automaticModeSwitching(AutomaticModeSwitchingConfig.disabled());
 
-    // Prefer connectionModeConfig when the harness sends both that and top-level pipelines.
-    if (hasConnectionModeCustomPipelines(connModeConfig)) {
-      for (Map.Entry<String, SdkConfigModeDefinition> entry : connModeConfig.customConnectionModes.entrySet()) {
-        ConnectionMode mode = connectionModeFromString(entry.getKey());
-        ConnectionModeBuilder modeBuilder = buildConnectionModeBuilder(entry.getValue());
-        dsBuilder.customizeConnectionMode(mode, modeBuilder);
+    if (connModeConfig != null) {
+      if (connModeConfig.initialConnectionMode != null) {
+        dsBuilder.foregroundConnectionMode(connectionModeFromString(connModeConfig.initialConnectionMode));
       }
-    } else if (hasTopLevelPipelines) {
+      if (hasConnectionModeCustomPipelines(connModeConfig)) {
+        for (Map.Entry<String, SdkConfigModeDefinition> entry : connModeConfig.customConnectionModes.entrySet()) {
+          ConnectionMode mode = connectionModeFromString(entry.getKey());
+          ConnectionModeBuilder modeBuilder = buildConnectionModeBuilder(entry.getValue());
+          dsBuilder.customizeConnectionMode(mode, modeBuilder);
+        }
+      }
+    } else if (hasTopLevelDataSystemPipelines(dataSystem)) {
       SdkConfigModeDefinition topLevel = new SdkConfigModeDefinition();
       topLevel.initializers = dataSystem.initializers;
       topLevel.synchronizers = dataSystem.synchronizers;
+      dsBuilder.foregroundConnectionMode(ConnectionMode.STREAMING);
       dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING, buildConnectionModeBuilder(topLevel));
     }
 
