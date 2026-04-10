@@ -6,7 +6,6 @@ import androidx.annotation.Nullable;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.DataModel.Flag;
-import com.launchdarkly.sdk.android.subsystems.CachedFlagStore;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
@@ -32,19 +31,19 @@ import java.util.concurrent.Future;
 final class FDv2CacheInitializer implements Initializer {
 
     @Nullable
-    private final CachedFlagStore cachedFlagStore;
+    private final PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData;
     private final LDContext context;
     private final Executor executor;
     private final LDLogger logger;
     private final LDAwaitFuture<FDv2SourceResult> shutdownFuture = new LDAwaitFuture<>();
 
     FDv2CacheInitializer(
-            @Nullable CachedFlagStore cachedFlagStore,
+            @Nullable PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData,
             @NonNull LDContext context,
             @NonNull Executor executor,
             @NonNull LDLogger logger
     ) {
-        this.cachedFlagStore = cachedFlagStore;
+        this.envData = envData;
         this.context = context;
         this.executor = executor;
         this.logger = logger;
@@ -57,7 +56,7 @@ final class FDv2CacheInitializer implements Initializer {
 
         executor.execute(() -> {
             try {
-                if (cachedFlagStore == null) {
+                if (envData == null) {
                     logger.debug("No persistent store configured; skipping cache");
                     resultFuture.set(FDv2SourceResult.status(
                             FDv2SourceResult.Status.interrupted(
@@ -65,8 +64,9 @@ final class FDv2CacheInitializer implements Initializer {
                             false));
                     return;
                 }
-                Map<String, Flag> flags = cachedFlagStore.getCachedFlags(context);
-                if (flags == null) {
+                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(context);
+                EnvironmentData stored = envData.getContextData(hashedContextId);
+                if (stored == null) {
                     logger.debug("Cache miss for context");
                     resultFuture.set(FDv2SourceResult.status(
                             FDv2SourceResult.Status.interrupted(
@@ -74,6 +74,7 @@ final class FDv2CacheInitializer implements Initializer {
                             false));
                     return;
                 }
+                Map<String, Flag> flags = stored.getAll();
                 ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                         ChangeSetType.Full,
                         Selector.EMPTY,

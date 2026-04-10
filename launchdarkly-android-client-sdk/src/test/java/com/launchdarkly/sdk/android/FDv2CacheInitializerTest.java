@@ -9,11 +9,8 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
-import com.launchdarkly.sdk.android.subsystems.CachedFlagStore;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
-import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.fdv2.ChangeSetType;
-import com.launchdarkly.sdk.fdv2.Selector;
 import com.launchdarkly.sdk.fdv2.SourceResultType;
 import com.launchdarkly.sdk.fdv2.SourceSignal;
 
@@ -35,12 +32,19 @@ public class FDv2CacheInitializerTest {
     public Timeout globalTimeout = Timeout.seconds(5);
 
     private static final LDContext CONTEXT = LDContext.create("test-user");
+    private static final String HASHED_CONTEXT_ID =
+            LDUtil.urlSafeBase64HashedContextId(CONTEXT);
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @After
     public void tearDown() {
         executor.shutdownNow();
+    }
+
+    private static PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData storeReturning(
+            EnvironmentData data) {
+        return hashedContextId -> HASHED_CONTEXT_ID.equals(hashedContextId) ? data : null;
     }
 
     // ---- cache hit ----
@@ -51,9 +55,9 @@ public class FDv2CacheInitializerTest {
         flags.put("flag1", new FlagBuilder("flag1").version(1).value(true).build());
         flags.put("flag2", new FlagBuilder("flag2").version(2).value(LDValue.of("hello")).build());
 
-        CachedFlagStore store = context -> new HashMap<>(flags);
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
-                store, CONTEXT, executor, LDLogger.none());
+                storeReturning(EnvironmentData.copyingFlagsMap(flags)),
+                CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
@@ -69,9 +73,9 @@ public class FDv2CacheInitializerTest {
         Map<String, Flag> flags = new HashMap<>();
         flags.put("flag1", new FlagBuilder("flag1").version(1).build());
 
-        CachedFlagStore store = context -> flags;
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
-                store, CONTEXT, executor, LDLogger.none());
+                storeReturning(EnvironmentData.copyingFlagsMap(flags)),
+                CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
@@ -81,9 +85,9 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void cacheHit_changeSetHasFullType() throws Exception {
-        CachedFlagStore store = context -> new HashMap<>();
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
-                store, CONTEXT, executor, LDLogger.none());
+                storeReturning(new EnvironmentData()),
+                CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
@@ -92,9 +96,9 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void cacheHit_changeSetHasPersistFalse() throws Exception {
-        CachedFlagStore store = context -> new HashMap<>();
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
-                store, CONTEXT, executor, LDLogger.none());
+                storeReturning(new EnvironmentData()),
+                CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
@@ -103,9 +107,9 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void cacheHit_fdv1FallbackIsFalse() throws Exception {
-        CachedFlagStore store = context -> new HashMap<>();
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
-                store, CONTEXT, executor, LDLogger.none());
+                storeReturning(new EnvironmentData()),
+                CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
@@ -116,7 +120,7 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void cacheMiss_returnsInterruptedStatus() throws Exception {
-        CachedFlagStore store = context -> null;
+        PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData store = hashedContextId -> null;
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
                 store, CONTEXT, executor, LDLogger.none());
 
@@ -146,7 +150,7 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void exceptionDuringCacheRead_returnsInterruptedStatus() throws Exception {
-        CachedFlagStore store = context -> {
+        PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData store = hashedContextId -> {
             throw new RuntimeException("corrupt data");
         };
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
@@ -163,7 +167,7 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void closeBeforeRun_returnsShutdown() throws Exception {
-        CachedFlagStore store = context -> {
+        PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData store = hashedContextId -> {
             try {
                 Thread.sleep(5000);
             } catch (InterruptedException e) {
@@ -184,9 +188,9 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void closeAfterCompletion_doesNotThrow() throws Exception {
-        CachedFlagStore store = context -> new HashMap<>();
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
-                store, CONTEXT, executor, LDLogger.none());
+                storeReturning(new EnvironmentData()),
+                CONTEXT, executor, LDLogger.none());
 
         Future<FDv2SourceResult> future = initializer.run();
         future.get(1, TimeUnit.SECONDS);
@@ -197,9 +201,9 @@ public class FDv2CacheInitializerTest {
 
     @Test
     public void emptyCacheReturnsChangeSetWithEmptyMap() throws Exception {
-        CachedFlagStore store = context -> new HashMap<>();
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
-                store, CONTEXT, executor, LDLogger.none());
+                storeReturning(new EnvironmentData()),
+                CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 

@@ -145,10 +145,25 @@ final class PersistentDataStoreWrapper {
     }
 
     /**
+     * Read-only view of per-environment flag data. This is the subset of
+     * {@link PerEnvironmentData} needed by the FDv2 cache initializer.
+     */
+    interface ReadOnlyPerEnvironmentData {
+        /**
+         * Returns the stored flag data, if any, for a specific context.
+         *
+         * @param hashedContextId the hashed canonical key of the context
+         * @return the {@link EnvironmentData}, or null if not found
+         */
+        @Nullable
+        EnvironmentData getContextData(String hashedContextId);
+    }
+
+    /**
      * Provides access to stored data that is specific to a single environment. This object is
      * returned by {@link PersistentDataStoreWrapper#perEnvironmentData(String)}.
      */
-    final class PerEnvironmentData {
+    final class PerEnvironmentData implements ReadOnlyPerEnvironmentData {
         private final String environmentNamespace;
 
         PerEnvironmentData(String mobileKey) {

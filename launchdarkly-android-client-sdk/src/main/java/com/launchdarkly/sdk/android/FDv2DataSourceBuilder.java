@@ -1,8 +1,8 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
-import com.launchdarkly.sdk.android.subsystems.CachedFlagStore;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
@@ -116,7 +116,9 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         }
 
         DataSourceBuildInputs inputs = makeInputs(clientContext);
-        ResolvedModeDefinition resolved = resolve(modeDef, inputs);
+        PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData =
+                ClientContextImpl.get(clientContext).getPerEnvironmentDataIfAvailable();
+        ResolvedModeDefinition resolved = resolve(modeDef, inputs, envData);
 
         DataSourceUpdateSink baseSink = clientContext.getDataSourceUpdateSink();
         if (!(baseSink instanceof DataSourceUpdateSinkV2)) {
@@ -156,15 +158,6 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 ? new SelectorSourceFacade(store)
                 : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
 
-        PersistentDataStoreWrapper.PerEnvironmentData envData = impl.getPerEnvironmentDataIfAvailable();
-        CachedFlagStore cachedFlagStore = envData != null
-                ? context -> {
-                    String hashedId = LDUtil.urlSafeBase64HashedContextId(context);
-                    EnvironmentData stored = envData.getContextData(hashedId);
-                    return stored != null ? stored.getAll() : null;
-                }
-                : null;
-
         return new DataSourceBuildInputs(
                 clientContext.getEvaluationContext(),
                 clientContext.getServiceEndpoints(),
@@ -173,17 +166,26 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 selectorSource,
                 sharedExecutor,
                 impl.getPlatformState().getCacheDir(),
-                cachedFlagStore,
                 clientContext.getBaseLogger()
         );
     }
 
     private static ResolvedModeDefinition resolve(
-            ModeDefinition def, DataSourceBuildInputs inputs
+            ModeDefinition def, DataSourceBuildInputs inputs,
+            @Nullable PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData
     ) {
         List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories = new ArrayList<>();
         for (DataSourceBuilder<Initializer> builder : def.getInitializers()) {
-            initFactories.add(() -> builder.build(inputs));
+            // The cache initializer's dependency (ReadOnlyPerEnvironmentData) is only
+            // available at build time, not when the static mode table is constructed,
+            // so we inject it here by replacing the placeholder with a wired copy.
+            final DataSourceBuilder<Initializer> effective;
+            if (builder instanceof DataSystemComponents.CacheInitializerBuilderImpl) {
+                effective = new DataSystemComponents.CacheInitializerBuilderImpl(envData);
+            } else {
+                effective = builder;
+            }
+            initFactories.add(() -> effective.build(inputs));
         }
         List<FDv2DataSource.DataSourceFactory<Synchronizer>> syncFactories = new ArrayList<>();
         for (DataSourceBuilder<Synchronizer> builder : def.getSynchronizers()) {

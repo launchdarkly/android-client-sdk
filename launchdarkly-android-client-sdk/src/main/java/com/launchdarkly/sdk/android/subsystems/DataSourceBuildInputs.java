@@ -1,7 +1,6 @@
 package com.launchdarkly.sdk.android.subsystems;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
@@ -32,8 +31,6 @@ public final class DataSourceBuildInputs {
     private final SelectorSource selectorSource;
     private final ScheduledExecutorService sharedExecutor;
     private final File cacheDir;
-    @Nullable
-    private final CachedFlagStore cachedFlagStore;
     private final LDLogger baseLogger;
 
     /**
@@ -47,8 +44,6 @@ public final class DataSourceBuildInputs {
      * @param sharedExecutor    shared executor for scheduling tasks; owned and shut down by
      *                          the calling data source, so components must not shut it down
      * @param cacheDir          the platform's cache directory for HTTP-level caching
-     * @param cachedFlagStore   read access to cached flag data, or null if no persistent
-     *                          store is configured
      * @param baseLogger        the base logger instance
      */
     public DataSourceBuildInputs(
@@ -59,7 +54,6 @@ public final class DataSourceBuildInputs {
             SelectorSource selectorSource,
             ScheduledExecutorService sharedExecutor,
             @NonNull File cacheDir,
-            @Nullable CachedFlagStore cachedFlagStore,
             LDLogger baseLogger
     ) {
         this.evaluationContext = evaluationContext;
@@ -69,7 +63,6 @@ public final class DataSourceBuildInputs {
         this.selectorSource = selectorSource;
         this.sharedExecutor = sharedExecutor;
         this.cacheDir = cacheDir;
-        this.cachedFlagStore = cachedFlagStore;
         this.baseLogger = baseLogger;
     }
 
@@ -138,17 +131,6 @@ public final class DataSourceBuildInputs {
     @NonNull
     public File getCacheDir() {
         return cacheDir;
-    }
-
-    /**
-     * Returns read access to cached flag data, or null if no persistent store
-     * is configured. Used by the cache initializer to load stored flags.
-     *
-     * @return the cached flag store, or null
-     */
-    @Nullable
-    public CachedFlagStore getCachedFlagStore() {
-        return cachedFlagStore;
     }
 
     /**
