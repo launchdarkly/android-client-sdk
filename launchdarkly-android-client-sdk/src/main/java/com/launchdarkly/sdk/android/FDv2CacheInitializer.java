@@ -12,6 +12,7 @@ import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.Selector;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
@@ -25,8 +26,12 @@ import java.util.concurrent.Future;
  * initializer (polling) to obtain a verified selector from the server. This provides
  * immediate flag values from cache while the network initializer fetches fresh data.
  * <p>
- * A cache miss is reported as an {@link FDv2SourceResult.Status#interrupted} status,
- * causing the orchestrator to move to the next initializer without delay.
+ * A cache miss (or missing persistent store) is returned as a {@link ChangeSetType#None}
+ * changeset — analogous to "transfer of none" / 304 Not Modified (CSFDV2 9.1.2). This
+ * signals "I checked the source and there is nothing new" rather than an error, so the
+ * orchestrator records {@code anyDataReceived = true} and continues normally. This is
+ * critical for OFFLINE mode where no synchronizers follow: without it, a cache miss
+ * would leave the SDK in a failed initialization state.
  */
 final class FDv2CacheInitializer implements Initializer {
 
@@ -58,20 +63,24 @@ final class FDv2CacheInitializer implements Initializer {
             try {
                 if (envData == null) {
                     logger.debug("No persistent store configured; skipping cache");
-                    resultFuture.set(FDv2SourceResult.status(
-                            FDv2SourceResult.Status.interrupted(
-                                    new LDFailure("No persistent store", LDFailure.FailureType.UNKNOWN_ERROR)),
-                            false));
+                    resultFuture.set(FDv2SourceResult.changeSet(new ChangeSet<>(
+                            ChangeSetType.None,
+                            Selector.EMPTY,
+                            Collections.emptyMap(),
+                            null,
+                            false), false));
                     return;
                 }
                 String hashedContextId = LDUtil.urlSafeBase64HashedContextId(context);
                 EnvironmentData stored = envData.getContextData(hashedContextId);
                 if (stored == null) {
                     logger.debug("Cache miss for context");
-                    resultFuture.set(FDv2SourceResult.status(
-                            FDv2SourceResult.Status.interrupted(
-                                    new LDFailure("No cached data", LDFailure.FailureType.UNKNOWN_ERROR)),
-                            false));
+                    resultFuture.set(FDv2SourceResult.changeSet(new ChangeSet<>(
+                            ChangeSetType.None,
+                            Selector.EMPTY,
+                            Collections.emptyMap(),
+                            null,
+                            false), false));
                     return;
                 }
                 Map<String, Flag> flags = stored.getAll();

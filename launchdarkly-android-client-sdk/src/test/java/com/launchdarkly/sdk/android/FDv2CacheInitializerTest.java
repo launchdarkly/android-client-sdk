@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.SourceResultType;
 import com.launchdarkly.sdk.fdv2.SourceSignal;
@@ -119,31 +120,49 @@ public class FDv2CacheInitializerTest {
     // ---- cache miss ----
 
     @Test
-    public void cacheMiss_returnsInterruptedStatus() throws Exception {
+    public void cacheMiss_returnsNoneChangeSet() throws Exception {
         PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData store = hashedContextId -> null;
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
                 store, CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
-        assertEquals(SourceResultType.STATUS, result.getResultType());
-        assertNotNull(result.getStatus());
-        assertEquals(SourceSignal.INTERRUPTED, result.getStatus().getState());
+        assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
+        ChangeSet<?> changeSet = result.getChangeSet();
+        assertNotNull(changeSet);
+        assertEquals(ChangeSetType.None, changeSet.getType());
+        assertTrue(changeSet.getSelector().isEmpty());
+        assertTrue(((java.util.Map<?, ?>) changeSet.getData()).isEmpty());
+        assertFalse(changeSet.shouldPersist());
+    }
+
+    @Test
+    public void cacheMiss_fdv1FallbackIsFalse() throws Exception {
+        PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData store = hashedContextId -> null;
+        FDv2CacheInitializer initializer = new FDv2CacheInitializer(
+                store, CONTEXT, executor, LDLogger.none());
+
+        FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
+
         assertFalse(result.isFdv1Fallback());
     }
 
     // ---- no persistent store ----
 
     @Test
-    public void noPersistentStore_returnsInterruptedStatus() throws Exception {
+    public void noPersistentStore_returnsNoneChangeSet() throws Exception {
         FDv2CacheInitializer initializer = new FDv2CacheInitializer(
                 null, CONTEXT, executor, LDLogger.none());
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
-        assertEquals(SourceResultType.STATUS, result.getResultType());
-        assertNotNull(result.getStatus());
-        assertEquals(SourceSignal.INTERRUPTED, result.getStatus().getState());
+        assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
+        ChangeSet<?> changeSet = result.getChangeSet();
+        assertNotNull(changeSet);
+        assertEquals(ChangeSetType.None, changeSet.getType());
+        assertTrue(changeSet.getSelector().isEmpty());
+        assertTrue(((java.util.Map<?, ?>) changeSet.getData()).isEmpty());
+        assertFalse(changeSet.shouldPersist());
     }
 
     // ---- exception during cache read ----
