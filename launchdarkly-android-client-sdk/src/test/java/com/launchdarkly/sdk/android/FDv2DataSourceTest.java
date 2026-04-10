@@ -194,6 +194,7 @@ public class FDv2DataSourceTest {
         private final LDAwaitFuture<FDv2SourceResult> firstResult;
         private volatile boolean closed = false;
         private volatile boolean resultReturned = false;
+        private volatile LDAwaitFuture<FDv2SourceResult> pendingFuture;
 
         MockSynchronizer(FDv2SourceResult result) {
             this.firstResult = new LDAwaitFuture<>();
@@ -216,12 +217,17 @@ public class FDv2DataSourceTest {
                 resultReturned = true;
                 return firstResult;
             }
-            return new LDAwaitFuture<>(); // never completes; simulates waiting for next event
+            pendingFuture = new LDAwaitFuture<>();
+            return pendingFuture;
         }
 
         @Override
         public void close() {
             closed = true;
+            LDAwaitFuture<FDv2SourceResult> f = pendingFuture;
+            if (f != null) {
+                f.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+            }
         }
     }
 
@@ -256,6 +262,11 @@ public class FDv2DataSourceTest {
         @Override
         public LDAwaitFuture<FDv2SourceResult> next() {
             synchronized (lock) {
+                if (closed) {
+                    LDAwaitFuture<FDv2SourceResult> f = new LDAwaitFuture<>();
+                    f.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+                    return f;
+                }
                 if (!queue.isEmpty()) {
                     LDAwaitFuture<FDv2SourceResult> f = new LDAwaitFuture<>();
                     f.set(queue.poll());
