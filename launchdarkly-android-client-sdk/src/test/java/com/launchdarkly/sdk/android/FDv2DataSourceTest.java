@@ -832,6 +832,66 @@ public class FDv2DataSourceTest {
         stopDataSource(dataSource); // should not hang while condition is waiting for fallback timeout
     }
 
+    @Test
+    public void noStatusEventsEmittedAfterOff() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch workerBlocked = new CountDownLatch(1);
+        LDAwaitFuture<FDv2SourceResult> controlledFuture = new LDAwaitFuture<>();
+
+        Synchronizer sync = new Synchronizer() {
+            private final AtomicBoolean firstReturned = new AtomicBoolean(false);
+
+            @Override
+            public LDAwaitFuture<FDv2SourceResult> next() {
+                if (!firstReturned.getAndSet(true)) {
+                    LDAwaitFuture<FDv2SourceResult> f = new LDAwaitFuture<>();
+                    f.set(FDv2SourceResult.changeSet(makeChangeSet(false)));
+                    return f;
+                }
+                workerBlocked.countDown();
+                return controlledFuture;
+            }
+
+            @Override
+            public void close() {
+                // Intentionally does NOT complete controlledFuture.
+                // The test triggers it manually to control timing.
+            }
+        };
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> sync));
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertTrue(workerBlocked.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        // Stop the data source. On old code that had bug, this reports OFF synchronously.
+        AwaitableCallback<Void> stopCb = new AwaitableCallback<>();
+        dataSource.stop(stopCb);
+
+        // Simulate a delayed error arriving after stop (e.g. network close exception).
+        // Old code with the bug: OFF was already reported by stop(), so the INTERRUPTED comes after OFF.
+        // New code with the fix: the worker handles INTERRUPTED first, then reports OFF.
+        controlledFuture.setException(new RuntimeException("connection closed"));
+
+        stopCb.await(AWAIT_TIMEOUT_SECONDS * 1000);
+        Thread.sleep(200);
+
+        List<MockComponents.MockDataSourceUpdateSink.StatusEvent> events = sink.statusEvents;
+        int offIndex = -1;
+        for (int i = 0; i < events.size(); i++) {
+            if (events.get(i).state == DataSourceState.OFF) {
+                offIndex = i;
+                break;
+            }
+        }
+        assertTrue("Expected OFF status to be reported", offIndex >= 0);
+        assertEquals("OFF should be the last status event, but found events after it",
+                events.size() - 1, offIndex);
+    }
+
     // ============================================================================
     // Multiple Start Calls / Concurrency
     // ============================================================================
