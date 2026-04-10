@@ -1,10 +1,13 @@
 package com.launchdarkly.sdk.android.subsystems;
 
+import androidx.annotation.NonNull;
+
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.SelectorSource;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 
+import java.io.File;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
@@ -27,6 +30,7 @@ public final class DataSourceBuildInputs {
     private final boolean evaluationReasons;
     private final SelectorSource selectorSource;
     private final ScheduledExecutorService sharedExecutor;
+    private final File cacheDir;
     private final LDLogger baseLogger;
 
     /**
@@ -39,6 +43,7 @@ public final class DataSourceBuildInputs {
      * @param selectorSource    the source for obtaining the current selector
      * @param sharedExecutor    shared executor for scheduling tasks; owned and shut down by
      *                          the calling data source, so components must not shut it down
+     * @param cacheDir          the platform's cache directory for HTTP-level caching
      * @param baseLogger        the base logger instance
      */
     public DataSourceBuildInputs(
@@ -48,6 +53,7 @@ public final class DataSourceBuildInputs {
             boolean evaluationReasons,
             SelectorSource selectorSource,
             ScheduledExecutorService sharedExecutor,
+            @NonNull File cacheDir,
             LDLogger baseLogger
     ) {
         this.evaluationContext = evaluationContext;
@@ -56,6 +62,7 @@ public final class DataSourceBuildInputs {
         this.evaluationReasons = evaluationReasons;
         this.selectorSource = selectorSource;
         this.sharedExecutor = sharedExecutor;
+        this.cacheDir = cacheDir;
         this.baseLogger = baseLogger;
     }
 
@@ -114,6 +121,16 @@ public final class DataSourceBuildInputs {
      */
     public ScheduledExecutorService getSharedExecutor() {
         return sharedExecutor;
+    }
+
+    /**
+     * Returns the platform's cache directory for HTTP-level caching.
+     *
+     * @return the cache directory
+     */
+    @NonNull
+    public File getCacheDir() {
+        return cacheDir;
     }
 
     /**

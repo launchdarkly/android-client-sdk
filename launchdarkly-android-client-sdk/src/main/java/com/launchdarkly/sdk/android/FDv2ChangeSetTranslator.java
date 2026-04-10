@@ -67,7 +67,20 @@ final class FDv2ChangeSetTranslator {
                     logger.warn("FDv2 PUT for flag '{}' is missing object data; skipping", change.getKey());
                     continue;
                 }
-                flag = Flag.fromJson(change.getObject().toString());
+                Flag parsed = Flag.fromJson(change.getObject().toString());
+                // Inner object JSON omits "key" (it appears on the envelope). Always use the envelope key.
+                flag = new Flag(
+                        change.getKey(),
+                        parsed.getValue(),
+                        parsed.getVersion(),
+                        parsed.getFlagVersion(),
+                        parsed.getVariation(),
+                        parsed.isTrackEvents(),
+                        parsed.isTrackReason(),
+                        parsed.getDebugEventsUntilDate(),
+                        parsed.getReason(),
+                        parsed.getPrerequisites()
+                );
             } else {
                 flag = Flag.deletedItemPlaceholder(change.getKey(), change.getVersion());
             }

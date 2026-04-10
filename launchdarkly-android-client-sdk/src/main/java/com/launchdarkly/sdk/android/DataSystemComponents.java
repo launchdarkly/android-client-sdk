@@ -8,11 +8,18 @@ import com.launchdarkly.sdk.android.integrations.PollingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerBuilder;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs;
+import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
+import androidx.annotation.NonNull;
+
 import java.net.URI;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Factory methods for FDv2 data source components used with the
@@ -102,6 +109,35 @@ public abstract class DataSystemComponents {
         }
     }
 
+    static final class FDv1PollingSynchronizerBuilderImpl implements DataSourceBuilder<Synchronizer> {
+
+        protected int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+
+        public FDv1PollingSynchronizerBuilderImpl pollIntervalMillis(int pollIntervalMillis) {
+            this.pollIntervalMillis = pollIntervalMillis <= LDConfig.DEFAULT_POLL_INTERVAL_MILLIS ?
+                    LDConfig.DEFAULT_POLL_INTERVAL_MILLIS : pollIntervalMillis;
+            return this;
+        }
+
+        @Override
+        public Synchronizer build(DataSourceBuildInputs inputs) {
+            FeatureFetcher fetcher = new HttpFeatureFlagFetcher(
+                inputs.getServiceEndpoints().getPollingBaseUri(),
+                inputs.isEvaluationReasons(),
+                inputs.getHttp().isUseReport(),
+                LDUtil.makeHttpProperties(inputs.getHttp()),
+                inputs.getCacheDir(),
+                inputs.getBaseLogger()
+            );
+            return new FDv1PollingSynchronizer(
+                inputs.getEvaluationContext(), fetcher,
+                inputs.getSharedExecutor(), 0,
+                pollIntervalMillis,
+                inputs.getBaseLogger()
+            );
+        }
+    }
+
     /**
      * Returns a builder for a polling initializer.
      * <p>
@@ -139,6 +175,63 @@ public abstract class DataSystemComponents {
      */
     public static StreamingSynchronizerBuilder streamingSynchronizer() {
         return new StreamingSynchronizerBuilderImpl();
+    }
+
+    /**
+     * Produces the default mode table used by {@link DataSystemBuilder#buildModeTable}.
+     * Defined here (rather than in {@code DataSystemBuilder}) because the FDv1 fallback
+     * synchronizer references package-private types that are not visible from the
+     * {@code integrations} package.
+     * <p>
+     * This method is public only for cross-package access within the SDK; it is not
+     * intended for use by application code.
+     */
+    @NonNull
+    public static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
+        DataSourceBuilder<Initializer> pollingInitializer = pollingInitializer();
+        DataSourceBuilder<Synchronizer> pollingSynchronizer = pollingSynchronizer();
+        DataSourceBuilder<Synchronizer> streamingSynchronizer = streamingSynchronizer();
+        DataSourceBuilder<Synchronizer> backgroundPollingSynchronizer =
+                pollingSynchronizer()
+                        .pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
+        DataSourceBuilder<Synchronizer> fdv1FallbackPollingSynchronizerForeground =
+                new FDv1PollingSynchronizerBuilderImpl();
+
+        DataSourceBuilder<Synchronizer> fdv1FallbackPollingSynchronizerBackground =
+                new FDv1PollingSynchronizerBuilderImpl().pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
+
+        Map<ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
+        table.put(ConnectionMode.STREAMING, new ModeDefinition(
+                // TODO: cacheInitializer — add once implemented
+                Arrays.asList(/* cacheInitializer, */ pollingInitializer),
+                Arrays.asList(streamingSynchronizer, pollingSynchronizer),
+                fdv1FallbackPollingSynchronizerForeground
+        ));
+        table.put(ConnectionMode.POLLING, new ModeDefinition(
+                // TODO: Arrays.asList(cacheInitializer) — add once implemented
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.singletonList(pollingSynchronizer),
+                fdv1FallbackPollingSynchronizerForeground
+        ));
+        table.put(ConnectionMode.OFFLINE, new ModeDefinition(
+                // TODO: Arrays.asList(cacheInitializer) — add once implemented
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
+                null
+        ));
+        table.put(ConnectionMode.ONE_SHOT, new ModeDefinition(
+                // TODO: cacheInitializer and streamingInitializer — add once implemented
+                Arrays.asList(/* cacheInitializer, */ pollingInitializer /*, streamingInitializer, */),
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
+                null
+        ));
+        table.put(ConnectionMode.BACKGROUND, new ModeDefinition(
+                // TODO: Arrays.asList(cacheInitializer) — add once implemented
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.singletonList(backgroundPollingSynchronizer),
+                fdv1FallbackPollingSynchronizerBackground
+        ));
+        return table;
     }
 
     /**

@@ -14,10 +14,8 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 
 import java.io.Closeable;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -42,7 +40,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private ScheduledExecutorService sharedExecutor;
 
     FDv2DataSourceBuilder() {
-        this(makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE);
+        this(DataSystemComponents.makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE);
     }
 
     FDv2DataSourceBuilder(
@@ -135,6 +133,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 clientContext.getEvaluationContext(),
                 initFactories,
                 resolved.getSynchronizerFactories(),
+                resolved.getFdv1FallbackSynchronizerFactory(),
                 (DataSourceUpdateSinkV2) baseSink,
                 sharedExecutor,
                 clientContext.getBaseLogger()
@@ -161,6 +160,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 clientContext.isEvaluationReasons(),
                 selectorSource,
                 sharedExecutor,
+                ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
                 clientContext.getBaseLogger()
         );
     }
@@ -176,11 +176,9 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         for (DataSourceBuilder<Synchronizer> builder : def.getSynchronizers()) {
             syncFactories.add(() -> builder.build(inputs));
         }
-        return new ResolvedModeDefinition(initFactories, syncFactories);
-    }
-
-    private static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
-        return new com.launchdarkly.sdk.android.integrations.DataSystemBuilder()
-                .buildModeTable(false);
+        DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer = def.getFdv1FallbackSynchronizer();
+        FDv2DataSource.DataSourceFactory<Synchronizer> fdv1Factory =
+                fdv1FallbackSynchronizer != null ? () -> fdv1FallbackSynchronizer.build(inputs) : null;
+        return new ResolvedModeDefinition(initFactories, syncFactories, fdv1Factory);
     }
 }

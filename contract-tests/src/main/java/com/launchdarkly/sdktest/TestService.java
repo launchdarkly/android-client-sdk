@@ -40,7 +40,8 @@ public class TestService extends NanoHTTPD {
             "client-prereq-events",
             "evaluation-hooks",
             "track-hooks",
-            "client-per-context-summaries"
+            "client-per-context-summaries",
+            "client-event-source-http-errors"
     };
     private static final String MIME_JSON = "application/json";
     static final Gson gson = new GsonBuilder()
