@@ -228,7 +228,7 @@ public class FDv2DataSourceTest {
             closed = true;
             LDAwaitFuture<FDv2SourceResult> f = pendingFuture;
             if (f != null) {
-                f.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+                f.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
             }
         }
     }
@@ -266,7 +266,7 @@ public class FDv2DataSourceTest {
             synchronized (lock) {
                 if (closed) {
                     LDAwaitFuture<FDv2SourceResult> f = new LDAwaitFuture<>();
-                    f.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown()));
+                    f.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
                     return f;
                 }
                 if (!queue.isEmpty()) {
@@ -847,7 +847,7 @@ public class FDv2DataSourceTest {
             public LDAwaitFuture<FDv2SourceResult> next() {
                 if (!firstReturned.getAndSet(true)) {
                     LDAwaitFuture<FDv2SourceResult> f = new LDAwaitFuture<>();
-                    f.set(FDv2SourceResult.changeSet(makeChangeSet(false)));
+                    f.set(FDv2SourceResult.changeSet(makeChangeSet(false), false));
                     return f;
                 }
                 workerBlocked.countDown();
