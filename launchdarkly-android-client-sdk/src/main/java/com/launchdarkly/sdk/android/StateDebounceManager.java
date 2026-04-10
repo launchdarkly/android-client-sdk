@@ -1,0 +1,94 @@
+package com.launchdarkly.sdk.android;
+
+import java.util.concurrent.ScheduledFuture;
+
+/**
+ * Debounces FDv2 state changes (network, lifecycle) into a single
+ * reconciliation callback (CONNMODE 3.5). Each state change resets a timer; when
+ * the timer fires, the callback runs with the latest accumulated state.
+ * <p>
+ * {@code identify()} does NOT participate in debounce (CONNMODE 3.5.6). Callers
+ * handle this by closing and recreating the manager on identify.
+ * <p>
+ * FDv1 data sources do not use this class. The existing {@link Debounce} class
+ * (used by {@code pollDebouncer}) serves a different purpose in the FDv1 path.
+ */
+final class StateDebounceManager {
+
+    static final long DEFAULT_DEBOUNCE_MS = 1000;
+
+    private final Object lock = new Object();
+    private final TaskExecutor taskExecutor;
+    private final long debounceMs;
+    private final Runnable onReconcile;
+
+    private volatile boolean networkAvailable;
+    private volatile boolean foreground;
+
+    private ScheduledFuture<?> pendingTimer;
+    private volatile boolean closed;
+
+    StateDebounceManager(
+            boolean initialNetworkAvailable,
+            boolean initialForeground,
+            TaskExecutor taskExecutor,
+            long debounceMs,
+            Runnable onReconcile
+    ) {
+        this.networkAvailable = initialNetworkAvailable;
+        this.foreground = initialForeground;
+        this.taskExecutor = taskExecutor;
+        this.debounceMs = debounceMs;
+        this.onReconcile = onReconcile;
+    }
+
+    void setNetworkAvailable(boolean available) {
+        if (this.networkAvailable == available) {
+            return;
+        }
+        this.networkAvailable = available;
+        resetTimer();
+    }
+
+    void setForeground(boolean fg) {
+        if (this.foreground == fg) {
+            return;
+        }
+        this.foreground = fg;
+        resetTimer();
+    }
+
+    boolean isNetworkAvailable() {
+        return networkAvailable;
+    }
+
+    boolean isForeground() {
+        return foreground;
+    }
+
+    void close() {
+        closed = true;
+        synchronized (lock) {
+            if (pendingTimer != null) {
+                pendingTimer.cancel(false);
+                pendingTimer = null;
+            }
+        }
+    }
+
+    private void resetTimer() {
+        if (closed) {
+            return;
+        }
+        synchronized (lock) {
+            if (pendingTimer != null) {
+                pendingTimer.cancel(false);
+            }
+            pendingTimer = taskExecutor.scheduleTask(() -> {
+                if (!closed) {
+                    onReconcile.run();
+                }
+            }, debounceMs);
+        }
+    }
+}
