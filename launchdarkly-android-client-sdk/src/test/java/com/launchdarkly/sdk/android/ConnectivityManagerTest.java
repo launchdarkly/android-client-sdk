@@ -509,7 +509,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         long connectionTimeBeforeSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2);
+        contextDataManager.switchToContext(context2, false);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
         connectivityManager.switchToContext(context2, done);
         done.await();
@@ -541,7 +541,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2);
+        contextDataManager.switchToContext(context2, false);
         connectivityManager.switchToContext(context2, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
@@ -569,7 +569,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2);
+        contextDataManager.switchToContext(context2, false);
         connectivityManager.switchToContext(context2, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
@@ -784,7 +784,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         });
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2);
+        contextDataManager.switchToContext(context2, false);
         connectivityManager.switchToContext(context2, new AwaitableCallback<>());
         latch.await(500, TimeUnit.MILLISECONDS);
 
@@ -1123,7 +1123,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2);
+        contextDataManager.switchToContext(context2, false);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
         connectivityManager.switchToContext(context2, done);
         done.await();

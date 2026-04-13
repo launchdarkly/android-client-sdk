@@ -80,23 +80,7 @@ final class ContextDataManager implements TransactionalDataStore {
         this.maxCachedContexts = maxCachedContexts;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
-        if (skipCacheLoad) {
-            setCurrentContext(clientContext.getEvaluationContext());
-        } else {
-            switchToContext(clientContext.getEvaluationContext());
-        }
-    }
-
-    /**
-     * Sets the current context without loading cached data. Used in the FDv2 path where
-     * the {@code FDv2CacheInitializer} handles cache loading as part of the initializer chain.
-     *
-     * @param context the context to switch to
-     */
-    public void setCurrentContext(@NonNull LDContext context) {
-        synchronized (lock) {
-            currentContext = context;
-        }
+        switchToContext(clientContext.getEvaluationContext(), skipCacheLoad);
     }
 
     /**
@@ -105,14 +89,20 @@ final class ContextDataManager implements TransactionalDataStore {
      * If the context provided is different than the current state, switches to internally
      * stored flag data and notifies flag listeners.
      *
-     * @param context the to switch to
+     * @param context       the context to switch to
+     * @param skipCacheLoad true to only set the current context without loading cached data
+     *                      (used in the FDv2 path where the cache initializer handles loading)
      */
-    public void switchToContext(@NonNull LDContext context) {
+    public void switchToContext(@NonNull LDContext context, boolean skipCacheLoad) {
         synchronized (lock) {
             if (context.equals(currentContext)) {
                 return;
             }
             currentContext = context;
+        }
+
+        if (skipCacheLoad) {
+            return;
         }
 
         EnvironmentData storedData = getStoredData(context);

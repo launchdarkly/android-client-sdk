@@ -18,19 +18,15 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 
 /**
- * FDv2 cache initializer: loads persisted flag data from the local cache as the first
- * step in the initializer chain.
+ * FDv2 cache initializer: loads persisted flag data from the local cache.
  * <p>
  * Per CONNMODE 4.1.2, a cache hit returns data with {@code persist=false} and
- * {@link Selector#EMPTY} (no selector), so the orchestrator continues to the next
- * initializer (polling) to obtain a verified selector from the server. This provides
- * immediate flag values from cache while the network initializer fetches fresh data.
+ * {@link Selector#EMPTY} (no selector).
  * <p>
  * All non-hit outcomes — cache miss, missing persistent store, and exceptions during
- * cache read — are returned as a {@link ChangeSetType#None} changeset, analogous to
- * "transfer of none" / 304 Not Modified (CSFDV2 9.1.2). This signals "I checked the
- * source and there is nothing new" rather than an error. A corrupt or unreadable cache
- * is semantically equivalent to an empty cache: neither provides usable data.
+ * cache read — are returned as a {@link ChangeSetType#None} changeset, signaling
+ * "no data available" rather than an error. A corrupt or unreadable cache is
+ * semantically equivalent to an empty cache: neither provides usable data.
  */
 final class FDv2CacheInitializer implements Initializer {
 

@@ -502,14 +502,8 @@ public class LDClient implements LDClientInterface, Closeable {
         // Load cached flags for the new context so they're available in case initialization
         // times out or otherwise fails. This does not short-circuit initialization — the data
         // source still performs its network request regardless.
-        if (config.dataSource instanceof FDv2DataSourceBuilder) {
-            // FDv2: just set the context; the FDv2CacheInitializer handles cache loading
-            // as the first step in the initializer chain.
-            contextDataManager.setCurrentContext(context);
-        } else {
-            // FDv1: load cached flags immediately while the data source fetches from the network.
-            contextDataManager.switchToContext(context);
-        }
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
+        contextDataManager.switchToContext(context, usingFDv2);
         connectivityManager.switchToContext(context, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
