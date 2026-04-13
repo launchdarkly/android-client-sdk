@@ -158,7 +158,6 @@ public abstract class DataSystemComponents {
             return new FDv2CacheInitializer(
                     envData,
                     inputs.getEvaluationContext(),
-                    inputs.getSharedExecutor(),
                     inputs.getBaseLogger()
             );
         }

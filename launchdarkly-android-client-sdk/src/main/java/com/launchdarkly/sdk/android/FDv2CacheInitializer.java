@@ -14,7 +14,6 @@ import com.launchdarkly.sdk.fdv2.Selector;
 
 import java.util.Collections;
 import java.util.Map;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 
 /**
@@ -27,82 +26,81 @@ import java.util.concurrent.Future;
  * cache read — are returned as a {@link ChangeSetType#None} changeset, signaling
  * "no data available" rather than an error. A corrupt or unreadable cache is
  * semantically equivalent to an empty cache: neither provides usable data.
+ * <p>
+ * The cache read runs synchronously on the caller's thread because the underlying
+ * {@code SharedPreferences} access is fast enough that executor dispatch overhead
+ * would dominate the total time.
  */
 final class FDv2CacheInitializer implements Initializer {
 
     @Nullable
     private final PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData;
     private final LDContext context;
-    private final Executor executor;
     private final LDLogger logger;
-    private final LDAwaitFuture<FDv2SourceResult> shutdownFuture = new LDAwaitFuture<>();
 
     FDv2CacheInitializer(
             @Nullable PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData,
             @NonNull LDContext context,
-            @NonNull Executor executor,
             @NonNull LDLogger logger
     ) {
         this.envData = envData;
         this.context = context;
-        this.executor = executor;
         this.logger = logger;
     }
 
     @Override
     @NonNull
     public Future<FDv2SourceResult> run() {
-        LDAwaitFuture<FDv2SourceResult> resultFuture = new LDAwaitFuture<>();
-
-        executor.execute(() -> {
-            try {
-                if (envData == null) {
-                    logger.debug("No persistent store configured; skipping cache");
-                    resultFuture.set(FDv2SourceResult.changeSet(new ChangeSet<>(
-                            ChangeSetType.None,
-                            Selector.EMPTY,
-                            Collections.emptyMap(),
-                            null,
-                            false), false));
-                    return;
-                }
-                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(context);
-                EnvironmentData stored = envData.getContextData(hashedContextId);
-                if (stored == null) {
-                    logger.debug("Cache miss for context");
-                    resultFuture.set(FDv2SourceResult.changeSet(new ChangeSet<>(
-                            ChangeSetType.None,
-                            Selector.EMPTY,
-                            Collections.emptyMap(),
-                            null,
-                            false), false));
-                    return;
-                }
-                Map<String, Flag> flags = stored.getAll();
-                ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
-                        ChangeSetType.Full,
-                        Selector.EMPTY,
-                        flags,
-                        null,
-                        false);
-                logger.debug("Cache hit: loaded {} flags for context", flags.size());
-                resultFuture.set(FDv2SourceResult.changeSet(changeSet, false));
-            } catch (Exception e) {
-                logger.warn("Cache initializer failed: {}", e.toString());
-                resultFuture.set(FDv2SourceResult.changeSet(new ChangeSet<>(
+        FDv2SourceResult result;
+        try {
+            if (envData == null) {
+                logger.debug("No persistent store configured; skipping cache");
+                result = FDv2SourceResult.changeSet(new ChangeSet<>(
                         ChangeSetType.None,
                         Selector.EMPTY,
                         Collections.emptyMap(),
                         null,
-                        false), false));
+                        false), false);
+            } else {
+                String hashedContextId = LDUtil.urlSafeBase64HashedContextId(context);
+                EnvironmentData stored = envData.getContextData(hashedContextId);
+                if (stored == null) {
+                    logger.debug("Cache miss for context");
+                    result = FDv2SourceResult.changeSet(new ChangeSet<>(
+                            ChangeSetType.None,
+                            Selector.EMPTY,
+                            Collections.emptyMap(),
+                            null,
+                            false), false);
+                } else {
+                    Map<String, Flag> flags = stored.getAll();
+                    ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
+                            ChangeSetType.Full,
+                            Selector.EMPTY,
+                            flags,
+                            null,
+                            false);
+                    logger.debug("Cache hit: loaded {} flags for context", flags.size());
+                    result = FDv2SourceResult.changeSet(changeSet, false);
+                }
             }
-        });
+        } catch (Exception e) {
+            logger.warn("Cache initializer failed: {}", e.toString());
+            result = FDv2SourceResult.changeSet(new ChangeSet<>(
+                    ChangeSetType.None,
+                    Selector.EMPTY,
+                    Collections.emptyMap(),
+                    null,
+                    false), false);
+        }
 
-        return LDFutures.anyOf(shutdownFuture, resultFuture);
+        LDAwaitFuture<FDv2SourceResult> future = new LDAwaitFuture<>();
+        future.set(result);
+        return future;
     }
 
     @Override
     public void close() {
-        shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
+        // No-op: the cache read runs synchronously in run(), so there is nothing to cancel.
     }
 }
