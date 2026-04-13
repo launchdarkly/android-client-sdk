@@ -318,9 +318,11 @@ final class FDv2DataSource implements DataSource {
             }
             initializer = sourceManager.getNextInitializerAndSetActive();
         }
-        // All initializers exhausted. If any gave us data (even without a final selector),
-        // consider initialization successful and let synchronizers keep the data current.
-        if (anyDataReceived) {
+        // All initializers exhausted. If data was received and no synchronizers will follow,
+        // consider initialization successful. When synchronizers are available, defer init
+        // completion to the synchronizer loop — the synchronizer is the authority on whether
+        // the SDK has a verified, up-to-date payload.
+        if (anyDataReceived && !sourceManager.hasAvailableSynchronizers()) {
             sink.setStatus(DataSourceState.VALID, null);
             tryCompleteStart(true, null);
         }

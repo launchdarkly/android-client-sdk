@@ -168,7 +168,7 @@ public class FDv2CacheInitializerTest {
     // ---- exception during cache read ----
 
     @Test
-    public void exceptionDuringCacheRead_returnsInterruptedStatus() throws Exception {
+    public void exceptionDuringCacheRead_returnsNoneChangeSet() throws Exception {
         PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData store = hashedContextId -> {
             throw new RuntimeException("corrupt data");
         };
@@ -177,9 +177,14 @@ public class FDv2CacheInitializerTest {
 
         FDv2SourceResult result = initializer.run().get(1, TimeUnit.SECONDS);
 
-        assertEquals(SourceResultType.STATUS, result.getResultType());
-        assertNotNull(result.getStatus());
-        assertEquals(SourceSignal.INTERRUPTED, result.getStatus().getState());
+        assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
+        ChangeSet<?> changeSet = result.getChangeSet();
+        assertNotNull(changeSet);
+        assertEquals(ChangeSetType.None, changeSet.getType());
+        assertTrue(changeSet.getSelector().isEmpty());
+        assertTrue(((java.util.Map<?, ?>) changeSet.getData()).isEmpty());
+        assertFalse(changeSet.shouldPersist());
+        assertFalse(result.isFdv1Fallback());
     }
 
     // ---- close() behavior ----
