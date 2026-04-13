@@ -149,18 +149,6 @@ class ConnectivityManager {
                         @NonNull final ContextDataManager contextDataManager,
                         @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore
     ) {
-        this(clientContext, dataSourceFactory, eventProcessor, contextDataManager,
-                environmentStore, StateDebounceManager.DEFAULT_DEBOUNCE_MS);
-    }
-
-    // visible for testing — allows tests to use a shorter debounce window
-    ConnectivityManager(@NonNull final ClientContext clientContext,
-                        @NonNull final ComponentConfigurer<DataSource> dataSourceFactory,
-                        @NonNull final EventProcessor eventProcessor,
-                        @NonNull final ContextDataManager contextDataManager,
-                        @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
-                        long debounceMs
-    ) {
         this.baseClientContext = clientContext;
         this.dataSourceFactory = dataSourceFactory;
         this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl(contextDataManager);
@@ -170,12 +158,12 @@ class ConnectivityManager {
         this.transactionalDataStore = contextDataManager;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
-        this.debounceMs = debounceMs;
 
         currentContext.set(clientContext.getEvaluationContext());
         forcedOffline.set(clientContext.isSetOffline());
 
         LDConfig ldConfig = clientContext.getConfig();
+        this.debounceMs = ldConfig.getDebounceMs();
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
         this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();

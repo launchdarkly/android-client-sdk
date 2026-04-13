@@ -52,6 +52,7 @@ public class LDClientDataSystemPlatformTest {
 
     private static final String MOBILE_KEY = "test-mobile-key";
     private static final LDContext CONTEXT = LDContext.create("context");
+    private static final long TEST_DEBOUNCE_MS = 50;
 
     /** Matches {@link AndroidPlatformState} debounce (500 ms) plus a small buffer. */
     private static final int AFTER_PAUSE_WAIT_MS = 600;
@@ -88,6 +89,7 @@ public class LDClientDataSystemPlatformTest {
         return new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .persistentDataStore(store)
+                .debounceMs(TEST_DEBOUNCE_MS)
                 .diagnosticOptOut(true)
                 .events(Components.noEvents())
                 .logAdapter(logging.logAdapter)
