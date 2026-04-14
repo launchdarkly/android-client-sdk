@@ -26,4 +26,18 @@ public interface Initializer extends Closeable {
      * @return a Future that completes with the result
      */
     Future<FDv2SourceResult> run();
+
+    /**
+     * Whether this initializer must run before the startup timeout begins ticking.
+     * <p>
+     * Eager initializers run synchronously on the calling thread during
+     * {@code FDv2DataSource.start()}, before work is dispatched to the executor.
+     * This guarantees their data is available even with a timeout of zero,
+     * matching the FDv1 behavior where cached data was loaded in the constructor.
+     *
+     * @return {@code true} if this initializer must complete before the timeout starts
+     */
+    default boolean isRequiredBeforeStartup() {
+        return false;
+    }
 }
