@@ -189,6 +189,15 @@ public class FDv2CacheInitializerTest {
         initializer.close();
     }
 
+    // ---- isRequiredBeforeStartup ----
+
+    @Test
+    public void isRequiredBeforeStartup_returnsTrue() {
+        FDv2CacheInitializer initializer = new FDv2CacheInitializer(
+                null, CONTEXT, LDLogger.none());
+        assertTrue(initializer.isRequiredBeforeStartup());
+    }
+
     // ---- empty cache (no flags stored, but store exists) ----
 
     @Test
