@@ -6,7 +6,6 @@ import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
-import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 
 import androidx.annotation.Nullable;
@@ -37,9 +36,9 @@ final class ClientContextImpl extends ClientContext {
     private final TaskExecutor taskExecutor;
     private final PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
     @Nullable
-    private final TransactionalDataStore transactionalDataStore;
+    private final SelectorSource selectorSource;
 
-    /** Used by FDv1 code paths that do not need a {@link TransactionalDataStore}. */
+    /** Used by FDv1 code paths that do not need a {@link SelectorSource}. */
     ClientContextImpl(
             ClientContext base,
             DiagnosticStore diagnosticStore,
@@ -52,9 +51,8 @@ final class ClientContextImpl extends ClientContext {
     }
 
     /**
-     * Used by FDv2 code paths. The {@code transactionalDataStore} is needed by
-     * {@link FDv2DataSourceBuilder} to create {@link SelectorSourceFacade} instances
-     * that provide selector state to initializers and synchronizers.
+     * Used by FDv2 code paths. The {@code selectorSource} provides selector state to
+     * initializers and synchronizers via the {@link ContextDataManager.ContextDataManagerView}.
      */
     ClientContextImpl(
             ClientContext base,
@@ -63,7 +61,7 @@ final class ClientContextImpl extends ClientContext {
             PlatformState platformState,
             TaskExecutor taskExecutor,
             PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData,
-            @Nullable TransactionalDataStore transactionalDataStore
+            @Nullable SelectorSource selectorSource
     ) {
         super(base);
         this.diagnosticStore = diagnosticStore;
@@ -71,7 +69,7 @@ final class ClientContextImpl extends ClientContext {
         this.platformState = platformState;
         this.taskExecutor = taskExecutor;
         this.perEnvironmentData = perEnvironmentData;
-        this.transactionalDataStore = transactionalDataStore;
+        this.selectorSource = selectorSource;
     }
 
     static ClientContextImpl fromConfig(
@@ -119,7 +117,7 @@ final class ClientContextImpl extends ClientContext {
         return new ClientContextImpl(context, null, null, null, null, null);
     }
 
-    /** Creates a context for FDv1 data sources that do not need a {@link TransactionalDataStore}. */
+    /** Creates a context for FDv1 data sources that do not need a {@link SelectorSource}. */
     public static ClientContextImpl forDataSource(
             ClientContext baseClientContext,
             DataSourceUpdateSink dataSourceUpdateSink,
@@ -132,9 +130,9 @@ final class ClientContextImpl extends ClientContext {
     }
 
     /**
-     * Creates a context for data sources, optionally including a {@link TransactionalDataStore}.
-     * FDv2 data sources require the store so that {@link FDv2DataSourceBuilder} can provide
-     * selector state to initializers and synchronizers via {@link SelectorSourceFacade}.
+     * Creates a context for data sources, optionally including a {@link SelectorSource}.
+     * FDv2 data sources require the selector source so that {@link FDv2DataSourceBuilder} can
+     * provide selector state to initializers and synchronizers.
      */
     public static ClientContextImpl forDataSource(
             ClientContext baseClientContext,
@@ -142,7 +140,7 @@ final class ClientContextImpl extends ClientContext {
             LDContext newEvaluationContext,
             boolean newInBackground,
             Boolean previouslyInBackground,
-            @Nullable TransactionalDataStore transactionalDataStore
+            @Nullable SelectorSource selectorSource
     ) {
         ClientContextImpl baseContextImpl = ClientContextImpl.get(baseClientContext);
         return new ClientContextImpl(
@@ -166,7 +164,7 @@ final class ClientContextImpl extends ClientContext {
                 baseContextImpl.getPlatformState(),
                 baseContextImpl.getTaskExecutor(),
                 baseContextImpl.getPerEnvironmentData(),
-                transactionalDataStore
+                selectorSource
         );
     }
 
@@ -183,7 +181,7 @@ final class ClientContextImpl extends ClientContext {
             this.platformState,
             this.taskExecutor,
             this.perEnvironmentData,
-            this.transactionalDataStore
+            this.selectorSource
         );
     }
 
@@ -208,8 +206,8 @@ final class ClientContextImpl extends ClientContext {
     }
 
     @Nullable
-    public TransactionalDataStore getTransactionalDataStore() {
-        return transactionalDataStore;
+    public SelectorSource getSelectorSource() {
+        return selectorSource;
     }
 
     private static <T> T throwExceptionIfNull(T o) {

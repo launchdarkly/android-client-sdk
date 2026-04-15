@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
@@ -15,19 +16,19 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
-import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-class ConnectivityManager {
+class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     // Implementation notes:
     //
     // 1. This class has no direct interactions with Android APIs. All logic related to detecting
@@ -56,11 +57,9 @@ class ConnectivityManager {
     private final ClientContext baseClientContext;
     private final PlatformState platformState;
     private final ComponentConfigurer<DataSource> dataSourceFactory;
-    private final DataSourceUpdateSink dataSourceUpdateSink;
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final EventProcessor eventProcessor;
-    private final TransactionalDataStore transactionalDataStore;
     private final PlatformState.ForegroundChangeListener foregroundListener;
     private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final TaskExecutor taskExecutor;
@@ -71,7 +70,6 @@ class ConnectivityManager {
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
-    private final AtomicReference<LDContext> currentContext = new AtomicReference<>();
     private final AtomicReference<ModeState> previousModeState = new AtomicReference<>();
     private final LDLogger logger;
     private volatile boolean initialized = false;
@@ -80,33 +78,35 @@ class ConnectivityManager {
     private volatile ConnectionMode currentFDv2Mode;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
 
-    // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
-    // This has two purposes: 1. to decouple the data source implementation from the details of how
-    // data is stored; 2. to implement additional logic that does not depend on what kind of data
-    // source we're using, like "if there was an error, update the ConnectionInformation."
-    private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink, DataSourceUpdateSinkV2 {
-        private final ContextDataManager contextDataManager;
+    private final AtomicReference<LDContext> currentContext = new AtomicReference<>();
+    private volatile ContextDataManager.ContextDataManagerView currentView;
+    @Nullable private volatile Callback<Void> pendingStartUpCallback;
 
-        DataSourceUpdateSinkImpl(ContextDataManager contextDataManager) {
-            this.contextDataManager = contextDataManager;
+    // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
+    // Data operations (init, upsert, apply) are routed through a ContextDataManager.ContextDataManagerView
+    // which gates them with a validity flag — invalidated views silently discard writes.
+    // Status operations (setStatus, shutDown) are routed to ConnectivityManager directly.
+    // A new instance is created for each data source, using the view that was current at the time.
+    private class DataSourceUpdateSinkImpl implements DataSourceUpdateSink, DataSourceUpdateSinkV2 {
+        private final ContextDataManager.ContextDataManagerView view;
+
+        DataSourceUpdateSinkImpl(ContextDataManager.ContextDataManagerView view) {
+            this.view = view;
         }
 
         @Override
         public void init(LDContext context, Map<String, DataModel.Flag> items) {
-            contextDataManager.initData(context, EnvironmentData.usingExistingFlagsMap(items));
-            // Currently, contextDataManager is responsible for firing any necessary flag change events.
+            view.init(context, items);
         }
 
         @Override
         public void upsert(LDContext context, DataModel.Flag item) {
-            contextDataManager.upsert(context, item);
-            // Currently, contextDataManager is responsible for firing any necessary flag change events.
+            view.upsert(context, item);
         }
 
         @Override
         public void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet) {
-            contextDataManager.apply(context, changeSet);
-            // Currently, contextDataManager is responsible for firing any necessary flag change events.
+            view.apply(context, changeSet);
         }
 
         @Override
@@ -144,20 +144,16 @@ class ConnectivityManager {
     ConnectivityManager(@NonNull final ClientContext clientContext,
                         @NonNull final ComponentConfigurer<DataSource> dataSourceFactory,
                         @NonNull final EventProcessor eventProcessor,
-                        @NonNull final ContextDataManager contextDataManager,
                         @NonNull final PersistentDataStoreWrapper.PerEnvironmentData environmentStore
     ) {
         this.baseClientContext = clientContext;
         this.dataSourceFactory = dataSourceFactory;
-        this.dataSourceUpdateSink = new DataSourceUpdateSinkImpl(contextDataManager);
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.eventProcessor = eventProcessor;
         this.environmentStore = environmentStore;
-        this.transactionalDataStore = contextDataManager;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
 
-        currentContext.set(clientContext.getEvaluationContext());
         forcedOffline.set(clientContext.isSetOffline());
 
         LDConfig ldConfig = clientContext.getConfig();
@@ -189,32 +185,29 @@ class ConnectivityManager {
         platformState.addForegroundChangeListener(foregroundListener);
     }
 
-    /**
-     * Switches the {@link ConnectivityManager} to begin fetching/receiving information
-     * relevant to the context provided.  This is likely to result in the teardown of existing
-     * connections, but the timing of that is not guaranteed.
-     *
-     * @param context to swtich to
-     * @param onCompletion callback that indicates when the switching is done
-     */
-    void switchToContext(@NonNull LDContext context, @NonNull Callback<Void> onCompletion) {
-        DataSource dataSource = currentDataSource.get();
-        LDContext oldContext = currentContext.getAndSet(context);
+    @Override
+    public synchronized void onContextChanged(
+            @NonNull LDContext context,
+            @NonNull ContextDataManager.ContextDataManagerView view,
+            @NonNull Callback<Void> onCompletion
+    ) {
+        this.currentContext.set(context);
+        this.currentView = view;
 
-        if (oldContext == context || oldContext.equals(context)) {
-            onCompletion.onSuccess(null);
+        Callback<Void> effectiveCallback;
+        if (pendingStartUpCallback != null) {
+            effectiveCallback = LDUtil.compositeCallback(Arrays.asList(pendingStartUpCallback, onCompletion));
+            pendingStartUpCallback = null;
         } else {
-            ModeState state = snapshotModeState();
-            if (dataSource == null || dataSource.needsRefresh(!state.isForeground(), context)) {
-                updateEventProcessor(forcedOffline.get(), state.isNetworkAvailable(), state.isForeground());
-                updateDataSource(true, state, onCompletion);
-            } else {
-                onCompletion.onSuccess(null);
-            }
+            effectiveCallback = onCompletion;
         }
+
+        ModeState state = snapshotModeState();
+        updateEventProcessor(forcedOffline.get(), state.isNetworkAvailable(), state.isForeground());
+        updateDataSource(true, state, effectiveCallback);
     }
 
-    private synchronized boolean updateDataSource(
+    private boolean updateDataSource(
             boolean mustReinitializeDataSource,
             @NonNull ModeState newState,
             @NonNull Callback<Void> onCompletion
@@ -257,7 +250,7 @@ class ConnectivityManager {
         // Only consult needsRefresh() when the platform state has actually changed since the
         // last data source was built. Duplicate notifications (e.g. a connectivity event that
         // doesn't change the network state) are filtered out, preventing unnecessary rebuilds.
-        // Context changes are handled by switchToContext(), which passes
+        // Context changes are handled via onContextChanged(), which passes
         // mustReinitializeDataSource=true directly.
         if (!mustReinitializeDataSource && existingDataSource != null) {
             boolean inBackground = !newState.isForeground();
@@ -287,11 +280,11 @@ class ConnectivityManager {
         } else if (forceOffline) {
             logger.debug("Initialized in offline mode");
             initialized = true;
-            dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.SET_OFFLINE, null);
+            updateConnectionInfoForSuccess(ConnectionInformation.ConnectionMode.SET_OFFLINE);
         } else if (!newState.isNetworkAvailable()) {
-            dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.OFFLINE, null);
+            updateConnectionInfoForSuccess(ConnectionInformation.ConnectionMode.OFFLINE);
         } else if (!newState.isForeground() && newState.isBackgroundUpdatingDisabled()) {
-            dataSourceUpdateSink.setStatus(ConnectionInformation.ConnectionMode.BACKGROUND_DISABLED, null);
+            updateConnectionInfoForSuccess(ConnectionInformation.ConnectionMode.BACKGROUND_DISABLED);
         } else {
             shouldStopExistingDataSource = mustReinitializeDataSource;
             shouldStartDataSourceIfStopped = true;
@@ -309,6 +302,9 @@ class ConnectivityManager {
             return false;
         }
 
+        ContextDataManager.ContextDataManagerView view = currentView;
+        DataSourceUpdateSink dataSourceUpdateSink = new DataSourceUpdateSinkImpl(view);
+
         logger.debug("Creating data source (background={})", !newState.isForeground());
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext,
@@ -316,7 +312,7 @@ class ConnectivityManager {
                 context,
                 !newState.isForeground(),
                 previousModeState.get() != null ? !previousModeState.get().isForeground() : null,
-                transactionalDataStore
+                view // view will serve as the selector source
         );
 
         if (useFDv2ModeResolution) {
@@ -510,22 +506,33 @@ class ConnectivityManager {
     /**
      * Attempts to start the data source if possible.
      * <p>
-     * If we are configured to be offline or the network is unavailable, it immediately calls the
-     * completion listener and returns. Otherwise, it continues initialization asynchronously and
-     * the listener will be called when the data source successfully starts up or permanently fails.
+     * If we are configured to be offline or the network is unavailable, the callback
+     * is completed immediately with success. Otherwise, it continues initialization
+     * asynchronously and the callback will be called when the data source successfully
+     * starts up or permanently fails.
      *
+     * @param contextDataManager the context data manager to listen to
+     * @param onCompletion       callback that indicates when startup is done
      * @return true if we are online, or false if we are offline (this determines whether we should
      *  try to send an identify event on startup)
      */
-    synchronized boolean startUp(@NonNull Callback<Void> onCompletion) {
-        if (closed.get() || started.getAndSet(true)) {
+    synchronized boolean startUp(
+            @NonNull ContextDataManager contextDataManager,
+            @NonNull Callback<Void> onCompletion
+    ) {
+        if (closed.get() || started.get()) {
             return false;
         }
         initialized = false;
 
-        ModeState state = snapshotModeState();
-        updateEventProcessor(forcedOffline.get(), state.isNetworkAvailable(), state.isForeground());
-        return updateDataSource(true, state, onCompletion);
+        pendingStartUpCallback = onCompletion;
+        started.set(true);
+
+        // CDM immediately calls onContextChanged(...) after registration and that will
+        // handle creating the first data source synchronously.
+        contextDataManager.registerContextSwitchListener(this);
+
+        return currentDataSource.get() != null;
     }
 
     /**

@@ -274,7 +274,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // Start up all instances
         for (final LDClient instance : instances.values()) {
             HookRunner.AfterIdentifyMethod afterIdentify = instance.hookRunner.identify(modifiedContext, null);
-            if (instance.connectivityManager.startUp(new CompleteWhenCounterZero(afterIdentify))) {
+            if (instance.connectivityManager.startUp(instance.contextDataManager, new CompleteWhenCounterZero(afterIdentify))) {
                 instance.eventProcessor.recordIdentifyEvent(modifiedContext);
             }
         }
@@ -433,7 +433,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 clientContextImpl,
                 config.dataSource,
                 eventProcessor,
-                contextDataManager,
                 environmentStore
         );
 
@@ -496,13 +495,7 @@ public class LDClient implements LDClientInterface, Closeable {
                                   Callback<Void> onCompleteListener) {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
-
-        // Calling initFromStoredData updates the current flag state *if* stored flags exist for
-        // this context. If they don't, it has no effect. Currently we do *not* return early from
-        // initialization just because stored flags exist; we're just making them available in case
-        // initialization times out or otherwise fails.
-        contextDataManager.switchToContext(context);
-        connectivityManager.switchToContext(context, onCompleteListener);
+        contextDataManager.switchToContext(context, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
 
