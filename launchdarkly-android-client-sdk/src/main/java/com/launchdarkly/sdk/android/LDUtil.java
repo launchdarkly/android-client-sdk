@@ -48,6 +48,28 @@ public class LDUtil {
         };
     }
 
+    /**
+     * Returns a callback that forwards {@code onSuccess} and {@code onError} to all
+     * delegates in iteration order.
+     */
+    static <T> Callback<T> compositeCallback(@NonNull List<Callback<T>> callbacks) {
+        return new Callback<T>() {
+            @Override
+            public void onSuccess(T result) {
+                for (Callback<T> cb : callbacks) {
+                    cb.onSuccess(result);
+                }
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                for (Callback<T> cb : callbacks) {
+                    cb.onError(error);
+                }
+            }
+        };
+    }
+
     // Key, kind, tag, and several other system values must not be empty, contain only letters,
     // numbers, `.`, `_`, or `-`.
     private static final Pattern VALID_CHARS_REGEX = Pattern.compile("^[-a-zA-Z0-9._]+$");

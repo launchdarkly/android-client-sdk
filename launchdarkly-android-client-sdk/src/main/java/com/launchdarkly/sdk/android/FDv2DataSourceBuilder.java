@@ -11,7 +11,6 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
-import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -149,10 +148,10 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     }
 
     private DataSourceBuildInputs makeInputs(ClientContext clientContext) {
-        TransactionalDataStore store = ClientContextImpl.get(clientContext).getTransactionalDataStore();
-        SelectorSource selectorSource = store != null
-                ? new SelectorSourceFacade(store)
-                : () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
+        SelectorSource selectorSource = ClientContextImpl.get(clientContext).getSelectorSource();
+        if (selectorSource == null) {
+            selectorSource = () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
+        }
         return new DataSourceBuildInputs(
                 clientContext.getEvaluationContext(),
                 clientContext.getServiceEndpoints(),

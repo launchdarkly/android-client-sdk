@@ -10,6 +10,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.android.LDUtil;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 
 import org.junit.Rule;
@@ -33,7 +34,7 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
 
         int numContexts = 20;
         for (int i = 1; i <= numContexts; i++) {
-            manager.switchToContext(makeContext(i));
+            manager.switchToContext(makeContext(i), LDUtil.noOpCallback());
             manager.initData(makeContext(i), makeFlagData(i));
         }
 
@@ -49,7 +50,7 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
         ContextDataManager manager = createDataManager(maxCachedContexts);
 
         for (int i = 1; i <= maxCachedContexts + excess; i++) {
-            manager.switchToContext(makeContext(i));
+            manager.switchToContext(makeContext(i), LDUtil.noOpCallback());
             manager.initData(makeContext(i), makeFlagData(i));
         }
 
@@ -66,13 +67,13 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
         ContextDataManager manager = createDataManager(1);
 
         for (int i = 1; i <= 2; i++) {
-            manager.switchToContext(makeContext(i));
+            manager.switchToContext(makeContext(i), LDUtil.noOpCallback());
             manager.initData(makeContext(i), makeFlagData(i));
             assertContextIsCached(makeContext(i), makeFlagData(i));
         }
 
         ContextDataManager newManagerInstance = createDataManager(1);
-        newManagerInstance.switchToContext(makeContext(3));
+        newManagerInstance.switchToContext(makeContext(3), LDUtil.noOpCallback());
         newManagerInstance.initData(makeContext(3), makeFlagData(3));
 
         assertContextIsNotCached(makeContext(1));

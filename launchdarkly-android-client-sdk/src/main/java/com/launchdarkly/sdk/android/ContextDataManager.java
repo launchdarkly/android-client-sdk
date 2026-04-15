@@ -14,6 +14,8 @@ import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.fdv2.Selector;
 
+import com.launchdarkly.sdk.android.subsystems.Callback;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -42,7 +44,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * implementation of PersistentDataStore was used to create the PersistentDataStoreWrapper, and
  * deferred listener calls are done via the {@link TaskExecutor} abstraction.
  */
-final class ContextDataManager implements TransactionalDataStore {
+final class ContextDataManager {
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final int maxCachedContexts;
     private final TaskExecutor taskExecutor;
@@ -50,6 +52,8 @@ final class ContextDataManager implements TransactionalDataStore {
             new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners =
             new CopyOnWriteArrayList<>();
+
+    @Nullable private volatile ContextSwitchListener contextSwitchListener;
     private final LDLogger logger;
 
     /**
@@ -60,9 +64,11 @@ final class ContextDataManager implements TransactionalDataStore {
     @NonNull private volatile LDContext currentContext;
     @NonNull private volatile EnvironmentData flags = new EnvironmentData();
     @NonNull private volatile ContextIndex index;
+    @NonNull private volatile ContextDataManagerView currentView;
 
     /** Selector from the last applied changeset that carried one; in-memory only, not persisted. */
     @NonNull private Selector currentSelector = Selector.EMPTY;
+
 
     ContextDataManager(
             @NonNull ClientContext clientContext,
@@ -74,37 +80,72 @@ final class ContextDataManager implements TransactionalDataStore {
         this.maxCachedContexts = maxCachedContexts;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
-        switchToContext(clientContext.getEvaluationContext());
+        this.currentView = new ContextDataManagerView();
+        switchToContext(clientContext.getEvaluationContext(), LDUtil.noOpCallback());
     }
 
     /**
      * Switches to providing flag data for the provided context.
      * <p>
-     * If the context provided is different than the current state, switches to internally
-     * stored flag data and notifies flag listeners.
+     * If the context provided is different than the current context, the previous
+     * {@link ContextDataManagerView} is invalidated, a new view is created, stored flag
+     * data is loaded (if available), and the registered {@link ContextSwitchListener}
+     * is notified with the new context, view, and completion callback.
+     * <p>
+     * If the context is the same as the current context, the callback is completed
+     * immediately with success.
      *
-     * @param context the to switch to
+     * @param context      the context to switch to
+     * @param onCompletion callback for when downstream work is complete
      */
-    public void switchToContext(@NonNull LDContext context) {
+    public void switchToContext(@NonNull LDContext context, @NonNull Callback<Void> onCompletion) {
+        ContextDataManagerView newView;
         synchronized (lock) {
             if (context.equals(currentContext)) {
+                onCompletion.onSuccess(null);
                 return;
             }
+            // this call to invalidate disables data operations being performed through the view
+            currentView.invalidate();
             currentContext = context;
+            currentSelector = Selector.EMPTY;
+            newView = new ContextDataManagerView();
+            currentView = newView;
         }
 
         EnvironmentData storedData = getStoredData(context);
         if (storedData == null) {
             logger.debug("No stored flag data is available for this context");
-            // here we return to not alter current in memory flag state as
-            // current flag state is better than empty flag state in most
-            // customer use cases.
-            return;
+        } else {
+            logger.debug("Using stored flag data for this context");
+            applyFullData(context, Selector.EMPTY, storedData.getAll(), false);
         }
 
-        logger.debug("Using stored flag data for this context");
-        // when we switch context, we don't have a selector because we don't currently support persisting the selector.
-        applyFullData(context, Selector.EMPTY, storedData.getAll(), false);
+        // At the time of writing this, we only needed one listener (the ConnectivityManager) and the
+        // code was simpler to support a single listener.  If you need to support multiple listeners,
+        // you must consider how to handle the onComplete callback being send to many listeners.
+        ContextSwitchListener listener = contextSwitchListener;
+        if (listener != null) {
+            listener.onContextChanged(context, newView, onCompletion);
+        } else {
+            onCompletion.onSuccess(null);
+        }
+    }
+
+    /**
+     * Sets the listener that will be notified on every context switch. The listener
+     * is immediately called with the current context and view (with a no-op callback)
+     * so it can initialize its state.
+     *
+     * @param listener the listener to set
+     */
+    public void setContextSwitchListener(@NonNull ContextSwitchListener listener) {
+        this.contextSwitchListener = listener;
+        listener.onContextChanged(currentContext, currentView, LDUtil.noOpCallback());
+    }
+
+    public void removeContextSwitchListener() {
+        this.contextSwitchListener = null;
     }
 
     /**
@@ -114,7 +155,8 @@ final class ContextDataManager implements TransactionalDataStore {
      * @param context the new context
      * @param newData the new flag data
      */
-    public void initData(
+    @VisibleForTesting
+    void initData(
             @NonNull LDContext context,
             @NonNull EnvironmentData newData
     ) {
@@ -170,7 +212,8 @@ final class ContextDataManager implements TransactionalDataStore {
      * @param flag the updated flag data or deleted item placeholder
      * @return true if the update was done; false if it was not done
      */
-    public boolean upsert(@NonNull LDContext context, @NonNull Flag flag) {
+    @VisibleForTesting
+    boolean upsert(@NonNull LDContext context, @NonNull Flag flag) {
         EnvironmentData updatedFlags;
         synchronized (lock) {
             if (!context.equals(currentContext)) {
@@ -203,8 +246,8 @@ final class ContextDataManager implements TransactionalDataStore {
         return true;
     }
 
-    @Override
-    public void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, Flag>> changeSet) {
+    @VisibleForTesting
+    void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, Flag>> changeSet) {
         switch (changeSet.getType()) {
             case Full:
                 applyFullData(context, changeSet.getSelector(), changeSet.getData(), changeSet.shouldPersist());
@@ -316,9 +359,9 @@ final class ContextDataManager implements TransactionalDataStore {
         notifyFlagListeners(updatedFlagKeys);
     }
 
-    @Override
+    @VisibleForTesting
     @NonNull
-    public Selector getSelector() {
+    Selector getSelector() {
         synchronized (lock) {
             return currentSelector;
         }
@@ -415,5 +458,94 @@ final class ContextDataManager implements TransactionalDataStore {
                 listener.onChange(keysAsList);
             }
         });
+    }
+
+    /**
+     * Listener interface for context switch events.
+     * <p>
+     * Implementations receive notifications when the managed context changes. Each
+     * notification includes the new context, a valid {@link ContextDataManagerView}
+     * scoped to that context, and a completion callback.
+     * <p>
+     * {@link #onContextChanged} is also called immediately when a listener is registered
+     * via {@link ContextDataManager#setContextSwitchListener}, with the current
+     * context and view (and a no-op callback). This allows late-registering listeners
+     * to receive the current state without a separate interaction.
+     */
+    interface ContextSwitchListener {
+        /**
+         * Called when the managed context changes, or immediately when listener is
+         * registered, with the current context and view.
+         *
+         * @param context      the new (or current) evaluation context
+         * @param view         a valid {@link ContextDataManagerView} scoped to this context;
+         *                     any previously issued views have already been invalidated
+         * @param onCompletion callback to invoke when the downstream work triggered by
+         *                     this context switch is complete; a no-op callback at
+         *                     registration time
+         */
+        void onContextChanged(
+                @NonNull LDContext context,
+                @NonNull ContextDataManagerView view,
+                @NonNull Callback<Void> onCompletion
+        );
+    }
+
+    /**
+     * A scoped, invalidatable view of {@link ContextDataManager} that gates all data
+     * operations through the enclosing ContextDataManager's locking protections.
+     * <p>
+     * Each time the managed context changes, the previous view is permanently invalidated
+     * and a new view is created. Once invalidated, all write operations become no-ops and
+     * {@link #getSelector()} returns {@link Selector#EMPTY}. This prevents old data sources
+     * (which may still be running asynchronously after a context switch) from writing stale
+     * data or reading selectors that belong to a different context.
+     */
+    final class ContextDataManagerView implements TransactionalDataStore, SelectorSource {
+
+        private boolean valid = true;
+
+        void invalidate() {
+            valid = false;
+        }
+
+        public void init(@NonNull LDContext context, @NonNull Map<String, Flag> items) {
+            synchronized (lock) {
+                if (!valid) {
+                    return;
+                }
+                initData(context, EnvironmentData.usingExistingFlagsMap(items));
+            }
+        }
+
+        public boolean upsert(@NonNull LDContext context, @NonNull Flag flag) {
+            synchronized (lock) {
+                if (!valid) {
+                    return false;
+                }
+                return ContextDataManager.this.upsert(context, flag);
+            }
+        }
+
+        @Override
+        public void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, Flag>> changeSet) {
+            synchronized (lock) {
+                if (!valid) {
+                    return;
+                }
+                ContextDataManager.this.apply(context, changeSet);
+            }
+        }
+
+        @Override
+        @NonNull
+        public Selector getSelector() {
+            synchronized (lock) {
+                if (!valid) {
+                    return Selector.EMPTY;
+                }
+                return ContextDataManager.this.getSelector();
+            }
+        }
     }
 }
