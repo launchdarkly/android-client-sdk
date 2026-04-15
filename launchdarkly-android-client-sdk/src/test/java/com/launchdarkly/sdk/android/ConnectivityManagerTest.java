@@ -785,6 +785,75 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyAll();
     }
 
+    // ==== View-based data source gating tests ====
+
+    @Test
+    public void startUpRegistersListenerAndCreatesDataSource() throws ExecutionException {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyNoMoreDataSourcesWereCreated();
+    }
+
+    @Test
+    public void contextSwitchStopsOldDataSourceAndCreatesNew() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        LDContext context2 = LDContext.create("context2");
+        AwaitableCallback<Void> done = new AwaitableCallback<>();
+        contextDataManager.switchToContext(context2, done);
+        done.await();
+
+        verifyDataSourceWasStopped();
+        verifyForegroundDataSourceWasCreatedAndStarted(context2);
+    }
+
+    @Test
+    public void dataSourceReceivesViewAsSelectorSource() throws ExecutionException {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), clientContext -> {
+            receivedClientContexts.add(clientContext);
+            ClientContextImpl impl = ClientContextImpl.get(clientContext);
+            SelectorSource selectorSource = impl.getSelectorSource();
+            assertNotNull(selectorSource);
+            assertTrue("SelectorSource should be a ContextDataManagerView",
+                    selectorSource instanceof ContextDataManager.ContextDataManagerView);
+            return MockComponents.successfulDataSource(clientContext, DATA,
+                    ConnectionMode.POLLING, startedDataSources, stoppedDataSources);
+        });
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+    }
+
+    @Test
+    public void startupCallbackIsInvokedOnCompletion() throws ExecutionException {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+
+        AwaitableCallback<Void> callback = new AwaitableCallback<>();
+        connectivityManager.startUp(contextDataManager, callback);
+        callback.await();
+    }
+
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {
         return clientContext -> makeSuccessfulDataSource(clientContext);
     }

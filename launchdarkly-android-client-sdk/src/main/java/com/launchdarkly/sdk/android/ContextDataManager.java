@@ -52,7 +52,8 @@ final class ContextDataManager {
             new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<LDAllFlagsListener> allFlagsListeners =
             new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<ContextSwitchListener> contextSwitchListeners = new CopyOnWriteArrayList<>();
+
+    @Nullable private volatile ContextSwitchListener contextSwitchListener;
     private final LDLogger logger;
 
     /**
@@ -88,8 +89,8 @@ final class ContextDataManager {
      * <p>
      * If the context provided is different than the current context, the previous
      * {@link ContextDataManagerView} is invalidated, a new view is created, stored flag
-     * data is loaded (if available), and all registered {@link ContextSwitchListener}s
-     * are notified with the new context, view, and completion callback.
+     * data is loaded (if available), and the registered {@link ContextSwitchListener}
+     * is notified with the new context, view, and completion callback.
      * <p>
      * If the context is the same as the current context, the callback is completed
      * immediately with success.
@@ -120,25 +121,31 @@ final class ContextDataManager {
             applyFullData(context, Selector.EMPTY, storedData.getAll(), false);
         }
 
-        for (ContextSwitchListener listener : contextSwitchListeners) {
+        // At the time of writing this, we only needed one listener (the ConnectivityManager) and the
+        // code was simpler to support a single listener.  If you need to support multiple listeners,
+        // you must consider how to handle the onComplete callback being send to many listeners.
+        ContextSwitchListener listener = contextSwitchListener;
+        if (listener != null) {
             listener.onContextChanged(context, newView, onCompletion);
+        } else {
+            onCompletion.onSuccess(null);
         }
     }
 
     /**
-     * Registers a listener that will be notified on every context switch. The listener
+     * Sets the listener that will be notified on every context switch. The listener
      * is immediately called with the current context and view (with a no-op callback)
      * so it can initialize its state.
      *
-     * @param listener the listener to register
+     * @param listener the listener to set
      */
-    public void registerContextSwitchListener(@NonNull ContextSwitchListener listener) {
-        contextSwitchListeners.add(listener);
+    public void setContextSwitchListener(@NonNull ContextSwitchListener listener) {
+        this.contextSwitchListener = listener;
         listener.onContextChanged(currentContext, currentView, LDUtil.noOpCallback());
     }
 
-    public void unregisterContextSwitchListener(@NonNull ContextSwitchListener listener) {
-        contextSwitchListeners.remove(listener);
+    public void removeContextSwitchListener() {
+        this.contextSwitchListener = null;
     }
 
     /**
@@ -461,7 +468,7 @@ final class ContextDataManager {
      * scoped to that context, and a completion callback.
      * <p>
      * {@link #onContextChanged} is also called immediately when a listener is registered
-     * via {@link ContextDataManager#registerContextSwitchListener}, with the current
+     * via {@link ContextDataManager#setContextSwitchListener}, with the current
      * context and view (and a no-op callback). This allows late-registering listeners
      * to receive the current state without a separate interaction.
      */

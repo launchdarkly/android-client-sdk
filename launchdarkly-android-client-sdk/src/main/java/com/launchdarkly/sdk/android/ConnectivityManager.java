@@ -530,7 +530,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
 
         // CDM immediately calls onContextChanged(...) after registration and that will
         // handle creating the first data source synchronously.
-        contextDataManager.registerContextSwitchListener(this);
+        contextDataManager.setContextSwitchListener(this);
 
         return currentDataSource.get() != null;
     }
