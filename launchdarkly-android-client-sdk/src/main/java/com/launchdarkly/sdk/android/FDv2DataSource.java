@@ -7,6 +7,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.SourceResultType;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
@@ -164,14 +165,22 @@ final class FDv2DataSource implements DataSource {
                     return; // this will go to the finally block and block until stop sets shutdownCause
                 }
 
+                boolean initializersSucceeded = false;
                 if (sourceManager.hasInitializers()) {
-                    runInitializers(context, dataSourceUpdateSink);
+                    initializersSucceeded = runInitializers(context, dataSourceUpdateSink);
                 }
 
                 if (!sourceManager.hasAvailableSynchronizers()) {
                     if (!startCompleted.get()) {
-                        // try to claim this is the cause of the shutdown, but it might have already been set by an intentional stop().
-                        shutdownCause.set(new LDFailure("All initializers exhausted and there are no available synchronizers.", LDFailure.FailureType.UNKNOWN_ERROR));
+                        if (initializersSucceeded) {
+                            // At least one initializer completed with a changeset (possibly
+                            // None for a cache miss). A mode with initializers but no
+                            // synchronizers (e.g., OFFLINE) is a valid terminal state.
+                            dataSourceUpdateSink.setStatus(DataSourceState.VALID, null);
+                            tryCompleteStart(true, null);
+                        } else {
+                            shutdownCause.set(new LDFailure("All initializers exhausted and there are no available synchronizers.", LDFailure.FailureType.UNKNOWN_ERROR));
+                        }
                     }
                     return;
                 }
@@ -286,10 +295,15 @@ final class FDv2DataSource implements DataSource {
         return !evaluationContext.equals(newEvaluationContext);
     }
 
-    private void runInitializers(
+    /**
+     * @return true if at least one initializer completed with a changeset (even {@link ChangeSetType#None}),
+     *         false if all initializers returned errors/statuses or were interrupted
+     */
+    private boolean runInitializers(
             @NonNull LDContext context,
             @NonNull DataSourceUpdateSinkV2 sink
     ) {
+        boolean anyInitializerSucceeded = false;
         boolean anyDataReceived = false;
         Initializer initializer = sourceManager.getNextInitializerAndSetActive();
         while (initializer != null) {
@@ -313,7 +327,7 @@ final class FDv2DataSource implements DataSource {
                         sink.setStatus(DataSourceState.VALID, null);
                         tryCompleteStart(true, null);
                     }
-                    return;
+                    return anyInitializerSucceeded;
                 }
 
                 switch (result.getResultType()) {
@@ -321,13 +335,16 @@ final class FDv2DataSource implements DataSource {
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
                             sink.apply(context, changeSet);
-                            anyDataReceived = true;
+                            anyInitializerSucceeded = true;
+                            if (changeSet.getType() != ChangeSetType.None) {
+                                anyDataReceived = true;
+                            }
                             // A non-empty selector means the payload is fully current; the
                             // initializer is done and synchronizers can take over from here.
                             if (!changeSet.getSelector().isEmpty()) {
                                 sink.setStatus(DataSourceState.VALID, null);
                                 tryCompleteStart(true, null);
-                                return;
+                                return anyInitializerSucceeded;
                             }
                             // Empty selector: partial data received, keep trying remaining initializers.
                         }
@@ -358,18 +375,11 @@ final class FDv2DataSource implements DataSource {
             } catch (InterruptedException e) {
                 logger.warn("Initializer interrupted: {}", e.toString());
                 sink.setStatus(DataSourceState.INTERRUPTED, e);
-                return;
+                return anyInitializerSucceeded;
             }
             initializer = sourceManager.getNextInitializerAndSetActive();
         }
-        // All initializers exhausted. If data was received and no synchronizers will follow,
-        // consider initialization successful. When synchronizers are available, defer init
-        // completion to the synchronizer loop — the synchronizer is the authority on whether
-        // the SDK has a verified, up-to-date payload.
-        if (anyDataReceived && !sourceManager.hasAvailableSynchronizers()) {
-            sink.setStatus(DataSourceState.VALID, null);
-            tryCompleteStart(true, null);
-        }
+        return anyInitializerSucceeded;
     }
 
     private List<FDv2DataSourceConditions.Condition> getConditions(int synchronizerCount, boolean isPrime) {
