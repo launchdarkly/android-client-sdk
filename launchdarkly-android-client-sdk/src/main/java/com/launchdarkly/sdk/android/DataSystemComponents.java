@@ -14,7 +14,7 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
+
 
 import java.net.URI;
 import java.util.Arrays;
@@ -140,23 +140,10 @@ public abstract class DataSystemComponents {
     }
 
     static final class CacheInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
-        @Nullable
-        private final PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData;
-
-        CacheInitializerBuilderImpl() {
-            this.envData = null;
-        }
-
-        CacheInitializerBuilderImpl(
-                @Nullable PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData
-        ) {
-            this.envData = envData;
-        }
-
         @Override
         public Initializer build(DataSourceBuildInputs inputs) {
             return new FDv2CacheInitializer(
-                    envData,
+                    DataSourceBuildInputsInternal.get(inputs).getPerEnvironmentDataIfAvailable(),
                     inputs.getEvaluationContext(),
                     inputs.getBaseLogger()
             );
