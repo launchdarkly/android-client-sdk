@@ -80,7 +80,7 @@ class ConnectivityManager {
     private volatile ConnectionMode currentFDv2Mode;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
     private final long debounceMs; // visible for testing
-    private volatile StateDebounceManager stateDebounceManager; // FDv2 only
+    private volatile StateDebounceManager stateDebounceManager;
 
     // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
     // This has two purposes: 1. to decouple the data source implementation from the details of how
@@ -173,49 +173,27 @@ class ConnectivityManager {
                 ? ((FDv2DataSourceBuilder) dataSourceFactory).getResolutionTable()
                 : null;
 
-        if (useFDv2ModeResolution) {
-            this.stateDebounceManager = createDebounceManager();
-        }
+        this.stateDebounceManager = createDebounceManager();
 
         connectivityChangeListener = networkAvailable -> {
-            if (useFDv2ModeResolution) {
-                // Event processor state updated immediately so analytics events reflect reality.
-                updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
-                if (!autoModeSwitchingConfig.isNetwork()) {
-                    return;
-                }
-                // CONNMODE 3.5.1: route through debounce window instead of immediate rebuild
-                StateDebounceManager dm = stateDebounceManager;
-                if (dm != null) {
-                    dm.setNetworkAvailable(networkAvailable);
-                }
-            } else {
-                // FDv1 path: handleModeStateChange updates event processor internally
-                handleModeStateChange();
+            updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
+            if (!autoModeSwitchingConfig.isNetwork()) {
+                return;
             }
+            stateDebounceManager.setNetworkAvailable(networkAvailable);
         };
         platformState.addConnectivityChangeListener(connectivityChangeListener);
 
         foregroundListener = foreground -> {
-            if (useFDv2ModeResolution) {
-                // Event processor state updated immediately so analytics events reflect reality.
-                updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
-                if (!autoModeSwitchingConfig.isLifecycle()) {
-                    return;
-                }
-                // CONNMODE 3.3.1: flush pending events before transitioning to background
-                if (!foreground) {
-                    eventProcessor.flush();
-                }
-                // CONNMODE 3.5.1: route through debounce window
-                StateDebounceManager dm = stateDebounceManager;
-                if (dm != null) {
-                    dm.setForeground(foreground);
-                }
-            } else {
-                // FDv1 path: handleModeStateChange updates event processor internally
-                handleModeStateChange();
+            updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
+            if (!autoModeSwitchingConfig.isLifecycle()) {
+                return;
             }
+            // CONNMODE 3.3.1: flush pending events before transitioning to background
+            if (useFDv2ModeResolution && !foreground) {
+                eventProcessor.flush();
+            }
+            stateDebounceManager.setForeground(foreground);
         };
         platformState.addForegroundChangeListener(foregroundListener);
     }
@@ -240,13 +218,8 @@ class ConnectivityManager {
             onCompletion.onSuccess(null);
         } else {
             // CONNMODE 3.5.6: identify bypasses debounce — close and recreate the manager
-            if (useFDv2ModeResolution) {
-                StateDebounceManager oldDm = stateDebounceManager;
-                if (oldDm != null) {
-                    oldDm.close();
-                }
-                stateDebounceManager = createDebounceManager();
-            }
+            stateDebounceManager.close();
+            stateDebounceManager = createDebounceManager();
 
             ModeState state = snapshotModeState();
             if (dataSource == null || dataSource.needsRefresh(!state.isForeground(), context)) {
@@ -580,11 +553,8 @@ class ConnectivityManager {
         if (closed.getAndSet(true)) {
             return;
         }
-        StateDebounceManager dm = stateDebounceManager;
-        if (dm != null) {
-            dm.close();
-            stateDebounceManager = null;
-        }
+        stateDebounceManager.close();
+        stateDebounceManager = null;
         DataSource oldDataSource = currentDataSource.getAndSet(null);
         if (oldDataSource != null) {
             oldDataSource.stop(LDUtil.noOpCallback());
@@ -599,13 +569,14 @@ class ConnectivityManager {
         platformState.removeConnectivityChangeListener(connectivityChangeListener);
     }
 
-    // Intentionally bypasses the FDv2 debounce manager. setForceOffline is a legacy
+    // Intentionally bypasses the debounce manager. setForceOffline is a legacy
     // API that predates FDv2 and must remain immediate for backward compatibility.
     // This is safe because resolveMode() short-circuits to OFFLINE when forcedOffline
     // is set, so any in-flight debounced callback will resolve to the same mode and no-op.
     void setForceOffline(boolean forceOffline) {
         boolean wasForcedOffline = forcedOffline.getAndSet(forceOffline);
         if (forceOffline != wasForcedOffline) {
+            updateEventProcessor(forceOffline, platformState.isNetworkAvailable(), platformState.isForeground());
             handleModeStateChange();
         }
     }
@@ -620,31 +591,40 @@ class ConnectivityManager {
     }
 
     /**
-     * Unified handler for all platform/configuration state changes (foreground, connectivity,
-     * force-offline). Snapshots the current state once, updates the event processor, then
-     * routes to the appropriate data source update path.
+     * FDv1 reconciliation callback. Invoked by the {@link StateDebounceManager} in immediate
+     * mode ({@code debounceMs=0}). Does NOT call {@link #updateEventProcessor} because
+     * that is already done in the listener lambdas before the debounce manager fires.
      * <p>
-     * FDv1 only — FDv2 state changes are routed through {@link StateDebounceManager} and
-     * reconciled via {@link #handleDebouncedModeStateChange()}.
+     * Also called directly by {@link #setForceOffline(boolean)}, which handles its own
+     * event processor update before calling this.
      */
     private synchronized void handleModeStateChange() {
         ModeState state = snapshotModeState();
-        updateEventProcessor(forcedOffline.get(), state.isNetworkAvailable(), state.isForeground());
         updateDataSource(false, state, LDUtil.noOpCallback());
     }
 
     /**
      * Creates a new {@link StateDebounceManager} initialized with the current platform state.
-     * Called once during construction (for FDv2) and again on each identify to discard pending
+     * <p>
+     * For FDv2, uses the configured debounce window so rapid state changes are coalesced
+     * (CONNMODE 3.5). For FDv1, uses {@code debounceMs=0} ("immediate mode") so the
+     * reconcile callback fires synchronously on each state change — matching the pre-existing
+     * FDv1 behavior while sharing the same code path.
+     * <p>
+     * Called once during construction and again on each identify to discard pending
      * debounced changes (CONNMODE 3.5.6).
      */
     private StateDebounceManager createDebounceManager() {
+        long effectiveDebounceMs = useFDv2ModeResolution ? debounceMs : 0;
+        Runnable reconcileCallback = useFDv2ModeResolution
+                ? this::handleDebouncedModeStateChange
+                : this::handleModeStateChange;
         return new StateDebounceManager(
                 platformState.isNetworkAvailable(),
                 platformState.isForeground(),
                 taskExecutor,
-                debounceMs,
-                this::handleDebouncedModeStateChange
+                effectiveDebounceMs,
+                reconcileCallback
         );
     }
 
@@ -654,17 +634,11 @@ class ConnectivityManager {
      * manager and triggers a data source update if the resolved mode has changed.
      */
     private void handleDebouncedModeStateChange() {
-        StateDebounceManager dm = stateDebounceManager;
-        if (dm == null) {
-            return;
-        }
         ModeState state = new ModeState(
-                dm.isForeground(),
-                dm.isNetworkAvailable(),
+                stateDebounceManager.isForeground(),
+                stateDebounceManager.isNetworkAvailable(),
                 backgroundUpdatingDisabled
         );
-        // updateEventProcessor() is intentionally not called here — it was already
-        // called immediately in the listener callbacks, before the debounce started.
         updateDataSource(false, state, LDUtil.noOpCallback());
     }
 

@@ -172,6 +172,36 @@ public class StateDebounceManagerTest {
     }
 
     @Test
+    public void immediateModeFiresCallbackSynchronously() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, taskExecutor, 0, callCount::incrementAndGet);
+
+        mgr.setNetworkAvailable(false);
+        assertEquals("callback should fire synchronously in immediate mode", 1, callCount.get());
+
+        mgr.setForeground(false);
+        assertEquals("second callback should also fire synchronously", 2, callCount.get());
+
+        // Duplicate values should not trigger callback
+        mgr.setNetworkAvailable(false);
+        assertEquals("duplicate value should not trigger callback", 2, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void immediateModeClosePreventsFurtherCallbacks() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, taskExecutor, 0, callCount::incrementAndGet);
+
+        mgr.close();
+        mgr.setNetworkAvailable(false);
+        assertEquals("callback should not fire after close in immediate mode", 0, callCount.get());
+    }
+
+    @Test
     public void separateEventsProduceSeparateCallbacks() throws InterruptedException {
         AtomicInteger callCount = new AtomicInteger(0);
         StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);

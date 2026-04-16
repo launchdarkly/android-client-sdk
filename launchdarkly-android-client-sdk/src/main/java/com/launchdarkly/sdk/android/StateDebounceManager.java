@@ -3,15 +3,16 @@ package com.launchdarkly.sdk.android;
 import java.util.concurrent.ScheduledFuture;
 
 /**
- * Debounces FDv2 state changes (network, lifecycle) into a single
+ * Debounces platform state changes (network, lifecycle) into a single
  * reconciliation callback (CONNMODE 3.5). Each state change resets a timer; when
  * the timer fires, the callback runs with the latest accumulated state.
  * <p>
+ * When {@code debounceMs == 0} ("immediate mode"), the callback is invoked
+ * synchronously on each state change with no timer. This allows FDv1 data
+ * sources to share the same code path as FDv2 without introducing any delay.
+ * <p>
  * {@code identify()} does NOT participate in debounce (CONNMODE 3.5.6). Callers
  * handle this by closing and recreating the manager on identify.
- * <p>
- * FDv1 data sources do not use this class. The existing {@link Debounce} class
- * (used by {@code pollDebouncer}) serves a different purpose in the FDv1 path.
  */
 final class StateDebounceManager {
 
@@ -78,6 +79,10 @@ final class StateDebounceManager {
 
     private void resetTimer() {
         if (closed) {
+            return;
+        }
+        if (debounceMs == 0) {
+            onReconcile.run();
             return;
         }
         synchronized (lock) {
