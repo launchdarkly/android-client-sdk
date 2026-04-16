@@ -66,7 +66,7 @@ class ConnectivityManager {
     private final TaskExecutor taskExecutor;
     private final boolean backgroundUpdatingDisabled;
     private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
-    private final Debounce pollDebouncer = new Debounce(); // FDv1 only
+
     private final AtomicBoolean forcedOffline = new AtomicBoolean();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
