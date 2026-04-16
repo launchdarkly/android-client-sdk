@@ -26,7 +26,7 @@ final class StateDebounceManager {
     private volatile boolean networkAvailable;
     private volatile boolean foreground;
 
-    private ScheduledFuture<?> pendingTimer;
+    private ScheduledFuture<?> lastTask;
     private volatile boolean closed;
 
     StateDebounceManager(
@@ -70,9 +70,9 @@ final class StateDebounceManager {
     void close() {
         closed = true;
         synchronized (lock) {
-            if (pendingTimer != null) {
-                pendingTimer.cancel(false);
-                pendingTimer = null;
+            if (lastTask != null) {
+                lastTask.cancel(false);
+                lastTask = null;
             }
         }
     }
@@ -86,10 +86,10 @@ final class StateDebounceManager {
             return;
         }
         synchronized (lock) {
-            if (pendingTimer != null) {
-                pendingTimer.cancel(false);
+            if (lastTask != null) {
+                lastTask.cancel(false);
             }
-            pendingTimer = taskExecutor.scheduleTask(() -> {
+            lastTask = taskExecutor.scheduleTask(() -> {
                 if (!closed) {
                     onReconcile.run();
                 }

@@ -87,7 +87,7 @@ public class LDConfig {
     private final String loggerName;
     private final int maxCachedContexts;
     private final boolean offline;
-    private final long debounceMs;
+    private final long connectionModeStateDebounceMs;
     private final PersistentDataStore persistentDataStore; // configurable for testing only
 
     LDConfig(Map<String, String> mobileKeys,
@@ -106,7 +106,7 @@ public class LDConfig {
              int maxCachedContexts,
              boolean generateAnonymousKeys,
              boolean autoEnvAttributes,
-             long debounceMs,
+             long connectionModeStateDebounceMs,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
              String loggerName) {
@@ -126,7 +126,7 @@ public class LDConfig {
         this.maxCachedContexts = maxCachedContexts;
         this.generateAnonymousKeys = generateAnonymousKeys;
         this.autoEnvAttributes = autoEnvAttributes;
-        this.debounceMs = debounceMs;
+        this.connectionModeStateDebounceMs = connectionModeStateDebounceMs;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
         this.loggerName = loggerName;
@@ -170,8 +170,8 @@ public class LDConfig {
     }
 
     // visible for testing — allows instrumented tests to use a shorter debounce window
-    long getDebounceMs() {
-        return debounceMs;
+    long getConnectionModeStateDebounceMs() {
+        return connectionModeStateDebounceMs;
     }
 
     /**
@@ -276,7 +276,7 @@ public class LDConfig {
 
         private PersistentDataStore persistentDataStore;
 
-        private long debounceMs = StateDebounceManager.DEFAULT_DEBOUNCE_MS;
+        private long connectionModeStateDebounceMs = StateDebounceManager.DEFAULT_DEBOUNCE_MS;
 
         private LDLogAdapter logAdapter = defaultLogAdapter();
         private String loggerName = LDPackageConsts.DEFAULT_LOGGER_NAME;
@@ -678,8 +678,8 @@ public class LDConfig {
         }
 
         // visible for testing — allows instrumented tests to use a shorter debounce window
-        Builder debounceMs(long debounceMs) {
-            this.debounceMs = debounceMs;
+        Builder connectionModeStateDebounceMs(long connectionModeStateDebounceMs) {
+            this.connectionModeStateDebounceMs = connectionModeStateDebounceMs;
             return this;
         }
 
@@ -843,7 +843,7 @@ public class LDConfig {
                     maxCachedContexts,
                     generateAnonymousKeys,
                     autoEnvAttributes,
-                    debounceMs,
+                    connectionModeStateDebounceMs,
                     persistentDataStore,
                     actualLogAdapter,
                     loggerName);

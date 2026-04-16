@@ -111,7 +111,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .mobileKey(MOBILE_KEY)
                 .offline(setOffline)
                 .disableBackgroundUpdating(backgroundDisabled)
-                .debounceMs(FDV2_TEST_DEBOUNCE_MS)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .build();
     }
 
@@ -1201,7 +1201,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_lifecycleSwitchingDisabled_doesNotRebuildOnForegroundChange() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
-                .debounceMs(FDV2_TEST_DEBOUNCE_MS)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(
@@ -1232,7 +1232,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_networkSwitchingDisabled_doesNotRebuildOnConnectivityChange() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
-                .debounceMs(FDV2_TEST_DEBOUNCE_MS)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(
@@ -1263,7 +1263,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_fullyDisabled_lifecycleChangeDoesNotRebuildDataSource() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
-                .debounceMs(FDV2_TEST_DEBOUNCE_MS)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled()))
@@ -1290,7 +1290,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_fullyDisabled_connectivityChangeDoesNotRebuildDataSource() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
-                .debounceMs(FDV2_TEST_DEBOUNCE_MS)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled()))

@@ -89,7 +89,7 @@ public class LDClientDataSystemPlatformTest {
         return new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .persistentDataStore(store)
-                .debounceMs(TEST_DEBOUNCE_MS)
+                .connectionModeStateDebounceMs(TEST_DEBOUNCE_MS)
                 .diagnosticOptOut(true)
                 .events(Components.noEvents())
                 .logAdapter(logging.logAdapter)

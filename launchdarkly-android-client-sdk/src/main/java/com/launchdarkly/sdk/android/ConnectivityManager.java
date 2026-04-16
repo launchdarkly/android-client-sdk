@@ -79,7 +79,7 @@ class ConnectivityManager {
     private final ModeResolutionTable modeResolutionTable;
     private volatile ConnectionMode currentFDv2Mode;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
-    private final long debounceMs; // visible for testing
+    private final long connectionModeStateDebounceMs; // visible for testing
     private volatile StateDebounceManager stateDebounceManager;
 
     // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
@@ -163,7 +163,7 @@ class ConnectivityManager {
         forcedOffline.set(clientContext.isSetOffline());
 
         LDConfig ldConfig = clientContext.getConfig();
-        this.debounceMs = ldConfig.getDebounceMs();
+        this.connectionModeStateDebounceMs = ldConfig.getConnectionModeStateDebounceMs();
         connectionInformation = new ConnectionInformationState();
         readStoredConnectionState();
         this.backgroundUpdatingDisabled = ldConfig.isDisableBackgroundPolling();
@@ -615,7 +615,7 @@ class ConnectivityManager {
      * debounced changes (CONNMODE 3.5.6).
      */
     private StateDebounceManager createDebounceManager() {
-        long effectiveDebounceMs = useFDv2ModeResolution ? debounceMs : 0;
+        long effectiveDebounceMs = useFDv2ModeResolution ? connectionModeStateDebounceMs : 0;
         Runnable reconcileCallback = useFDv2ModeResolution
                 ? this::handleDebouncedModeStateChange
                 : this::handleModeStateChange;
