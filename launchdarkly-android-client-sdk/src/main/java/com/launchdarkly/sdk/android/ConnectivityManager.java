@@ -178,6 +178,7 @@ class ConnectivityManager {
         connectivityChangeListener = networkAvailable -> {
             updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
             if (!autoModeSwitchingConfig.isNetwork()) {
+                stateDebounceManager.trackNetworkAvailable(networkAvailable);
                 return;
             }
             stateDebounceManager.setNetworkAvailable(networkAvailable);
@@ -187,6 +188,7 @@ class ConnectivityManager {
         foregroundListener = foreground -> {
             updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
             if (!autoModeSwitchingConfig.isLifecycle()) {
+                stateDebounceManager.trackForeground(foreground);
                 return;
             }
             // CONNMODE 3.3.1: flush pending events before transitioning to background
@@ -553,8 +555,9 @@ class ConnectivityManager {
         if (closed.getAndSet(true)) {
             return;
         }
+        platformState.removeForegroundChangeListener(foregroundListener);
+        platformState.removeConnectivityChangeListener(connectivityChangeListener);
         stateDebounceManager.close();
-        stateDebounceManager = null;
         DataSource oldDataSource = currentDataSource.getAndSet(null);
         if (oldDataSource != null) {
             oldDataSource.stop(LDUtil.noOpCallback());
@@ -565,8 +568,6 @@ class ConnectivityManager {
             } catch (IOException ignored) {
             }
         }
-        platformState.removeForegroundChangeListener(foregroundListener);
-        platformState.removeConnectivityChangeListener(connectivityChangeListener);
     }
 
     // Intentionally bypasses the debounce manager. setForceOffline is a legacy

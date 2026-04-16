@@ -59,6 +59,24 @@ final class StateDebounceManager {
         resetTimer();
     }
 
+    /**
+     * Updates network state without triggering a debounce timer reset. Use when
+     * the caller wants to keep state current (so future reconciliation sees the
+     * right value) but auto-switching for this axis is disabled.
+     */
+    void trackNetworkAvailable(boolean available) {
+        this.networkAvailable = available;
+    }
+
+    /**
+     * Updates foreground state without triggering a debounce timer reset. Use when
+     * the caller wants to keep state current (so future reconciliation sees the
+     * right value) but auto-switching for this axis is disabled.
+     */
+    void trackForeground(boolean fg) {
+        this.foreground = fg;
+    }
+
     boolean isNetworkAvailable() {
         return networkAvailable;
     }

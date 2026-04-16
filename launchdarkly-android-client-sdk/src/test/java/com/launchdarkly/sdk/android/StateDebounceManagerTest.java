@@ -202,6 +202,65 @@ public class StateDebounceManagerTest {
     }
 
     @Test
+    public void trackNetworkUpdatesStateWithoutTriggeringCallback() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        mgr.trackNetworkAvailable(false);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("track should not trigger callback", 0, callCount.get());
+        assertFalse("state should be updated", mgr.isNetworkAvailable());
+
+        mgr.close();
+    }
+
+    @Test
+    public void trackForegroundUpdatesStateWithoutTriggeringCallback() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        mgr.trackForeground(false);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("track should not trigger callback", 0, callCount.get());
+        assertFalse("state should be updated", mgr.isForeground());
+
+        mgr.close();
+    }
+
+    @Test
+    public void trackedStateVisibleToSubsequentReconciliation() throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        StateDebounceManager mgr = createManager(true, true, latch::countDown);
+
+        // Track network (no timer), then trigger via foreground (starts timer)
+        mgr.trackNetworkAvailable(false);
+        mgr.setForeground(false);
+
+        assertTrue(latch.await(TEST_DEBOUNCE_MS * 5, TimeUnit.MILLISECONDS));
+        assertFalse("tracked network state should be visible", mgr.isNetworkAvailable());
+        assertFalse("triggered foreground state should be visible", mgr.isForeground());
+
+        mgr.close();
+    }
+
+    @Test
+    public void trackDoesNotResetPendingTimer() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        mgr.setNetworkAvailable(false); // starts timer
+        Thread.sleep(TEST_DEBOUNCE_MS / 3);
+        mgr.trackForeground(false); // should NOT reset timer
+
+        // Wait for the original timer to fire
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("callback should fire once from original timer", 1, callCount.get());
+        assertFalse("tracked foreground should be updated", mgr.isForeground());
+
+        mgr.close();
+    }
+
+    @Test
     public void separateEventsProduceSeparateCallbacks() throws InterruptedException {
         AtomicInteger callCount = new AtomicInteger(0);
         StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);

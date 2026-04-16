@@ -1427,14 +1427,20 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         // After shutDown(), debounced state changes should not trigger any rebuilds
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
         replayAll();
 
         createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
-        // Set up a pending debounce then shut down
-        mockPlatformState.setNetworkAvailable(false);
+        // Actually schedule a pending debounce by notifying listeners, then shut down.
+        // Sleep briefly to allow MockPlatformState's background listener thread to fire
+        // the callback and schedule the debounce timer, but less than the debounce window
+        // so the timer hasn't fired yet when shutDown() cancels it.
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+        Thread.sleep(FDV2_TEST_DEBOUNCE_MS / 3);
         connectivityManager.shutDown();
 
         verifyDataSourceWasStopped();
