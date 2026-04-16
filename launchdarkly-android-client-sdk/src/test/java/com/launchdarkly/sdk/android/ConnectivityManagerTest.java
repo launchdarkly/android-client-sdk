@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import static com.launchdarkly.sdk.android.TestUtil.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.TestUtil.requireValue;
+import static org.easymock.EasyMock.anyBoolean;
 import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.expectLastCall;
 import static org.junit.Assert.assertEquals;
@@ -62,6 +63,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     // Instead, we use a mock component and verify that ConnectivityManager is passing the right
     // parameters to it.
 
+    private static final long FDV2_TEST_DEBOUNCE_MS = 50;
     private static final LDContext CONTEXT = LDContext.create("test-context");
     private static final String MOBILE_KEY = "test-mobile-key";
     private static final EnvironmentData DATA = new DataSetBuilder()
@@ -109,6 +111,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 .mobileKey(MOBILE_KEY)
                 .offline(setOffline)
                 .disableBackgroundUpdating(backgroundDisabled)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .build();
     }
 
@@ -843,6 +846,16 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 "call to create another data source");
     }
 
+    /**
+     * Like {@link #verifyNoMoreDataSourcesWereCreated()}, but waits longer than the FDv2
+     * debounce window so we can confirm that even after the debounce timer fires, no data
+     * source was created.
+     */
+    private void verifyNoMoreDataSourcesWereCreatedAfterDebounce() {
+        requireNoMoreValues(receivedClientContexts, FDV2_TEST_DEBOUNCE_MS * 4, TimeUnit.MILLISECONDS,
+                "call to create another data source");
+    }
+
     private void verifyNoMoreDataSourcesWereStopped() {
         requireNoMoreValues(stoppedDataSources, 1, TimeUnit.SECONDS, "stopping of data source");
     }
@@ -887,6 +900,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         replayAll();
 
         createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
@@ -907,6 +921,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
         replayAll();
@@ -942,10 +957,10 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
 
+        // Data source rebuild is debounced (CONNMODE 3.5.1)
         verifyDataSourceWasStopped();
-        // OFFLINE mode should still build a new data source (with no synchronizers)
-        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "offline data source creation");
-        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "offline data source started");
+        requireValue(receivedClientContexts, 2, TimeUnit.SECONDS, "offline data source creation");
+        requireValue(startedDataSources, 2, TimeUnit.SECONDS, "offline data source started");
         verifyAll();
     }
 
@@ -1095,6 +1110,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         replayAll();
 
         createTestManager(defaultTestConfig(false, false), builder);
@@ -1104,7 +1120,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         // STREAMING and BACKGROUND share the same ModeDefinition object, so 5.3.8 says no rebuild
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
 
-        verifyNoMoreDataSourcesWereCreated();
+        // Wait longer than debounce window to confirm no rebuild occurs
+        verifyNoMoreDataSourcesWereCreatedAfterDebounce();
         verifyNoMoreDataSourcesWereStopped();
         verifyAll();
     }
@@ -1163,6 +1180,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         replayAll();
 
         createTestManager(defaultTestConfig(false, false), builder);
@@ -1173,9 +1191,9 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
 
         verifyDataSourceWasStopped();
-        assertEquals(Boolean.FALSE, initializerIncluded.poll(1, TimeUnit.SECONDS));
-        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "bg data source creation");
-        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "bg data source started");
+        assertEquals(Boolean.FALSE, initializerIncluded.poll(2, TimeUnit.SECONDS));
+        requireValue(receivedClientContexts, 2, TimeUnit.SECONDS, "bg data source creation");
+        requireValue(startedDataSources, 2, TimeUnit.SECONDS, "bg data source started");
         verifyAll();
     }
 
@@ -1183,6 +1201,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_lifecycleSwitchingDisabled_doesNotRebuildOnForegroundChange() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(
@@ -1213,6 +1232,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_networkSwitchingDisabled_doesNotRebuildOnConnectivityChange() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(
@@ -1243,6 +1263,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_fullyDisabled_lifecycleChangeDoesNotRebuildDataSource() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled()))
@@ -1269,6 +1290,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_fullyDisabled_connectivityChangeDoesNotRebuildDataSource() throws Exception {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
                 .dataSystem(
                         Components.dataSystem()
                                 .automaticModeSwitching(AutomaticModeSwitchingConfig.disabled()))
@@ -1288,6 +1310,142 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         verifyNoMoreDataSourcesWereCreated();
         verifyNoMoreDataSourcesWereStopped();
+        verifyAll();
+    }
+
+    // ==== FDv2 debouncing tests ====
+    //
+    // These tests verify that CONNMODE 3.5.x debouncing behavior is correctly wired
+    // into ConnectivityManager for FDv2 data sources.
+
+    @Test
+    public void fdv2_rapidStateChangesCoalesceIntoOneRebuild() throws Exception {
+        // CONNMODE 3.5.1-3.5.3: rapid state changes should coalesce into a single rebuild
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyAll();
+
+        // After startup, the rapid connectivity changes call updateEventProcessor in
+        // parallel threads, so ordering is nondeterministic. Use anyTimes().
+        resetAll();
+        eventProcessor.setOffline(anyBoolean());
+        expectLastCall().anyTimes();
+        eventProcessor.setInBackground(anyBoolean());
+        expectLastCall().anyTimes();
+        replayAll();
+
+        // Fire multiple rapid connectivity changes — debounce should coalesce them
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+
+        // Should result in exactly one data source rebuild (to OFFLINE)
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 2, TimeUnit.SECONDS, "offline data source creation");
+        requireValue(startedDataSources, 2, TimeUnit.SECONDS, "offline data source started");
+        verifyNoMoreDataSourcesWereCreatedAfterDebounce();
+    }
+
+    @Test
+    public void fdv2_identifyBypassesDebounce() throws Exception {
+        // CONNMODE 3.5.6: identify does not participate in debounce
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        // identify should rebuild immediately, not waiting for debounce
+        LDContext context2 = LDContext.create("context2");
+        contextDataManager.switchToContext(context2);
+        AwaitableCallback<Void> done = new AwaitableCallback<>();
+        connectivityManager.switchToContext(context2, done);
+        done.await();
+
+        verifyDataSourceWasStopped();
+        verifyForegroundDataSourceWasCreatedAndStarted(context2);
+        verifyNoMoreDataSourcesWereCreated();
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_eventsFlushedOnBackgroundTransition() throws Exception {
+        // CONNMODE 3.3.1: flush pending events before background transition
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush happens before debounce timer is set
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        // The flush should happen immediately (before the debounce fires),
+        // and the strict mock verifyAll() confirms the expected call sequence
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 2, TimeUnit.SECONDS, "bg data source creation");
+        requireValue(startedDataSources, 2, TimeUnit.SECONDS, "bg data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_forceOfflineBypassesDebounce() throws Exception {
+        // setForceOffline remains immediate per design — not debounced
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        connectivityManager.setForceOffline(true);
+
+        verifyDataSourceWasStopped();
+        requireValue(receivedClientContexts, 1, TimeUnit.SECONDS, "offline data source creation");
+        requireValue(startedDataSources, 1, TimeUnit.SECONDS, "offline data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_shutdownClosesDebounceManager() throws Exception {
+        // After shutDown(), debounced state changes should not trigger any rebuilds
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        // Actually schedule a pending debounce by notifying listeners, then shut down.
+        // Sleep briefly to allow MockPlatformState's background listener thread to fire
+        // the callback and schedule the debounce timer, but less than the debounce window
+        // so the timer hasn't fired yet when shutDown() cancels it.
+        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+        Thread.sleep(FDV2_TEST_DEBOUNCE_MS / 3);
+        connectivityManager.shutDown();
+
+        verifyDataSourceWasStopped();
+        // No additional data sources should be created despite the pending state change
+        verifyNoMoreDataSourcesWereCreatedAfterDebounce();
         verifyAll();
     }
 
