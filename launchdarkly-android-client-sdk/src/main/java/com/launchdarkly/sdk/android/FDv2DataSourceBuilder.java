@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.InitializerFromCache;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 
@@ -123,15 +124,15 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                     "FDv2DataSource requires a DataSourceUpdateSinkV2 implementation");
         }
 
-        List<Initializer> initializers =
-                includeInitializers ? resolved.getInitializers() : Collections.<Initializer>emptyList();
+        List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories =
+                includeInitializers ? resolved.getInitializerFactories() : Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList();
 
         // Reset includeInitializers to default after each build to prevent stale state.
         includeInitializers = true;
 
         return new FDv2DataSource(
                 clientContext.getEvaluationContext(),
-                initializers,
+                initFactories,
                 resolved.getSynchronizerFactories(),
                 resolved.getFdv1FallbackSynchronizerFactory(),
                 (DataSourceUpdateSinkV2) baseSink,
@@ -171,11 +172,12 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private static ResolvedModeDefinition resolve(
             ModeDefinition def, DataSourceBuildInputs inputs
     ) {
-        List<Initializer> initializers = new ArrayList<>();
+        List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories = new ArrayList<>();
         for (DataSourceBuilder<Initializer> builder : def.getInitializers()) {
-            Initializer init = builder.build(inputs);
-            if (init != null) {
-                initializers.add(init);
+            if (builder instanceof InitializerFromCache) {
+                initFactories.add(new CacheInitializerFactory(() -> builder.build(inputs)));
+            } else {
+                initFactories.add(() -> builder.build(inputs));
             }
         }
         List<FDv2DataSource.DataSourceFactory<Synchronizer>> syncFactories = new ArrayList<>();
@@ -185,6 +187,24 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer = def.getFdv1FallbackSynchronizer();
         FDv2DataSource.DataSourceFactory<Synchronizer> fdv1Factory =
                 fdv1FallbackSynchronizer != null ? () -> fdv1FallbackSynchronizer.build(inputs) : null;
-        return new ResolvedModeDefinition(initializers, syncFactories, fdv1Factory);
+        return new ResolvedModeDefinition(initFactories, syncFactories, fdv1Factory);
+    }
+
+    /**
+     * Wraps a {@link FDv2DataSource.DataSourceFactory} to carry the {@link InitializerFromCache}
+     * marker so that {@link FDv2DataSource} can identify cache initializer factories at runtime.
+     */
+    private static class CacheInitializerFactory
+            implements FDv2DataSource.DataSourceFactory<Initializer>, InitializerFromCache {
+        private final FDv2DataSource.DataSourceFactory<Initializer> delegate;
+
+        CacheInitializerFactory(FDv2DataSource.DataSourceFactory<Initializer> delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Initializer build() {
+            return delegate.build();
+        }
     }
 }

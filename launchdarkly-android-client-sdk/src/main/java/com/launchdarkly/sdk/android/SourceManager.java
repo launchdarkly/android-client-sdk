@@ -19,7 +19,7 @@ import java.util.List;
 final class SourceManager implements Closeable {
 
     private final List<SynchronizerFactoryWithState> synchronizerFactories;
-    private final List<Initializer> initializers;
+    private final List<FDv2DataSource.DataSourceFactory<Initializer>> initializers;
 
     private final Object activeSourceLock = new Object();
     private Closeable activeSource;
@@ -33,7 +33,7 @@ final class SourceManager implements Closeable {
 
     SourceManager(
             @NonNull List<SynchronizerFactoryWithState> synchronizerFactories,
-            @NonNull List<Initializer> initializers
+            @NonNull List<FDv2DataSource.DataSourceFactory<Initializer>> initializers
     ) {
         this.synchronizerFactories = synchronizerFactories;
         this.initializers = initializers;
@@ -143,6 +143,14 @@ final class SourceManager implements Closeable {
         return getAvailableSynchronizerCount() > 0;
     }
 
+    private FDv2DataSource.DataSourceFactory<Initializer> getNextInitializer() {
+        initializerIndex++;
+        if (initializerIndex >= initializers.size()) {
+            return null;
+        }
+        return initializers.get(initializerIndex);
+    }
+
     /** Block the current synchronizer so it will not be returned again (e.g. after TERMINAL_ERROR). */
     void blockCurrentSynchronizer() {
         synchronized (activeSourceLock) {
@@ -159,43 +167,29 @@ final class SourceManager implements Closeable {
     }
 
     /**
-     * Get the next pre-built initializer whose {@link Initializer#isRequiredBeforeStartup()}
-     * matches the given value, set it as active (closing any previous active source),
-     * and return it. Returns null if shutdown or no more matching initializers.
-     * <p>
-     * Call with {@code true} for the eager pass (pre-startup), then
-     * {@link #resetInitializerIndex()}, then call with {@code false} for the deferred pass.
-     *
-     * @param isRequiredBeforeStartup filter value to match against each initializer
+     * Get the next initializer, build it, set it as active (closing any previous active source),
+     * and return it. Returns null if shutdown or no more initializers.
+     * Skips initializers whose factory returns null from build().
      */
-    Initializer getNextInitializerAndSetActive(boolean isRequiredBeforeStartup) {
+    Initializer getNextInitializerAndSetActive() {
         synchronized (activeSourceLock) {
             if (isShutdown) {
                 return null;
             }
-            while (initializerIndex + 1 < initializers.size()) {
-                initializerIndex++;
-                Initializer init = initializers.get(initializerIndex);
-                if (init.isRequiredBeforeStartup() == isRequiredBeforeStartup) {
+            while (true) {
+                FDv2DataSource.DataSourceFactory<Initializer> factory = getNextInitializer();
+                if (factory == null) {
+                    return null;
+                }
+                Initializer initializer = factory.build();
+                if (initializer != null) {
                     if (activeSource != null) {
                         safeClose(activeSource);
                     }
-                    activeSource = init;
-                    return init;
+                    activeSource = initializer;
+                    return initializer;
                 }
             }
-            return null;
-        }
-    }
-
-    /**
-     * Reset the initializer index to -1 so the next call to
-     * {@link #getNextInitializerAndSetActive(boolean)} re-scans from the beginning.
-     * Used between the eager and deferred initializer passes.
-     */
-    void resetInitializerIndex() {
-        synchronized (activeSourceLock) {
-            initializerIndex = -1;
         }
     }
 

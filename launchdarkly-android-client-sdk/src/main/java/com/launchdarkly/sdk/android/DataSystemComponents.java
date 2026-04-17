@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.InitializerFromCache;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
@@ -139,7 +140,7 @@ public abstract class DataSystemComponents {
         }
     }
 
-    static final class CacheInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
+    static final class CacheInitializerBuilderImpl implements DataSourceBuilder<Initializer>, InitializerFromCache {
         @Override
         public Initializer build(DataSourceBuildInputs inputs) {
             return new FDv2CacheInitializer(
