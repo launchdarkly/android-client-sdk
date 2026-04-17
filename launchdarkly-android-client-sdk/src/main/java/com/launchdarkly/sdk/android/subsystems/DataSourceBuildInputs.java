@@ -23,7 +23,7 @@ import java.util.concurrent.ScheduledExecutorService;
  *
  * @see DataSourceBuilder
  */
-public final class DataSourceBuildInputs {
+public class DataSourceBuildInputs {
     private final LDContext evaluationContext;
     private final ServiceEndpoints serviceEndpoints;
     private final HttpConfiguration http;

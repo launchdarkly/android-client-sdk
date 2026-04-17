@@ -7,14 +7,17 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.SourceResultType;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.InitializerFromCache;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -45,7 +48,11 @@ final class FDv2DataSource implements DataSource {
     private final DataSourceUpdateSinkV2 dataSourceUpdateSink;
     private static final String FDV1_FALLBACK_MESSAGE =
             "Server signaled FDv1 fallback; switching to FDv1 polling synchronizer.";
+    private static final String INITIALIZER_ERROR = "Initializer error: {}";
+    private static final String INITIALIZER_CANCELLED = "Initializer cancelled: {}";
+    private static final String INITIALIZER_INTERRUPTED = "Initializer interrupted: {}";
 
+    private final List<DataSourceFactory<Initializer>> cacheInitializers;
     private final SourceManager sourceManager;
     private final long fallbackTimeoutSeconds;
     private final long recoveryTimeoutSeconds;
@@ -114,6 +121,14 @@ final class FDv2DataSource implements DataSource {
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.logger = logger;
 
+        // here we find the index of the first general initializer so we can split the list into cache and general initializers
+        int startOfGeneralInitializers = 0;
+        while (startOfGeneralInitializers < initializers.size() && initializers.get(startOfGeneralInitializers) instanceof InitializerFromCache) {
+            startOfGeneralInitializers++;
+        }
+        this.cacheInitializers = new ArrayList<>(initializers.subList(0, startOfGeneralInitializers));
+        List<DataSourceFactory<Initializer>> generalInitializers = new ArrayList<>(initializers.subList(startOfGeneralInitializers, initializers.size()));
+
         List<SynchronizerFactoryWithState> allSynchronizers = new ArrayList<>();
         for (DataSourceFactory<Synchronizer> factory : synchronizers) {
             allSynchronizers.add(new SynchronizerFactoryWithState(factory));
@@ -124,7 +139,8 @@ final class FDv2DataSource implements DataSource {
             allSynchronizers.add(fdv1);
         }
 
-        this.sourceManager = new SourceManager(allSynchronizers, new ArrayList<>(initializers));
+        // note that the source manager only uses the initializers after the cache initializers and not the cache initializers
+        this.sourceManager = new SourceManager(allSynchronizers, new ArrayList<>(generalInitializers));
         this.fallbackTimeoutSeconds = fallbackTimeoutSeconds;
         this.recoveryTimeoutSeconds = recoveryTimeoutSeconds;
         this.sharedExecutor = sharedExecutor;
@@ -155,6 +171,12 @@ final class FDv2DataSource implements DataSource {
         // race with a concurrent stop() and could undo it, causing a spurious OFF/exhaustion report.
         LDContext context = evaluationContext;
 
+        // This ensures cached data is available before the startup timeout begins,
+        // matching FDv1 behavior where cache was loaded in ContextDataManager's constructor.
+        // We assume cache initializers cannot return a selector.  If this assumption is invalid in the future,
+        // the code in this class must be modified to complete start in such a case.
+        runCacheInitializers(context, dataSourceUpdateSink, cacheInitializers);
+
         sharedExecutor.execute(() -> {
             try {
                 if (!sourceManager.hasAvailableSources()) {
@@ -165,12 +187,11 @@ final class FDv2DataSource implements DataSource {
                 }
 
                 if (sourceManager.hasInitializers()) {
-                    runInitializers(context, dataSourceUpdateSink);
+                    runGeneralInitializers(context, dataSourceUpdateSink);
                 }
 
                 if (!sourceManager.hasAvailableSynchronizers()) {
                     if (!startCompleted.get()) {
-                        // try to claim this is the cause of the shutdown, but it might have already been set by an intentional stop().
                         shutdownCause.set(new LDFailure("All initializers exhausted and there are no available synchronizers.", LDFailure.FailureType.UNKNOWN_ERROR));
                     }
                     return;
@@ -286,7 +307,50 @@ final class FDv2DataSource implements DataSource {
         return !evaluationContext.equals(newEvaluationContext);
     }
 
-    private void runInitializers(
+    /**
+     * Runs cache initializers that must run before start returns.
+     *
+     * This was added to maintain parity with Android SDK versions that load cached data
+     * synchronously during startup.  When the Android SDK is major versioned and supports
+     * specifying what types of data (cached, network) to wait for, this can be removed.
+     */
+    private void runCacheInitializers(
+        @NonNull LDContext context,
+        @NonNull DataSourceUpdateSinkV2 sink,
+        @NonNull List<DataSourceFactory<Initializer>> cacheInitializers
+    ) {
+        for (DataSourceFactory<Initializer> factory : cacheInitializers) {
+            Initializer initializer = factory.build();
+            try {
+                FDv2SourceResult result = initializer.run().get();
+
+                switch (result.getResultType()) {
+                    case CHANGE_SET:
+                        ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
+                        if (changeSet != null) {
+                            sink.apply(context, changeSet);
+                        }
+                        break;
+                    case STATUS:
+                        // intentionally ignored from cache initializers
+                }
+            } catch (ExecutionException e) {
+                logger.warn(INITIALIZER_ERROR, e.getCause() != null ? e.getCause().toString() : e.toString());
+            } catch (CancellationException e) {
+                logger.warn(INITIALIZER_CANCELLED, e.toString());
+            } catch (InterruptedException e) {
+                logger.warn(INITIALIZER_INTERRUPTED, e.toString());
+                return;
+            } finally {
+                try {
+                    initializer.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    private void runGeneralInitializers(
             @NonNull LDContext context,
             @NonNull DataSourceUpdateSinkV2 sink
     ) {
@@ -321,7 +385,9 @@ final class FDv2DataSource implements DataSource {
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
                             sink.apply(context, changeSet);
-                            anyDataReceived = true;
+                            if (changeSet.getType() != ChangeSetType.None) {
+                                anyDataReceived = true;
+                            }
                             // A non-empty selector means the payload is fully current; the
                             // initializer is done and synchronizers can take over from here.
                             if (!changeSet.getSelector().isEmpty()) {
@@ -350,13 +416,13 @@ final class FDv2DataSource implements DataSource {
                         break;
                 }
             } catch (ExecutionException e) {
-                logger.warn("Initializer error: {}", e.getCause() != null ? e.getCause().toString() : e.toString());
+                logger.warn(INITIALIZER_ERROR, e.getCause() != null ? e.getCause().toString() : e.toString());
                 sink.setStatus(DataSourceState.INTERRUPTED, e.getCause() != null ? e.getCause() : e);
             } catch (CancellationException e) {
-                logger.warn("Initializer cancelled: {}", e.toString());
+                logger.warn(INITIALIZER_CANCELLED, e.toString());
                 sink.setStatus(DataSourceState.INTERRUPTED, e);
             } catch (InterruptedException e) {
-                logger.warn("Initializer interrupted: {}", e.toString());
+                logger.warn(INITIALIZER_INTERRUPTED, e.toString());
                 sink.setStatus(DataSourceState.INTERRUPTED, e);
                 return;
             }
