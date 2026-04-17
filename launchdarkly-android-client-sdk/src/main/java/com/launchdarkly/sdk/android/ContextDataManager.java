@@ -64,17 +64,23 @@ final class ContextDataManager implements TransactionalDataStore {
     /** Selector from the last applied changeset that carried one; in-memory only, not persisted. */
     @NonNull private Selector currentSelector = Selector.EMPTY;
 
+    /**
+     * @param skipCacheLoad true when an FDv2 cache initializer will handle loading cached
+     *                      flags as the first step in the initializer chain, making the
+     *                      cache load in {@link #switchToContext} redundant
+     */
     ContextDataManager(
             @NonNull ClientContext clientContext,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
-            int maxCachedContexts
+            int maxCachedContexts,
+            boolean skipCacheLoad
     ) {
         this.environmentStore = environmentStore;
         this.index = environmentStore.getIndex();
         this.maxCachedContexts = maxCachedContexts;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
-        switchToContext(clientContext.getEvaluationContext());
+        switchToContext(clientContext.getEvaluationContext(), skipCacheLoad);
     }
 
     /**
@@ -83,14 +89,20 @@ final class ContextDataManager implements TransactionalDataStore {
      * If the context provided is different than the current state, switches to internally
      * stored flag data and notifies flag listeners.
      *
-     * @param context the to switch to
+     * @param context       the context to switch to
+     * @param skipCacheLoad true to only set the current context without loading cached data
+     *                      (used in the FDv2 path where the cache initializer handles loading)
      */
-    public void switchToContext(@NonNull LDContext context) {
+    public void switchToContext(@NonNull LDContext context, boolean skipCacheLoad) {
         synchronized (lock) {
             if (context.equals(currentContext)) {
                 return;
             }
             currentContext = context;
+        }
+
+        if (skipCacheLoad) {
+            return;
         }
 
         EnvironmentData storedData = getStoredData(context);

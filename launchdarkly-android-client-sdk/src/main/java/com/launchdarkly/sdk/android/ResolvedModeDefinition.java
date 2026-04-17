@@ -10,10 +10,13 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * A fully resolved mode definition containing zero-arg factories for initializers
- * and synchronizers. This is the result of resolving a {@link ModeDefinition}'s
+ * A fully resolved mode definition containing pre-built initializers and zero-arg
+ * factories for synchronizers. This is the result of resolving a {@link ModeDefinition}'s
  * {@link com.launchdarkly.sdk.android.subsystems.DataSourceBuilder} entries against
  * a {@link com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs}.
+ * <p>
+ * Initializers are built eagerly so that {@link FDv2DataSource} can run pre-startup
+ * initializers synchronously before dispatching to the executor.
  * <p>
  * Instances are immutable and created by {@code FDv2DataSourceBuilder} at build time.
  * <p>
@@ -23,23 +26,23 @@ import java.util.List;
  */
 final class ResolvedModeDefinition {
 
-    private final List<FDv2DataSource.DataSourceFactory<Initializer>> initializerFactories;
+    private final List<Initializer> initializers;
     private final List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizerFactories;
     private final FDv2DataSource.DataSourceFactory<Synchronizer> fdv1FallbackSynchronizerFactory;
 
     ResolvedModeDefinition(
-            @NonNull List<FDv2DataSource.DataSourceFactory<Initializer>> initializerFactories,
+            @NonNull List<Initializer> initializers,
             @NonNull List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizerFactories,
             @Nullable FDv2DataSource.DataSourceFactory<Synchronizer> fdv1FallbackSynchronizerFactory
     ) {
-        this.initializerFactories = Collections.unmodifiableList(initializerFactories);
+        this.initializers = Collections.unmodifiableList(initializers);
         this.synchronizerFactories = Collections.unmodifiableList(synchronizerFactories);
         this.fdv1FallbackSynchronizerFactory = fdv1FallbackSynchronizerFactory;
     }
 
     @NonNull
-    List<FDv2DataSource.DataSourceFactory<Initializer>> getInitializerFactories() {
-        return initializerFactories;
+    List<Initializer> getInitializers() {
+        return initializers;
     }
 
     @NonNull

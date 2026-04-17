@@ -208,6 +208,11 @@ final class ClientContextImpl extends ClientContext {
     }
 
     @Nullable
+    public PersistentDataStoreWrapper.PerEnvironmentData getPerEnvironmentDataIfAvailable() {
+        return perEnvironmentData;
+    }
+
+    @Nullable
     public TransactionalDataStore getTransactionalDataStore() {
         return transactionalDataStore;
     }
