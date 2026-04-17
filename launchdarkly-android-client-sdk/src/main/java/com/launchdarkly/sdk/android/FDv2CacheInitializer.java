@@ -100,6 +100,11 @@ final class FDv2CacheInitializer implements Initializer {
     }
 
     @Override
+    public boolean isRequiredBeforeStartup() {
+        return true;
+    }
+
+    @Override
     public void close() {
         // No-op: the cache read runs synchronously in run(), so there is nothing to cancel.
     }
