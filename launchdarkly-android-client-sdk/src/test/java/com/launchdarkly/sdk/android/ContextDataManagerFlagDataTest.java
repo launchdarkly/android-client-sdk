@@ -5,12 +5,10 @@ import com.launchdarkly.sdk.android.DataModel.Flag;
 import static com.launchdarkly.sdk.android.AssertHelpers.assertDataSetsEqual;
 import static com.launchdarkly.sdk.android.AssertHelpers.assertFlagsEqual;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 

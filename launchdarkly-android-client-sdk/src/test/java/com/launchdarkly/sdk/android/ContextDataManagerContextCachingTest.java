@@ -1,18 +1,7 @@
 package com.launchdarkly.sdk.android;
 
-import static com.launchdarkly.sdk.android.AssertHelpers.assertDataSetsEqual;
-import static com.launchdarkly.sdk.android.AssertHelpers.assertFlagsEqual;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.fail;
 
-import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
-
-import org.junit.Rule;
 import org.junit.Test;
 
 public class ContextDataManagerContextCachingTest extends ContextDataManagerTestBase {
