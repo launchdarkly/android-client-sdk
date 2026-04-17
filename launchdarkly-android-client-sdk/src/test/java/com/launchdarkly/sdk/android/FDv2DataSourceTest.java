@@ -22,6 +22,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceState;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.InitializerFromCache;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.fdv2.Selector;
 
@@ -76,7 +77,7 @@ public class FDv2DataSourceTest {
 
     private FDv2DataSource buildDataSource(
             MockComponents.MockDataSourceUpdateSink sink,
-            List<Initializer> initializers,
+            List<FDv2DataSource.DataSourceFactory<Initializer>> initializers,
             List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizers) {
         return new FDv2DataSource(
                 CONTEXT,
@@ -90,7 +91,7 @@ public class FDv2DataSourceTest {
 
     private FDv2DataSource buildDataSource(
             MockComponents.MockDataSourceUpdateSink sink,
-            List<Initializer> initializers,
+            List<FDv2DataSource.DataSourceFactory<Initializer>> initializers,
             List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizers,
             long fallbackTimeoutSeconds,
             long recoveryTimeoutSeconds) {
@@ -186,6 +187,25 @@ public class FDv2DataSourceTest {
             future.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
         }
     }
+
+    /**
+     * Wraps a factory closure with the {@link InitializerFromCache} marker so the data source
+     * treats initializers it produces as cache initializers (run synchronously before executor dispatch).
+     */
+    private static class CacheInitializerFactory
+            implements FDv2DataSource.DataSourceFactory<Initializer>, InitializerFromCache {
+        private final FDv2DataSource.DataSourceFactory<Initializer> delegate;
+
+        CacheInitializerFactory(FDv2DataSource.DataSourceFactory<Initializer> delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Initializer build() {
+            return delegate.build();
+        }
+    }
+
 
     /**
      * A synchronizer that returns one pre-set result on the first next(), then returns a
@@ -301,7 +321,7 @@ public class FDv2DataSourceTest {
         items.put(flag.getKey(), flag);
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(FDv2SourceResult.changeSet(makeFullChangeSet(items), false))),
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeFullChangeSet(items), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -319,14 +339,11 @@ public class FDv2DataSourceTest {
         AtomicBoolean secondCalled = new AtomicBoolean(false);
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Arrays.<Initializer>asList(
-                        new MockInitializer(new RuntimeException("first fails")),
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                secondCalled.set(true);
-                                return super.run();
-                            }
+                Arrays.asList(
+                        () -> new MockInitializer(new RuntimeException("first fails")),
+                        () -> {
+                            secondCalled.set(true);
+                            return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
                         }),
                 Collections.emptyList());
 
@@ -344,14 +361,11 @@ public class FDv2DataSourceTest {
         AtomicBoolean secondCalled = new AtomicBoolean(false);
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Arrays.<Initializer>asList(
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                secondCalled.set(true);
-                                return super.run();
-                            }
+                Arrays.asList(
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
+                        () -> {
+                            secondCalled.set(true);
+                            return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
                         }),
                 Collections.emptyList());
 
@@ -370,8 +384,8 @@ public class FDv2DataSourceTest {
 
         FDv2DataSource dataSource = buildDataSource(sink,
                 Arrays.asList(
-                        new MockInitializer(new RuntimeException("first fails")),
-                        new MockInitializer(new RuntimeException("second fails"))),
+                        () -> new MockInitializer(new RuntimeException("first fails")),
+                        () -> new MockInitializer(new RuntimeException("second fails"))),
                 Collections.singletonList(() -> {
                     syncCalled.set(true);
                     return new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false));
@@ -391,7 +405,7 @@ public class FDv2DataSourceTest {
 
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.singletonList(
-                        new MockInitializer(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(new RuntimeException("fail")), false))),
+                        () -> new MockInitializer(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(new RuntimeException("fail")), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -407,8 +421,8 @@ public class FDv2DataSourceTest {
 
         FDv2DataSource dataSource = buildDataSource(sink,
                 Arrays.asList(
-                        new MockInitializer(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(new RuntimeException("first fails")), false)),
-                        new MockInitializer(FDv2SourceResult.changeSet(makeFullChangeSet(items), false))),
+                        () -> new MockInitializer(FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(new RuntimeException("first fails")), false)),
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeFullChangeSet(items), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -424,7 +438,7 @@ public class FDv2DataSourceTest {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -475,7 +489,7 @@ public class FDv2DataSourceTest {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.changeSet(makeChangeSet(false), false))));
 
@@ -733,7 +747,7 @@ public class FDv2DataSourceTest {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -770,7 +784,7 @@ public class FDv2DataSourceTest {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -787,7 +801,7 @@ public class FDv2DataSourceTest {
         LDAwaitFuture<FDv2SourceResult> slowFuture = new LDAwaitFuture<>();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(slowFuture)),
+                Collections.singletonList(() -> new MockInitializer(slowFuture)),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -910,14 +924,10 @@ public class FDv2DataSourceTest {
         AtomicInteger runCount = new AtomicInteger(0);
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.<Initializer>singletonList(
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                runCount.incrementAndGet();
-                                return super.run();
-                            }
-                        }),
+                Collections.singletonList(() -> {
+                    runCount.incrementAndGet();
+                    return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
+                }),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> cb1 = new AwaitableCallback<>();
@@ -1028,15 +1038,9 @@ public class FDv2DataSourceTest {
         AtomicBoolean firstCalled = new AtomicBoolean(false);
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Arrays.<Initializer>asList(
-                        new MockInitializer(new RuntimeException("execution exception")) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                firstCalled.set(true);
-                                return super.run();
-                            }
-                        },
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Arrays.asList(
+                        () -> { firstCalled.set(true); return new MockInitializer(new RuntimeException("execution exception")); },
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -1052,15 +1056,9 @@ public class FDv2DataSourceTest {
         AtomicBoolean firstCalled = new AtomicBoolean(false);
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Arrays.<Initializer>asList(
-                        new MockInitializer(new InterruptedException("interrupted")) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                firstCalled.set(true);
-                                return super.run();
-                            }
-                        },
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Arrays.asList(
+                        () -> { firstCalled.set(true); return new MockInitializer(new InterruptedException("interrupted")); },
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -1167,7 +1165,7 @@ public class FDv2DataSourceTest {
         LDAwaitFuture<FDv2SourceResult> slowFuture = new LDAwaitFuture<>();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(slowFuture) {
+                Collections.singletonList(() -> new MockInitializer(slowFuture) {
                     @Override
                     public LDAwaitFuture<FDv2SourceResult> run() {
                         initializerStarted.countDown();
@@ -1323,14 +1321,11 @@ public class FDv2DataSourceTest {
         BlockingQueue<Boolean> secondCalledQueue = new LinkedBlockingQueue<>();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Arrays.<Initializer>asList(
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false)) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                secondCalledQueue.offer(true);
-                                return super.run();
-                            }
+                Arrays.asList(
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
+                        () -> {
+                            secondCalledQueue.offer(true);
+                            return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false));
                         }),
                 Collections.emptyList());
 
@@ -1347,7 +1342,7 @@ public class FDv2DataSourceTest {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -1438,7 +1433,7 @@ public class FDv2DataSourceTest {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.singletonList(new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -1549,14 +1544,11 @@ public class FDv2DataSourceTest {
 
         FDv2DataSource dataSource = new FDv2DataSource(
                 CONTEXT,
-                Arrays.<Initializer>asList(
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), true)),
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                secondInitCalled.set(true);
-                                return super.run();
-                            }
+                Arrays.<FDv2DataSource.DataSourceFactory<Initializer>>asList(
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), true)),
+                        () -> {
+                            secondInitCalled.set(true);
+                            return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
                         }),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(
                         () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
@@ -1587,15 +1579,12 @@ public class FDv2DataSourceTest {
         // The fallback should be honored and remaining initializers skipped.
         FDv2DataSource dataSource = new FDv2DataSource(
                 CONTEXT,
-                Arrays.<Initializer>asList(
-                        new MockInitializer(FDv2SourceResult.status(
+                Arrays.<FDv2DataSource.DataSourceFactory<Initializer>>asList(
+                        () -> new MockInitializer(FDv2SourceResult.status(
                                 FDv2SourceResult.Status.terminalError(new RuntimeException("fail")), true)),
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
-                            @Override
-                            public LDAwaitFuture<FDv2SourceResult> run() {
-                                secondInitCalled.set(true);
-                                return super.run();
-                            }
+                        () -> {
+                            secondInitCalled.set(true);
+                            return new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
                         }),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(
                         () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
@@ -1627,8 +1616,8 @@ public class FDv2DataSourceTest {
         // complete initialization immediately.
         FDv2DataSource dataSource = new FDv2DataSource(
                 CONTEXT,
-                Collections.<Initializer>singletonList(
-                        new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), true))),
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>singletonList(
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), true))),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(
                         () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
                 () -> fdv1Sync,
@@ -1657,7 +1646,7 @@ public class FDv2DataSourceTest {
 
         FDv2DataSource dataSource = new FDv2DataSource(
                 CONTEXT,
-                Collections.<Initializer>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
                 () -> fdv1Sync,
                 sink,
@@ -1691,7 +1680,7 @@ public class FDv2DataSourceTest {
 
         FDv2DataSource dataSource = new FDv2DataSource(
                 CONTEXT,
-                Collections.<Initializer>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
                 () -> fdv1Sync,
                 sink,
@@ -1723,7 +1712,7 @@ public class FDv2DataSourceTest {
 
         FDv2DataSource dataSource = new FDv2DataSource(
                 CONTEXT,
-                Collections.<Initializer>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync),
                 () -> {
                     fdv1BuildCount.incrementAndGet();
@@ -1752,7 +1741,7 @@ public class FDv2DataSourceTest {
                 FDv2SourceResult.changeSet(makeChangeSet(true), true));
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.<Initializer>emptyList(),
+                Collections.<FDv2DataSource.DataSourceFactory<Initializer>>emptyList(),
                 Collections.<FDv2DataSource.DataSourceFactory<Synchronizer>>singletonList(() -> fdv2Sync));
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -1782,31 +1771,23 @@ public class FDv2DataSourceTest {
         assertTrue(dataSource.needsRefresh(false, LDContext.create("other-context")));
     }
 
-    // ============================================================================
-    // Eager (Pre-Startup) Initializers
-    // ============================================================================
-
     @Test
-    public void eagerInitializerRunsBeforeExecutorDispatch() throws Exception {
+    public void cacheInitializerRunsBeforeExecutorDispatch() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        AtomicReference<String> eagerThread = new AtomicReference<>();
+        AtomicReference<String> cacheInitializerThread = new AtomicReference<>();
         AtomicReference<String> callingThread = new AtomicReference<>();
 
-        Initializer eagerInit = new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false)) {
-            @Override
-            public boolean isRequiredBeforeStartup() {
-                return true;
-            }
-
-            @Override
-            public LDAwaitFuture<FDv2SourceResult> run() {
-                eagerThread.set(Thread.currentThread().getName());
-                return super.run();
-            }
-        };
+        FDv2DataSource.DataSourceFactory<Initializer> cacheInitializerFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        cacheInitializerThread.set(Thread.currentThread().getName());
+                        return super.run();
+                    }
+                });
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.<Initializer>singletonList(eagerInit),
+                Collections.singletonList(cacheInitializerFactory),
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.changeSet(makeChangeSet(true), false))));
 
@@ -1814,33 +1795,29 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        assertEquals("Eager initializer must run on the calling thread",
-                callingThread.get(), eagerThread.get());
+        assertEquals("Cache initializer must run on the calling thread",
+                callingThread.get(), cacheInitializerThread.get());
         stopDataSource(dataSource);
     }
 
     @Test
-    public void deferredInitializerRunsOnExecutorThread() throws Exception {
+    public void generalInitializersRunsOnExecutorThread() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         AtomicReference<String> deferredThread = new AtomicReference<>();
         CountDownLatch deferredRan = new CountDownLatch(1);
 
-        Initializer deferredInit = new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
-            @Override
-            public boolean isRequiredBeforeStartup() {
-                return false;
-            }
-
-            @Override
-            public LDAwaitFuture<FDv2SourceResult> run() {
-                deferredThread.set(Thread.currentThread().getName());
-                deferredRan.countDown();
-                return super.run();
-            }
-        };
+        FDv2DataSource.DataSourceFactory<Initializer> deferredFactory = () ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        deferredThread.set(Thread.currentThread().getName());
+                        deferredRan.countDown();
+                        return super.run();
+                    }
+                };
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.<Initializer>singletonList(deferredInit),
+                Collections.singletonList(deferredFactory),
                 Collections.emptyList());
 
         String callingThread = Thread.currentThread().getName();
@@ -1858,34 +1835,26 @@ public class FDv2DataSourceTest {
         AtomicBoolean eagerRan = new AtomicBoolean(false);
         CountDownLatch deferredRan = new CountDownLatch(1);
 
-        Initializer eagerInit = new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false)) {
-            @Override
-            public boolean isRequiredBeforeStartup() {
-                return true;
-            }
+        FDv2DataSource.DataSourceFactory<Initializer> eagerFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        eagerRan.set(true);
+                        return super.run();
+                    }
+                });
 
-            @Override
-            public LDAwaitFuture<FDv2SourceResult> run() {
-                eagerRan.set(true);
-                return super.run();
-            }
-        };
-
-        Initializer deferredInit = new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
-            @Override
-            public boolean isRequiredBeforeStartup() {
-                return false;
-            }
-
-            @Override
-            public LDAwaitFuture<FDv2SourceResult> run() {
-                deferredRan.countDown();
-                return super.run();
-            }
-        };
+        FDv2DataSource.DataSourceFactory<Initializer> deferredFactory = () ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        deferredRan.countDown();
+                        return super.run();
+                    }
+                };
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Arrays.<Initializer>asList(eagerInit, deferredInit),
+                Arrays.asList(eagerFactory, deferredFactory),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -1901,21 +1870,16 @@ public class FDv2DataSourceTest {
     public void offlineModeWithEagerCacheMissStillInitializes() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
-        Initializer cacheInitializer = new MockInitializer(
-                FDv2SourceResult.changeSet(new ChangeSet<>(
+        FDv2DataSource.DataSourceFactory<Initializer> cacheMissFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(new ChangeSet<>(
                         ChangeSetType.None,
                         com.launchdarkly.sdk.fdv2.Selector.EMPTY,
                         Collections.<String, DataModel.Flag>emptyMap(),
                         null,
-                        false), false)) {
-            @Override
-            public boolean isRequiredBeforeStartup() {
-                return true;
-            }
-        };
+                        false), false)));
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.<Initializer>singletonList(cacheInitializer),
+                Collections.singletonList(cacheMissFactory),
                 Collections.emptyList());
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -1931,16 +1895,11 @@ public class FDv2DataSourceTest {
         Map<String, DataModel.Flag> items = new HashMap<>();
         items.put(flag.getKey(), flag);
 
-        Initializer eagerInit = new MockInitializer(
-                FDv2SourceResult.changeSet(makeFullChangeSet(items), false)) {
-            @Override
-            public boolean isRequiredBeforeStartup() {
-                return true;
-            }
-        };
+        FDv2DataSource.DataSourceFactory<Initializer> eagerFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeFullChangeSet(items), false)));
 
         FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.<Initializer>singletonList(eagerInit),
+                Collections.singletonList(eagerFactory),
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.changeSet(makeChangeSet(true), false))));
 
