@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.InitializerFromCache;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.io.Closeable;
@@ -147,29 +148,42 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         }
     }
 
-    private DataSourceBuildInputs makeInputs(ClientContext clientContext) {
-        SelectorSource selectorSource = ClientContextImpl.get(clientContext).getSelectorSource();
+    private DataSourceBuildInputsInternal makeInputs(ClientContext clientContext) {
+        ClientContextImpl impl = ClientContextImpl.get(clientContext);
+        SelectorSource selectorSource = impl.getSelectorSource();
         if (selectorSource == null) {
             selectorSource = () -> com.launchdarkly.sdk.fdv2.Selector.EMPTY;
         }
-        return new DataSourceBuildInputs(
+        return new DataSourceBuildInputsInternal(
                 clientContext.getEvaluationContext(),
                 clientContext.getServiceEndpoints(),
                 clientContext.getHttp(),
                 clientContext.isEvaluationReasons(),
                 selectorSource,
                 sharedExecutor,
-                ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
-                clientContext.getBaseLogger()
+                impl.getPlatformState().getCacheDir(),
+                clientContext.getBaseLogger(),
+                impl.getPerEnvironmentDataIfAvailable()
         );
     }
 
     private static ResolvedModeDefinition resolve(
             ModeDefinition def, DataSourceBuildInputs inputs
     ) {
+        // Adapt each public DataSourceBuilder<Initializer> into the internal
+        // FDv2DataSource.DataSourceFactory<Initializer> by capturing the inputs in a zero-arg
+        // factory lambda. The InitializerFromCache marker on a builder must propagate to the
+        // resulting factory so FDv2DataSource can identify cache initializers and run them
+        // synchronously before startup. A plain lambda cannot carry the marker interface, so
+        // those builders are wrapped in CacheInitializerFactory, which implements both the
+        // factory contract and InitializerFromCache.
         List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories = new ArrayList<>();
         for (DataSourceBuilder<Initializer> builder : def.getInitializers()) {
-            initFactories.add(() -> builder.build(inputs));
+            if (builder instanceof InitializerFromCache) {
+                initFactories.add(new CacheInitializerFactory(() -> builder.build(inputs)));
+            } else {
+                initFactories.add(() -> builder.build(inputs));
+            }
         }
         List<FDv2DataSource.DataSourceFactory<Synchronizer>> syncFactories = new ArrayList<>();
         for (DataSourceBuilder<Synchronizer> builder : def.getSynchronizers()) {
@@ -179,5 +193,23 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         FDv2DataSource.DataSourceFactory<Synchronizer> fdv1Factory =
                 fdv1FallbackSynchronizer != null ? () -> fdv1FallbackSynchronizer.build(inputs) : null;
         return new ResolvedModeDefinition(initFactories, syncFactories, fdv1Factory);
+    }
+
+    /**
+     * Wraps a {@link FDv2DataSource.DataSourceFactory} to carry the {@link InitializerFromCache}
+     * marker so that {@link FDv2DataSource} can identify cache initializer factories at runtime.
+     */
+    private static class CacheInitializerFactory
+            implements FDv2DataSource.DataSourceFactory<Initializer>, InitializerFromCache {
+        private final FDv2DataSource.DataSourceFactory<Initializer> delegate;
+
+        CacheInitializerFactory(FDv2DataSource.DataSourceFactory<Initializer> delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Initializer build() {
+            return delegate.build();
+        }
     }
 }

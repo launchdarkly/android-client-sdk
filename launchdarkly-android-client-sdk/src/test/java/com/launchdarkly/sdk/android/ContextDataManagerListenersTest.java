@@ -49,7 +49,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.upsert(CONTEXT, flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
@@ -66,7 +66,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.upsert(CONTEXT, flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
@@ -116,7 +116,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerAllFlagsListener(all1);
 
         // change the data
-        manager.switchToContext(context1, LDUtil.noOpCallback());
+        manager.switchToContext(context1, false, LDUtil.noOpCallback());
         manager.upsert(context1, flagState1);
 
         // verify callbacks
@@ -132,7 +132,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         // simulate switching context
         Flag flagState2 = new FlagBuilder(FLAG_KEY).value(LDValue.of(2)).build();
         EnvironmentData envData = new EnvironmentData().withFlagUpdatedOrAdded(flagState2);
-        manager.switchToContext(context2, LDUtil.noOpCallback());
+        manager.switchToContext(context2, false, LDUtil.noOpCallback());
         manager.initData(context2, envData);
 
         // verify callbacks
@@ -145,7 +145,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
             throws InterruptedException {
         Flag initial = new FlagBuilder("flag").version(1).value(true).build();
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.initData(CONTEXT, new DataSetBuilder().add(initial).build());
 
         AwaitableFlagListener listener = new AwaitableFlagListener();
@@ -178,7 +178,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.upsert(CONTEXT, flag);
 
         listener.expectUpdate(5, TimeUnit.SECONDS);

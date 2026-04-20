@@ -421,10 +421,12 @@ public class LDClient implements LDClientInterface, Closeable {
                 taskExecutor
         );
 
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
         this.contextDataManager = new ContextDataManager(
                 clientContextImpl,
                 environmentStore,
-                config.getMaxCachedContexts()
+                config.getMaxCachedContexts(),
+                usingFDv2
         );
 
         eventProcessor = config.events.build(clientContextImpl);
@@ -495,7 +497,12 @@ public class LDClient implements LDClientInterface, Closeable {
                                   Callback<Void> onCompleteListener) {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
-        contextDataManager.switchToContext(context, onCompleteListener);
+
+        // Load cached flags for the new context so they're available in case initialization
+        // times out or otherwise fails. This does not short-circuit initialization — the data
+        // source still performs its network request regardless.
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
+        contextDataManager.switchToContext(context, usingFDv2, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
 

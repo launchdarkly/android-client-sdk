@@ -131,7 +131,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         contextDataManager = new ContextDataManager(
                 clientContext,
                 environmentStore,
-                1
+                1,
+                false
         );
         contextDataManager.registerAllFlagsListener(flagsUpdated -> {
             allFlagsReceived.add(flagsUpdated);
@@ -508,7 +509,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         long connectionTimeBeforeSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
         LDContext context2 = LDContext.create("context2");
         AwaitableCallback<Void> done = new AwaitableCallback<>();
-        contextDataManager.switchToContext(context2, done);
+        contextDataManager.switchToContext(context2, false, done);
         done.await();
         long connectionTimeAfterSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
 
@@ -538,7 +539,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, LDUtil.noOpCallback());
+        contextDataManager.switchToContext(context2, false, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
@@ -565,7 +566,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, LDUtil.noOpCallback());
+        contextDataManager.switchToContext(context2, false, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
@@ -779,7 +780,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         });
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, new AwaitableCallback<>());
+        contextDataManager.switchToContext(context2, false, new AwaitableCallback<>());
         latch.await(500, TimeUnit.MILLISECONDS);
 
         verifyAll();
@@ -814,7 +815,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         LDContext context2 = LDContext.create("context2");
         AwaitableCallback<Void> done = new AwaitableCallback<>();
-        contextDataManager.switchToContext(context2, done);
+        contextDataManager.switchToContext(context2, false, done);
         done.await();
 
         verifyDataSourceWasStopped();
@@ -1187,7 +1188,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         LDContext context2 = LDContext.create("context2");
         AwaitableCallback<Void> done = new AwaitableCallback<>();
-        contextDataManager.switchToContext(context2, done);
+        contextDataManager.switchToContext(context2, false, done);
         done.await();
 
         verifyDataSourceWasStopped();

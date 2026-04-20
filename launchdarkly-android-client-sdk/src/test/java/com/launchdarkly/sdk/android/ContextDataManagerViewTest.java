@@ -42,7 +42,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void viewInitWritesDataWhenValid() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         Flag flag = new FlagBuilder("flag1").version(1).build();
@@ -54,7 +54,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void viewUpsertWritesDataWhenValid() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         Flag flag = new FlagBuilder("flag1").version(1).build();
@@ -67,7 +67,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void viewApplyWritesDataWhenValid() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         Flag flag = new FlagBuilder("flag1").version(1).build();
@@ -82,7 +82,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void viewGetSelectorReturnsValueWhenValid() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         Selector selector = Selector.make(1, "state-1");
@@ -99,7 +99,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void invalidatedViewInitIsNoOp() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         view.invalidate();
@@ -113,7 +113,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void invalidatedViewUpsertReturnsFalse() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         view.invalidate();
@@ -128,7 +128,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void invalidatedViewApplyIsNoOp() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         view.invalidate();
@@ -145,7 +145,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void invalidatedViewGetSelectorReturnsEmpty() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
         Selector selector = Selector.make(1, "state-1");
@@ -162,10 +162,10 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void sameContextDoesNotInvalidateView() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView view = captureView(manager);
 
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
 
         Flag flag = new FlagBuilder("flag1").version(1).build();
         boolean result = view.upsert(CONTEXT, flag);
@@ -175,10 +175,10 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void sameContextCallsOnCompletionImmediately() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
 
         AtomicInteger completionCount = new AtomicInteger(0);
-        manager.switchToContext(CONTEXT, new Callback<Void>() {
+        manager.switchToContext(CONTEXT, false, new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 completionCount.incrementAndGet();
@@ -194,10 +194,10 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void differentContextInvalidatesOldView() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT_A, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT_A, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView viewA = captureView(manager);
 
-        manager.switchToContext(CONTEXT_B, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT_B, false, LDUtil.noOpCallback());
 
         Flag flag = new FlagBuilder("flag1").version(1).build();
         assertFalse("Old view should be invalid", viewA.upsert(CONTEXT_A, flag));
@@ -208,10 +208,10 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void differentContextCreatesNewValidView() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT_A, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT_A, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView viewA = captureView(manager);
 
-        manager.switchToContext(CONTEXT_B, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT_B, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView viewB = captureView(manager);
 
         assertNotSame(viewA, viewB);
@@ -222,11 +222,11 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void abaScenarioOldViewStaysInvalid() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT_A, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT_A, false, LDUtil.noOpCallback());
         ContextDataManager.ContextDataManagerView viewA1 = captureView(manager);
 
-        manager.switchToContext(CONTEXT_B, LDUtil.noOpCallback());
-        manager.switchToContext(CONTEXT_A, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT_B, false, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT_A, false, LDUtil.noOpCallback());
 
         ContextDataManager.ContextDataManagerView viewA2 = captureView(manager);
 
@@ -242,7 +242,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
         ContextDataManager manager = createDataManager();
 
         AtomicInteger completionCount = new AtomicInteger(0);
-        manager.switchToContext(CONTEXT, new Callback<Void>() {
+        manager.switchToContext(CONTEXT, false, new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 completionCount.incrementAndGet();
@@ -261,7 +261,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
         manager.setContextSwitchListener((context, view, onCompletion) -> onCompletion.onSuccess(null));
 
         AtomicInteger completionCount = new AtomicInteger(0);
-        manager.switchToContext(CONTEXT, new Callback<Void>() {
+        manager.switchToContext(CONTEXT, false, new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 completionCount.incrementAndGet();
@@ -277,7 +277,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
     @Test
     public void setListenerImmediatelyCallsOnContextChanged() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT, LDUtil.noOpCallback());
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
 
         AtomicReference<LDContext> receivedContext = new AtomicReference<>();
         AtomicReference<ContextDataManager.ContextDataManagerView> receivedView = new AtomicReference<>();
@@ -310,7 +310,7 @@ public class ContextDataManagerViewTest extends ContextDataManagerTestBase {
         manager.removeContextSwitchListener();
 
         AtomicInteger completionCount = new AtomicInteger(0);
-        manager.switchToContext(CONTEXT, new Callback<Void>() {
+        manager.switchToContext(CONTEXT, false, new Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 completionCount.incrementAndGet();

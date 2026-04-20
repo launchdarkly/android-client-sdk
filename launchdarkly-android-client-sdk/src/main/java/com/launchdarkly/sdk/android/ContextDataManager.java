@@ -8,7 +8,6 @@ import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
-import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.TransactionalDataStore;
 import com.launchdarkly.sdk.android.DataModel.Flag;
@@ -69,11 +68,16 @@ final class ContextDataManager {
     /** Selector from the last applied changeset that carried one; in-memory only, not persisted. */
     @NonNull private Selector currentSelector = Selector.EMPTY;
 
-
+    /**
+     * @param skipCacheLoad true when an FDv2 cache initializer will handle loading cached
+     *                      flags as the first step in the initializer chain, making the
+     *                      cache load in {@link #switchToContext} redundant
+     */
     ContextDataManager(
             @NonNull ClientContext clientContext,
             @NonNull PersistentDataStoreWrapper.PerEnvironmentData environmentStore,
-            int maxCachedContexts
+            int maxCachedContexts,
+            boolean skipCacheLoad
     ) {
         this.environmentStore = environmentStore;
         this.index = environmentStore.getIndex();
@@ -81,7 +85,7 @@ final class ContextDataManager {
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
         this.currentView = new ContextDataManagerView();
-        switchToContext(clientContext.getEvaluationContext(), LDUtil.noOpCallback());
+        switchToContext(clientContext.getEvaluationContext(), skipCacheLoad, LDUtil.noOpCallback());
     }
 
     /**
@@ -95,10 +99,12 @@ final class ContextDataManager {
      * If the context is the same as the current context, the callback is completed
      * immediately with success.
      *
-     * @param context      the context to switch to
-     * @param onCompletion callback for when downstream work is complete
+     * @param context       the context to switch to
+     * @param skipCacheLoad true to only set the current context without loading cached data
+     *                      (used in the FDv2 path where the cache initializer handles loading)
+     * @param onCompletion  callback for when downstream work is complete
      */
-    public void switchToContext(@NonNull LDContext context, @NonNull Callback<Void> onCompletion) {
+    public void switchToContext(@NonNull LDContext context, boolean skipCacheLoad, @NonNull Callback<Void> onCompletion) {
         ContextDataManagerView newView;
         synchronized (lock) {
             if (context.equals(currentContext)) {
@@ -111,6 +117,10 @@ final class ContextDataManager {
             currentSelector = Selector.EMPTY;
             newView = new ContextDataManagerView();
             currentView = newView;
+        }
+
+        if (skipCacheLoad) {
+            return;
         }
 
         EnvironmentData storedData = getStoredData(context);
