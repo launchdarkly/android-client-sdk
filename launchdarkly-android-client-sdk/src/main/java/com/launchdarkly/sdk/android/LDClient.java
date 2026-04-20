@@ -421,10 +421,12 @@ public class LDClient implements LDClientInterface, Closeable {
                 taskExecutor
         );
 
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
         this.contextDataManager = new ContextDataManager(
                 clientContextImpl,
                 environmentStore,
-                config.getMaxCachedContexts()
+                config.getMaxCachedContexts(),
+                usingFDv2
         );
 
         eventProcessor = config.events.build(clientContextImpl);
@@ -497,11 +499,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
 
-        // Calling initFromStoredData updates the current flag state *if* stored flags exist for
-        // this context. If they don't, it has no effect. Currently we do *not* return early from
-        // initialization just because stored flags exist; we're just making them available in case
-        // initialization times out or otherwise fails.
-        contextDataManager.switchToContext(context);
+        // Load cached flags for the new context so they're available in case initialization
+        // times out or otherwise fails. This does not short-circuit initialization — the data
+        // source still performs its network request regardless.
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
+        contextDataManager.switchToContext(context, usingFDv2);
         connectivityManager.switchToContext(context, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }

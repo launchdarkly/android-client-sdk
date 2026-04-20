@@ -7,21 +7,17 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import androidx.annotation.NonNull;
-
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel;
-import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.fdv2.ChangeSetType;
-import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSourceState;
-import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
+import com.launchdarkly.sdk.android.subsystems.InitializerFromCache;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import com.launchdarkly.sdk.fdv2.Selector;
 
@@ -186,6 +182,25 @@ public class FDv2DataSourceTest {
             future.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
         }
     }
+
+    /**
+     * Wraps a factory closure with the {@link InitializerFromCache} marker so the data source
+     * treats initializers it produces as cache initializers (run synchronously before executor dispatch).
+     */
+    private static class CacheInitializerFactory
+            implements FDv2DataSource.DataSourceFactory<Initializer>, InitializerFromCache {
+        private final FDv2DataSource.DataSourceFactory<Initializer> delegate;
+
+        CacheInitializerFactory(FDv2DataSource.DataSourceFactory<Initializer> delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Initializer build() {
+            return delegate.build();
+        }
+    }
+
 
     /**
      * A synchronizer that returns one pre-set result on the first next(), then returns a
@@ -1749,5 +1764,148 @@ public class FDv2DataSourceTest {
                 Collections.emptyList(),
                 Collections.emptyList());
         assertTrue(dataSource.needsRefresh(false, LDContext.create("other-context")));
+    }
+
+    @Test
+    public void cacheInitializerRunsBeforeExecutorDispatch() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicReference<String> cacheInitializerThread = new AtomicReference<>();
+        AtomicReference<String> callingThread = new AtomicReference<>();
+
+        FDv2DataSource.DataSourceFactory<Initializer> cacheInitializerFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        cacheInitializerThread.set(Thread.currentThread().getName());
+                        return super.run();
+                    }
+                });
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(cacheInitializerFactory),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(
+                        FDv2SourceResult.changeSet(makeChangeSet(true), false))));
+
+        callingThread.set(Thread.currentThread().getName());
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        assertEquals("Cache initializer must run on the calling thread",
+                callingThread.get(), cacheInitializerThread.get());
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void generalInitializersRunsOnExecutorThread() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicReference<String> deferredThread = new AtomicReference<>();
+        CountDownLatch deferredRan = new CountDownLatch(1);
+
+        FDv2DataSource.DataSourceFactory<Initializer> deferredFactory = () ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        deferredThread.set(Thread.currentThread().getName());
+                        deferredRan.countDown();
+                        return super.run();
+                    }
+                };
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(deferredFactory),
+                Collections.emptyList());
+
+        String callingThread = Thread.currentThread().getName();
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertTrue(deferredRan.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        assertFalse("Deferred initializer must NOT run on the calling thread",
+                callingThread.equals(deferredThread.get()));
+    }
+
+    @Test
+    public void eagerAndDeferredInitializersBothRun() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicBoolean eagerRan = new AtomicBoolean(false);
+        CountDownLatch deferredRan = new CountDownLatch(1);
+
+        FDv2DataSource.DataSourceFactory<Initializer> eagerFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(false), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        eagerRan.set(true);
+                        return super.run();
+                    }
+                });
+
+        FDv2DataSource.DataSourceFactory<Initializer> deferredFactory = () ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false)) {
+                    @Override
+                    public LDAwaitFuture<FDv2SourceResult> run() {
+                        deferredRan.countDown();
+                        return super.run();
+                    }
+                };
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Arrays.asList(eagerFactory, deferredFactory),
+                Collections.emptyList());
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertTrue(deferredRan.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        assertTrue(eagerRan.get());
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(2, sink.getApplyCount());
+    }
+
+    @Test
+    public void offlineModeWithEagerCacheMissStillInitializes() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+
+        FDv2DataSource.DataSourceFactory<Initializer> cacheMissFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(new ChangeSet<>(
+                        ChangeSetType.None,
+                        com.launchdarkly.sdk.fdv2.Selector.EMPTY,
+                        Collections.<String, DataModel.Flag>emptyMap(),
+                        null,
+                        false), false)));
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(cacheMissFactory),
+                Collections.emptyList());
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        assertEquals(DataSourceState.VALID, sink.getLastState());
+    }
+
+    @Test
+    public void eagerInitializerDataAvailableWithZeroTimeout() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        DataModel.Flag flag = new FlagBuilder("flag1").version(1).value(LDValue.of(true)).build();
+        Map<String, DataModel.Flag> items = new HashMap<>();
+        items.put(flag.getKey(), flag);
+
+        FDv2DataSource.DataSourceFactory<Initializer> eagerFactory = new CacheInitializerFactory(() ->
+                new MockInitializer(FDv2SourceResult.changeSet(makeFullChangeSet(items), false)));
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(eagerFactory),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(
+                        FDv2SourceResult.changeSet(makeChangeSet(true), false))));
+
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+
+        ChangeSet<Map<String, DataModel.Flag>> applied = sink.expectApply();
+        assertNotNull(applied);
+        assertEquals(1, applied.getData().size());
+        assertTrue(applied.getData().containsKey("flag1"));
+
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        stopDataSource(dataSource);
     }
 }

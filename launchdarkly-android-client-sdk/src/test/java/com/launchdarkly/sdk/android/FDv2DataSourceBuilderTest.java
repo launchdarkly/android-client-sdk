@@ -15,6 +15,7 @@ import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
@@ -37,6 +38,7 @@ public class FDv2DataSourceBuilderTest {
     private ClientContext makeClientContext() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).build();
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        HttpConfiguration http = new HttpConfiguration(10_000, Collections.emptyMap(), null, false);
         ClientContext base = new ClientContext(
                 "mobile-key",
                 ENV_REPORTER,
@@ -46,7 +48,7 @@ public class FDv2DataSourceBuilderTest {
                 "default",
                 false,
                 CONTEXT,
-                null,
+                http,
                 false,
                 null,
                 config.serviceEndpoints,
@@ -243,7 +245,7 @@ public class FDv2DataSourceBuilderTest {
 
         ModeDefinition streaming = builder.getModeDefinition(ConnectionMode.STREAMING);
         assertNotNull(streaming);
-        assertEquals(1, streaming.getInitializers().size());
+        assertEquals(2, streaming.getInitializers().size());
         assertEquals(2, streaming.getSynchronizers().size());
         assertNotNull(streaming.getFdv1FallbackSynchronizer());
     }
@@ -255,7 +257,7 @@ public class FDv2DataSourceBuilderTest {
 
         ModeDefinition polling = builder.getModeDefinition(ConnectionMode.POLLING);
         assertNotNull(polling);
-        assertEquals(0, polling.getInitializers().size());
+        assertEquals(1, polling.getInitializers().size());
         assertEquals(1, polling.getSynchronizers().size());
         assertNotNull(polling.getFdv1FallbackSynchronizer());
     }
@@ -267,7 +269,7 @@ public class FDv2DataSourceBuilderTest {
 
         ModeDefinition background = builder.getModeDefinition(ConnectionMode.BACKGROUND);
         assertNotNull(background);
-        assertEquals(0, background.getInitializers().size());
+        assertEquals(1, background.getInitializers().size());
         assertEquals(1, background.getSynchronizers().size());
         assertNotNull(background.getFdv1FallbackSynchronizer());
     }
@@ -279,7 +281,7 @@ public class FDv2DataSourceBuilderTest {
 
         ModeDefinition offline = builder.getModeDefinition(ConnectionMode.OFFLINE);
         assertNotNull(offline);
-        assertEquals(0, offline.getInitializers().size());
+        assertEquals(1, offline.getInitializers().size());
         assertEquals(0, offline.getSynchronizers().size());
         assertNull(offline.getFdv1FallbackSynchronizer());
     }
@@ -291,7 +293,7 @@ public class FDv2DataSourceBuilderTest {
 
         ModeDefinition oneShot = builder.getModeDefinition(ConnectionMode.ONE_SHOT);
         assertNotNull(oneShot);
-        assertEquals(1, oneShot.getInitializers().size());
+        assertEquals(2, oneShot.getInitializers().size());
         assertEquals(0, oneShot.getSynchronizers().size());
         assertNull(oneShot.getFdv1FallbackSynchronizer());
     }
