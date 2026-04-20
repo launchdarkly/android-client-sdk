@@ -1,18 +1,7 @@
 package com.launchdarkly.sdk.android;
 
-import static com.launchdarkly.sdk.android.AssertHelpers.assertDataSetsEqual;
-import static com.launchdarkly.sdk.android.AssertHelpers.assertFlagsEqual;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.fail;
 
-import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
-
-import org.junit.Rule;
 import org.junit.Test;
 
 public class ContextDataManagerContextCachingTest extends ContextDataManagerTestBase {
@@ -33,7 +22,7 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
 
         int numContexts = 20;
         for (int i = 1; i <= numContexts; i++) {
-            manager.switchToContext(makeContext(i));
+            manager.switchToContext(makeContext(i), false);
             manager.initData(makeContext(i), makeFlagData(i));
         }
 
@@ -49,7 +38,7 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
         ContextDataManager manager = createDataManager(maxCachedContexts);
 
         for (int i = 1; i <= maxCachedContexts + excess; i++) {
-            manager.switchToContext(makeContext(i));
+            manager.switchToContext(makeContext(i), false);
             manager.initData(makeContext(i), makeFlagData(i));
         }
 
@@ -66,13 +55,13 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
         ContextDataManager manager = createDataManager(1);
 
         for (int i = 1; i <= 2; i++) {
-            manager.switchToContext(makeContext(i));
+            manager.switchToContext(makeContext(i), false);
             manager.initData(makeContext(i), makeFlagData(i));
             assertContextIsCached(makeContext(i), makeFlagData(i));
         }
 
         ContextDataManager newManagerInstance = createDataManager(1);
-        newManagerInstance.switchToContext(makeContext(3));
+        newManagerInstance.switchToContext(makeContext(3), false);
         newManagerInstance.initData(makeContext(3), makeFlagData(3));
 
         assertContextIsNotCached(makeContext(1));

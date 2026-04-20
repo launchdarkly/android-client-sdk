@@ -42,15 +42,15 @@ public class DataSystemBuilderTest {
     @Test
     public void buildModeTable_defaultInitializerAndSynchronizerCounts() {
         Map<ConnectionMode, ModeDefinition> table = Components.dataSystem().buildModeTable(false);
-        assertEquals(1, table.get(ConnectionMode.STREAMING).getInitializers().size());
+        assertEquals(2, table.get(ConnectionMode.STREAMING).getInitializers().size());
         assertEquals(2, table.get(ConnectionMode.STREAMING).getSynchronizers().size());
-        assertEquals(0, table.get(ConnectionMode.POLLING).getInitializers().size());
+        assertEquals(1, table.get(ConnectionMode.POLLING).getInitializers().size());
         assertEquals(1, table.get(ConnectionMode.POLLING).getSynchronizers().size());
-        assertEquals(0, table.get(ConnectionMode.OFFLINE).getInitializers().size());
+        assertEquals(1, table.get(ConnectionMode.OFFLINE).getInitializers().size());
         assertEquals(0, table.get(ConnectionMode.OFFLINE).getSynchronizers().size());
-        assertEquals(1, table.get(ConnectionMode.ONE_SHOT).getInitializers().size());
+        assertEquals(2, table.get(ConnectionMode.ONE_SHOT).getInitializers().size());
         assertEquals(0, table.get(ConnectionMode.ONE_SHOT).getSynchronizers().size());
-        assertEquals(0, table.get(ConnectionMode.BACKGROUND).getInitializers().size());
+        assertEquals(1, table.get(ConnectionMode.BACKGROUND).getInitializers().size());
         assertEquals(1, table.get(ConnectionMode.BACKGROUND).getSynchronizers().size());
     }
 
