@@ -140,7 +140,7 @@ final class FDv2DataSource implements DataSource {
         }
 
         // note that the source manager only uses the initializers after the cache initializers and not the cache initializers
-        this.sourceManager = new SourceManager(allSynchronizers, new ArrayList<>(generalInitializers));
+        this.sourceManager = new SourceManager(allSynchronizers, generalInitializers);
         this.fallbackTimeoutSeconds = fallbackTimeoutSeconds;
         this.recoveryTimeoutSeconds = recoveryTimeoutSeconds;
         this.sharedExecutor = sharedExecutor;
@@ -192,6 +192,7 @@ final class FDv2DataSource implements DataSource {
 
                 if (!sourceManager.hasAvailableSynchronizers()) {
                     if (!startCompleted.get()) {
+                        // try to claim this is the cause of the shutdown, but it might have already been set by an intentional stop().
                         shutdownCause.set(new LDFailure("All initializers exhausted and there are no available synchronizers.", LDFailure.FailureType.UNKNOWN_ERROR));
                     }
                     return;

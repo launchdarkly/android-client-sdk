@@ -172,6 +172,13 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private static ResolvedModeDefinition resolve(
             ModeDefinition def, DataSourceBuildInputs inputs
     ) {
+        // Adapt each public DataSourceBuilder<Initializer> into the internal
+        // FDv2DataSource.DataSourceFactory<Initializer> by capturing the inputs in a zero-arg
+        // factory lambda. The InitializerFromCache marker on a builder must propagate to the
+        // resulting factory so FDv2DataSource can identify cache initializers and run them
+        // synchronously before startup. A plain lambda cannot carry the marker interface, so
+        // those builders are wrapped in CacheInitializerFactory, which implements both the
+        // factory contract and InitializerFromCache.
         List<FDv2DataSource.DataSourceFactory<Initializer>> initFactories = new ArrayList<>();
         for (DataSourceBuilder<Initializer> builder : def.getInitializers()) {
             if (builder instanceof InitializerFromCache) {
