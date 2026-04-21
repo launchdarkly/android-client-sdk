@@ -205,6 +205,7 @@ final class ClientContextImpl extends ClientContext {
         return throwExceptionIfNull(perEnvironmentData);
     }
 
+    @Nullable
     public PersistentDataStoreWrapper.PerEnvironmentData getPerEnvironmentDataIfAvailable() {
         return perEnvironmentData;
     }

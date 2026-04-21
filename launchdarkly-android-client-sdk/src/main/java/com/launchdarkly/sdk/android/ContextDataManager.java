@@ -93,15 +93,17 @@ final class ContextDataManager {
      * <p>
      * If the context provided is different than the current context, the previous
      * {@link ContextDataManagerView} is invalidated, a new view is created, stored flag
-     * data is loaded (if available), and the registered {@link ContextSwitchListener}
-     * is notified with the new context, view, and completion callback.
+     * data is loaded (if available and {@code skipCacheLoad} is false), and the registered
+     * {@link ContextSwitchListener} is notified with the new context, view, and completion
+     * callback.
      * <p>
      * If the context is the same as the current context, the callback is completed
      * immediately with success.
      *
      * @param context       the context to switch to
-     * @param skipCacheLoad true to only set the current context without loading cached data
-     *                      (used in the FDv2 path where the cache initializer handles loading)
+     * @param skipCacheLoad true to skip loading cached data from the persistent store here
+     *                      (FDv2: cache initializer loads it); the listener and completion
+     *                      callback are still invoked
      * @param onCompletion  callback for when downstream work is complete
      */
     public void switchToContext(@NonNull LDContext context, boolean skipCacheLoad, @NonNull Callback<Void> onCompletion) {
@@ -119,16 +121,14 @@ final class ContextDataManager {
             currentView = newView;
         }
 
-        if (skipCacheLoad) {
-            return;
-        }
-
-        EnvironmentData storedData = getStoredData(context);
-        if (storedData == null) {
-            logger.debug("No stored flag data is available for this context");
-        } else {
-            logger.debug("Using stored flag data for this context");
-            applyFullData(context, Selector.EMPTY, storedData.getAll(), false);
+        if (!skipCacheLoad) {
+            EnvironmentData storedData = getStoredData(context);
+            if (storedData == null) {
+                logger.debug("No stored flag data is available for this context");
+            } else {
+                logger.debug("Using stored flag data for this context");
+                applyFullData(context, Selector.EMPTY, storedData.getAll(), false);
+            }
         }
 
         // At the time of writing this, we only needed one listener (the ConnectivityManager) and the
