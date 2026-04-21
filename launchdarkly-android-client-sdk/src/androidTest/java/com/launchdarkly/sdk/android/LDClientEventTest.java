@@ -345,7 +345,7 @@ public class LDClientEventTest {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());
         assertEquals("/mobile/events/bulk", r.getPath());
-        assertEquals(LDUtil.AUTH_SCHEME + mobileKey, r.getHeader("Authorization"));
+        assertEquals(mobileKey, r.getHeader("Authorization"));
         String body = r.getBody().readUtf8();
         System.out.println(body);
         LDValue[] events = GsonHelpers.gsonInstance().fromJson(body, LDValue[].class);

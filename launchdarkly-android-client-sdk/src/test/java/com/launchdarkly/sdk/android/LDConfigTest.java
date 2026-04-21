@@ -88,7 +88,7 @@ public class LDConfigTest {
         );
         assertEquals(3, headers.size());
         assertEquals(LDUtil.USER_AGENT_HEADER_VALUE, headers.get("user-agent"));
-        assertEquals("api_key test-key", headers.get("authorization"));
+        assertEquals("test-key", headers.get("authorization"));
     }
 
     @Test
@@ -106,7 +106,7 @@ public class LDConfigTest {
                 null, null, null, null, null, new EnvironmentReporterBuilder().build(), null);
 
         expected.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
-        expected.put("Authorization", "api_key test-key");
+        expected.put("Authorization", "test-key");
         expected.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-name/" + LDPackageConsts.SDK_NAME +
                 " application-version/" + BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);
         Map<String, String> headers = headersToMap(
@@ -114,7 +114,7 @@ public class LDConfigTest {
         );
 
         assertEquals(3, headers.size());
-        assertEquals("api_key test-key, more", headers.get("authorization"));
+        assertEquals("test-key, more", headers.get("authorization"));
         assertEquals("value", headers.get("new"));
     }
 

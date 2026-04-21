@@ -215,7 +215,7 @@ abstract class ComponentsImpl {
             LDLogger logger = clientContext.getBaseLogger();
             // Build the default headers
             Map<String, String> headers = new HashMap<>();
-            headers.put("Authorization", LDUtil.AUTH_SCHEME + clientContext.getMobileKey());
+            headers.put("Authorization", clientContext.getMobileKey());
             headers.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
             String tagHeader = LDUtil.applicationTagHeader(
                     clientContext.getEnvironmentReporter().getApplicationInfo(),

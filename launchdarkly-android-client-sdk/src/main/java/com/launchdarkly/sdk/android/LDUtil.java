@@ -33,7 +33,6 @@ import okhttp3.Headers;
  * Various utility functions
  */
 public class LDUtil {
-    static final String AUTH_SCHEME = "api_key ";
     static final String USER_AGENT_HEADER_VALUE = LDPackageConsts.SDK_CLIENT_NAME + "/" + BuildConfig.VERSION_NAME;
 
     static <T> Callback<T> noOpCallback() {
