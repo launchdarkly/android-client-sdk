@@ -145,14 +145,13 @@ public class ConnectivityManagerTest extends EasyMockSupport {
                 clientContext,
                 dataSourceConfigurer,
                 eventProcessor,
-                contextDataManager,
                 environmentStore
         );
     }
 
     private void awaitStartUp() {
         AwaitableCallback<Void> awaitableCallback = new AwaitableCallback<>();
-        connectivityManager.startUp(awaitableCallback);
+        connectivityManager.startUp(contextDataManager, awaitableCallback);
         try {
             awaitableCallback.await();
         } catch (ExecutionException e) {
@@ -512,9 +511,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         long connectionTimeBeforeSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, false);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
-        connectivityManager.switchToContext(context2, done);
+        contextDataManager.switchToContext(context2, false, done);
         done.await();
         long connectionTimeAfterSwitch = connectivityManager.getConnectionInformation().getLastSuccessfulConnection();
 
@@ -544,8 +542,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, false);
-        connectivityManager.switchToContext(context2, LDUtil.noOpCallback());
+        contextDataManager.switchToContext(context2, false, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
@@ -572,8 +569,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         replayAll();
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, false);
-        connectivityManager.switchToContext(context2, LDUtil.noOpCallback());
+        contextDataManager.switchToContext(context2, false, LDUtil.noOpCallback());
 
         verifyAll(); // verifies eventProcessor calls
         verifyNoMoreDataSourcesWereCreated();
@@ -741,7 +737,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void fdv1_forDataSource_transactionalDataStoreIsPassedThrough() throws Exception {
+    public void fdv1_forDataSource_selectorSourceIsPassedThrough() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
         replayAll();
@@ -749,7 +745,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         createTestManager(defaultTestConfig(false, false), clientContext -> {
             receivedClientContexts.add(clientContext);
             ClientContextImpl impl = ClientContextImpl.get(clientContext);
-            assertNotNull(impl.getTransactionalDataStore());
+            assertNotNull(impl.getSelectorSource());
             return MockComponents.successfulDataSource(clientContext, DATA,
                     ConnectionMode.POLLING, startedDataSources, stoppedDataSources);
         });
@@ -787,11 +783,79 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         });
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, false);
-        connectivityManager.switchToContext(context2, new AwaitableCallback<>());
+        contextDataManager.switchToContext(context2, false, new AwaitableCallback<>());
         latch.await(500, TimeUnit.MILLISECONDS);
 
         verifyAll();
+    }
+
+    // ==== View-based data source gating tests ====
+
+    @Test
+    public void startUpRegistersListenerAndCreatesDataSource() throws ExecutionException {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+        verifyNoMoreDataSourcesWereCreated();
+    }
+
+    @Test
+    public void contextSwitchStopsOldDataSourceAndCreatesNew() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        LDContext context2 = LDContext.create("context2");
+        AwaitableCallback<Void> done = new AwaitableCallback<>();
+        contextDataManager.switchToContext(context2, false, done);
+        done.await();
+
+        verifyDataSourceWasStopped();
+        verifyForegroundDataSourceWasCreatedAndStarted(context2);
+    }
+
+    @Test
+    public void dataSourceReceivesViewAsSelectorSource() throws ExecutionException {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), clientContext -> {
+            receivedClientContexts.add(clientContext);
+            ClientContextImpl impl = ClientContextImpl.get(clientContext);
+            SelectorSource selectorSource = impl.getSelectorSource();
+            assertNotNull(selectorSource);
+            assertTrue("SelectorSource should be a ContextDataManagerView",
+                    selectorSource instanceof ContextDataManager.ContextDataManagerView);
+            return MockComponents.successfulDataSource(clientContext, DATA,
+                    ConnectionMode.POLLING, startedDataSources, stoppedDataSources);
+        });
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+    }
+
+    @Test
+    public void startupCallbackIsInvokedOnCompletion() throws ExecutionException {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+
+        AwaitableCallback<Void> callback = new AwaitableCallback<>();
+        connectivityManager.startUp(contextDataManager, callback);
+        callback.await();
     }
 
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {
@@ -1140,9 +1204,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2, false);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
-        connectivityManager.switchToContext(context2, done);
+        contextDataManager.switchToContext(context2, false, done);
         done.await();
 
         verifyDataSourceWasStopped();
@@ -1367,9 +1430,8 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         // identify should rebuild immediately, not waiting for debounce
         LDContext context2 = LDContext.create("context2");
-        contextDataManager.switchToContext(context2);
         AwaitableCallback<Void> done = new AwaitableCallback<>();
-        connectivityManager.switchToContext(context2, done);
+        contextDataManager.switchToContext(context2, false, done);
         done.await();
 
         verifyDataSourceWasStopped();

@@ -33,7 +33,6 @@ import okhttp3.Headers;
  * Various utility functions
  */
 public class LDUtil {
-    static final String AUTH_SCHEME = "api_key ";
     static final String USER_AGENT_HEADER_VALUE = LDPackageConsts.SDK_CLIENT_NAME + "/" + BuildConfig.VERSION_NAME;
 
     static <T> Callback<T> noOpCallback() {
@@ -44,6 +43,28 @@ public class LDUtil {
 
             @Override
             public void onError(Throwable error) {
+            }
+        };
+    }
+
+    /**
+     * Returns a callback that forwards {@code onSuccess} and {@code onError} to all
+     * delegates in iteration order.
+     */
+    static <T> Callback<T> compositeCallback(@NonNull List<Callback<T>> callbacks) {
+        return new Callback<T>() {
+            @Override
+            public void onSuccess(T result) {
+                for (Callback<T> cb : callbacks) {
+                    cb.onSuccess(result);
+                }
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                for (Callback<T> cb : callbacks) {
+                    cb.onError(error);
+                }
             }
         };
     }

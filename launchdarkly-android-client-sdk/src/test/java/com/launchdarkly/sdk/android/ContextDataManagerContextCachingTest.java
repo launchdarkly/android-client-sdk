@@ -22,7 +22,7 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
 
         int numContexts = 20;
         for (int i = 1; i <= numContexts; i++) {
-            manager.switchToContext(makeContext(i), false);
+            manager.switchToContext(makeContext(i), false, LDUtil.noOpCallback());
             manager.initData(makeContext(i), makeFlagData(i));
         }
 
@@ -38,7 +38,7 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
         ContextDataManager manager = createDataManager(maxCachedContexts);
 
         for (int i = 1; i <= maxCachedContexts + excess; i++) {
-            manager.switchToContext(makeContext(i), false);
+            manager.switchToContext(makeContext(i), false, LDUtil.noOpCallback());
             manager.initData(makeContext(i), makeFlagData(i));
         }
 
@@ -55,13 +55,13 @@ public class ContextDataManagerContextCachingTest extends ContextDataManagerTest
         ContextDataManager manager = createDataManager(1);
 
         for (int i = 1; i <= 2; i++) {
-            manager.switchToContext(makeContext(i), false);
+            manager.switchToContext(makeContext(i), false, LDUtil.noOpCallback());
             manager.initData(makeContext(i), makeFlagData(i));
             assertContextIsCached(makeContext(i), makeFlagData(i));
         }
 
         ContextDataManager newManagerInstance = createDataManager(1);
-        newManagerInstance.switchToContext(makeContext(3), false);
+        newManagerInstance.switchToContext(makeContext(3), false, LDUtil.noOpCallback());
         newManagerInstance.initData(makeContext(3), makeFlagData(3));
 
         assertContextIsNotCached(makeContext(1));
