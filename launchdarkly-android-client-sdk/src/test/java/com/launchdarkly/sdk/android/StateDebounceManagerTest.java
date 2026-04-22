@@ -276,4 +276,110 @@ public class StateDebounceManagerTest {
 
         mgr.close();
     }
+
+    // ==== reset() (CONNMODE 3.5.6 — identify bypasses debounce) ====
+
+    @Test
+    public void resetCancelsPendingTimer() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        mgr.setNetworkAvailable(false);
+        Thread.sleep(TEST_DEBOUNCE_MS / 3);
+        mgr.reset(true, true);
+
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("reset should cancel the pending timer", 0, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void resetDoesNotInvokeReconcileCallback() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        // Drive a state transition through to a successful fire.
+        mgr.setNetworkAvailable(false);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals(1, callCount.get());
+
+        // Reset should NOT invoke the callback even though it changes the seed.
+        mgr.reset(true, true);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("reset itself should not fire onReconcile", 1, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void resetReseedsBaselineForNewWindow() throws InterruptedException {
+        // After reset, the A→B→C→A baseline must match the new seed values, so the
+        // first genuine change relative to the new seed produces a fire.
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        // Re-seed to (false, false). lastApplied also becomes (false, false).
+        mgr.reset(false, false);
+
+        // setNetworkAvailable(true): differs from new baseline → schedule + fire.
+        mgr.setNetworkAvailable(true);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("change relative to reset seed should fire", 1, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void resetClearsAtoBtoABaseline() throws InterruptedException {
+        // Without reset(), setForeground(true)→false→true within a single window is
+        // dedup'd (raw state returned to baseline). After reset, the same sequence
+        // measured from the NEW baseline should also be dedup'd — i.e. reset re-anchors
+        // the baseline to its argument, not to the previous fire.
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        mgr.reset(false, true);
+
+        // From baseline (false, true): toggle network true→false→true within window.
+        mgr.setNetworkAvailable(true);
+        mgr.setNetworkAvailable(false);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("A→B→A relative to reset baseline should also be suppressed",
+                0, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void resetAfterCloseIsNoOp() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        mgr.close();
+        mgr.reset(false, false);
+
+        // Subsequent setX must not produce a fire (manager remains closed).
+        mgr.setNetworkAvailable(true);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("reset on a closed manager must not resurrect it", 0, callCount.get());
+    }
+
+    @Test
+    public void resetInImmediateModeCancelsAndReseeds() {
+        // reset() must work the same way in immediate mode (FDv1). Since immediate mode
+        // has no pending timer to cancel, reset just re-seeds the mirrors. The next setX
+        // relative to the new seed should fire synchronously.
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, taskExecutor, 0, callCount::incrementAndGet);
+
+        mgr.reset(false, false);
+        assertEquals("reset itself should not fire in immediate mode", 0, callCount.get());
+
+        mgr.setNetworkAvailable(true);
+        assertEquals("setX after reset should fire synchronously", 1, callCount.get());
+
+        mgr.close();
+    }
 }

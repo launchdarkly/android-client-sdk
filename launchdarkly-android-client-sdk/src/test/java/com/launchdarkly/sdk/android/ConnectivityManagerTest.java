@@ -10,6 +10,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -1428,6 +1429,11 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         awaitStartUp();
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
 
+        // The debouncer is reset (not rebuilt) on identify, so the same instance
+        // must survive across context switches.
+        StateDebounceManager debouncerBefore = readDebounceManager(connectivityManager);
+        assertNotNull("debouncer should exist after startup", debouncerBefore);
+
         // identify should rebuild immediately, not waiting for debounce
         LDContext context2 = LDContext.create("context2");
         AwaitableCallback<Void> done = new AwaitableCallback<>();
@@ -1436,6 +1442,37 @@ public class ConnectivityManagerTest extends EasyMockSupport {
 
         verifyDataSourceWasStopped();
         verifyForegroundDataSourceWasCreatedAndStarted(context2);
+        verifyNoMoreDataSourcesWereCreated();
+        verifyAll();
+
+        StateDebounceManager debouncerAfter = readDebounceManager(connectivityManager);
+        assertSame("identify should reset the debouncer in place, not replace it",
+                debouncerBefore, debouncerAfter);
+    }
+
+    @Test
+    public void fdv2_identifyAfterShutdownIsNoOp() throws Exception {
+        // After shutDown(), an identify must short-circuit instead of touching
+        // closed components (debouncer, event processor, data sources).
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        connectivityManager.shutDown();
+        verifyDataSourceWasStopped();
+
+        // After shutDown, identify must succeed (callback fires) without producing
+        // any further mock interactions or data sources. The strict mock's verifyAll()
+        // below would catch any unexpected calls.
+        LDContext context2 = LDContext.create("context2");
+        AwaitableCallback<Void> done = new AwaitableCallback<>();
+        contextDataManager.switchToContext(context2, false, done);
+        done.await();
+
         verifyNoMoreDataSourcesWereCreated();
         verifyAll();
     }
@@ -1517,6 +1554,16 @@ public class ConnectivityManagerTest extends EasyMockSupport {
             java.lang.reflect.Field f = FDv2DataSourceBuilder.class.getDeclaredField("includeInitializers");
             f.setAccessible(true);
             return f.getBoolean(builder);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static StateDebounceManager readDebounceManager(ConnectivityManager cm) {
+        try {
+            java.lang.reflect.Field f = ConnectivityManager.class.getDeclaredField("stateDebounceManager");
+            f.setAccessible(true);
+            return (StateDebounceManager) f.get(cm);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }

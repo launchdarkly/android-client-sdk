@@ -17,7 +17,9 @@ import java.util.concurrent.ScheduledFuture;
  * fields if dedup were active.
  * <p>
  * {@code identify()} does NOT participate in debounce (CONNMODE 3.5.6). Callers
- * handle this by closing and recreating the manager on identify.
+ * handle this by invoking {@link #reset(boolean, boolean)} on each identify,
+ * which cancels any pending timer and re-seeds the state mirrors and the
+ * A→B→C→A baseline so the new context starts with a clean window.
  */
 final class StateDebounceManager {
 
@@ -32,12 +34,16 @@ final class StateDebounceManager {
     private volatile boolean foreground;
 
     // Snapshot of (networkAvailable, foreground) at the last successful fire (or
-    // initial seed). Used by fireIfChanged() to suppress no-op timer fires when
-    // raw state has returned to the prior baseline within a debounce window.
-    // Only ever read/written from the single AndroidTaskExecutor thread inside
-    // fireIfChanged(), so no synchronization is needed.
-    private boolean lastAppliedNetworkAvailable;
-    private boolean lastAppliedForeground;
+    // initial seed / reset). Used by fireIfChanged() to suppress no-op timer fires
+    // when raw state has returned to the prior baseline within a debounce window.
+    // Normally read/written from the single AndroidTaskExecutor thread inside
+    // fireIfChanged(); reset() also writes them from the caller's thread (under
+    // {@code lock}), so they are volatile to ensure visibility. The reconcile
+    // callback is itself idempotent — it re-reads {@link PlatformState} and only
+    // rebuilds the data source when the resolved mode actually changes — so any
+    // spurious fire under unusual interleavings is harmless.
+    private volatile boolean lastAppliedNetworkAvailable;
+    private volatile boolean lastAppliedForeground;
 
     private ScheduledFuture<?> lastTask;
     private volatile boolean closed;
@@ -81,6 +87,39 @@ final class StateDebounceManager {
                 lastTask.cancel(false);
                 lastTask = null;
             }
+        }
+    }
+
+    /**
+     * Resets the manager so the next debounce window starts clean: cancels any
+     * pending timer, re-seeds the state mirrors and the A→B→C→A baseline. The
+     * {@code onReconcile} callback is NOT invoked. Used on {@code identify()}
+     * (CONNMODE 3.5.6) where the new context bypasses any in-flight debounce
+     * accumulated for the previous context.
+     * <p>
+     * No-op if {@link #close()} has already been called — a closed manager is
+     * not resurrected.
+     * <p>
+     * Holds {@code lock} for the duration of the cancel + re-seed so a
+     * concurrent {@link #setNetworkAvailable(boolean)} or {@link #setForeground(boolean)}
+     * cannot interleave its {@code resetTimer} call between the cancel and the
+     * field updates. A setter that lands between the field writes here and a
+     * subsequent timer schedule will simply produce a fresh window with the
+     * setter's intended state, which is the correct behavior.
+     */
+    void reset(boolean networkAvailable, boolean foreground) {
+        synchronized (lock) {
+            if (closed) {
+                return;
+            }
+            if (lastTask != null) {
+                lastTask.cancel(false);
+                lastTask = null;
+            }
+            this.networkAvailable = networkAvailable;
+            this.foreground = foreground;
+            this.lastAppliedNetworkAvailable = networkAvailable;
+            this.lastAppliedForeground = foreground;
         }
     }
 

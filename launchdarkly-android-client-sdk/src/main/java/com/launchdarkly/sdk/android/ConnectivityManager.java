@@ -78,7 +78,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private volatile ConnectionMode currentFDv2Mode;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
     private final long connectionModeStateDebounceMs; // visible for testing
-    private volatile StateDebounceManager stateDebounceManager;
+    private final StateDebounceManager stateDebounceManager;
 
     private final AtomicReference<LDContext> currentContext = new AtomicReference<>();
     private volatile ContextDataManager.ContextDataManagerView currentView;
@@ -206,15 +206,26 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             @NonNull ContextDataManager.ContextDataManagerView view,
             @NonNull Callback<Void> onCompletion
     ) {
+        // Once shut down, this listener is inert: the debouncer is closed, the
+        // event processor is closed, and any data source we created here would
+        // be immediately abandoned. Acknowledge the callback and exit.
+        if (closed.get()) {
+            onCompletion.onSuccess(null);
+            return;
+        }
+
         this.currentContext.set(context);
         this.currentView = view;
 
-        // CONNMODE 3.5.6: identify bypasses debounce — close and recreate the manager
-        // so any pending debounced state change is discarded and the new context starts
-        // with a clean timer. Also fires at startup (via setContextSwitchListener), where
-        // recreating the manager seeded from current platform state is harmless.
-        stateDebounceManager.close();
-        stateDebounceManager = createDebounceManager();
+        // CONNMODE 3.5.6: identify resets the debouncer rather than participating in it.
+        // reset() cancels any pending timer and re-seeds both the state mirrors and the
+        // A→B→C→A baseline so the new context starts with a clean window. Also fires at
+        // startup (via setContextSwitchListener), where re-seeding from current platform
+        // state is a no-op against the constructor's seed.
+        stateDebounceManager.reset(
+                platformState.isNetworkAvailable(),
+                platformState.isForeground()
+        );
 
         Callback<Void> effectiveCallback;
         if (pendingStartUpCallback != null) {
@@ -246,14 +257,13 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         if (useFDv2ModeResolution) {
             ConnectionMode newMode = resolveMode(newState);
             if (!mustReinitializeDataSource) {
-                // State-change path: check for no-op or equivalent config before rebuilding.
-                // Backstop for the debouncer's A→B→C→A dedup (which compares raw network
-                // and foreground booleans). The debouncer suppresses fires when raw state
-                // returned to its baseline, but raw state can shift to a NEW value without
-                // changing the resolved mode — e.g., when forcedOffline is true, network
-                // true→false still triggers a fire (raw differs from baseline) but resolves
-                // to OFFLINE either way. This check catches that case. Cheap safety-net;
-                // keep even though the debouncer-side dedup is in place.
+                // The debouncer suppresses fires when raw network/foreground state
+                // returns to its prior baseline, but raw state can also shift to a
+                // NEW value that still resolves to the same mode — e.g., when
+                // forcedOffline is true, network true→false still fires (raw
+                // differs) but both states resolve to OFFLINE. Comparing resolved
+                // modes here lets us short-circuit without rebuilding the active
+                // data source.
                 if (newMode == currentFDv2Mode) {
                     onCompletion.onSuccess(null);
                     return false;
@@ -619,12 +629,12 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
      * is not called here because the listener lambdas already do so before
      * notifying the debouncer.
      * <p>
-     * {@code synchronized} on {@code this} is load-bearing: it serializes this
-     * callback (which runs on the {@link AndroidTaskExecutor} thread for FDv2
-     * and on platform listener threads for FDv1) with {@link #onContextChanged}
-     * and {@link #setForceOffline} so that {@link #updateDataSource} sees a
-     * consistent view of {@code currentDataSource}, {@code currentFDv2Mode},
-     * and {@code previousModeState}.
+     * {@code synchronized} on {@code this} serializes this callback (which runs
+     * on the {@link AndroidTaskExecutor} thread for FDv2 and on platform
+     * listener threads for FDv1) with {@link #onContextChanged} and
+     * {@link #setForceOffline} so {@link #updateDataSource} sees a consistent
+     * view of {@code currentDataSource}, {@code currentFDv2Mode}, and
+     * {@code previousModeState}.
      */
     private synchronized void handleStateChange() {
         ModeState state = snapshotModeState();
@@ -632,16 +642,17 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     }
 
     /**
-     * Creates a new {@link StateDebounceManager} initialized with the current platform state.
+     * Creates the {@link StateDebounceManager} initialized with the current platform state.
      * <p>
      * For FDv2, uses the configured debounce window so rapid state changes are coalesced
      * (CONNMODE 3.5). For FDv1, uses {@code debounceMs=0} ("immediate mode") so the
      * reconcile callback fires synchronously on each state change — matching the pre-existing
      * FDv1 behavior while sharing the same code path.
      * <p>
-     * Called during construction and again on each {@link #onContextChanged} (which
-     * fires at startup and on each identify) to discard pending debounced changes
-     * (CONNMODE 3.5.6).
+     * Called once at construction. The manager is reused for the life of this
+     * {@code ConnectivityManager}; on each {@link #onContextChanged} we call
+     * {@link StateDebounceManager#reset(boolean, boolean)} to discard pending
+     * debounced changes (CONNMODE 3.5.6) without rebuilding the instance.
      */
     private StateDebounceManager createDebounceManager() {
         long effectiveDebounceMs = useFDv2ModeResolution ? connectionModeStateDebounceMs : 0;
