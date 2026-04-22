@@ -401,6 +401,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         resetAll();
         eventProcessor.setOffline(false); // we expect this call
         eventProcessor.setInBackground(true); // we expect this call
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         replayAll();
 
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
@@ -477,6 +478,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         resetAll();
         eventProcessor.setOffline(false); // we expect this call
         eventProcessor.setInBackground(true); // we expect this call
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         replayAll();
 
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
@@ -670,6 +672,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         resetAll();
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         replayAll();
 
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
@@ -727,6 +730,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         resetAll();
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
         replayAll();
 
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
@@ -1280,6 +1284,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition (independent of lifecycle switching)
         replayAll();
 
         createTestManager(config, makeFDv2DataSourceFactory());
@@ -1338,6 +1343,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition (independent of mode switching)
         replayAll();
 
         createTestManager(config, makeFDv2DataSourceFactory());
@@ -1523,6 +1529,65 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyDataSourceWasStopped();
         requireValue(receivedClientContexts, 2, TimeUnit.SECONDS, "bg data source creation");
         requireValue(startedDataSources, 2, TimeUnit.SECONDS, "bg data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv1_eventsFlushedOnBackgroundTransition() throws Exception {
+        // CONNMODE 3.3.1: the background-transition flush is independent of FDv2 mode
+        // resolution — FDv1 must also flush queued events before the OS may kill us.
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.flush();
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        ConnectionMode bgMode = awaitConnectionModeChangedFrom(ConnectionMode.POLLING);
+        assertEquals(ConnectionMode.BACKGROUND_POLLING, bgMode);
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_lifecycleSwitchingDisabled_stillFlushesOnBackgroundTransition() throws Exception {
+        // CONNMODE 3.3.1: the background-transition flush is independent of whether
+        // lifecycle-driven mode switching is enabled. Even when the user has opted out
+        // of automatic background mode switching, queued events must still be flushed
+        // because the OS may kill the app at any moment after backgrounding.
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey(MOBILE_KEY)
+                .connectionModeStateDebounceMs(FDV2_TEST_DEBOUNCE_MS)
+                .dataSystem(
+                        Components.dataSystem()
+                                .automaticModeSwitching(
+                                        DataSystemComponents.automaticModeSwitching()
+                                                .lifecycle(false)
+                                                .network(true)
+                                                .build()))
+                .build();
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.flush();
+        replayAll();
+
+        createTestManager(config, makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        // Lifecycle switching is off, so no rebuild is expected — but the flush must still happen.
+        verifyNoMoreDataSourcesWereCreated();
+        verifyNoMoreDataSourcesWereStopped();
         verifyAll();
     }
 

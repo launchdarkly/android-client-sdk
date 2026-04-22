@@ -188,12 +188,18 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
 
         foregroundListener = foreground -> {
             updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
+
+            // CONNMODE 3.3.1: flush pending events before transitioning to
+            // background. The app may be about to be killed by the OS, so this
+            // hedge runs independently of the auto-switching configuration and
+            // of FDv1 vs FDv2 mode resolution — preserving queued analytics
+            // events takes precedence over either of those gates.
+            if (!foreground) {
+                eventProcessor.flush();
+            }
+
             if (!autoModeSwitchingConfig.isLifecycle()) {
                 return;
-            }
-            // CONNMODE 3.3.1: flush pending events before transitioning to background
-            if (useFDv2ModeResolution && !foreground) {
-                eventProcessor.flush();
             }
             stateDebounceManager.setForeground(foreground);
         };
