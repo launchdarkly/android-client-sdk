@@ -9,7 +9,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class StateDebounceManagerTest {
@@ -99,22 +98,6 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void callbackReceivesLatestState() throws InterruptedException {
-        CountDownLatch latch = new CountDownLatch(1);
-
-        StateDebounceManager mgr = createManager(true, true, latch::countDown);
-
-        mgr.setNetworkAvailable(false);
-        mgr.setForeground(false);
-
-        assertTrue(latch.await(TEST_DEBOUNCE_MS * 5, TimeUnit.MILLISECONDS));
-        assertFalse("should reflect latest network state", mgr.isNetworkAvailable());
-        assertFalse("should reflect latest foreground state", mgr.isForeground());
-
-        mgr.close();
-    }
-
-    @Test
     public void multipleRapidChangesCoalesceIntoOneCallback() throws InterruptedException {
         AtomicInteger callCount = new AtomicInteger(0);
         StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
@@ -126,9 +109,9 @@ public class StateDebounceManagerTest {
         mgr.setForeground(true);
 
         Thread.sleep(TEST_DEBOUNCE_MS * 4);
+        // Final state (network=false, foreground=true) differs from initial baseline
+        // (network=true, foreground=true), so the dedup allows the callback to fire.
         assertEquals("rapid changes should coalesce into one callback", 1, callCount.get());
-        assertTrue("final network state should be false", !mgr.isNetworkAvailable());
-        assertTrue("final foreground state should be true", mgr.isForeground());
 
         mgr.close();
     }
@@ -172,7 +155,7 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void immediateModeFiresCallbackSynchronously() throws InterruptedException {
+    public void immediateModeFiresCallbackSynchronously() {
         AtomicInteger callCount = new AtomicInteger(0);
         StateDebounceManager mgr = new StateDebounceManager(
                 true, true, taskExecutor, 0, callCount::incrementAndGet);
@@ -183,7 +166,7 @@ public class StateDebounceManagerTest {
         mgr.setForeground(false);
         assertEquals("second callback should also fire synchronously", 2, callCount.get());
 
-        // Duplicate values should not trigger callback
+        // Duplicate values should not trigger callback (per setter's same-value short-circuit).
         mgr.setNetworkAvailable(false);
         assertEquals("duplicate value should not trigger callback", 2, callCount.get());
 
@@ -191,7 +174,26 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void immediateModeClosePreventsFurtherCallbacks() throws InterruptedException {
+    public void immediateModeFiresEvenWhenStateReturnsToBaseline() {
+        // FDv1 immediate mode bypasses fireIfChanged dedup intentionally — the absence of a
+        // debounce window means there's no "raw-state oscillation" to suppress, and dedup
+        // would race on cross-thread setter calls without synchronization. Ensure that a
+        // value-changing set still fires the callback even if the new value matches some
+        // earlier baseline.
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, taskExecutor, 0, callCount::incrementAndGet);
+
+        mgr.setNetworkAvailable(false); // 1
+        mgr.setNetworkAvailable(true);  // 2 — back to initial baseline, but still fires
+        assertEquals("immediate mode fires on each value change, no baseline dedup",
+                2, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void immediateModeClosePreventsFurtherCallbacks() {
         AtomicInteger callCount = new AtomicInteger(0);
         StateDebounceManager mgr = new StateDebounceManager(
                 true, true, taskExecutor, 0, callCount::incrementAndGet);
@@ -199,65 +201,6 @@ public class StateDebounceManagerTest {
         mgr.close();
         mgr.setNetworkAvailable(false);
         assertEquals("callback should not fire after close in immediate mode", 0, callCount.get());
-    }
-
-    @Test
-    public void trackNetworkUpdatesStateWithoutTriggeringCallback() throws InterruptedException {
-        AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
-
-        mgr.trackNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
-        assertEquals("track should not trigger callback", 0, callCount.get());
-        assertFalse("state should be updated", mgr.isNetworkAvailable());
-
-        mgr.close();
-    }
-
-    @Test
-    public void trackForegroundUpdatesStateWithoutTriggeringCallback() throws InterruptedException {
-        AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
-
-        mgr.trackForeground(false);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
-        assertEquals("track should not trigger callback", 0, callCount.get());
-        assertFalse("state should be updated", mgr.isForeground());
-
-        mgr.close();
-    }
-
-    @Test
-    public void trackedStateVisibleToSubsequentReconciliation() throws InterruptedException {
-        CountDownLatch latch = new CountDownLatch(1);
-        StateDebounceManager mgr = createManager(true, true, latch::countDown);
-
-        // Track network (no timer), then trigger via foreground (starts timer)
-        mgr.trackNetworkAvailable(false);
-        mgr.setForeground(false);
-
-        assertTrue(latch.await(TEST_DEBOUNCE_MS * 5, TimeUnit.MILLISECONDS));
-        assertFalse("tracked network state should be visible", mgr.isNetworkAvailable());
-        assertFalse("triggered foreground state should be visible", mgr.isForeground());
-
-        mgr.close();
-    }
-
-    @Test
-    public void trackDoesNotResetPendingTimer() throws InterruptedException {
-        AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
-
-        mgr.setNetworkAvailable(false); // starts timer
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
-        mgr.trackForeground(false); // should NOT reset timer
-
-        // Wait for the original timer to fire
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
-        assertEquals("callback should fire once from original timer", 1, callCount.get());
-        assertFalse("tracked foreground should be updated", mgr.isForeground());
-
-        mgr.close();
     }
 
     @Test
@@ -272,6 +215,64 @@ public class StateDebounceManagerTest {
         mgr.setNetworkAvailable(true);
         Thread.sleep(TEST_DEBOUNCE_MS * 3);
         assertEquals(2, callCount.get());
+
+        mgr.close();
+    }
+
+    // ==== Option A: A→B→C→A raw-state dedup at fire time ====
+    //
+    // These tests verify that fireIfChanged() suppresses the reconcile callback
+    // when the platform churned through one or more transitions within the
+    // debounce window and returned to the baseline state.
+
+    @Test
+    public void dedupSuppressesAtoBtoAWithinWindow() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        // foreground: true → false → true within the same window
+        mgr.setForeground(false);
+        mgr.setForeground(true);
+
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("A→B→A within window should suppress the callback", 0, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void dedupSuppressesMultiAxisAtoBtoAWithinWindow() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        // Both axes oscillate and return to their baseline within the window.
+        mgr.setNetworkAvailable(false);
+        mgr.setForeground(false);
+        mgr.setNetworkAvailable(true);
+        mgr.setForeground(true);
+
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("multi-axis A→B→A within window should suppress the callback",
+                0, callCount.get());
+
+        mgr.close();
+    }
+
+    @Test
+    public void dedupAllowsGenuineChangeAfterSuppression() throws InterruptedException {
+        AtomicInteger callCount = new AtomicInteger(0);
+        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+
+        // First window: A→B→A, suppressed.
+        mgr.setForeground(false);
+        mgr.setForeground(true);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("first window should be suppressed", 0, callCount.get());
+
+        // Second window: a genuine transition still fires.
+        mgr.setForeground(false);
+        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("subsequent genuine transition should fire", 1, callCount.get());
 
         mgr.close();
     }

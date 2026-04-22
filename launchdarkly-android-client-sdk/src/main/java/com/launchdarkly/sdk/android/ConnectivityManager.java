@@ -171,10 +171,15 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
 
         this.stateDebounceManager = createDebounceManager();
 
+        // When auto mode-switching for an axis is disabled, we early-return without
+        // touching the debouncer. The debouncer's mirror for that axis can therefore
+        // become stale relative to PlatformState — that's intentional: handleStateChange
+        // reads from PlatformState, so the actual reconciliation always uses fresh
+        // values. The mirror is consulted only by the debouncer's internal A→B→C→A
+        // dedup, which correctly ignores axes the user opted out of.
         connectivityChangeListener = networkAvailable -> {
             updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
             if (!autoModeSwitchingConfig.isNetwork()) {
-                stateDebounceManager.trackNetworkAvailable(networkAvailable);
                 return;
             }
             stateDebounceManager.setNetworkAvailable(networkAvailable);
@@ -184,7 +189,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         foregroundListener = foreground -> {
             updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(), platformState.isForeground());
             if (!autoModeSwitchingConfig.isLifecycle()) {
-                stateDebounceManager.trackForeground(foreground);
                 return;
             }
             // CONNMODE 3.3.1: flush pending events before transitioning to background
@@ -243,6 +247,13 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             ConnectionMode newMode = resolveMode(newState);
             if (!mustReinitializeDataSource) {
                 // State-change path: check for no-op or equivalent config before rebuilding.
+                // Backstop for the debouncer's A→B→C→A dedup (which compares raw network
+                // and foreground booleans). The debouncer suppresses fires when raw state
+                // returned to its baseline, but raw state can shift to a NEW value without
+                // changing the resolved mode — e.g., when forcedOffline is true, network
+                // true→false still triggers a fire (raw differs from baseline) but resolves
+                // to OFFLINE either way. This check catches that case. Cheap safety-net;
+                // keep even though the debouncer-side dedup is in place.
                 if (newMode == currentFDv2Mode) {
                     onCompletion.onSuccess(null);
                     return false;
@@ -584,7 +595,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         boolean wasForcedOffline = forcedOffline.getAndSet(forceOffline);
         if (forceOffline != wasForcedOffline) {
             updateEventProcessor(forceOffline, platformState.isNetworkAvailable(), platformState.isForeground());
-            handleModeStateChange();
+            handleStateChange();
         }
     }
 
@@ -598,14 +609,24 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     }
 
     /**
-     * FDv1 reconciliation callback. Invoked by the {@link StateDebounceManager} in immediate
-     * mode ({@code debounceMs=0}). Does NOT call {@link #updateEventProcessor} because
-     * that is already done in the listener lambdas before the debounce manager fires.
+     * Reconciliation callback invoked by {@link StateDebounceManager} when the
+     * debounce timer fires (CONNMODE 3.5.3) or, in FDv1 immediate mode, on each
+     * platform state change. Reads the latest state from {@link PlatformState}
+     * and triggers a data source update if the resolved mode has changed.
      * <p>
-     * Also called directly by {@link #setForceOffline(boolean)}, which handles its own
-     * event processor update before calling this.
+     * Also called directly by {@link #setForceOffline(boolean)}, which handles
+     * its own event processor update before calling this. {@link #updateEventProcessor}
+     * is not called here because the listener lambdas already do so before
+     * notifying the debouncer.
+     * <p>
+     * {@code synchronized} on {@code this} is load-bearing: it serializes this
+     * callback (which runs on the {@link AndroidTaskExecutor} thread for FDv2
+     * and on platform listener threads for FDv1) with {@link #onContextChanged}
+     * and {@link #setForceOffline} so that {@link #updateDataSource} sees a
+     * consistent view of {@code currentDataSource}, {@code currentFDv2Mode},
+     * and {@code previousModeState}.
      */
-    private synchronized void handleModeStateChange() {
+    private synchronized void handleStateChange() {
         ModeState state = snapshotModeState();
         updateDataSource(false, state, LDUtil.noOpCallback());
     }
@@ -624,30 +645,13 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
      */
     private StateDebounceManager createDebounceManager() {
         long effectiveDebounceMs = useFDv2ModeResolution ? connectionModeStateDebounceMs : 0;
-        Runnable reconcileCallback = useFDv2ModeResolution
-                ? this::handleDebouncedModeStateChange
-                : this::handleModeStateChange;
         return new StateDebounceManager(
                 platformState.isNetworkAvailable(),
                 platformState.isForeground(),
                 taskExecutor,
                 effectiveDebounceMs,
-                reconcileCallback
+                this::handleStateChange
         );
-    }
-
-    /**
-     * Reconciliation callback invoked by the {@link StateDebounceManager} when the debounce
-     * timer fires (CONNMODE 3.5.3). Reads the latest accumulated state from the debounce
-     * manager and triggers a data source update if the resolved mode has changed.
-     */
-    private void handleDebouncedModeStateChange() {
-        ModeState state = new ModeState(
-                stateDebounceManager.isForeground(),
-                stateDebounceManager.isNetworkAvailable(),
-                backgroundUpdatingDisabled
-        );
-        updateDataSource(false, state, LDUtil.noOpCallback());
     }
 
     private ModeState snapshotModeState() {

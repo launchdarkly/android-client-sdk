@@ -5,11 +5,16 @@ import java.util.concurrent.ScheduledFuture;
 /**
  * Debounces platform state changes (network, lifecycle) into a single
  * reconciliation callback (CONNMODE 3.5). Each state change resets a timer; when
- * the timer fires, the callback runs with the latest accumulated state.
+ * the timer fires, the callback runs only if the accumulated state differs from
+ * the state at last fire (raw-state A→B→C→A coalescing).
  * <p>
  * When {@code debounceMs == 0} ("immediate mode"), the callback is invoked
- * synchronously on each state change with no timer. This allows FDv1 data
- * sources to share the same code path as FDv2 without introducing any delay.
+ * synchronously on each state change with no timer and no dedup. This allows
+ * FDv1 data sources to share the same code path as FDv2 without introducing any
+ * delay. Dedup is intentionally skipped in immediate mode because (a) there is
+ * no debounce window for state to oscillate within, and (b) listener callbacks
+ * can fire on different threads, which would race on the {@code lastApplied*}
+ * fields if dedup were active.
  * <p>
  * {@code identify()} does NOT participate in debounce (CONNMODE 3.5.6). Callers
  * handle this by closing and recreating the manager on identify.
@@ -26,6 +31,14 @@ final class StateDebounceManager {
     private volatile boolean networkAvailable;
     private volatile boolean foreground;
 
+    // Snapshot of (networkAvailable, foreground) at the last successful fire (or
+    // initial seed). Used by fireIfChanged() to suppress no-op timer fires when
+    // raw state has returned to the prior baseline within a debounce window.
+    // Only ever read/written from the single AndroidTaskExecutor thread inside
+    // fireIfChanged(), so no synchronization is needed.
+    private boolean lastAppliedNetworkAvailable;
+    private boolean lastAppliedForeground;
+
     private ScheduledFuture<?> lastTask;
     private volatile boolean closed;
 
@@ -38,6 +51,8 @@ final class StateDebounceManager {
     ) {
         this.networkAvailable = initialNetworkAvailable;
         this.foreground = initialForeground;
+        this.lastAppliedNetworkAvailable = initialNetworkAvailable;
+        this.lastAppliedForeground = initialForeground;
         this.taskExecutor = taskExecutor;
         this.debounceMs = debounceMs;
         this.onReconcile = onReconcile;
@@ -59,32 +74,6 @@ final class StateDebounceManager {
         resetTimer();
     }
 
-    /**
-     * Updates network state without triggering a debounce timer reset. Use when
-     * the caller wants to keep state current (so future reconciliation sees the
-     * right value) but auto-switching for this axis is disabled.
-     */
-    void trackNetworkAvailable(boolean available) {
-        this.networkAvailable = available;
-    }
-
-    /**
-     * Updates foreground state without triggering a debounce timer reset. Use when
-     * the caller wants to keep state current (so future reconciliation sees the
-     * right value) but auto-switching for this axis is disabled.
-     */
-    void trackForeground(boolean fg) {
-        this.foreground = fg;
-    }
-
-    boolean isNetworkAvailable() {
-        return networkAvailable;
-    }
-
-    boolean isForeground() {
-        return foreground;
-    }
-
     void close() {
         closed = true;
         synchronized (lock) {
@@ -100,6 +89,8 @@ final class StateDebounceManager {
             return;
         }
         if (debounceMs == 0) {
+            // FDv1 immediate mode: fire synchronously, bypass dedup. See class
+            // Javadoc for why dedup is intentionally skipped here.
             onReconcile.run();
             return;
         }
@@ -107,11 +98,30 @@ final class StateDebounceManager {
             if (lastTask != null) {
                 lastTask.cancel(false);
             }
-            lastTask = taskExecutor.scheduleTask(() -> {
-                if (!closed) {
-                    onReconcile.run();
-                }
-            }, debounceMs);
+            lastTask = taskExecutor.scheduleTask(this::fireIfChanged, debounceMs);
         }
+    }
+
+    /**
+     * Invoked when a scheduled debounce timer fires. Compares the current raw
+     * state (network, foreground) to the state at last fire. If they match — i.e.
+     * the platform churned through one or more transitions and ended up where it
+     * started within the debounce window — the callback is suppressed.
+     * <p>
+     * Only reached via the scheduled task on the {@link AndroidTaskExecutor}'s
+     * single thread, so {@code lastApplied*} access is naturally serialized.
+     */
+    private void fireIfChanged() {
+        if (closed) {
+            return;
+        }
+        boolean nowNetwork = networkAvailable;
+        boolean nowFg = foreground;
+        if (nowNetwork == lastAppliedNetworkAvailable && nowFg == lastAppliedForeground) {
+            return;
+        }
+        lastAppliedNetworkAvailable = nowNetwork;
+        lastAppliedForeground = nowFg;
+        onReconcile.run();
     }
 }
