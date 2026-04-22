@@ -6,9 +6,11 @@ import org.junit.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class StateDebounceManagerTest {
@@ -152,6 +154,52 @@ public class StateDebounceManagerTest {
 
         Thread.sleep(TEST_DEBOUNCE_MS * 3);
         assertEquals("setters after close should not trigger callback", 0, callCount.get());
+    }
+
+    @Test
+    public void closeWaitsForInflightReconcileCallback() throws Exception {
+        // Verifies the drain-barrier contract of close(): once close() returns,
+        // no reconcile callback is still executing. A test reconcile callback
+        // blocks until released, so the worker thread is guaranteed to be inside
+        // onReconcile.run() when close() begins. close() must not return until
+        // the callback finishes.
+        CountDownLatch callbackEntered = new CountDownLatch(1);
+        CountDownLatch callbackMayProceed = new CountDownLatch(1);
+        AtomicBoolean closeReturned = new AtomicBoolean(false);
+        AtomicBoolean callbackFinishedBeforeCloseReturned = new AtomicBoolean(false);
+
+        StateDebounceManager mgr = createManager(true, true, () -> {
+            callbackEntered.countDown();
+            try {
+                callbackMayProceed.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            callbackFinishedBeforeCloseReturned.set(!closeReturned.get());
+        });
+
+        mgr.setNetworkAvailable(false);
+        assertTrue("reconcile callback should start within debounce window",
+                callbackEntered.await(2, TimeUnit.SECONDS));
+
+        Thread closer = new Thread(() -> {
+            mgr.close();
+            closeReturned.set(true);
+        }, "close-thread");
+        closer.start();
+
+        // Give close() a chance to reach the workLock barrier.
+        Thread.sleep(TEST_DEBOUNCE_MS * 2);
+        assertFalse("close() must not return while a reconcile callback is in flight",
+                closeReturned.get());
+
+        callbackMayProceed.countDown();
+        closer.join(TimeUnit.SECONDS.toMillis(2));
+
+        assertTrue("close() should return after the in-flight callback finishes",
+                closeReturned.get());
+        assertTrue("the reconcile callback must complete before close() returns",
+                callbackFinishedBeforeCloseReturned.get());
     }
 
     @Test

@@ -637,6 +637,9 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
      * {@code previousModeState}.
      */
     private synchronized void handleStateChange() {
+        if (closed.get()) {
+            return;
+        }
         ModeState state = snapshotModeState();
         updateDataSource(false, state, LDUtil.noOpCallback());
     }

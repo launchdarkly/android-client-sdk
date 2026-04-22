@@ -1478,6 +1478,31 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
+    public void fdv2_setForceOfflineAfterShutdownIsNoOp() throws Exception {
+        // After shutDown(), setForceOffline must not rebuild any data source.
+        // The event processor is still updated (setForceOffline runs before
+        // handleStateChange's closed guard), but no further data-source
+        // creation or start may occur.
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
+        awaitStartUp();
+        verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        connectivityManager.shutDown();
+        verifyDataSourceWasStopped();
+
+        connectivityManager.setForceOffline(true);
+
+        verifyNoMoreDataSourcesWereCreated();
+        verifyAll();
+    }
+
+    @Test
     public void fdv2_eventsFlushedOnBackgroundTransition() throws Exception {
         // CONNMODE 3.3.1: flush pending events before background transition
         eventProcessor.setOffline(false);
