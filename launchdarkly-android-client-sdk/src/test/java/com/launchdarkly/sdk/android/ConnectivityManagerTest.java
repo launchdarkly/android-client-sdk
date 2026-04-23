@@ -18,6 +18,10 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
+import com.launchdarkly.sdk.fdv2.Selector;
 import com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
@@ -46,6 +50,7 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1220,7 +1225,7 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
-    public void fdv2_modeSwitchDoesNotIncludeInitializers() throws Exception {
+    public void fdv2_modeSwitchIncludesInitializersWhenSelectorEmpty() throws Exception {
         BlockingQueue<Boolean> initializerIncluded = new LinkedBlockingQueue<>();
 
         Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
@@ -1256,6 +1261,61 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         awaitStartUp();
         assertEquals(Boolean.TRUE, initializerIncluded.poll(1, TimeUnit.SECONDS));
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
+
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        verifyDataSourceWasStopped();
+        // Matches js-core FDv2DataManagerBase: includeInitializers = !selector — empty selector
+        // means the pipeline may still need initializer work after a mode change.
+        assertEquals(Boolean.TRUE, initializerIncluded.poll(2, TimeUnit.SECONDS));
+        requireValue(receivedClientContexts, 2, TimeUnit.SECONDS, "bg data source creation");
+        requireValue(startedDataSources, 2, TimeUnit.SECONDS, "bg data source started");
+        verifyAll();
+    }
+
+    @Test
+    public void fdv2_modeSwitchExcludesInitializersWhenSelectorNonEmpty() throws Exception {
+        BlockingQueue<Boolean> initializerIncluded = new LinkedBlockingQueue<>();
+
+        Map<com.launchdarkly.sdk.android.ConnectionMode, ModeDefinition> table = new LinkedHashMap<>();
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.STREAMING, new ModeDefinition(
+                Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
+        ));
+        table.put(com.launchdarkly.sdk.android.ConnectionMode.BACKGROUND, new ModeDefinition(
+                Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> null),
+                Collections.<DataSourceBuilder<Synchronizer>>singletonList(inputs -> null),
+                null
+        ));
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(table, com.launchdarkly.sdk.android.ConnectionMode.STREAMING) {
+            @Override
+            public DataSource build(ClientContext clientContext) {
+                initializerIncluded.offer(readIncludeInitializersFlag(this));
+                receivedClientContexts.add(clientContext);
+                return MockComponents.successfulDataSource(clientContext, DATA,
+                        ConnectionMode.STREAMING, startedDataSources, stoppedDataSources);
+            }
+        };
+
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.flush(); // CONNMODE 3.3.1: flush before background transition
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), builder);
+        awaitStartUp();
+        assertEquals(Boolean.TRUE, initializerIncluded.poll(1, TimeUnit.SECONDS));
+
+        Flag flag = new FlagBuilder("flag1").version(1).build();
+        Map<String, Flag> items = new HashMap<>();
+        items.put(flag.getKey(), flag);
+        Selector selector = Selector.make(1, "state-1");
+        contextDataManager.apply(CONTEXT, new ChangeSet<>(
+                ChangeSetType.Full, selector, items, null, false));
 
         mockPlatformState.setAndNotifyForegroundChangeListeners(false);
 

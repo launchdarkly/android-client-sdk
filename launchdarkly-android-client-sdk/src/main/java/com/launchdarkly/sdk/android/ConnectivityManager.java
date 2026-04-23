@@ -256,8 +256,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         }
 
         DataSource existingDataSource = currentDataSource.get();
-        boolean isFDv2ModeSwitch = false;
-        
+
         // FDv2 path: resolve mode for both startup (mustReinitializeDataSource=true) and
         // state-change (mustReinitializeDataSource=false) cases.
         if (useFDv2ModeResolution) {
@@ -286,7 +285,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
                     onCompletion.onSuccess(null);
                     return false;
                 }
-                isFDv2ModeSwitch = true;
                 mustReinitializeDataSource = true;
             }
             currentFDv2Mode = newMode;
@@ -361,9 +359,12 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         );
 
         if (useFDv2ModeResolution) {
-            // CONNMODE 2.0.1: mode switches only transition synchronizers, not initializers.
-            // TODO: SDK-2071 - refactor running initializers to use existence of selector
-            ((FDv2DataSourceBuilder) dataSourceFactory).setActiveMode(currentFDv2Mode, !isFDv2ModeSwitch);
+            // CSFDV2 5.3.8 / js-core FDv2DataManagerBase: include initializers only while the
+            // selector is still empty (no fully-current payload yet). Once a non-empty selector
+            // exists, subsequent rebuilds use synchronizers only.
+            boolean includeInitializers =
+                    view == null || view.getSelector().isEmpty();
+            ((FDv2DataSourceBuilder) dataSourceFactory).setActiveMode(currentFDv2Mode, includeInitializers);
         }
 
         DataSource dataSource = dataSourceFactory.build(clientContext);
