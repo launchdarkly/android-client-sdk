@@ -363,7 +363,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             // selector is still empty (no fully-current payload yet). Once a non-empty selector
             // exists, subsequent rebuilds use synchronizers only.
             boolean includeInitializers =
-                    currentView == null || currentView.getSelector().isEmpty();
+                    view == null || view.getSelector().isEmpty();
             ((FDv2DataSourceBuilder) dataSourceFactory).setActiveMode(currentFDv2Mode, includeInitializers);
         }
 
