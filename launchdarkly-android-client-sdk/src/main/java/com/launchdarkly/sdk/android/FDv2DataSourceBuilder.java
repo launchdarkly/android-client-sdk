@@ -36,7 +36,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private final ModeResolutionTable resolutionTable;
 
     private ConnectionMode activeMode;
-    private boolean includeInitializers = true; // false during mode switches to skip initializers (CONNMODE 2.0.1)
+    private boolean includeInitializers = true; // start with initializers
     private ScheduledExecutorService sharedExecutor;
 
     FDv2DataSourceBuilder() {
@@ -80,8 +80,8 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
      * Called by {@link ConnectivityManager} before each {@link #build} call.
      *
      * @param mode               the target connection mode
-     * @param includeInitializers true for initial startup / identify, false for mode switches
-     *                           (per CONNMODE 2.0.1: mode switches only transition synchronizers)
+     * @param includeInitializers true when the FDv2 selector is still empty (no fully-current
+     *                           payload in the flag store); false once a non-empty selector exists
      */
     void setActiveMode(@NonNull ConnectionMode mode, boolean includeInitializers) {
         this.activeMode = mode;
