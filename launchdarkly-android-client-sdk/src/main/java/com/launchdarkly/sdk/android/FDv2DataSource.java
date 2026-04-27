@@ -399,7 +399,6 @@ final class FDv2DataSource implements DataSource {
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
                             sink.apply(context, changeSet);
-                            logger.info("Initialized via '{}'.", initializerName);
                             if (changeSet.getType() != ChangeSetType.None) {
                                 anyDataReceived = true;
                             }
@@ -408,9 +407,14 @@ final class FDv2DataSource implements DataSource {
                             if (!changeSet.getSelector().isEmpty()) {
                                 sink.setStatus(DataSourceState.VALID, null);
                                 tryCompleteStart(true, null);
+                                logger.info("Initialized via '{}'.", initializerName);
                                 return;
                             }
                             // Empty selector: partial data received, keep trying remaining initializers.
+                            logger.debug(
+                                    "Initializer '{}' returned data with an empty selector; continuing with remaining initializers.",
+                                    initializerName
+                            );
                         }
                         break;
                     case STATUS:
