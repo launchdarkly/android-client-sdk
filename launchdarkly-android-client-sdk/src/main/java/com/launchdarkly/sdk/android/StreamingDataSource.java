@@ -133,9 +133,11 @@ final class StreamingDataSource implements DataSource {
                         if (code >= 400 && code < 500) {
                             logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
-                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             if (code == 401) {
                                 connection401Error = true;
+                            }
+                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
+                            if (code == 401) {
                                 dataSourceUpdateSink.shutDown();
                             }
                             stop(null);
