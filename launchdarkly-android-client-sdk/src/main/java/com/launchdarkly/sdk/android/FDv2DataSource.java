@@ -451,9 +451,6 @@ final class FDv2DataSource implements DataSource {
                             failure.getMessage() != null ? failure.getMessage() : LogValues.exceptionSummary(failure)
                     );
                 }
-                if (failure instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                }
             } catch (CancellationException e) {
                 sink.setStatus(DataSourceState.INTERRUPTED, e);
             } catch (InterruptedException e) {
@@ -646,9 +643,6 @@ final class FDv2DataSource implements DataSource {
                                 synchronizer.name(),
                                 failure.getMessage() != null ? failure.getMessage() : LogValues.exceptionSummary(failure)
                         );
-                    }
-                    if (failure instanceof InterruptedException) {
-                        Thread.currentThread().interrupt();
                     }
                 } catch (CancellationException e) {
                     sink.setStatus(DataSourceState.INTERRUPTED, e);
