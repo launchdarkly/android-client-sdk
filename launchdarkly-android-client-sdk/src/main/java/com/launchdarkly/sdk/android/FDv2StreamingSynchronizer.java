@@ -465,4 +465,10 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
         protocolHandler.reset();
     }
+
+    @Override
+    @NonNull
+    public String name() {
+        return "StreamingSynchronizer(V2)";
+    }
 }

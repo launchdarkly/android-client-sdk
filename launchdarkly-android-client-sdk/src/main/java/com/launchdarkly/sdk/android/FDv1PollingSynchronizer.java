@@ -188,4 +188,10 @@ final class FDv1PollingSynchronizer implements Synchronizer {
         } catch (IOException ignored) {
         }
     }
+
+    @Override
+    @NonNull
+    public String name() {
+        return "PollingSynchronizer(V1)";
+    }
 }

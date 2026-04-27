@@ -30,4 +30,16 @@ public interface Synchronizer extends Closeable {
      * @return a Future that completes with the next result (change set or status)
      */
     Future<FDv2SourceResult> next();
+
+    /**
+     * Human-readable name for logging and diagnostics. Do not use this for influencing code behavior.
+     * <p>
+     * Implementations may override; the default uses the runtime class simple name.
+     *
+     * @return the name
+     */
+    default String name() {
+        String simple = getClass().getSimpleName();
+        return simple.isEmpty() ? getClass().getName() : simple;
+    }
 }
