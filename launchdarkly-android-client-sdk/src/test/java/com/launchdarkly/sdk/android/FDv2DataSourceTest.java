@@ -56,6 +56,8 @@ public class FDv2DataSourceTest {
 
     private static final long AWAIT_TIMEOUT_SECONDS = 10;
 
+    private static final long ORCHESTRATION_LOG_AWAIT_TIMEOUT_MS = AWAIT_TIMEOUT_SECONDS * 1000L;
+
     private ScheduledExecutorService executor;
 
     @Before
@@ -1907,5 +1909,274 @@ public class FDv2DataSourceTest {
 
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
         stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_noSourcesConfigured_logsWarnPerSpec() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink, Collections.emptyList(), Collections.emptyList());
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "LaunchDarkly client will not connect to LaunchDarkly for feature flag data");
+        awaitLogContains(logging, "no initializers or synchronizers configured");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_initializerStartAndInitializedVia_logsInfo() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(() -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Collections.emptyList());
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "Initializer 'MockInitializer' is starting.");
+        awaitLogContains(logging, "Initialized via 'MockInitializer'.");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_initializerFailedNonException_logsWarnWithDetail() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(() -> new MockInitializer(
+                        FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(new RuntimeException("bootstrap read failed")), false))),
+                Collections.emptyList());
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        awaitExpectingError(startCallback);
+        awaitLogContains(logging, "Initializer 'MockInitializer' failed:");
+        awaitLogContains(logging, "bootstrap read failed");
+    }
+
+    @Test
+    public void orchestrationLogging_synchronizerStarting_logsInfo() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(
+                        FDv2SourceResult.changeSet(makeChangeSet(false), false))));
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "Synchronizer 'MockQueuedSynchronizer' is starting.");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_synchronizerInterruptedStatus_logsInfo() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(
+                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                        interrupted())));
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "Synchronizer 'MockQueuedSynchronizer' reported status: INTERRUPTED.");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_consecutiveDuplicateStatus_logsOnce() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        // Two INTERRUPTEDs in a row (deduped), then a change set; fourth next() blocks until stop().
+        // Second synchronizer tier only SHUTDOWN so the outer loop exits (same factory cannot safely repeat the queue).
+        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
+                interrupted(),
+                interrupted(),
+                FDv2SourceResult.changeSet(makeChangeSet(false), false));
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> firstSync,
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false))));
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        sink.awaitApplyCount(1, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        awaitLogContains(logging, "reported status: INTERRUPTED.");
+        assertEquals(1, logLineCountContaining(logging, "reported status: INTERRUPTED."));
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_fallback_logsInfo() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        BlockingQueue<Boolean> secondCalledQueue = new LinkedBlockingQueue<>();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                interrupted()),
+                        () -> {
+                            secondCalledQueue.offer(true);
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false));
+                        }),
+                1, 300);
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertNotNull(secondCalledQueue.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        awaitLogContains(logging, "Fallback condition met, falling back from synchronizer 'MockQueuedSynchronizer'.");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_recovery_logsInfo() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                interrupted());
+        MockQueuedSynchronizer secondSync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(false), false));
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> firstSync,
+                        () -> secondSync),
+                1, 2);
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        try {
+            assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+            awaitLogContains(logging,
+                    "Recovery condition met, moving from synchronizer 'MockQueuedSynchronizer' to primary synchronizer.");
+        } finally {
+            stopDataSource(dataSource);
+        }
+    }
+
+    @Test
+    public void orchestrationLogging_fdv1Fallback_logsInfo() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        MockQueuedSynchronizer fdv2Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), true));
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer(
+                FDv2SourceResult.changeSet(makeChangeSet(true), false));
+        FDv2DataSource dataSource = new FDv2DataSource(
+                CONTEXT,
+                Collections.emptyList(),
+                Collections.singletonList(() -> fdv2Sync),
+                () -> fdv1Sync,
+                sink,
+                executor,
+                logging.logger);
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "Falling back to an FDv1 fallback synchronizer.");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_permanentFailure_logsWarn() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(terminalError())));
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        awaitExpectingError(startCallback);
+        awaitLogContains(logging,
+                "Synchronizer 'MockQueuedSynchronizer' permanently failed and will not be used again until application restart.");
+    }
+
+    @Test
+    public void orchestrationLogging_allSynchronizersExhausted_logsWarn() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> new MockQueuedSynchronizer(terminalError()),
+                        () -> new MockQueuedSynchronizer(terminalError()),
+                        () -> new MockQueuedSynchronizer(terminalError())));
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        awaitExpectingError(startCallback);
+        awaitLogContains(logging, "No more synchronizers available.");
+    }
+
+    @Test
+    public void orchestrationLogging_initializerException_logsError() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Arrays.asList(
+                        () -> new MockInitializer(new RuntimeException("init-boom")),
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Collections.emptyList());
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "Error running initializer 'MockInitializer':");
+        awaitLogContains(logging, "init-boom");
+    }
+
+    @Test
+    public void orchestrationLogging_initializerInterrupted_suppressesErrorLog() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Arrays.asList(
+                        () -> new MockInitializer(new InterruptedException("interrupted")),
+                        () -> new MockInitializer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                Collections.emptyList());
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "Initialized via 'MockInitializer'.");
+        assertFalse(logging.logCapture.getMessageStrings().stream()
+                .anyMatch(s -> s.contains("ERROR:") && s.contains("Error running initializer")));
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_synchronizerException_logsError() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> new MockSynchronizer(new RuntimeException("sync-boom")),
+                        () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))));
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        awaitLogContains(logging, "Error running synchronizer 'MockSynchronizer':");
+        awaitLogContains(logging, "sync-boom");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void orchestrationLogging_synchronizerInterrupted_suppressesErrorLog() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> new MockSynchronizer(new InterruptedException("interrupted")),
+                        () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))));
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        sink.awaitApplyCount(1, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertFalse(logging.logCapture.getMessageStrings().stream()
+                .anyMatch(s -> s.contains("ERROR:") && s.contains("Error running synchronizer")));
+        stopDataSource(dataSource);
+    }
+
+    /**
+     * Polls captured log messages until one contains {@code substring}, or fails after {@code timeoutMs}.
+     * Use this instead of immediate {@code assert*Logged} so assertions are not racy with the worker thread.
+     */
+    private void awaitLogContains(LogCaptureRule rule, String substring, long timeoutMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            for (String s : rule.logCapture.getMessageStrings()) {
+                if (s.contains(substring)) {
+                    return;
+                }
+            }
+            Thread.sleep(10);
+        }
+        fail("Timed out after " + timeoutMs + " ms waiting for log containing: " + substring);
+    }
+
+    private void awaitLogContains(LogCaptureRule rule, String substring) throws InterruptedException {
+        awaitLogContains(rule, substring, ORCHESTRATION_LOG_AWAIT_TIMEOUT_MS);
+    }
+
+    private static long logLineCountContaining(LogCaptureRule rule, String substring) {
+        return rule.logCapture.getMessageStrings().stream()
+                .filter(s -> s.contains(substring))
+                .count();
     }
 }

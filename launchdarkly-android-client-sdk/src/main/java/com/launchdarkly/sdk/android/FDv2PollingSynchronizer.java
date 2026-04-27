@@ -114,4 +114,10 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
         shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
         closeRequestor();
     }
+
+    @Override
+    @NonNull
+    public String name() {
+        return "PollingSynchronizer(V2)";
+    }
 }
