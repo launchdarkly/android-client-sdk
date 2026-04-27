@@ -66,4 +66,10 @@ final class FDv2PollingInitializer extends FDv2PollingBase implements Initialize
         shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
         closeRequestor();
     }
+
+    @Override
+    @NonNull
+    public String name() {
+        return "PollingInitializer(V2)";
+    }
 }

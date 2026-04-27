@@ -103,4 +103,10 @@ final class FDv2CacheInitializer implements Initializer {
     public void close() {
         // No-op: the cache read runs synchronously in run(), so there is nothing to cancel.
     }
+
+    @Override
+    @NonNull
+    public String name() {
+        return "CacheInitializer(V2)";
+    }
 }
