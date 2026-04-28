@@ -1,4 +1,4 @@
-package com.launchdarkly.sdk.android.integrations;
+package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -6,10 +6,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import com.launchdarkly.sdk.android.Components;
-import com.launchdarkly.sdk.android.ConnectionMode;
-import com.launchdarkly.sdk.android.DataSystemComponents;
-import com.launchdarkly.sdk.android.ModeDefinition;
+import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
+import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 
 import org.junit.Test;
 

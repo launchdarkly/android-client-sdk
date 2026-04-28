@@ -4,9 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
 import com.launchdarkly.sdk.android.DataSystemComponents;
-import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
-import com.launchdarkly.sdk.android.subsystems.Initializer;
-import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import org.junit.Test;
 
@@ -14,43 +11,43 @@ public class ConnectionModeBuilderTest {
 
     @Test
     public void initializers_lastCallReplacesPrevious() {
-        DataSourceBuilder<Initializer> first = DataSystemComponents.pollingInitializer();
-        DataSourceBuilder<Initializer> second = DataSystemComponents.pollingInitializer();
+        InitializerEntry first = DataSystemComponents.pollingInitializer();
+        InitializerEntry second = DataSystemComponents.pollingInitializer();
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .initializers(first)
                 .initializers(second);
-        assertEquals(1, b.getInitializers().size());
-        assertSame(second, b.getInitializers().get(0));
+        assertEquals(1, b.getInitializerEntries().size());
+        assertSame(second, b.getInitializerEntries().get(0));
     }
 
     @Test
     public void synchronizers_lastCallReplacesPrevious() {
-        DataSourceBuilder<Synchronizer> first = DataSystemComponents.pollingSynchronizer();
-        DataSourceBuilder<Synchronizer> second = DataSystemComponents.streamingSynchronizer();
+        SynchronizerEntry first = DataSystemComponents.pollingSynchronizer();
+        SynchronizerEntry second = DataSystemComponents.streamingSynchronizer();
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .synchronizers(first)
                 .synchronizers(second);
-        assertEquals(1, b.getSynchronizers().size());
-        assertSame(second, b.getSynchronizers().get(0));
+        assertEquals(1, b.getSynchronizerEntries().size());
+        assertSame(second, b.getSynchronizerEntries().get(0));
     }
 
     @Test
-    public void getInitializers_isUnmodifiable() {
+    public void getInitializerEntries_isUnmodifiable() {
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .initializers(DataSystemComponents.pollingInitializer());
         try {
-            b.getInitializers().clear();
+            b.getInitializerEntries().clear();
             org.junit.Assert.fail("expected UnsupportedOperationException");
         } catch (UnsupportedOperationException ignored) {
         }
     }
 
     @Test
-    public void getSynchronizers_isUnmodifiable() {
+    public void getSynchronizerEntries_isUnmodifiable() {
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .synchronizers(DataSystemComponents.pollingSynchronizer());
         try {
-            b.getSynchronizers().clear();
+            b.getSynchronizerEntries().clear();
             org.junit.Assert.fail("expected UnsupportedOperationException");
         } catch (UnsupportedOperationException ignored) {
         }
@@ -59,7 +56,7 @@ public class ConnectionModeBuilderTest {
     @Test
     public void freshBuilder_hasEmptyLists() {
         ConnectionModeBuilder b = DataSystemComponents.customMode();
-        assertEquals(0, b.getInitializers().size());
-        assertEquals(0, b.getSynchronizers().size());
+        assertEquals(0, b.getInitializerEntries().size());
+        assertEquals(0, b.getSynchronizerEntries().size());
     }
 }
