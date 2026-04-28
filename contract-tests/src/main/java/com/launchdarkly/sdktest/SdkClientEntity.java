@@ -12,6 +12,7 @@ import com.launchdarkly.sdk.android.ConfigHelper;
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
+import com.launchdarkly.sdk.android.InternalDataSystemAccess;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
@@ -21,15 +22,14 @@ import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
 import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.Hook;
+import com.launchdarkly.sdk.android.integrations.InitializerSpec;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
-import com.launchdarkly.sdk.android.integrations.PollingInitializerBuilder;
-import com.launchdarkly.sdk.android.integrations.PollingSynchronizerBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingInitializerSpec;
+import com.launchdarkly.sdk.android.integrations.PollingSynchronizerSpec;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
-import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerBuilder;
+import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerSpec;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
-import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
-import com.launchdarkly.sdk.android.subsystems.Initializer;
-import com.launchdarkly.sdk.android.subsystems.Synchronizer;
+import com.launchdarkly.sdk.android.integrations.SynchronizerSpec;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import com.launchdarkly.sdktest.Representations.CommandParams;
@@ -394,13 +394,13 @@ public class SdkClientEntity {
 
   private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem) {
     if (Boolean.TRUE.equals(dataSystem.useDefaultDataSystem)) {
-      builder.dataSystem(Components.dataSystem());
+      InternalDataSystemAccess.applyToConfig(builder, InternalDataSystemAccess.newBuilder());
       return;
     }
 
     SdkConfigConnectionModeConfig connModeConfig = dataSystem.connectionModeConfig;
 
-    DataSystemBuilder dsBuilder = Components.dataSystem();
+    DataSystemBuilder dsBuilder = InternalDataSystemAccess.newBuilder();
 
     // at the time of writing this, we did not have contract tests that could test platform state changes,
     // disabling automatic mode simplifies the behavior being tested
@@ -425,7 +425,7 @@ public class SdkClientEntity {
       dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING, buildConnectionModeBuilder(topLevel));
     }
 
-    builder.dataSystem(dsBuilder);
+    InternalDataSystemAccess.applyToConfig(builder, dsBuilder);
   }
 
   private static boolean hasTopLevelDataSystemPipelines(SdkConfigDataSystemParams dataSystem) {
@@ -444,49 +444,47 @@ public class SdkClientEntity {
     ConnectionModeBuilder modeBuilder = DataSystemComponents.customMode();
 
     if (modeDef.initializers != null) {
-      List<DataSourceBuilder<Initializer>> initList = new ArrayList<>();
+      List<InitializerSpec> initList = new ArrayList<>();
       for (SdkConfigDataInitializer init : modeDef.initializers) {
         if (init.polling != null) {
-          PollingInitializerBuilder initBuilder = DataSystemComponents.pollingInitializer();
+          PollingInitializerSpec initSpec = DataSystemComponents.pollingInitializer();
           if (init.polling.baseUri != null) {
-            initBuilder.serviceEndpointsOverride(
+            initSpec.serviceEndpointsOverride(
                     Components.serviceEndpoints().polling(init.polling.baseUri));
           }
-          initList.add(initBuilder);
+          initList.add(initSpec);
         }
       }
-      @SuppressWarnings("unchecked")
-      DataSourceBuilder<Initializer>[] initArray = initList.toArray(new DataSourceBuilder[0]);
+      InitializerSpec[] initArray = initList.toArray(new InitializerSpec[0]);
       modeBuilder.initializers(initArray);
     }
 
     if (modeDef.synchronizers != null) {
-      List<DataSourceBuilder<Synchronizer>> syncList = new ArrayList<>();
+      List<SynchronizerSpec> syncList = new ArrayList<>();
       for (SdkConfigDataSynchronizer sync : modeDef.synchronizers) {
         if (sync.streaming != null) {
-          StreamingSynchronizerBuilder syncBuilder = DataSystemComponents.streamingSynchronizer();
+          StreamingSynchronizerSpec syncSpec = DataSystemComponents.streamingSynchronizer();
           if (sync.streaming.initialRetryDelayMs != null) {
-            syncBuilder.initialReconnectDelayMillis(sync.streaming.initialRetryDelayMs.intValue());
+            syncSpec.initialReconnectDelayMillis(sync.streaming.initialRetryDelayMs.intValue());
           }
           if (sync.streaming.baseUri != null) {
-            syncBuilder.serviceEndpointsOverride(
+            syncSpec.serviceEndpointsOverride(
                     Components.serviceEndpoints().streaming(sync.streaming.baseUri));
           }
-          syncList.add(syncBuilder);
+          syncList.add(syncSpec);
         } else if (sync.polling != null) {
-          PollingSynchronizerBuilder syncBuilder = DataSystemComponents.pollingSynchronizer();
+          PollingSynchronizerSpec syncSpec = DataSystemComponents.pollingSynchronizer();
           if (sync.polling.pollIntervalMs != null) {
-            syncBuilder.pollIntervalMillis(sync.polling.pollIntervalMs.intValue());
+            syncSpec.pollIntervalMillis(sync.polling.pollIntervalMs.intValue());
           }
           if (sync.polling.baseUri != null) {
-            syncBuilder.serviceEndpointsOverride(
+            syncSpec.serviceEndpointsOverride(
                     Components.serviceEndpoints().polling(sync.polling.baseUri));
           }
-          syncList.add(syncBuilder);
+          syncList.add(syncSpec);
         }
       }
-      @SuppressWarnings("unchecked")
-      DataSourceBuilder<Synchronizer>[] syncArray = syncList.toArray(new DataSourceBuilder[0]);
+      SynchronizerSpec[] syncArray = syncList.toArray(new SynchronizerSpec[0]);
       modeBuilder.synchronizers(syncArray);
     }
 

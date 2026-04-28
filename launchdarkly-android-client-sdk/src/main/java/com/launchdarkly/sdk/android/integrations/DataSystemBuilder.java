@@ -5,6 +5,7 @@ import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
+import com.launchdarkly.sdk.android.FdV2SpecResolver;
 import com.launchdarkly.sdk.android.ModeDefinition;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
@@ -12,6 +13,7 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -252,16 +254,21 @@ public class DataSystemBuilder {
             // no synchronizer that could receive the x-ld-fd-fallback header and the
             // fallback slot would never be reached by FDv2DataSource.runSynchronizers().
             DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer = null;
-            if (!cmb.getInitializers().isEmpty() || !cmb.getSynchronizers().isEmpty()) {
+            if (!cmb.getInitializerSpecs().isEmpty() || !cmb.getSynchronizerSpecs().isEmpty()) {
                 ModeDefinition defaultForMode = table.get(entry.getKey());
                 fdv1FallbackSynchronizer = defaultForMode != null
                         ? defaultForMode.getFdv1FallbackSynchronizer()
                         : null;
             }
 
+            List<DataSourceBuilder<Initializer>> initializerBuilders =
+                    FdV2SpecResolver.toInitializerBuilders(cmb.getInitializerSpecs());
+            List<DataSourceBuilder<Synchronizer>> synchronizerBuilders =
+                    FdV2SpecResolver.toSynchronizerBuilders(cmb.getSynchronizerSpecs());
+
             table.put(entry.getKey(), new ModeDefinition(
-                    cmb.getInitializers(),
-                    cmb.getSynchronizers(),
+                    initializerBuilders,
+                    synchronizerBuilders,
                     fdv1FallbackSynchronizer
             ));
         }

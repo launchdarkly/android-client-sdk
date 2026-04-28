@@ -304,7 +304,7 @@ public abstract class Components {
      * @see DataSystemComponents
      * @see LDConfig.Builder#dataSystem(DataSystemBuilder)
      */
-    public static DataSystemBuilder dataSystem() {
+    static DataSystemBuilder dataSystem() {
         return new DataSystemBuilder();
     }
 

@@ -1,11 +1,12 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
+import com.launchdarkly.sdk.android.integrations.CacheInitializerSpec;
 import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
 import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
-import com.launchdarkly.sdk.android.integrations.PollingInitializerBuilder;
-import com.launchdarkly.sdk.android.integrations.PollingSynchronizerBuilder;
-import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerBuilder;
+import com.launchdarkly.sdk.android.integrations.PollingInitializerSpec;
+import com.launchdarkly.sdk.android.integrations.PollingSynchronizerSpec;
+import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerSpec;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
@@ -30,12 +31,10 @@ import java.util.Map;
  * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
  * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
  * <p>
- * Most factory methods return a builder that implements
- * {@link com.launchdarkly.sdk.android.subsystems.DataSourceBuilder} for the
- * appropriate type ({@link Initializer} or {@link Synchronizer}). You may
- * configure properties on the builder and then pass it to
- * {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#initializers}
- * or {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#synchronizers}.
+ * Most factory methods return a declarative {@link com.launchdarkly.sdk.android.integrations.InitializerSpec}
+ * or {@link com.launchdarkly.sdk.android.integrations.SynchronizerSpec}. Configure properties on the spec,
+ * then pass it to {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#initializers(com.launchdarkly.sdk.android.integrations.InitializerSpec[])}
+ * or {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#synchronizers(com.launchdarkly.sdk.android.integrations.SynchronizerSpec[])}.
  * <p>
  * <b>Example:</b>
  * <pre><code>
@@ -61,7 +60,16 @@ public abstract class DataSystemComponents {
 
     private DataSystemComponents() {}
 
-    static final class PollingInitializerBuilderImpl extends PollingInitializerBuilder {
+    static final class PollingInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
+
+        private ServiceEndpoints serviceEndpointsOverride;
+
+        static PollingInitializerBuilderImpl fromSpec(PollingInitializerSpec spec) {
+            PollingInitializerBuilderImpl b = new PollingInitializerBuilderImpl();
+            b.serviceEndpointsOverride = spec.getServiceEndpointsOverride();
+            return b;
+        }
+
         @Override
         public Initializer build(DataSourceBuildInputs inputs) {
             HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
@@ -74,7 +82,23 @@ public abstract class DataSystemComponents {
         }
     }
 
-    static final class PollingSynchronizerBuilderImpl extends PollingSynchronizerBuilder {
+    static final class PollingSynchronizerBuilderImpl implements DataSourceBuilder<Synchronizer> {
+
+        private int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+        private ServiceEndpoints serviceEndpointsOverride;
+
+        static PollingSynchronizerBuilderImpl fromSpec(PollingSynchronizerSpec spec) {
+            PollingSynchronizerBuilderImpl b = new PollingSynchronizerBuilderImpl();
+            b.pollIntervalMillis = spec.getPollIntervalMillis();
+            b.serviceEndpointsOverride = spec.getServiceEndpointsOverride();
+            return b;
+        }
+
+        PollingSynchronizerBuilderImpl pollIntervalMillis(int pollIntervalMillis) {
+            this.pollIntervalMillis = Math.max(pollIntervalMillis, LDConfig.DEFAULT_POLL_INTERVAL_MILLIS);
+            return this;
+        }
+
         @Override
         public Synchronizer build(DataSourceBuildInputs inputs) {
             HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
@@ -88,7 +112,19 @@ public abstract class DataSystemComponents {
         }
     }
 
-    static final class StreamingSynchronizerBuilderImpl extends StreamingSynchronizerBuilder {
+    static final class StreamingSynchronizerBuilderImpl implements DataSourceBuilder<Synchronizer> {
+
+        private int initialReconnectDelayMillis =
+                StreamingSynchronizerSpec.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS;
+        private ServiceEndpoints serviceEndpointsOverride;
+
+        static StreamingSynchronizerBuilderImpl fromSpec(StreamingSynchronizerSpec spec) {
+            StreamingSynchronizerBuilderImpl b = new StreamingSynchronizerBuilderImpl();
+            b.initialReconnectDelayMillis = spec.getInitialReconnectDelayMillis();
+            b.serviceEndpointsOverride = spec.getServiceEndpointsOverride();
+            return b;
+        }
+
         @Override
         public Synchronizer build(DataSourceBuildInputs inputs) {
             HttpProperties httpProps = LDUtil.makeHttpProperties(inputs.getHttp());
@@ -152,42 +188,51 @@ public abstract class DataSystemComponents {
     }
 
     /**
-     * Returns a builder for a polling initializer.
+     * Returns a spec for a polling initializer.
      * <p>
      * A polling initializer makes a single poll request to obtain the initial feature
      * flag data set.
      *
-     * @return a polling initializer builder
+     * @return a polling initializer spec
      */
-    public static PollingInitializerBuilder pollingInitializer() {
-        return new PollingInitializerBuilderImpl();
+    public static PollingInitializerSpec pollingInitializer() {
+        return new PollingInitializerSpec();
     }
 
     /**
-     * Returns a builder for a polling synchronizer.
+     * Returns a spec for the cache initializer used in default FDv2 pipelines.
+     *
+     * @return a cache initializer spec
+     */
+    public static CacheInitializerSpec cacheInitializer() {
+        return new CacheInitializerSpec();
+    }
+
+    /**
+     * Returns a spec for a polling synchronizer.
      * <p>
      * A polling synchronizer periodically polls LaunchDarkly for feature flag updates.
      * The poll interval can be configured via
-     * {@link PollingSynchronizerBuilder#pollIntervalMillis(int)}.
+     * {@link PollingSynchronizerSpec#pollIntervalMillis(int)}.
      *
-     * @return a polling synchronizer builder
+     * @return a polling synchronizer spec
      */
-    public static PollingSynchronizerBuilder pollingSynchronizer() {
-        return new PollingSynchronizerBuilderImpl();
+    public static PollingSynchronizerSpec pollingSynchronizer() {
+        return new PollingSynchronizerSpec();
     }
 
     /**
-     * Returns a builder for a streaming synchronizer.
+     * Returns a spec for a streaming synchronizer.
      * <p>
      * A streaming synchronizer maintains a persistent connection to LaunchDarkly
      * and receives real-time feature flag updates. The initial reconnect delay
      * can be configured via
-     * {@link StreamingSynchronizerBuilder#initialReconnectDelayMillis(int)}.
+     * {@link StreamingSynchronizerSpec#initialReconnectDelayMillis(int)}.
      *
-     * @return a streaming synchronizer builder
+     * @return a streaming synchronizer spec
      */
-    public static StreamingSynchronizerBuilder streamingSynchronizer() {
-        return new StreamingSynchronizerBuilderImpl();
+    public static StreamingSynchronizerSpec streamingSynchronizer() {
+        return new StreamingSynchronizerSpec();
     }
 
     /**
@@ -202,12 +247,11 @@ public abstract class DataSystemComponents {
     @NonNull
     public static Map<ConnectionMode, ModeDefinition> makeDefaultModeTable() {
         DataSourceBuilder<Initializer> cacheInitializer = new CacheInitializerBuilderImpl();
-        DataSourceBuilder<Initializer> pollingInitializer = pollingInitializer();
-        DataSourceBuilder<Synchronizer> pollingSynchronizer = pollingSynchronizer();
-        DataSourceBuilder<Synchronizer> streamingSynchronizer = streamingSynchronizer();
-        DataSourceBuilder<Synchronizer> backgroundPollingSynchronizer =
-                pollingSynchronizer()
-                        .pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
+        DataSourceBuilder<Initializer> pollingInitializer = new PollingInitializerBuilderImpl();
+        DataSourceBuilder<Synchronizer> pollingSynchronizer = new PollingSynchronizerBuilderImpl();
+        DataSourceBuilder<Synchronizer> streamingSynchronizer = new StreamingSynchronizerBuilderImpl();
+        PollingSynchronizerBuilderImpl backgroundPollingSynchronizer = new PollingSynchronizerBuilderImpl();
+        backgroundPollingSynchronizer.pollIntervalMillis(LDConfig.DEFAULT_BACKGROUND_POLL_INTERVAL_MILLIS);
         DataSourceBuilder<Synchronizer> fdv1FallbackPollingSynchronizerForeground =
                 new FDv1PollingSynchronizerBuilderImpl();
 

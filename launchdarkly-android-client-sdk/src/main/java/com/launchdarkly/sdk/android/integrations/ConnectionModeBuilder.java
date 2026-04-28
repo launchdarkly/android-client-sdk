@@ -4,9 +4,6 @@ import androidx.annotation.NonNull;
 
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
-import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
-import com.launchdarkly.sdk.android.subsystems.Initializer;
-import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,8 +41,8 @@ import java.util.List;
  */
 public class ConnectionModeBuilder {
 
-    private final List<DataSourceBuilder<Initializer>> initializers = new ArrayList<>();
-    private final List<DataSourceBuilder<Synchronizer>> synchronizers = new ArrayList<>();
+    private final List<InitializerSpec> initializerSpecs = new ArrayList<>();
+    private final List<SynchronizerSpec> synchronizerSpecs = new ArrayList<>();
 
     /**
      * Sets the initializers for this connection mode.
@@ -54,18 +51,18 @@ public class ConnectionModeBuilder {
      * fails or returns partial data. Any previously configured initializers are
      * replaced.
      * <p>
-     * Use factory methods in {@link DataSystemComponents} to obtain builder instances:
+     * Use factory methods in {@link DataSystemComponents} to obtain spec instances:
      * <pre><code>
      *     builder.initializers(DataSystemComponents.pollingInitializer())
      * </code></pre>
      *
-     * @param initializers the initializer builders, in priority order
+     * @param initializers the initializer specs, in priority order
      * @return this builder
      */
     @SafeVarargs
-    public final ConnectionModeBuilder initializers(@NonNull DataSourceBuilder<Initializer>... initializers) {
-        this.initializers.clear();
-        this.initializers.addAll(Arrays.asList(initializers));
+    public final ConnectionModeBuilder initializers(@NonNull InitializerSpec... initializers) {
+        this.initializerSpecs.clear();
+        this.initializerSpecs.addAll(Arrays.asList(initializers));
         return this;
     }
 
@@ -76,40 +73,40 @@ public class ConnectionModeBuilder {
      * first synchronizer and falls back to subsequent ones on error. Any previously
      * configured synchronizers are replaced.
      * <p>
-     * Use factory methods in {@link DataSystemComponents} to obtain builder instances:
+     * Use factory methods in {@link DataSystemComponents} to obtain spec instances:
      * <pre><code>
      *     builder.synchronizers(
      *         DataSystemComponents.streamingSynchronizer(),
      *         DataSystemComponents.pollingSynchronizer())
      * </code></pre>
      *
-     * @param synchronizers the synchronizer builders, in priority order
+     * @param synchronizers the synchronizer specs, in priority order
      * @return this builder
      */
     @SafeVarargs
-    public final ConnectionModeBuilder synchronizers(@NonNull DataSourceBuilder<Synchronizer>... synchronizers) {
-        this.synchronizers.clear();
-        this.synchronizers.addAll(Arrays.asList(synchronizers));
+    public final ConnectionModeBuilder synchronizers(@NonNull SynchronizerSpec... synchronizers) {
+        this.synchronizerSpecs.clear();
+        this.synchronizerSpecs.addAll(Arrays.asList(synchronizers));
         return this;
     }
 
     /**
-     * Returns the configured initializers as an unmodifiable list.
+     * Returns the configured initializer specs as an unmodifiable list.
      *
-     * @return the initializer builders
+     * @return the initializer specs
      */
     @NonNull
-    public List<DataSourceBuilder<Initializer>> getInitializers() {
-        return Collections.unmodifiableList(initializers);
+    public List<InitializerSpec> getInitializerSpecs() {
+        return Collections.unmodifiableList(initializerSpecs);
     }
 
     /**
-     * Returns the configured synchronizers as an unmodifiable list.
+     * Returns the configured synchronizer specs as an unmodifiable list.
      *
-     * @return the synchronizer builders
+     * @return the synchronizer specs
      */
     @NonNull
-    public List<DataSourceBuilder<Synchronizer>> getSynchronizers() {
-        return Collections.unmodifiableList(synchronizers);
+    public List<SynchronizerSpec> getSynchronizerSpecs() {
+        return Collections.unmodifiableList(synchronizerSpecs);
     }
 }
