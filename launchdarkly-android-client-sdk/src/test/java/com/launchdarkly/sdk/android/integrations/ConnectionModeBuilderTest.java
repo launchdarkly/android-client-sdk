@@ -11,43 +11,43 @@ public class ConnectionModeBuilderTest {
 
     @Test
     public void initializers_lastCallReplacesPrevious() {
-        InitializerSpec first = DataSystemComponents.pollingInitializer();
-        InitializerSpec second = DataSystemComponents.pollingInitializer();
+        InitializerEntry first = DataSystemComponents.pollingInitializer();
+        InitializerEntry second = DataSystemComponents.pollingInitializer();
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .initializers(first)
                 .initializers(second);
-        assertEquals(1, b.getInitializerSpecs().size());
-        assertSame(second, b.getInitializerSpecs().get(0));
+        assertEquals(1, b.getInitializerEntries().size());
+        assertSame(second, b.getInitializerEntries().get(0));
     }
 
     @Test
     public void synchronizers_lastCallReplacesPrevious() {
-        SynchronizerSpec first = DataSystemComponents.pollingSynchronizer();
-        SynchronizerSpec second = DataSystemComponents.streamingSynchronizer();
+        SynchronizerEntry first = DataSystemComponents.pollingSynchronizer();
+        SynchronizerEntry second = DataSystemComponents.streamingSynchronizer();
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .synchronizers(first)
                 .synchronizers(second);
-        assertEquals(1, b.getSynchronizerSpecs().size());
-        assertSame(second, b.getSynchronizerSpecs().get(0));
+        assertEquals(1, b.getSynchronizerEntries().size());
+        assertSame(second, b.getSynchronizerEntries().get(0));
     }
 
     @Test
-    public void getInitializerSpecs_isUnmodifiable() {
+    public void getInitializerEntries_isUnmodifiable() {
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .initializers(DataSystemComponents.pollingInitializer());
         try {
-            b.getInitializerSpecs().clear();
+            b.getInitializerEntries().clear();
             org.junit.Assert.fail("expected UnsupportedOperationException");
         } catch (UnsupportedOperationException ignored) {
         }
     }
 
     @Test
-    public void getSynchronizerSpecs_isUnmodifiable() {
+    public void getSynchronizerEntries_isUnmodifiable() {
         ConnectionModeBuilder b = DataSystemComponents.customMode()
                 .synchronizers(DataSystemComponents.pollingSynchronizer());
         try {
-            b.getSynchronizerSpecs().clear();
+            b.getSynchronizerEntries().clear();
             org.junit.Assert.fail("expected UnsupportedOperationException");
         } catch (UnsupportedOperationException ignored) {
         }
@@ -56,7 +56,7 @@ public class ConnectionModeBuilderTest {
     @Test
     public void freshBuilder_hasEmptyLists() {
         ConnectionModeBuilder b = DataSystemComponents.customMode();
-        assertEquals(0, b.getInitializerSpecs().size());
-        assertEquals(0, b.getSynchronizerSpecs().size());
+        assertEquals(0, b.getInitializerEntries().size());
+        assertEquals(0, b.getSynchronizerEntries().size());
     }
 }

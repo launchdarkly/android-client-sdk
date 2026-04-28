@@ -6,31 +6,31 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import androidx.annotation.Nullable;
 
 /**
- * Spec for the FDv2 polling synchronizer.
+ * Entry for the FDv2 polling synchronizer.
  * <p>
  * Early access; not stable.
  */
-public final class PollingSynchronizerSpec extends SynchronizerSpec {
+public final class PollingSynchronizerEntry extends SynchronizerEntry {
 
     private int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
 
     @Nullable
     private ServiceEndpoints serviceEndpointsOverride;
 
-    public PollingSynchronizerSpec() {
+    public PollingSynchronizerEntry() {
     }
 
-    public PollingSynchronizerSpec pollIntervalMillis(int pollIntervalMillis) {
+    public PollingSynchronizerEntry pollIntervalMillis(int pollIntervalMillis) {
         this.pollIntervalMillis = Math.max(pollIntervalMillis, LDConfig.DEFAULT_POLL_INTERVAL_MILLIS);
         return this;
     }
 
-    public PollingSynchronizerSpec serviceEndpointsOverride(@Nullable ServiceEndpoints endpoints) {
+    public PollingSynchronizerEntry serviceEndpointsOverride(@Nullable ServiceEndpoints endpoints) {
         this.serviceEndpointsOverride = endpoints;
         return this;
     }
 
-    public PollingSynchronizerSpec serviceEndpointsOverride(ServiceEndpointsBuilder serviceEndpointsBuilder) {
+    public PollingSynchronizerEntry serviceEndpointsOverride(ServiceEndpointsBuilder serviceEndpointsBuilder) {
         this.serviceEndpointsOverride = serviceEndpointsBuilder.createServiceEndpoints();
         return this;
     }

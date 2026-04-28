@@ -5,22 +5,22 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import androidx.annotation.Nullable;
 
 /**
- * Spec for the FDv2 polling initializer.
+ * Entry for the FDv2 polling initializer.
  * <p>
  * Early access; not stable.
  */
-public final class PollingInitializerSpec extends InitializerSpec {
+public final class PollingInitializerEntry extends InitializerEntry {
 
     @Nullable
     private ServiceEndpoints serviceEndpointsOverride;
 
-    public PollingInitializerSpec() {
+    public PollingInitializerEntry() {
     }
 
     /**
      * Overrides service endpoints for this initializer, or {@code null} for SDK defaults.
      */
-    public PollingInitializerSpec serviceEndpointsOverride(@Nullable ServiceEndpoints endpoints) {
+    public PollingInitializerEntry serviceEndpointsOverride(@Nullable ServiceEndpoints endpoints) {
         this.serviceEndpointsOverride = endpoints;
         return this;
     }
@@ -28,7 +28,7 @@ public final class PollingInitializerSpec extends InitializerSpec {
     /**
      * Overrides service endpoints for this initializer using a builder.
      */
-    public PollingInitializerSpec serviceEndpointsOverride(ServiceEndpointsBuilder serviceEndpointsBuilder) {
+    public PollingInitializerEntry serviceEndpointsOverride(ServiceEndpointsBuilder serviceEndpointsBuilder) {
         this.serviceEndpointsOverride = serviceEndpointsBuilder.createServiceEndpoints();
         return this;
     }

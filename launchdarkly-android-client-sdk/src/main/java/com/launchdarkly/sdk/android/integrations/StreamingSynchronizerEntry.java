@@ -5,11 +5,11 @@ import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import androidx.annotation.Nullable;
 
 /**
- * Spec for the FDv2 streaming synchronizer.
+ * Entry for the FDv2 streaming synchronizer.
  * <p>
  * Early access; not stable.
  */
-public final class StreamingSynchronizerSpec extends SynchronizerSpec {
+public final class StreamingSynchronizerEntry extends SynchronizerEntry {
 
     /**
      * Default initial reconnect delay (milliseconds) for the streaming synchronizer.
@@ -21,22 +21,22 @@ public final class StreamingSynchronizerSpec extends SynchronizerSpec {
     @Nullable
     private ServiceEndpoints serviceEndpointsOverride;
 
-    public StreamingSynchronizerSpec() {
+    public StreamingSynchronizerEntry() {
     }
 
-    public StreamingSynchronizerSpec initialReconnectDelayMillis(int initialReconnectDelayMillis) {
+    public StreamingSynchronizerEntry initialReconnectDelayMillis(int initialReconnectDelayMillis) {
         this.initialReconnectDelayMillis = initialReconnectDelayMillis <= 0
                 ? DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS
                 : initialReconnectDelayMillis;
         return this;
     }
 
-    public StreamingSynchronizerSpec serviceEndpointsOverride(@Nullable ServiceEndpoints endpoints) {
+    public StreamingSynchronizerEntry serviceEndpointsOverride(@Nullable ServiceEndpoints endpoints) {
         this.serviceEndpointsOverride = endpoints;
         return this;
     }
 
-    public StreamingSynchronizerSpec serviceEndpointsOverride(ServiceEndpointsBuilder serviceEndpointsBuilder) {
+    public StreamingSynchronizerEntry serviceEndpointsOverride(ServiceEndpointsBuilder serviceEndpointsBuilder) {
         this.serviceEndpointsOverride = serviceEndpointsBuilder.createServiceEndpoints();
         return this;
     }

@@ -1,12 +1,12 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
-import com.launchdarkly.sdk.android.integrations.CacheInitializerSpec;
+import com.launchdarkly.sdk.android.integrations.CacheInitializerEntry;
 import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
 import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
-import com.launchdarkly.sdk.android.integrations.PollingInitializerSpec;
-import com.launchdarkly.sdk.android.integrations.PollingSynchronizerSpec;
-import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerSpec;
+import com.launchdarkly.sdk.android.integrations.PollingInitializerEntry;
+import com.launchdarkly.sdk.android.integrations.PollingSynchronizerEntry;
+import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerEntry;
 import com.launchdarkly.sdk.android.interfaces.ServiceEndpoints;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuildInputs;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
@@ -31,10 +31,10 @@ import java.util.Map;
  * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
  * It is in early access. If you want access to this feature please join the EAP. https://launchdarkly.com/docs/sdk/features/data-saving-mode
  * <p>
- * Most factory methods return a declarative {@link com.launchdarkly.sdk.android.integrations.InitializerSpec}
- * or {@link com.launchdarkly.sdk.android.integrations.SynchronizerSpec}. Configure properties on the spec,
- * then pass it to {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#initializers(com.launchdarkly.sdk.android.integrations.InitializerSpec[])}
- * or {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#synchronizers(com.launchdarkly.sdk.android.integrations.SynchronizerSpec[])}.
+ * Most factory methods return a declarative {@link com.launchdarkly.sdk.android.integrations.InitializerEntry}
+ * or {@link com.launchdarkly.sdk.android.integrations.SynchronizerEntry}. Configure properties on the entry,
+ * then pass it to {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#initializers(com.launchdarkly.sdk.android.integrations.InitializerEntry[])}
+ * or {@link com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder#synchronizers(com.launchdarkly.sdk.android.integrations.SynchronizerEntry[])}.
  * <p>
  * <b>Example:</b>
  * <pre><code>
@@ -64,9 +64,9 @@ public abstract class DataSystemComponents {
 
         private ServiceEndpoints serviceEndpointsOverride;
 
-        static PollingInitializerBuilderImpl fromSpec(PollingInitializerSpec spec) {
+        static PollingInitializerBuilderImpl fromEntry(PollingInitializerEntry entry) {
             PollingInitializerBuilderImpl b = new PollingInitializerBuilderImpl();
-            b.serviceEndpointsOverride = spec.getServiceEndpointsOverride();
+            b.serviceEndpointsOverride = entry.getServiceEndpointsOverride();
             return b;
         }
 
@@ -87,10 +87,10 @@ public abstract class DataSystemComponents {
         private int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
         private ServiceEndpoints serviceEndpointsOverride;
 
-        static PollingSynchronizerBuilderImpl fromSpec(PollingSynchronizerSpec spec) {
+        static PollingSynchronizerBuilderImpl fromEntry(PollingSynchronizerEntry entry) {
             PollingSynchronizerBuilderImpl b = new PollingSynchronizerBuilderImpl();
-            b.pollIntervalMillis = spec.getPollIntervalMillis();
-            b.serviceEndpointsOverride = spec.getServiceEndpointsOverride();
+            b.pollIntervalMillis = entry.getPollIntervalMillis();
+            b.serviceEndpointsOverride = entry.getServiceEndpointsOverride();
             return b;
         }
 
@@ -115,13 +115,13 @@ public abstract class DataSystemComponents {
     static final class StreamingSynchronizerBuilderImpl implements DataSourceBuilder<Synchronizer> {
 
         private int initialReconnectDelayMillis =
-                StreamingSynchronizerSpec.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS;
+                StreamingSynchronizerEntry.DEFAULT_INITIAL_RECONNECT_DELAY_MILLIS;
         private ServiceEndpoints serviceEndpointsOverride;
 
-        static StreamingSynchronizerBuilderImpl fromSpec(StreamingSynchronizerSpec spec) {
+        static StreamingSynchronizerBuilderImpl fromEntry(StreamingSynchronizerEntry entry) {
             StreamingSynchronizerBuilderImpl b = new StreamingSynchronizerBuilderImpl();
-            b.initialReconnectDelayMillis = spec.getInitialReconnectDelayMillis();
-            b.serviceEndpointsOverride = spec.getServiceEndpointsOverride();
+            b.initialReconnectDelayMillis = entry.getInitialReconnectDelayMillis();
+            b.serviceEndpointsOverride = entry.getServiceEndpointsOverride();
             return b;
         }
 
@@ -177,6 +177,11 @@ public abstract class DataSystemComponents {
     }
 
     static final class CacheInitializerBuilderImpl implements DataSourceBuilder<Initializer>, InitializerFromCache {
+
+        static CacheInitializerBuilderImpl fromEntry(CacheInitializerEntry entry) {
+            return new CacheInitializerBuilderImpl();
+        }
+
         @Override
         public Initializer build(DataSourceBuildInputs inputs) {
             return new FDv2CacheInitializer(
@@ -188,51 +193,51 @@ public abstract class DataSystemComponents {
     }
 
     /**
-     * Returns a spec for a polling initializer.
+     * Returns an entry for a polling initializer.
      * <p>
      * A polling initializer makes a single poll request to obtain the initial feature
      * flag data set.
      *
-     * @return a polling initializer spec
+     * @return a polling initializer entry
      */
-    public static PollingInitializerSpec pollingInitializer() {
-        return new PollingInitializerSpec();
+    public static PollingInitializerEntry pollingInitializer() {
+        return new PollingInitializerEntry();
     }
 
     /**
-     * Returns a spec for the cache initializer used in default FDv2 pipelines.
+     * Returns an entry for the cache initializer used in default FDv2 pipelines.
      *
-     * @return a cache initializer spec
+     * @return a cache initializer entry
      */
-    public static CacheInitializerSpec cacheInitializer() {
-        return new CacheInitializerSpec();
+    public static CacheInitializerEntry cacheInitializer() {
+        return new CacheInitializerEntry();
     }
 
     /**
-     * Returns a spec for a polling synchronizer.
+     * Returns an entry for a polling synchronizer.
      * <p>
      * A polling synchronizer periodically polls LaunchDarkly for feature flag updates.
      * The poll interval can be configured via
-     * {@link PollingSynchronizerSpec#pollIntervalMillis(int)}.
+     * {@link PollingSynchronizerEntry#pollIntervalMillis(int)}.
      *
-     * @return a polling synchronizer spec
+     * @return a polling synchronizer entry
      */
-    public static PollingSynchronizerSpec pollingSynchronizer() {
-        return new PollingSynchronizerSpec();
+    public static PollingSynchronizerEntry pollingSynchronizer() {
+        return new PollingSynchronizerEntry();
     }
 
     /**
-     * Returns a spec for a streaming synchronizer.
+     * Returns an entry for a streaming synchronizer.
      * <p>
      * A streaming synchronizer maintains a persistent connection to LaunchDarkly
      * and receives real-time feature flag updates. The initial reconnect delay
      * can be configured via
-     * {@link StreamingSynchronizerSpec#initialReconnectDelayMillis(int)}.
+     * {@link StreamingSynchronizerEntry#initialReconnectDelayMillis(int)}.
      *
-     * @return a streaming synchronizer spec
+     * @return a streaming synchronizer entry
      */
-    public static StreamingSynchronizerSpec streamingSynchronizer() {
-        return new StreamingSynchronizerSpec();
+    public static StreamingSynchronizerEntry streamingSynchronizer() {
+        return new StreamingSynchronizerEntry();
     }
 
     /**

@@ -41,8 +41,8 @@ import java.util.List;
  */
 public class ConnectionModeBuilder {
 
-    private final List<InitializerSpec> initializerSpecs = new ArrayList<>();
-    private final List<SynchronizerSpec> synchronizerSpecs = new ArrayList<>();
+    private final List<InitializerEntry> initializerEntries = new ArrayList<>();
+    private final List<SynchronizerEntry> synchronizerEntries = new ArrayList<>();
 
     /**
      * Sets the initializers for this connection mode.
@@ -51,18 +51,18 @@ public class ConnectionModeBuilder {
      * fails or returns partial data. Any previously configured initializers are
      * replaced.
      * <p>
-     * Use factory methods in {@link DataSystemComponents} to obtain spec instances:
+     * Use factory methods in {@link DataSystemComponents} to obtain entry instances:
      * <pre><code>
      *     builder.initializers(DataSystemComponents.pollingInitializer())
      * </code></pre>
      *
-     * @param initializers the initializer specs, in priority order
+     * @param initializers the initializer entries, in priority order
      * @return this builder
      */
     @SafeVarargs
-    public final ConnectionModeBuilder initializers(@NonNull InitializerSpec... initializers) {
-        this.initializerSpecs.clear();
-        this.initializerSpecs.addAll(Arrays.asList(initializers));
+    public final ConnectionModeBuilder initializers(@NonNull InitializerEntry... initializers) {
+        this.initializerEntries.clear();
+        this.initializerEntries.addAll(Arrays.asList(initializers));
         return this;
     }
 
@@ -73,40 +73,40 @@ public class ConnectionModeBuilder {
      * first synchronizer and falls back to subsequent ones on error. Any previously
      * configured synchronizers are replaced.
      * <p>
-     * Use factory methods in {@link DataSystemComponents} to obtain spec instances:
+     * Use factory methods in {@link DataSystemComponents} to obtain entry instances:
      * <pre><code>
      *     builder.synchronizers(
      *         DataSystemComponents.streamingSynchronizer(),
      *         DataSystemComponents.pollingSynchronizer())
      * </code></pre>
      *
-     * @param synchronizers the synchronizer specs, in priority order
+     * @param synchronizers the synchronizer entries, in priority order
      * @return this builder
      */
     @SafeVarargs
-    public final ConnectionModeBuilder synchronizers(@NonNull SynchronizerSpec... synchronizers) {
-        this.synchronizerSpecs.clear();
-        this.synchronizerSpecs.addAll(Arrays.asList(synchronizers));
+    public final ConnectionModeBuilder synchronizers(@NonNull SynchronizerEntry... synchronizers) {
+        this.synchronizerEntries.clear();
+        this.synchronizerEntries.addAll(Arrays.asList(synchronizers));
         return this;
     }
 
     /**
-     * Returns the configured initializer specs as an unmodifiable list.
+     * Returns the configured initializer entries as an unmodifiable list.
      *
-     * @return the initializer specs
+     * @return the initializer entries
      */
     @NonNull
-    public List<InitializerSpec> getInitializerSpecs() {
-        return Collections.unmodifiableList(initializerSpecs);
+    public List<InitializerEntry> getInitializerEntries() {
+        return Collections.unmodifiableList(initializerEntries);
     }
 
     /**
-     * Returns the configured synchronizer specs as an unmodifiable list.
+     * Returns the configured synchronizer entries as an unmodifiable list.
      *
-     * @return the synchronizer specs
+     * @return the synchronizer entries
      */
     @NonNull
-    public List<SynchronizerSpec> getSynchronizerSpecs() {
-        return Collections.unmodifiableList(synchronizerSpecs);
+    public List<SynchronizerEntry> getSynchronizerEntries() {
+        return Collections.unmodifiableList(synchronizerEntries);
     }
 }

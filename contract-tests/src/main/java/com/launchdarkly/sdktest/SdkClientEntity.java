@@ -22,14 +22,14 @@ import com.launchdarkly.sdk.android.integrations.ConnectionModeBuilder;
 import com.launchdarkly.sdk.android.integrations.DataSystemBuilder;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.Hook;
-import com.launchdarkly.sdk.android.integrations.InitializerSpec;
+import com.launchdarkly.sdk.android.integrations.InitializerEntry;
 import com.launchdarkly.sdk.android.integrations.PollingDataSourceBuilder;
-import com.launchdarkly.sdk.android.integrations.PollingInitializerSpec;
-import com.launchdarkly.sdk.android.integrations.PollingSynchronizerSpec;
+import com.launchdarkly.sdk.android.integrations.PollingInitializerEntry;
+import com.launchdarkly.sdk.android.integrations.PollingSynchronizerEntry;
 import com.launchdarkly.sdk.android.integrations.StreamingDataSourceBuilder;
-import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerSpec;
+import com.launchdarkly.sdk.android.integrations.StreamingSynchronizerEntry;
 import com.launchdarkly.sdk.android.integrations.ServiceEndpointsBuilder;
-import com.launchdarkly.sdk.android.integrations.SynchronizerSpec;
+import com.launchdarkly.sdk.android.integrations.SynchronizerEntry;
 import com.launchdarkly.sdk.json.JsonSerialization;
 
 import com.launchdarkly.sdktest.Representations.CommandParams;
@@ -444,47 +444,47 @@ public class SdkClientEntity {
     ConnectionModeBuilder modeBuilder = DataSystemComponents.customMode();
 
     if (modeDef.initializers != null) {
-      List<InitializerSpec> initList = new ArrayList<>();
+      List<InitializerEntry> initList = new ArrayList<>();
       for (SdkConfigDataInitializer init : modeDef.initializers) {
         if (init.polling != null) {
-          PollingInitializerSpec initSpec = DataSystemComponents.pollingInitializer();
+          PollingInitializerEntry initEntry = DataSystemComponents.pollingInitializer();
           if (init.polling.baseUri != null) {
-            initSpec.serviceEndpointsOverride(
+            initEntry.serviceEndpointsOverride(
                     Components.serviceEndpoints().polling(init.polling.baseUri));
           }
-          initList.add(initSpec);
+          initList.add(initEntry);
         }
       }
-      InitializerSpec[] initArray = initList.toArray(new InitializerSpec[0]);
+      InitializerEntry[] initArray = initList.toArray(new InitializerEntry[0]);
       modeBuilder.initializers(initArray);
     }
 
     if (modeDef.synchronizers != null) {
-      List<SynchronizerSpec> syncList = new ArrayList<>();
+      List<SynchronizerEntry> syncList = new ArrayList<>();
       for (SdkConfigDataSynchronizer sync : modeDef.synchronizers) {
         if (sync.streaming != null) {
-          StreamingSynchronizerSpec syncSpec = DataSystemComponents.streamingSynchronizer();
+          StreamingSynchronizerEntry syncEntry = DataSystemComponents.streamingSynchronizer();
           if (sync.streaming.initialRetryDelayMs != null) {
-            syncSpec.initialReconnectDelayMillis(sync.streaming.initialRetryDelayMs.intValue());
+            syncEntry.initialReconnectDelayMillis(sync.streaming.initialRetryDelayMs.intValue());
           }
           if (sync.streaming.baseUri != null) {
-            syncSpec.serviceEndpointsOverride(
+            syncEntry.serviceEndpointsOverride(
                     Components.serviceEndpoints().streaming(sync.streaming.baseUri));
           }
-          syncList.add(syncSpec);
+          syncList.add(syncEntry);
         } else if (sync.polling != null) {
-          PollingSynchronizerSpec syncSpec = DataSystemComponents.pollingSynchronizer();
+          PollingSynchronizerEntry syncEntry = DataSystemComponents.pollingSynchronizer();
           if (sync.polling.pollIntervalMs != null) {
-            syncSpec.pollIntervalMillis(sync.polling.pollIntervalMs.intValue());
+            syncEntry.pollIntervalMillis(sync.polling.pollIntervalMs.intValue());
           }
           if (sync.polling.baseUri != null) {
-            syncSpec.serviceEndpointsOverride(
+            syncEntry.serviceEndpointsOverride(
                     Components.serviceEndpoints().polling(sync.polling.baseUri));
           }
-          syncList.add(syncSpec);
+          syncList.add(syncEntry);
         }
       }
-      SynchronizerSpec[] syncArray = syncList.toArray(new SynchronizerSpec[0]);
+      SynchronizerEntry[] syncArray = syncList.toArray(new SynchronizerEntry[0]);
       modeBuilder.synchronizers(syncArray);
     }
 
