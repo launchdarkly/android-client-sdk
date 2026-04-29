@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.12.0](https://github.com/launchdarkly/android-client-sdk/compare/5.11.2...5.12.0) (2026-04-29)
+
+
+### Features
+
+* remove kotlin ([#353](https://github.com/launchdarkly/android-client-sdk/issues/353)) ([5e332a8](https://github.com/launchdarkly/android-client-sdk/commit/5e332a8fa6c2fd016d01a829b877c1f2575a4fe0))
+
 ## [5.11.2](https://github.com/launchdarkly/android-client-sdk/compare/5.11.1...5.11.2) (2026-04-29)
 
 
