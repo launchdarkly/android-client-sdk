@@ -28,6 +28,9 @@ jobs:
   call-workflow-publish:
     needs: release-please
     uses: ./.github/workflows/publish.yml
+    permissions:
+      id-token: write
+      contents: write
     if: ${{ needs.release-please.outputs.releases_created == 'true' }}
     with:
       run_tests: true

@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.11.2](https://github.com/launchdarkly/android-client-sdk/compare/5.11.1...5.11.2) (2026-04-29)
+
+
+### Miscellaneous Chores
+
+* releasing version with DataSystem hidden in preparation for FDv2 EAP ([2f10f8d](https://github.com/launchdarkly/android-client-sdk/commit/2f10f8d498f06e74470529445d9a9a4b386fc335))
+
 ## [5.11.1](https://github.com/launchdarkly/android-client-sdk/compare/5.11.0...5.11.1) (2026-03-23)
 
 
