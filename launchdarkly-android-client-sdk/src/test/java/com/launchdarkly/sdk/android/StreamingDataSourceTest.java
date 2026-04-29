@@ -690,6 +690,18 @@ public class StreamingDataSourceTest {
 
             assertNotNull(callback1.awaitError());
 
+            // The background thread calls resultCallback.onError() before setting
+            // connection401Error, so the flag may not be true yet. Poll briefly to
+            // allow the background thread to complete.
+            long deadline = System.currentTimeMillis() + 1000;
+            while (System.currentTimeMillis() < deadline) {
+                TrackingCallback probe = new TrackingCallback();
+                sds.start(probe);
+                if (probe.errors.poll(50, TimeUnit.MILLISECONDS) == null) {
+                    break; // connection401Error is now set; start() was a no-op
+                }
+            }
+
             // Second start should be a no-op due to connection401Error flag
             TrackingCallback callback2 = new TrackingCallback();
             sds.start(callback2);
