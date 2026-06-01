@@ -53,7 +53,9 @@ public final class ManualTaskExecutor implements TaskExecutor {
 
     @Override
     public ScheduledFuture<?> startRepeatingTask(Runnable action, long initialDelayMillis, long intervalMillis) {
-        return new ManualScheduledFuture(action);
+        ManualScheduledFuture future = new ManualScheduledFuture(action);
+        pending.add(future);
+        return future;
     }
 
     @Override
