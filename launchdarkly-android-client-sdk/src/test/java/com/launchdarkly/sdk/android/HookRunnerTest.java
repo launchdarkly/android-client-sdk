@@ -362,7 +362,8 @@ public class HookRunnerTest extends EasyMockSupport {
         runner.afterTrack(key, context, data, metricValue);
 
         verifyAll();
-        assertEquals(afterTrackOrder, List.of("c", "b", "a"));
+        // afterTrack runs in registration order (forward), unlike the reversed after-evaluation/identify stages.
+        assertEquals(afterTrackOrder, List.of("a", "b", "c"));
     }
 
     @Test public void usesAddedHookInFutureInvocations() {
