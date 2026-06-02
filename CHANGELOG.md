@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.12.1](https://github.com/launchdarkly/android-client-sdk/compare/5.12.0...5.12.1) (2026-06-02)
+
+
+### Bug Fixes
+
+* track order processing to forward according contracts ([#358](https://github.com/launchdarkly/android-client-sdk/issues/358)) ([d4218a7](https://github.com/launchdarkly/android-client-sdk/commit/d4218a75304669c769c1f774f9d0cf1180649dd7))
+
 ## [5.12.0](https://github.com/launchdarkly/android-client-sdk/compare/5.11.2...5.12.0) (2026-04-29)
 
 
