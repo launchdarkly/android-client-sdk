@@ -120,7 +120,9 @@ public class HookRunner {
         }
 
         TrackSeriesContext seriesContext = new TrackSeriesContext(key, context, data, metricValue);
-        for (int i = hooks.size() - 1; i >= 0; i--) {
+        // The track series has only an "after" stage, so hooks run in registration order, as required by
+        // the shared SDK contract tests (unlike afterEvaluation/afterIdentify, which run in reverse).
+        for (int i = 0; i < hooks.size(); i++) {
             Hook currentHook = hooks.get(i);
             try {
                 currentHook.afterTrack(seriesContext);
