@@ -19,7 +19,7 @@ public class HttpConfigurationBuilderTest {
 
     private static Map<String, String> buildBasicHeaders() {
         Map<String, String> ret = new HashMap<>();
-        ret.put("Authorization", LDUtil.AUTH_SCHEME + MOBILE_KEY);
+        ret.put("Authorization", MOBILE_KEY);
         ret.put("User-Agent", LDUtil.USER_AGENT_HEADER_VALUE);
         ret.put("X-LaunchDarkly-Tags", "application-id/" + LDPackageConsts.SDK_NAME + " application-name/" + LDPackageConsts.SDK_NAME
                 + " application-version/" + BuildConfig.VERSION_NAME + " application-version-name/" + BuildConfig.VERSION_NAME);

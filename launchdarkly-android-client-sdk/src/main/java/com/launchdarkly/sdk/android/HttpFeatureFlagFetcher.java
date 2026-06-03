@@ -40,17 +40,34 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
     HttpFeatureFlagFetcher(
             @NonNull ClientContext clientContext
     ) {
-        this.pollUri = clientContext.getServiceEndpoints().getPollingBaseUri();
-        this.evaluationReasons = clientContext.isEvaluationReasons();
-        this.useReport = clientContext.getHttp().isUseReport();
-        this.httpProperties = LDUtil.makeHttpProperties(clientContext);
-        this.logger = clientContext.getBaseLogger();
+        this(
+            clientContext.getServiceEndpoints().getPollingBaseUri(),
+            clientContext.isEvaluationReasons(),
+            clientContext.getHttp().isUseReport(),
+            LDUtil.makeHttpProperties(clientContext),
+            ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
+            clientContext.getBaseLogger()
+        );
+    }
 
-        File cacheDir = new File(ClientContextImpl.get(clientContext).getPlatformState().getCacheDir(),
-                "com.launchdarkly.http-cache");
+    HttpFeatureFlagFetcher(
+            @NonNull URI pollUri,
+            boolean evaluationReasons,
+            boolean useReport,
+            @NonNull HttpProperties httpProperties,
+            @NonNull File platformCacheDir,
+            @NonNull LDLogger logger
+    ) {
+        this.pollUri = pollUri;
+        this.evaluationReasons = evaluationReasons;
+        this.useReport = useReport;
+        this.httpProperties = httpProperties;
+        this.logger = logger;
+
+        File cacheDir = new File(platformCacheDir, "com.launchdarkly.http-cache");
         logger.debug("Using cache at: {}", cacheDir.getAbsolutePath());
 
-        client = httpProperties.toHttpClientBuilder()
+        this.client = httpProperties.toHttpClientBuilder()
                 // The following client options are currently only used for polling requests; caching is
                 // not relevant for streaming or events, and we don't use OkHttp's auto-retry logic for
                 // streaming or events because we have our own different retry logic. However, in the

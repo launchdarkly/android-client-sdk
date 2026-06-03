@@ -7,9 +7,14 @@ import static org.junit.Assert.fail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.LDUtil;
+import com.launchdarkly.sdk.fdv2.ChangeSet;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
+import com.launchdarkly.sdk.fdv2.Selector;
 
 import org.junit.Test;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -44,7 +49,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.upsert(CONTEXT, flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
@@ -61,7 +66,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.upsert(CONTEXT, flag);
 
         assertEquals(flag.getKey(), listener.expectUpdate(5, TimeUnit.SECONDS));
@@ -111,7 +116,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerAllFlagsListener(all1);
 
         // change the data
-        manager.switchToContext(context1);
+        manager.switchToContext(context1, false, LDUtil.noOpCallback());
         manager.upsert(context1, flagState1);
 
         // verify callbacks
@@ -127,12 +132,40 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         // simulate switching context
         Flag flagState2 = new FlagBuilder(FLAG_KEY).value(LDValue.of(2)).build();
         EnvironmentData envData = new EnvironmentData().withFlagUpdatedOrAdded(flagState2);
-        manager.switchToContext(context2);
+        manager.switchToContext(context2, false, LDUtil.noOpCallback());
         manager.initData(context2, envData);
 
         // verify callbacks
         assertEquals(FLAG_KEY, specific2.expectUpdate(5, TimeUnit.SECONDS));
         assertEquals(FLAG_KEY, all2.expectUpdate(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void partialApplyNotifiesListenersForEachKeyEvenWhenEvaluatedValueUnchanged()
+            throws InterruptedException {
+        Flag initial = new FlagBuilder("flag").version(1).value(true).build();
+        ContextDataManager manager = createDataManager();
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
+        manager.initData(CONTEXT, new DataSetBuilder().add(initial).build());
+
+        AwaitableFlagListener listener = new AwaitableFlagListener();
+        AwaitableFlagListener allFlagsListener = new AwaitableFlagListener();
+        manager.registerListener("flag", listener);
+        manager.registerAllFlagsListener(allFlagsListener);
+
+        // Same evaluated value, higher version — FDv2 partial still notifies (matches JS FlagUpdater).
+        Flag sameValue = new FlagBuilder("flag").version(2).value(true).build();
+        manager.apply(
+                CONTEXT,
+                new ChangeSet<>(
+                        ChangeSetType.Partial,
+                        Selector.EMPTY,
+                        Collections.singletonMap(sameValue.getKey(), sameValue),
+                        null,
+                        false));
+
+        assertEquals("flag", listener.expectUpdate(5, TimeUnit.SECONDS));
+        assertEquals("flag", allFlagsListener.expectUpdate(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -145,7 +178,7 @@ public class ContextDataManagerListenersTest extends ContextDataManagerTestBase 
         manager.registerListener(flag.getKey(), listener);
         manager.registerAllFlagsListener(allFlagsListener);
 
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.upsert(CONTEXT, flag);
 
         listener.expectUpdate(5, TimeUnit.SECONDS);

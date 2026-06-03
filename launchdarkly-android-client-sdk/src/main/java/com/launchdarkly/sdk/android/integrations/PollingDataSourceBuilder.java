@@ -31,10 +31,6 @@ import com.launchdarkly.sdk.android.subsystems.DataSource;
  * @since 3.3.0
  */
 public abstract class PollingDataSourceBuilder implements ComponentConfigurer<DataSource> {
-    /**
-     * The default value for {@link #pollIntervalMillis(int)}: 5 minutes.
-     */
-    public static final int DEFAULT_POLL_INTERVAL_MILLIS = 300_000;
 
     /**
      * The background polling interval in millis
@@ -44,7 +40,7 @@ public abstract class PollingDataSourceBuilder implements ComponentConfigurer<Da
     /**
      * The foreground polling interval in millis
      */
-    protected int pollIntervalMillis = DEFAULT_POLL_INTERVAL_MILLIS;
+    protected int pollIntervalMillis = LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
 
     /**
      * If true, the polling data source will make at most one poll attempt to get
@@ -76,15 +72,15 @@ public abstract class PollingDataSourceBuilder implements ComponentConfigurer<Da
     /**
      * Sets the interval between feature flag updates when the application is running in the foreground.
      * <p>
-     * The default value is {@link #DEFAULT_POLL_INTERVAL_MILLIS}. That is also the minimum value.
+     * The default value is {@link LDConfig#DEFAULT_POLL_INTERVAL_MILLIS}. That is also the minimum value.
      *
      * @param pollIntervalMillis the reconnect time base value in milliseconds
      * @return the builder
      * @see #backgroundPollIntervalMillis(int)
      */
     public PollingDataSourceBuilder pollIntervalMillis(int pollIntervalMillis) {
-        this.pollIntervalMillis = pollIntervalMillis <= DEFAULT_POLL_INTERVAL_MILLIS ?
-                DEFAULT_POLL_INTERVAL_MILLIS : pollIntervalMillis;
+        this.pollIntervalMillis = pollIntervalMillis <= LDConfig.DEFAULT_POLL_INTERVAL_MILLIS ?
+                LDConfig.DEFAULT_POLL_INTERVAL_MILLIS : pollIntervalMillis;
         return this;
     }
 

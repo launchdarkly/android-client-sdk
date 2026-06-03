@@ -48,6 +48,10 @@ final class AndroidPlatformState implements PlatformState {
         boolean isTestFixtureInitiallyInForeground();
     }
 
+    interface TestNetworkOverride {
+        boolean isTestFixtureNetworkAvailable();
+    }
+
     public AndroidPlatformState(
             Application application,
             TaskExecutor taskExecutor,
@@ -100,6 +104,9 @@ final class AndroidPlatformState implements PlatformState {
 
     @Override
     public boolean isNetworkAvailable() {
+        if (application instanceof TestNetworkOverride) {
+            return ((TestNetworkOverride) application).isTestFixtureNetworkAvailable();
+        }
         try {
             android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
                     application.getSystemService(Context.CONNECTIVITY_SERVICE);

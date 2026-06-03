@@ -70,7 +70,7 @@ public class FDv2PollingInitializerTest {
 
         // Unblock the in-flight poll with a successful response.
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
 
         FDv2SourceResult result = future.get(1, TimeUnit.SECONDS);
         assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
@@ -87,7 +87,7 @@ public class FDv2PollingInitializerTest {
         Future<FDv2SourceResult> future = initializer.run();
 
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(500));
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(500, false));
 
         FDv2SourceResult result = future.get(1, TimeUnit.SECONDS);
         assertEquals(SourceResultType.STATUS, result.getResultType());
@@ -103,7 +103,7 @@ public class FDv2PollingInitializerTest {
         Future<FDv2SourceResult> future = initializer.run();
 
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(401));
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.failure(401, false));
 
         FDv2SourceResult result = future.get(1, TimeUnit.SECONDS);
         assertEquals(SourceResultType.STATUS, result.getResultType());
@@ -148,7 +148,7 @@ public class FDv2PollingInitializerTest {
         assertEquals(SourceSignal.SHUTDOWN, result.getStatus().getState());
 
         // Allow the background thread to unblock cleanly.
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
     }
 
     @Test
@@ -159,7 +159,7 @@ public class FDv2PollingInitializerTest {
         Future<FDv2SourceResult> future = initializer.run();
 
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         // Wait for poll to complete, then close — should not throw.
         future.get(1, TimeUnit.SECONDS);
@@ -216,7 +216,7 @@ public class FDv2PollingInitializerTest {
         Future<FDv2SourceResult> future = initializer.run();
 
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200));
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.success(parseEvents(XFER_FULL_JSON), 200, false));
 
         future.get(1, TimeUnit.SECONDS);
 
@@ -236,7 +236,7 @@ public class FDv2PollingInitializerTest {
 
         LDAwaitFuture<FDv2Requestor.FDv2PayloadResponse> pollFuture = requestor.awaitNextPoll();
         initializer.close();
-        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified());
+        pollFuture.set(FDv2Requestor.FDv2PayloadResponse.notModified(false));
 
         assertEquals(1, requestor.closeCount);
     }

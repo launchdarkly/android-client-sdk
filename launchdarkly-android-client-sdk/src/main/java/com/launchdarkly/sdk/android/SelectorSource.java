@@ -17,7 +17,7 @@ import com.launchdarkly.sdk.fdv2.Selector;
  * Analogous to {@code SelectorSource} in the java-server SDK (java-core). Kept separate from
  * the update-sink interface so that selector reads and flag writes remain independent concerns.
  */
-interface SelectorSource {
+public interface SelectorSource {
 
     /**
      * Returns the current selector. Never null; may be {@link Selector#EMPTY}.

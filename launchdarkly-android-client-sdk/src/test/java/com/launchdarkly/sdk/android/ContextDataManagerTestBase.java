@@ -60,7 +60,8 @@ public abstract class ContextDataManagerTestBase extends EasyMockSupport {
         return new ContextDataManager(
                 clientContext,
                 environmentStore,
-                maxCachedContexts
+                maxCachedContexts,
+                false
         );
     }
 

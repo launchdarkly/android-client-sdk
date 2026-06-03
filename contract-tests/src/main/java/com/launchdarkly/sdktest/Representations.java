@@ -39,6 +39,7 @@ public abstract class Representations {
         SdkConfigClientSideParams clientSide;
         SdkConfigServiceEndpointParams serviceEndpoints;
         SdkConfigHookParams hooks;
+        SdkConfigDataSystemParams dataSystem;
     }
 
     public static class SdkConfigStreamParams {
@@ -100,6 +101,32 @@ public abstract class Representations {
         String beforeEvaluation;
         String afterEvaluation;
         String afterTrack;
+    }
+
+    public static class SdkConfigDataSystemParams {
+        Boolean useDefaultDataSystem;
+        SdkConfigConnectionModeConfig connectionModeConfig;
+        List<SdkConfigDataInitializer> initializers;
+        List<SdkConfigDataSynchronizer> synchronizers;
+    }
+
+    public static class SdkConfigConnectionModeConfig {
+        String initialConnectionMode;
+        Map<String, SdkConfigModeDefinition> customConnectionModes;
+    }
+
+    public static class SdkConfigModeDefinition {
+        List<SdkConfigDataInitializer> initializers;
+        List<SdkConfigDataSynchronizer> synchronizers;
+    }
+
+    public static class SdkConfigDataInitializer {
+        SdkConfigPollParams polling;
+    }
+
+    public static class SdkConfigDataSynchronizer {
+        SdkConfigStreamParams streaming;
+        SdkConfigPollParams polling;
     }
 
     public static class CommandParams {

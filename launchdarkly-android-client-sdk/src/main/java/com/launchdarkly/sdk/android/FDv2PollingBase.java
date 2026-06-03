@@ -89,7 +89,7 @@ abstract class FDv2PollingBase {
             Future<FDv2Requestor.FDv2PayloadResponse> future = requestor.poll(selector);
             response = future.get();
         } catch (InterruptedException e) {
-            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e));
+            return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             if (cause instanceof IOException) {
@@ -98,9 +98,11 @@ abstract class FDv2PollingBase {
                 LDUtil.logExceptionAtErrorLevel(logger, cause, "Polling failed");
             }
             return oneShot
-                    ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(cause))
-                    : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause));
+                    ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(cause), false)
+                    : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause), false);
         }
+
+        boolean fdv1Fallback = response.isFdv1Fallback();
 
         // 304 Not Modified: nothing changed
         if (response.getStatusCode() == 304) {
@@ -110,7 +112,7 @@ abstract class FDv2PollingBase {
                     selector,
                     Collections.emptyMap(),
                     null,
-                    true));
+                    true), fdv1Fallback);
         }
 
         if (!response.isSuccess()) {
@@ -120,9 +122,9 @@ abstract class FDv2PollingBase {
             LDFailure failure = new LDInvalidResponseCodeFailure(
                     "Polling request failed", null, code, recoverable);
             if (oneShot || !recoverable) {
-                return FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure));
+                return FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), fdv1Fallback);
             } else {
-                return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure));
+                return FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback);
             }
         }
 
@@ -132,8 +134,8 @@ abstract class FDv2PollingBase {
             LDFailure failure = new LDFailure("FDv2 polling response contained no events",
                     LDFailure.FailureType.INVALID_RESPONSE_BODY);
             return oneShot
-                    ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))
-                    : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure));
+                    ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), fdv1Fallback)
+                    : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback);
         }
 
         FDv2ProtocolHandler handler = new FDv2ProtocolHandler();
@@ -146,8 +148,8 @@ abstract class FDv2PollingBase {
                 LDFailure failure = new LDFailure(
                         "FDv2 protocol handler error", e, LDFailure.FailureType.INVALID_RESPONSE_BODY);
                 return oneShot
-                        ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))
-                        : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure));
+                        ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), fdv1Fallback)
+                        : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback);
             }
 
             switch (action.getAction()) {
@@ -157,15 +159,15 @@ abstract class FDv2PollingBase {
                     try {
                         ChangeSet<Map<String, Flag>> changeSet =
                                 FDv2ChangeSetTranslator.toChangeSet(raw, logger);
-                        return FDv2SourceResult.changeSet(changeSet);
+                        return FDv2SourceResult.changeSet(changeSet, fdv1Fallback);
                     } catch (SerializationException e) {
                         LDUtil.logExceptionAtErrorLevel(logger, e, "Polling failed to translate changeset");
                         LDFailure failure = new LDFailure(
                                 "Failed to translate FDv2 polling changeset", e,
                                 LDFailure.FailureType.INVALID_RESPONSE_BODY);
                         return oneShot
-                                ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))
-                                : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure));
+                                ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), fdv1Fallback)
+                                : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback);
                     }
                 }
                 case ERROR: {
@@ -177,13 +179,13 @@ abstract class FDv2PollingBase {
                             "Polling error: " + error.getReason(),
                             LDFailure.FailureType.UNKNOWN_ERROR);
                     return oneShot
-                            ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))
-                            : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure));
+                            ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), fdv1Fallback)
+                            : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback);
                 }
                 case GOODBYE: {
                     String reason = ((FDv2ProtocolHandler.FDv2ActionGoodbye) action).getReason();
                     logger.info("Polling received GOODBYE with reason: '{}'", reason);
-                    return FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason));
+                    return FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason), fdv1Fallback);
                 }
                 case INTERNAL_ERROR: {
                     FDv2ProtocolHandler.FDv2ActionInternalError internalError =
@@ -194,8 +196,8 @@ abstract class FDv2PollingBase {
                             "Polling internal error: " + internalError.getMessage(),
                             LDFailure.FailureType.INVALID_RESPONSE_BODY);
                     return oneShot
-                            ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))
-                            : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure));
+                            ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), fdv1Fallback)
+                            : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback);
                 }
                 case NONE:
                     break;
@@ -208,7 +210,7 @@ abstract class FDv2PollingBase {
                 "FDv2 polling response events produced no changeset",
                 LDFailure.FailureType.INVALID_RESPONSE_BODY);
         return oneShot
-                ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure))
-                : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure));
+                ? FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(failure), fdv1Fallback)
+                : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback);
     }
 }

@@ -4,9 +4,11 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
-import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+
+import androidx.annotation.Nullable;
 
 /**
  * This package-private subclass of {@link ClientContext} contains additional non-public SDK objects
@@ -33,7 +35,10 @@ final class ClientContextImpl extends ClientContext {
     private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
     private final PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
+    @Nullable
+    private final SelectorSource selectorSource;
 
+    /** Used by FDv1 code paths that do not need a {@link SelectorSource}. */
     ClientContextImpl(
             ClientContext base,
             DiagnosticStore diagnosticStore,
@@ -42,12 +47,29 @@ final class ClientContextImpl extends ClientContext {
             TaskExecutor taskExecutor,
             PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData
     ) {
+        this(base, diagnosticStore, fetcher, platformState, taskExecutor, perEnvironmentData, null);
+    }
+
+    /**
+     * Used by FDv2 code paths. The {@code selectorSource} provides selector state to
+     * initializers and synchronizers via the {@link ContextDataManager.ContextDataManagerView}.
+     */
+    ClientContextImpl(
+            ClientContext base,
+            DiagnosticStore diagnosticStore,
+            FeatureFetcher fetcher,
+            PlatformState platformState,
+            TaskExecutor taskExecutor,
+            PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData,
+            @Nullable SelectorSource selectorSource
+    ) {
         super(base);
         this.diagnosticStore = diagnosticStore;
         this.fetcher = fetcher;
         this.platformState = platformState;
         this.taskExecutor = taskExecutor;
         this.perEnvironmentData = perEnvironmentData;
+        this.selectorSource = selectorSource;
     }
 
     static ClientContextImpl fromConfig(
@@ -95,12 +117,30 @@ final class ClientContextImpl extends ClientContext {
         return new ClientContextImpl(context, null, null, null, null, null);
     }
 
+    /** Creates a context for FDv1 data sources that do not need a {@link SelectorSource}. */
     public static ClientContextImpl forDataSource(
             ClientContext baseClientContext,
             DataSourceUpdateSink dataSourceUpdateSink,
             LDContext newEvaluationContext,
             boolean newInBackground,
             Boolean previouslyInBackground
+    ) {
+        return forDataSource(baseClientContext, dataSourceUpdateSink, newEvaluationContext,
+                newInBackground, previouslyInBackground, null);
+    }
+
+    /**
+     * Creates a context for data sources, optionally including a {@link SelectorSource}.
+     * FDv2 data sources require the selector source so that {@link FDv2DataSourceBuilder} can
+     * provide selector state to initializers and synchronizers.
+     */
+    public static ClientContextImpl forDataSource(
+            ClientContext baseClientContext,
+            DataSourceUpdateSink dataSourceUpdateSink,
+            LDContext newEvaluationContext,
+            boolean newInBackground,
+            Boolean previouslyInBackground,
+            @Nullable SelectorSource selectorSource
     ) {
         ClientContextImpl baseContextImpl = ClientContextImpl.get(baseClientContext);
         return new ClientContextImpl(
@@ -123,7 +163,8 @@ final class ClientContextImpl extends ClientContext {
                 baseContextImpl.getFetcher(),
                 baseContextImpl.getPlatformState(),
                 baseContextImpl.getTaskExecutor(),
-                baseContextImpl.getPerEnvironmentData()
+                baseContextImpl.getPerEnvironmentData(),
+                selectorSource
         );
     }
 
@@ -139,7 +180,8 @@ final class ClientContextImpl extends ClientContext {
             this.fetcher,
             this.platformState,
             this.taskExecutor,
-            this.perEnvironmentData
+            this.perEnvironmentData,
+            this.selectorSource
         );
     }
 
@@ -161,6 +203,16 @@ final class ClientContextImpl extends ClientContext {
 
     public PersistentDataStoreWrapper.PerEnvironmentData getPerEnvironmentData() {
         return throwExceptionIfNull(perEnvironmentData);
+    }
+
+    @Nullable
+    public PersistentDataStoreWrapper.PerEnvironmentData getPerEnvironmentDataIfAvailable() {
+        return perEnvironmentData;
+    }
+    
+    @Nullable
+    public SelectorSource getSelectorSource() {
+        return selectorSource;
     }
 
     private static <T> T throwExceptionIfNull(T o) {

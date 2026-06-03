@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.LDUtil;
 
 import static com.launchdarkly.sdk.android.AssertHelpers.assertDataSetsEqual;
 import static com.launchdarkly.sdk.android.AssertHelpers.assertFlagsEqual;
@@ -34,7 +35,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         fullItems.put(flag2.getKey(), flag2);
 
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Full,
                 Selector.EMPTY,
@@ -56,7 +57,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         Flag flag1 = new FlagBuilder("flag1").version(1).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).build();
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.initData(CONTEXT, initialData);
 
         Flag flag2 = new FlagBuilder("flag2").version(2).build();
@@ -82,7 +83,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         Flag flag1 = new FlagBuilder("flag1").version(1).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).build();
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.initData(CONTEXT, initialData);
 
         Flag flag2 = new FlagBuilder("flag2").version(2).build();
@@ -107,26 +108,28 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
     }
 
     @Test
-    public void applyPartialRespectsVersion() {
+    public void applyPartialOverwritesEvenWhenIncomingVersionIsLower() {
+        // FDv2 / java-core: partial changesets apply without per-item version gating (see InMemoryDataStore.applyPartialData).
         Flag flag1 = new FlagBuilder("flag1").version(2).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).build();
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.initData(CONTEXT, initialData);
 
-        Flag flag1Lower = new FlagBuilder("flag1").version(1).value(false).build();
+        Flag flag1LowerVersion = new FlagBuilder("flag1").version(1).value(false).build();
         ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
                 ChangeSetType.Partial,
                 Selector.EMPTY,
-                Collections.singletonMap(flag1Lower.getKey(), flag1Lower),
+                Collections.singletonMap(flag1LowerVersion.getKey(), flag1LowerVersion),
                 null,
                 true
         );
         manager.apply(CONTEXT, changeSet);
 
-        assertFlagsEqual(flag1, manager.getNonDeletedFlag(flag1.getKey()));
-        assertDataSetsEqual(initialData, manager.getAllNonDeleted());
-        assertContextIsCached(CONTEXT, initialData);
+        assertFlagsEqual(flag1LowerVersion, manager.getNonDeletedFlag(flag1.getKey()));
+        EnvironmentData expected = new DataSetBuilder().add(flag1LowerVersion).build();
+        assertDataSetsEqual(expected, manager.getAllNonDeleted());
+        assertContextIsCached(CONTEXT, expected);
     }
 
     @Test
@@ -134,7 +137,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         Flag flag1 = new FlagBuilder("flag1").version(1).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).build();
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.initData(CONTEXT, initialData);
 
         ChangeSet<Map<String, Flag>> changeSet = new ChangeSet<>(
@@ -154,7 +157,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
     @Test
     public void applyStoresSelectorInMemory() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         assertTrue(manager.getSelector().isEmpty());
 
         Selector selector = Selector.make(42, "state-42");
@@ -176,7 +179,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
     @Test
     public void applyFullWithEmptySelectorClearsStoredSelector() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         Selector first = Selector.make(1, "state1");
         Flag flag = new FlagBuilder("flag1").version(1).build();
         manager.apply(CONTEXT, new ChangeSet<>(
@@ -191,7 +194,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
     @Test
     public void applyPartialWithEmptySelectorClearsStoredSelector() {
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         Selector first = Selector.make(1, "state1");
         Flag flag = new FlagBuilder("flag1").version(1).build();
         manager.apply(CONTEXT, new ChangeSet<>(
@@ -210,7 +213,7 @@ public class ContextDataManagerApplyTest extends ContextDataManagerTestBase {
         Flag flag1 = new FlagBuilder("flag1").version(1).build();
         EnvironmentData initialData = new DataSetBuilder().add(flag1).build();
         ContextDataManager manager = createDataManager();
-        manager.switchToContext(CONTEXT);
+        manager.switchToContext(CONTEXT, false, LDUtil.noOpCallback());
         manager.initData(CONTEXT, initialData);
 
         LDContext otherContext = LDContext.create("other-context");

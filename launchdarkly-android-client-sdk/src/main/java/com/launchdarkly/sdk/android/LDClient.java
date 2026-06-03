@@ -274,7 +274,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // Start up all instances
         for (final LDClient instance : instances.values()) {
             HookRunner.AfterIdentifyMethod afterIdentify = instance.hookRunner.identify(modifiedContext, null);
-            if (instance.connectivityManager.startUp(new CompleteWhenCounterZero(afterIdentify))) {
+            if (instance.connectivityManager.startUp(instance.contextDataManager, new CompleteWhenCounterZero(afterIdentify))) {
                 instance.eventProcessor.recordIdentifyEvent(modifiedContext);
             }
         }
@@ -421,10 +421,12 @@ public class LDClient implements LDClientInterface, Closeable {
                 taskExecutor
         );
 
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
         this.contextDataManager = new ContextDataManager(
                 clientContextImpl,
                 environmentStore,
-                config.getMaxCachedContexts()
+                config.getMaxCachedContexts(),
+                usingFDv2
         );
 
         eventProcessor = config.events.build(clientContextImpl);
@@ -433,7 +435,6 @@ public class LDClient implements LDClientInterface, Closeable {
                 clientContextImpl,
                 config.dataSource,
                 eventProcessor,
-                contextDataManager,
                 environmentStore
         );
 
@@ -497,12 +498,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
 
-        // Calling initFromStoredData updates the current flag state *if* stored flags exist for
-        // this context. If they don't, it has no effect. Currently we do *not* return early from
-        // initialization just because stored flags exist; we're just making them available in case
-        // initialization times out or otherwise fails.
-        contextDataManager.switchToContext(context);
-        connectivityManager.switchToContext(context, onCompleteListener);
+        // Load cached flags for the new context so they're available in case initialization
+        // times out or otherwise fails. This does not short-circuit initialization — the data
+        // source still performs its network request regardless.
+        boolean usingFDv2 = config.dataSource instanceof FDv2DataSourceBuilder;
+        contextDataManager.switchToContext(context, usingFDv2, onCompleteListener);
         eventProcessor.recordIdentifyEvent(context);
     }
 

@@ -74,21 +74,26 @@ public final class FDv2SourceResult {
     private final ChangeSet<Map<String, DataModel.Flag>> changeSet;
     @Nullable
     private final Status status;
+    private final boolean fdv1Fallback;
 
-    private FDv2SourceResult(@NonNull SourceResultType resultType, @Nullable ChangeSet<Map<String, DataModel.Flag>> changeSet, @Nullable Status status) {
+    private FDv2SourceResult(@NonNull SourceResultType resultType,
+                             @Nullable ChangeSet<Map<String, DataModel.Flag>> changeSet,
+                             @Nullable Status status,
+                             boolean fdv1Fallback) {
         this.resultType = resultType;
         this.changeSet = changeSet;
         this.status = status;
+        this.fdv1Fallback = fdv1Fallback;
     }
 
     @NonNull
-    public static FDv2SourceResult changeSet(@NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet) {
-        return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null);
+    public static FDv2SourceResult changeSet(@NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet, boolean fdv1Fallback) {
+        return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null, fdv1Fallback);
     }
 
     @NonNull
-    public static FDv2SourceResult status(@NonNull Status status) {
-        return new FDv2SourceResult(SourceResultType.STATUS, null, status);
+    public static FDv2SourceResult status(@NonNull Status status, boolean fdv1Fallback) {
+        return new FDv2SourceResult(SourceResultType.STATUS, null, status, fdv1Fallback);
     }
 
     @NonNull
@@ -104,5 +109,13 @@ public final class FDv2SourceResult {
     @Nullable
     public Status getStatus() {
         return status;
+    }
+
+    /**
+     * True if the server indicated that the SDK should fall back to FDv1 data sources
+     * via the {@code x-ld-fd-fallback} response header.
+     */
+    public boolean isFdv1Fallback() {
+        return fdv1Fallback;
     }
 }

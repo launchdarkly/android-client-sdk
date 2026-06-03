@@ -429,6 +429,69 @@ public class DefaultFDv2RequestorTest {
         }
     }
 
+    // ---- x-ld-fd-fallback header detection ----
+
+    @Test
+    public void fdv1FallbackHeaderOnSuccess() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "true"),
+                Handlers.bodyJson(VALID_EVENTS_JSON)))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+                assertTrue(response.isSuccess());
+                assertTrue(response.isFdv1Fallback());
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderAbsent() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.bodyJson(VALID_EVENTS_JSON))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+                assertTrue(response.isSuccess());
+                assertFalse(response.isFdv1Fallback());
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderCaseInsensitive() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "True"),
+                Handlers.bodyJson(VALID_EVENTS_JSON)))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+                assertTrue(response.isFdv1Fallback());
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderOnFailure() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "true"),
+                Handlers.status(500)))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+                assertFalse(response.isSuccess());
+                assertTrue(response.isFdv1Fallback());
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackHeaderFalseValue() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "false"),
+                Handlers.bodyJson(VALID_EVENTS_JSON)))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+                assertFalse(response.isFdv1Fallback());
+            }
+        }
+    }
+
     @Test
     public void evaluationReasonsAddedToRequest() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.bodyJson(EMPTY_EVENTS_JSON))) {
