@@ -52,15 +52,21 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void callbackNotFiredBeforeDebounceWindow() throws InterruptedException {
+    public void callbackNotFiredBeforeDebounceWindow() {
+        // Uses a manually-driven executor instead of Thread.sleep so the test is deterministic:
+        // a wall-clock "should not have fired yet" assertion is flaky on loaded CI runners, where
+        // the short pre-window sleep can overshoot the debounce window and let the timer fire.
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
 
+        // The state change schedules the debounce timer but must not fire the callback yet.
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
         assertEquals("callback should not fire before debounce window", 0, callCount.get());
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        // Once the debounce timer fires, the callback runs exactly once.
+        manualExecutor.runPendingTasks();
         assertEquals(1, callCount.get());
 
         mgr.close();
