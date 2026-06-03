@@ -81,19 +81,26 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void timerResetsOnEachEvent() throws InterruptedException {
+    public void timerResetsOnEachEvent() {
+        // Uses a manually-driven executor instead of Thread.sleep so the test is deterministic:
+        // wall-clock-based timing made the mid-window "should not have fired yet" assertion flaky
+        // on loaded CI runners (the cumulative sleeps could overshoot the debounce window).
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
 
+        // First event schedules a timer; it has not fired yet.
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
         assertEquals(0, callCount.get());
 
+        // Second event must reset the timer: cancel the first scheduled task and schedule a new one.
         mgr.setForeground(false);
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
         assertEquals("timer should reset, callback should not fire yet", 0, callCount.get());
+        assertEquals("each event should reschedule the debounce timer", 1, manualExecutor.cancelledCount());
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        // Only the latest (non-cancelled) timer fires, producing exactly one callback.
+        manualExecutor.runPendingTasks();
         assertEquals("callback should fire exactly once after final timer", 1, callCount.get());
 
         mgr.close();
