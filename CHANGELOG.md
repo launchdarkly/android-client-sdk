@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.12.2](https://github.com/launchdarkly/android-client-sdk/compare/5.12.1...5.12.2) (2026-06-03)
+
+
+### Bug Fixes
+
+* set 401 guard before notifying error callback to prevent restart race ([d875b00](https://github.com/launchdarkly/android-client-sdk/commit/d875b00b2a22cda4ca94eb7c2a04ab308518ab12))
+* set 401 guard before notifying error callback to prevent restart race ([#362](https://github.com/launchdarkly/android-client-sdk/issues/362)) ([24b2f38](https://github.com/launchdarkly/android-client-sdk/commit/24b2f384c4ce460ab4088f73c28c9c4c870ab7b8))
+* set connection401Error before invoking resultCallback in onError ([#332](https://github.com/launchdarkly/android-client-sdk/issues/332)) ([6fb1b85](https://github.com/launchdarkly/android-client-sdk/commit/6fb1b85506614078edccfe918d8011233e9894fc))
+
 ## [5.12.1](https://github.com/launchdarkly/android-client-sdk/compare/5.12.0...5.12.1) (2026-06-02)
 
 
