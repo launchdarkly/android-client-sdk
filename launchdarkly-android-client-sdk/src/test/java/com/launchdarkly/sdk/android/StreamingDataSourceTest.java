@@ -617,9 +617,8 @@ public class StreamingDataSourceTest {
             LDInvalidResponseCodeFailure failure = (LDInvalidResponseCodeFailure) error;
             assertEquals(401, failure.getResponseCode());
             assertFalse(failure.isRetryable());
-            // The background thread calls resultCallback.onError() before
-            // dataSourceUpdateSink.shutDown(), so shutDownCalled may not be true yet.
-            // Poll briefly to allow the background thread to complete.
+            // shutDown() runs on the EventSource background thread, so poll briefly
+            // to allow that thread to complete before asserting.
             long deadline = System.currentTimeMillis() + 1000;
             while (!dataSourceUpdateSink.shutDownCalled && System.currentTimeMillis() < deadline) {
                 Thread.sleep(10);

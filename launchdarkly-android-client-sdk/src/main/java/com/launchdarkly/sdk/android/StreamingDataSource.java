@@ -64,7 +64,9 @@ final class StreamingDataSource implements DataSource {
     private final FeatureFetcher fetcher;
     private final boolean streamEvenInBackground;
     private volatile boolean running = false;
-    private boolean connection401Error = false;
+    // volatile because it is written from the EventSource background thread (onError)
+    // and read from start(), which may be invoked on a different thread.
+    private volatile boolean connection401Error = false;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
@@ -133,11 +135,14 @@ final class StreamingDataSource implements DataSource {
                         if (code >= 400 && code < 500) {
                             logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
-                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
+                            // Establish the terminal 401 state before notifying the callback. A consumer
+                            // may react to the error by synchronously calling start() again, and the
+                            // connection401Error guard must already be set so that retry is a no-op.
                             if (code == 401) {
                                 connection401Error = true;
                                 dataSourceUpdateSink.shutDown();
                             }
+                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
                             stop(null);
                         } else {
                             eventSourceStarted = System.currentTimeMillis();
