@@ -135,14 +135,16 @@ final class StreamingDataSource implements DataSource {
                         if (code >= 400 && code < 500) {
                             logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
-                            // Establish the terminal 401 state before notifying the callback. A consumer
+                            // Set the connection401Error guard before notifying the callback. A consumer
                             // may react to the error by synchronously calling start() again, and the
-                            // connection401Error guard must already be set so that retry is a no-op.
+                            // guard must already be set so that retry is a no-op.
                             if (code == 401) {
                                 connection401Error = true;
-                                dataSourceUpdateSink.shutDown();
                             }
                             resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
+                            if (code == 401) {
+                                dataSourceUpdateSink.shutDown();
+                            }
                             stop(null);
                         } else {
                             eventSourceStarted = System.currentTimeMillis();
