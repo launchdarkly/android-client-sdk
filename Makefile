@@ -18,19 +18,11 @@ run-contract-tests:
 	@echo "Running SDK contract test v2..."
 	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
       -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/v2/downloader/run.sh \
-      | VERSION=v2 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -debug -stop-service-at-end -skip-from $(SUPPRESSION_FILE) $(TEST_HARNESS_PARAMS_V2)" sh
-
-# Uncomment this, update v3 version, and replace existing run-contract-tests once sdk-test-harness releases a version that includes FDv2 client contract tests.
-#
-# run-contract-tests:
-# 	@echo "Running SDK contract test v2..."
-# 	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
-#       -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/v2/downloader/run.sh \
-#       | VERSION=v2 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -debug -skip-from $(SUPPRESSION_FILE) $(TEST_HARNESS_PARAMS_V2)" sh
-# 	@echo "Running SDK contract test v3..."
-# 	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
-#       -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/v3.0.0-alpha.4/downloader/run.sh \
-#       | VERSION=v3.0.0-alpha.4 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -debug -stop-service-at-end -skip-from $(SUPPRESSION_FILE_FDV2) $(TEST_HARNESS_PARAMS_V3)" sh
+      | VERSION=v2 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -debug -skip-from $(SUPPRESSION_FILE) $(TEST_HARNESS_PARAMS_V2)" sh
+	@echo "Running SDK contract test v3..."
+	@curl $${GITHUB_TOKEN:+ -H "Authorization: Token $${GITHUB_TOKEN}"} \
+      -s https://raw.githubusercontent.com/launchdarkly/sdk-test-harness/v3.1.0-alpha.6/downloader/run.sh \
+      | VERSION=v3.1.0-alpha.6 PARAMS="-url http://localhost:8001 -host 10.0.2.2 -debug -stop-service-at-end -skip-from $(SUPPRESSION_FILE_FDV2) $(TEST_HARNESS_PARAMS_V3)" sh
 
 contract-tests: build-contract-tests start-emulator start-contract-test-service run-contract-tests
 
