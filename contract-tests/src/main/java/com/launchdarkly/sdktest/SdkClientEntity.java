@@ -12,7 +12,6 @@ import com.launchdarkly.sdk.android.ConfigHelper;
 import com.launchdarkly.sdk.android.ConnectionMode;
 import com.launchdarkly.sdk.android.DataSystemComponents;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
-import com.launchdarkly.sdk.android.InternalDataSystemAccess;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
 
@@ -394,13 +393,13 @@ public class SdkClientEntity {
 
   private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem) {
     if (Boolean.TRUE.equals(dataSystem.useDefaultDataSystem)) {
-      InternalDataSystemAccess.applyToConfig(builder, InternalDataSystemAccess.newBuilder());
+      builder.dataSystem(Components.dataSystem());
       return;
     }
 
     SdkConfigConnectionModeConfig connModeConfig = dataSystem.connectionModeConfig;
 
-    DataSystemBuilder dsBuilder = InternalDataSystemAccess.newBuilder();
+    DataSystemBuilder dsBuilder = Components.dataSystem();
 
     // at the time of writing this, we did not have contract tests that could test platform state changes,
     // disabling automatic mode simplifies the behavior being tested
@@ -425,7 +424,7 @@ public class SdkClientEntity {
       dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING, buildConnectionModeBuilder(topLevel));
     }
 
-    InternalDataSystemAccess.applyToConfig(builder, dsBuilder);
+    builder.dataSystem(dsBuilder);
   }
 
   private static boolean hasTopLevelDataSystemPipelines(SdkConfigDataSystemParams dataSystem) {
