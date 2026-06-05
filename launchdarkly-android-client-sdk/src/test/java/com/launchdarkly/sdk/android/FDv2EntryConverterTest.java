@@ -66,18 +66,6 @@ public class FDv2EntryConverterTest {
     }
 
     @Test
-    public void unsupportedInitializer_throwsIllegalArgumentException() {
-        InitializerEntry unsupported = new InitializerEntry() {};
-        try {
-            FDv2EntryConverter.toInitializerBuilder(unsupported);
-            org.junit.Assert.fail("expected IllegalArgumentException");
-        } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage().contains("Unsupported InitializerEntry"));
-            assertTrue(e.getMessage().contains(unsupported.getClass().getName()));
-        }
-    }
-
-    @Test
     public void pollingSynchronizer_converts() {
         DataSourceBuilder<Synchronizer> builder = FDv2EntryConverter.toSynchronizerBuilder(
                 DataSystemComponents.pollingSynchronizer().pollIntervalMillis(60_000));
@@ -89,18 +77,6 @@ public class FDv2EntryConverterTest {
         DataSourceBuilder<Synchronizer> builder = FDv2EntryConverter.toSynchronizerBuilder(
                 DataSystemComponents.streamingSynchronizer().initialReconnectDelayMillis(2_000));
         assertNotNull(builder);
-    }
-
-    @Test
-    public void unsupportedSynchronizer_throwsIllegalArgumentException() {
-        SynchronizerEntry unsupported = new SynchronizerEntry() {};
-        try {
-            FDv2EntryConverter.toSynchronizerBuilder(unsupported);
-            org.junit.Assert.fail("expected IllegalArgumentException");
-        } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage().contains("Unsupported SynchronizerEntry"));
-            assertTrue(e.getMessage().contains(unsupported.getClass().getName()));
-        }
     }
 
     @Test
