@@ -7,4 +7,7 @@ package com.launchdarkly.sdk.android.integrations;
  * This type is part of the early-access data system API and is not stable.
  */
 public abstract class SynchronizerEntry {
+
+    SynchronizerEntry() {
+    }
 }

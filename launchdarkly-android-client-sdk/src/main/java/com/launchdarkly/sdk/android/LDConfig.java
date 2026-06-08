@@ -458,7 +458,7 @@ public class LDConfig {
          * @see Components#dataSystem()
          * @see DataSystemBuilder
          */
-        Builder dataSystem(DataSystemBuilder dataSystemBuilder) {
+        public Builder dataSystem(DataSystemBuilder dataSystemBuilder) {
             this.dataSystemBuilder = dataSystemBuilder;
             this.dataSource = null;
             return this;
