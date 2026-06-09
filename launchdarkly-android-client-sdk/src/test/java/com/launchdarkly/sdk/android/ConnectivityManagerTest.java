@@ -4,6 +4,7 @@ import static com.launchdarkly.sdk.android.TestUtil.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.TestUtil.requireValue;
 import static org.easymock.EasyMock.anyBoolean;
 import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.checkOrder;
 import static org.easymock.EasyMock.expectLastCall;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -1461,19 +1462,27 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         verifyForegroundDataSourceWasCreatedAndStarted(CONTEXT);
         verifyAll();
 
-        // After startup, the rapid connectivity changes call updateEventProcessor in
-        // parallel threads, so ordering is nondeterministic. Use anyTimes().
+        // After startup, the rapid connectivity changes call updateEventProcessor, which
+        // invokes setOffline then setInBackground once per change. The number of changes is
+        // nondeterministic, so we use anyTimes(). We also disable order checking on this
+        // strict mock: each updateEventProcessor call repeats the (setOffline, setInBackground)
+        // pair, which a strict mock would otherwise reject as out-of-order once the first
+        // setInBackground has been consumed.
         resetAll();
+        checkOrder(eventProcessor, false);
         eventProcessor.setOffline(anyBoolean());
         expectLastCall().anyTimes();
         eventProcessor.setInBackground(anyBoolean());
         expectLastCall().anyTimes();
         replayAll();
 
-        // Fire multiple rapid connectivity changes — debounce should coalesce them
-        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
-        mockPlatformState.setAndNotifyConnectivityChangeListeners(true);
-        mockPlatformState.setAndNotifyConnectivityChangeListeners(false);
+        // Fire multiple rapid connectivity changes — debounce should coalesce them.
+        // Deliver the burst on a single thread so the listener observes the values in a
+        // deterministic order ending on `false`. Three separate setAndNotify... calls each
+        // spawn their own thread, which can reorder so that `true` (the baseline) is applied
+        // last; the debouncer's A→B→C→A dedup would then suppress the rebuild and no data
+        // source would ever be stopped, flaking verifyDataSourceWasStopped() below.
+        mockPlatformState.setAndNotifyConnectivityChangeListenersInSequence(false, true, false);
 
         // Should result in exactly one data source rebuild (to OFFLINE)
         verifyDataSourceWasStopped();

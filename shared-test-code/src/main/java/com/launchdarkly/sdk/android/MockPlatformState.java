@@ -72,6 +72,25 @@ public class MockPlatformState implements PlatformState {
         }).start();
     }
 
+    /**
+     * Notifies connectivity-change listeners with each value in {@code values}, in order, on a
+     * single background thread. Unlike repeated {@link #setAndNotifyConnectivityChangeListeners}
+     * calls — which each spawn their own thread and can therefore deliver notifications out of
+     * order — this delivers the whole sequence deterministically. The last value becomes the
+     * reported network state. Use this when a test depends on the final state after a burst of
+     * rapid changes (e.g. debounce coalescing).
+     */
+    public void setAndNotifyConnectivityChangeListenersInSequence(boolean... values) {
+        new Thread(() -> {
+            for (boolean value : values) {
+                this.networkAvailable = value;
+                for (ConnectivityChangeListener listener : connectivityChangeListeners) {
+                    listener.onConnectivityChanged(value);
+                }
+            }
+        }).start();
+    }
+
     public void setAndNotifyForegroundChangeListeners(boolean foreground) {
         this.foreground = foreground;
         new Thread(() -> {
