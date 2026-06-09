@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.13.1](https://github.com/launchdarkly/android-client-sdk/compare/5.13.0...5.13.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* remove deprecation marker from LDConfig.Builder.plugins ([1c681c2](https://github.com/launchdarkly/android-client-sdk/commit/1c681c25d5dd8216a158166acea6a34685771dd1))
+* remove deprecation marker from LDConfig.Builder.plugins ([#371](https://github.com/launchdarkly/android-client-sdk/issues/371)) ([2446924](https://github.com/launchdarkly/android-client-sdk/commit/24469242522547bcfaaabb2352045378a6373c22))
+
 ## [5.13.0](https://github.com/launchdarkly/android-client-sdk/compare/5.12.2...5.13.0) (2026-06-08)
 
 
