@@ -252,21 +252,38 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
     }
 
     /**
-     * Loops: move pending into committing, commit each namespace's state, remove from
-     * committing, check pending again. Exits when pending is empty. Each iteration
-     * starts with {@code committing} empty, since we remove entries after every commit.
+     * Loops: if committing has any leftover state (from a prior drain aborted by an
+     * Error inside commitState), drain it first; otherwise move pending into
+     * committing. Commit each namespace's state, remove from committing, repeat.
+     * Exits when both pending and committing are empty.
+     * <p>
+     * Draining committing before pulling from pending is intentional. A naïve
+     * {@code putAll(pending)} would overwrite any stranded entry whenever a writer
+     * arrived for the same namespace, silently losing the earlier coalesced writes.
+     * By processing committing first, its writes reach SharedPreferences'
+     * {@code mMap} before the newer pending writes are applied on top — natural
+     * merge, no State-level merge logic required.
      */
     private void drainPending() {
         try {
             while (true) {
                 Set<String> namespacesToCommit;
                 synchronized (lock) {
-                    if (pending.isEmpty()) {
-                        flushScheduled = false;
-                        return;
+                    if (committing.isEmpty()) {
+                        if (pending.isEmpty()) {
+                            flushScheduled = false;
+                            return;
+                        }
+                        // committing is empty here, so putAll cannot overwrite a
+                        // stranded entry from a prior failed drain.
+                        committing.putAll(pending);
+                        pending.clear();
                     }
-                    committing.putAll(pending);
-                    pending.clear();
+                    // If committing was non-empty on entry, drain it first without
+                    // pulling from pending. This preserves any state stranded by an
+                    // Error inside commitState — otherwise a naïve putAll(pending)
+                    // would overwrite it whenever a writer arrived for the same
+                    // namespace, silently losing the earlier coalesced writes.
                     namespacesToCommit = new HashSet<>(committing.keySet());
                 }
 
