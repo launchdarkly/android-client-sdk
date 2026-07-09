@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * state and writes each namespace's state to disk in a single
  * {@link SharedPreferences.Editor#commit()} call.
  * <p>
- * Reads resolve in a read through manner: pending → committing → {@link SharedPreferences}.
+ * Reads resolve in a read-through manner: pending, then committing, then {@link SharedPreferences}.
  * <p>
  * All public writing methods return promptly; the actual disk I/O happens on a shared
  * background executor via {@code commit()}. Multiple rapid operations on the same
@@ -252,8 +252,8 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
     }
 
     /**
-     * Loops: move pending into committing → commit each namespace's state → remove from
-     * committing → check pending again. Exits when pending is empty. Each iteration
+     * Loops: move pending into committing, commit each namespace's state, remove from
+     * committing, check pending again. Exits when pending is empty. Each iteration
      * starts with {@code committing} empty, since we remove entries after every commit.
      */
     private void drainPending() {
@@ -290,39 +290,45 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
      * must remain to hold them, so fullyDelete's file removal is superseded by those
      * writes — the net observable state (namespace contains only the new writes) is
      * unchanged.
+     * <p>
+     * Any exception thrown from the underlying SharedPreferences plumbing (editor
+     * construction, putString, commit, or the file removal) is caught and logged.
+     * Letting an exception propagate would kill the enclosing drain runnable and leave
+     * {@code flushScheduled} stuck at {@code true}, blocking all future writes for the
+     * lifetime of this store instance.
      */
     private void commitState(String namespace, State state) {
-        SharedPreferences.Editor editor = getSharedPreferences(namespace).edit();
-        if (state.clear) {
-            editor.clear();
-        }
-        for (Map.Entry<String, String> kv : state.changes.entrySet()) {
-            if (kv.getValue() == null) {
-                editor.remove(kv.getKey());
-            } else {
-                editor.putString(kv.getKey(), kv.getValue());
-            }
-        }
-
-        // If a test has set a preCommitRunnable, run it now. Alternatives
-        // required more invasive mocking.
-        Runnable runnable = preCommitRunnable;
-        if (runnable != null) {
-            runnable.run();
-        }
-
         try {
+            SharedPreferences.Editor editor = getSharedPreferences(namespace).edit();
+            if (state.clear) {
+                editor.clear();
+            }
+            for (Map.Entry<String, String> kv : state.changes.entrySet()) {
+                if (kv.getValue() == null) {
+                    editor.remove(kv.getKey());
+                } else {
+                    editor.putString(kv.getKey(), kv.getValue());
+                }
+            }
+
+            // If a test has set a preCommitRunnable, run it now. Alternatives
+            // required more invasive mocking.
+            Runnable runnable = preCommitRunnable;
+            if (runnable != null) {
+                runnable.run();
+            }
+
             editor.commit();
+
+            if (state.clear && state.fullyDelete && state.changes.isEmpty()) {
+                File file = new File(application.getFilesDir().getParent()
+                        + "/shared_prefs/" + namespace + ".xml");
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
         } catch (Exception e) {
             logger.error("Encountered exception committing persistence for namespace '{}': {}",
                     namespace, e);
-        }
-
-        if (state.clear && state.fullyDelete && state.changes.isEmpty()) {
-            File file = new File(application.getFilesDir().getParent()
-                    + "/shared_prefs/" + namespace + ".xml");
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
         }
     }
 
