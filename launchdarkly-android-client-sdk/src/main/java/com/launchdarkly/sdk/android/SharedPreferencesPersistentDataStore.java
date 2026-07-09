@@ -257,28 +257,41 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
      * starts with {@code committing} empty, since we remove entries after every commit.
      */
     private void drainPending() {
-        while (true) {
-            Set<String> namespacesToCommit;
-            synchronized (lock) {
-                if (pending.isEmpty()) {
-                    flushScheduled = false;
-                    return;
+        try {
+            while (true) {
+                Set<String> namespacesToCommit;
+                synchronized (lock) {
+                    if (pending.isEmpty()) {
+                        flushScheduled = false;
+                        return;
+                    }
+                    committing.putAll(pending);
+                    pending.clear();
+                    namespacesToCommit = new HashSet<>(committing.keySet());
                 }
-                committing.putAll(pending);
-                pending.clear();
-                namespacesToCommit = new HashSet<>(committing.keySet());
-            }
 
-            for (String namespace : namespacesToCommit) {
-                State state;
-                synchronized (lock) {
-                    state = committing.get(namespace);
-                }
-                commitState(namespace, state);
-                synchronized (lock) {
-                    committing.remove(namespace);
+                for (String namespace : namespacesToCommit) {
+                    State state;
+                    synchronized (lock) {
+                        state = committing.get(namespace);
+                    }
+                    commitState(namespace, state);
+                    synchronized (lock) {
+                        committing.remove(namespace);
+                    }
                 }
             }
+        } catch (Throwable t) {
+            // Safety net for anything commitState's catch(Exception) doesn't cover
+            // (an Error like OOM, or something originating in drainPending's own
+            // HashMap/HashSet operations). Reset flushScheduled so subsequent writes
+            // can queue a fresh drain instead of the store deadlocking for its
+            // lifetime. Rethrow so the executor's default handling still surfaces
+            // the throwable.
+            synchronized (lock) {
+                flushScheduled = false;
+            }
+            throw t;
         }
     }
 
