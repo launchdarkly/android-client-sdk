@@ -82,6 +82,10 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
     @VisibleForTesting
     volatile Runnable preCommitRunnable = null;
 
+    // Log-once-per-episode gate. Set when we catch a Throwable during persistence and
+    // decide to log it; cleared on the first successful commit that follows.
+    private boolean persistenceErrorLogged = false;
+
     public SharedPreferencesPersistentDataStore(Application application, LDLogger logger) {
         this.application = application;
         this.logger = logger;
@@ -308,6 +312,10 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
             synchronized (lock) {
                 flushScheduled = false;
             }
+            if (!persistenceErrorLogged) {
+                logger.error("Encountered exception during persistence drain: {}", t);
+                persistenceErrorLogged = true;
+            }
             throw t;
         }
     }
@@ -321,11 +329,9 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
      * writes — the net observable state (namespace contains only the new writes) is
      * unchanged.
      * <p>
-     * Any exception thrown from the underlying SharedPreferences plumbing (editor
-     * construction, putString, commit, or the file removal) is caught and logged.
-     * Letting an exception propagate would kill the enclosing drain runnable and leave
-     * {@code flushScheduled} stuck at {@code true}, blocking all future writes for the
-     * lifetime of this store instance.
+     * Any Throwable from the underlying SharedPreferences plumbing (editor construction,
+     * putString, commit, file removal) or from a test's preCommitRunnable is caught and
+     * (subject to log-once-per-episode gating) logged.
      */
     private void commitState(String namespace, State state) {
         try {
@@ -350,15 +356,21 @@ final class SharedPreferencesPersistentDataStore implements PersistentDataStore 
 
             editor.commit();
 
+            // Successful commit — clear the log-once gate
+            persistenceErrorLogged = false;
+
             if (state.clear && state.fullyDelete && state.changes.isEmpty()) {
                 File file = new File(application.getFilesDir().getParent()
                         + "/shared_prefs/" + namespace + ".xml");
                 //noinspection ResultOfMethodCallIgnored
                 file.delete();
             }
-        } catch (Exception e) {
-            logger.error("Encountered exception committing persistence for namespace '{}': {}",
-                    namespace, e);
+        } catch (Throwable t) {
+            if (!persistenceErrorLogged) {
+                logger.error("Encountered exception committing persistence for namespace '{}': {}",
+                        namespace, t);
+                persistenceErrorLogged = true;
+            }
         }
     }
 
