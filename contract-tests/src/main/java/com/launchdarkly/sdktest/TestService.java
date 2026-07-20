@@ -38,6 +38,7 @@ public class TestService extends NanoHTTPD {
             "inline-context-all",
             "anonymous-redaction",
             "client-prereq-events",
+            "polling-gzip",
             "evaluation-hooks",
             "track-hooks",
             "client-per-context-summaries",
