@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -677,6 +678,10 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
+        return variationDetailInternal(key, defaultValue, checkType, needsReason, null);
+    }
+
+    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason, Set<String> visited) {
         LDContext context = clientContextImpl.getEvaluationContext();
         Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
         EvaluationDetail<LDValue> result;
@@ -689,9 +694,27 @@ public class LDClient implements LDClientInterface, Closeable {
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             if (flag.getPrerequisites() != null) {
-                // recurse on prerequisites to emulate prereq evaluations occurring with desirable side effects such as events for prereqs
-                for (String prereqKey : flag.getPrerequisites()) {
-                    variationDetailInternal(prereqKey, LDValue.ofNull(), false, false);
+                // Recurse on prerequisites to emulate prereq evaluations occurring with desirable side effects such as events for prereqs.
+                // Cycle detection uses ancestor-set (current-path) semantics: `visited` contains the flag keys on the path
+                // from the top-level evaluation to (but not including) the current flag. Allocate lazily so that variation
+                // calls on prereq-less flags (the common case) do not pay for a HashSet they never use; once created it is
+                // shared for the rest of the walk via add-on-descend / remove-on-ascend, guarded by try/finally so an
+                // exception below cannot leave a stale ancestor entry visible to a sibling branch.
+                if (visited == null) {
+                    visited = new HashSet<>();
+                }
+                visited.add(key);
+                try {
+                    for (String prereqKey : flag.getPrerequisites()) {
+                        if (visited.contains(prereqKey)) {
+                            // Cyclic edge: skip descent and continue with remaining prerequisites. The requested flag's
+                            // value and reason (below) are unchanged.
+                            continue;
+                        }
+                        variationDetailInternal(prereqKey, LDValue.ofNull(), false, false, visited);
+                    }
+                } finally {
+                    visited.remove(key);
                 }
             }
 
