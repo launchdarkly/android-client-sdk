@@ -239,6 +239,151 @@ public class LDClientEventTest {
         }
     }
 
+    // Cycle-detection tests exercise CSPE 1.2.5, 1.2.5.1, and 1.2.5.2. Prior to the cycle guard,
+    // any of these configurations would cause a StackOverflowError on the first variation() call.
+    // The tests set up a cyclic prerequisite graph via the persistent store, evaluate one flag on
+    // the cycle, and assert (a) the SDK returns the flag's cached value unchanged and (b) summary
+    // counters reflect each cycle-safe descent exactly once.
+
+    @Test
+    public void flagEvaluationWithSelfLoopPrereqReturnsCachedValue() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            // flagA's only prerequisite is itself. The cycle guard must skip the self-prereq.
+            Flag flagA = new FlagBuilder("flagA").prerequisites(new String[]{"flagA"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagA);
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store).build();
+
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                // Requirement 1.2.5.1: the requested flag's cached value is returned unchanged.
+                assertTrue(client.boolVariation("flagA", false));
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue summaryEvent = events[1];
+                assertSummaryEvent(summaryEvent);
+                // flagA is counted exactly once (top-level); the cyclic self-prereq does not
+                // recurse and therefore does not increment the counter.
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagA").get("counters").get(0).get("count"));
+            }
+        }
+    }
+
+    @Test
+    public void flagEvaluationWithTwoCyclePrereqReturnsCachedValue() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            // flagA <-> flagB. Evaluating flagA descends into flagB; flagB's prereq flagA is on the
+            // ancestor path so the cycle guard skips it.
+            Flag flagA = new FlagBuilder("flagA").prerequisites(new String[]{"flagB"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagB = new FlagBuilder("flagB").prerequisites(new String[]{"flagA"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagA);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagB);
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store).build();
+
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                assertTrue(client.boolVariation("flagA", false));
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue summaryEvent = events[1];
+                assertSummaryEvent(summaryEvent);
+                // flagA: top-level (1). flagB: reached as prereq of flagA (1). Cyclic descent into
+                // flagA from flagB is skipped, so flagA is not double-counted.
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagA").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagB").get("counters").get(0).get("count"));
+            }
+        }
+    }
+
+    @Test
+    public void flagEvaluationWithThreeCyclePrereqReturnsCachedValue() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            // A -> B -> C -> A. Deepest cycle-safe descent reaches C; C's prereq A is on the
+            // ancestor path and is skipped.
+            Flag flagA = new FlagBuilder("flagA").prerequisites(new String[]{"flagB"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagB = new FlagBuilder("flagB").prerequisites(new String[]{"flagC"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagC = new FlagBuilder("flagC").prerequisites(new String[]{"flagA"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagA);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagB);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagC);
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store).build();
+
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                assertTrue(client.boolVariation("flagA", false));
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue summaryEvent = events[1];
+                assertSummaryEvent(summaryEvent);
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagA").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagB").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagC").get("counters").get(0).get("count"));
+            }
+        }
+    }
+
+    @Test
+    public void flagEvaluationWithDiamondPrereqCountsSharedDescendantTwice() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            // Diamond: A -> [B, C], B -> [D], C -> [D]. This is NOT a cycle. Per CSPE 1.2.5.2,
+            // ancestor-set (current-path) semantics must let D be reached on each of the two
+            // independent paths — so D's counter must reach 2. A naive "visited across the whole
+            // walk" implementation would incorrectly count D only once; this test guards against
+            // that regression.
+            Flag flagA = new FlagBuilder("flagA").prerequisites(new String[]{"flagB", "flagC"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagB = new FlagBuilder("flagB").prerequisites(new String[]{"flagD"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagC = new FlagBuilder("flagC").prerequisites(new String[]{"flagD"}).version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            Flag flagD = new FlagBuilder("flagD").version(1)
+                    .variation(1).value(LDValue.of(true)).reason(EvaluationReason.targetMatch()).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagA);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagB);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagC);
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flagD);
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store).build();
+
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                assertTrue(client.boolVariation("flagA", false));
+                client.blockingFlush();
+
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                LDValue summaryEvent = events[1];
+                assertSummaryEvent(summaryEvent);
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagA").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagB").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagC").get("counters").get(0).get("count"));
+                assertEquals(LDValue.of(2), summaryEvent.get("features").get("flagD").get("counters").get(0).get("count"));
+            }
+        }
+    }
+
     @Test
     public void additionalHeadersIncludedInEventsRequest() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
