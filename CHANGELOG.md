@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.13.2](https://github.com/launchdarkly/android-client-sdk/compare/5.13.1...5.13.2) (2026-07-10)
+
+
+### Bug Fixes
+
+* coalesce SharedPreferences writes to reduce memory pressure ([#374](https://github.com/launchdarkly/android-client-sdk/issues/374)) ([bc82217](https://github.com/launchdarkly/android-client-sdk/commit/bc822173db3c80b3d73ce5e3dd72d7f95920ea6b))
+
 ## [5.13.1](https://github.com/launchdarkly/android-client-sdk/compare/5.13.0...5.13.1) (2026-06-09)
 
 
