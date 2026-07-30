@@ -132,7 +132,7 @@ final class StreamingDataSource implements DataSource {
                             diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
                         }
                         int code = ((StreamHttpErrorException) t).getCode();
-                        if (code >= 400 && code < 500) {
+                        if (!LDUtil.isHttpErrorRecoverable(code)) {
                             logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                             running = false;
                             // Set the connection401Error guard before notifying the callback. A consumer

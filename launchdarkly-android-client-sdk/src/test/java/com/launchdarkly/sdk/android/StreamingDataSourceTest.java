@@ -664,6 +664,65 @@ public class StreamingDataSourceTest {
     }
 
     @Test
+    public void startWithHttp429ReportsRetriableError() throws Exception {
+        assertStatusReportsRetriableError(429);
+    }
+
+    @Test
+    public void startWithHttp400ReportsRetriableError() throws Exception {
+        assertStatusReportsRetriableError(400);
+    }
+
+    @Test
+    public void startWithHttp408ReportsRetriableError() throws Exception {
+        assertStatusReportsRetriableError(408);
+    }
+
+    private void assertStatusReportsRetriableError(int status) throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(status))) {
+            StreamingDataSource sds = makeStreamingDataSource(
+                    server.getUri(), false, false);
+            TrackingCallback callback = new TrackingCallback();
+            sds.start(callback);
+
+            Throwable error = callback.awaitError();
+            assertNotNull(error);
+            assertTrue(error instanceof LDInvalidResponseCodeFailure);
+            LDInvalidResponseCodeFailure failure = (LDInvalidResponseCodeFailure) error;
+            assertEquals(status, failure.getResponseCode());
+            assertTrue(failure.isRetryable());
+            assertFalse(dataSourceUpdateSink.shutDownCalled);
+        }
+    }
+
+    @Test
+    public void startWithHttp429ReconnectsAndReceivesStreamData() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(429),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(putEvent),
+                        Handlers.SSE.leaveOpen())))) {
+
+            StreamingDataSource sds = makeStreamingDataSource(
+                    server.getUri(), false, false);
+            TrackingCallback callback = new TrackingCallback();
+            sds.start(callback);
+
+            Throwable error = callback.awaitError();
+            assertNotNull(error);
+            assertTrue(((LDInvalidResponseCodeFailure) error).isRetryable());
+
+            Boolean success = callback.awaitSuccess();
+            assertNotNull(success);
+            assertTrue(success);
+            assertEquals(2, server.getRecorder().count());
+        }
+    }
+
+    @Test
     public void startWithNetworkErrorReportsNetworkFailure() throws Exception {
         // Connect to an address where nothing is listening
         StreamingDataSource sds = makeStreamingDataSource(
