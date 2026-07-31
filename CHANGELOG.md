@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.13.3](https://github.com/launchdarkly/android-client-sdk/compare/5.13.2...5.13.3) (2026-07-31)
+
+
+### Bug Fixes
+
+* add defensive cycle guard to prerequisite evaluation ([#377](https://github.com/launchdarkly/android-client-sdk/issues/377)) ([0372708](https://github.com/launchdarkly/android-client-sdk/commit/0372708c9d9385506466556e13cb4c1602861b2a))
+* allow stream to recover from 429, 400, and 408 responses ([#379](https://github.com/launchdarkly/android-client-sdk/issues/379)) ([2ad5e6f](https://github.com/launchdarkly/android-client-sdk/commit/2ad5e6f11e506e557cb5857039abf47c492523d2))
+
 ## [5.13.2](https://github.com/launchdarkly/android-client-sdk/compare/5.13.1...5.13.2) (2026-07-10)
 
 
