@@ -40,6 +40,22 @@ public class LDConfigTest {
         assertFalse(config.getDiagnosticOptOut());
 
         assertEquals(0, config.hooks.getHooks().size());
+
+        assertEquals(LDConfig.DEFAULT_FLAG_EXPOSURE_DEDUPE_WINDOW_MILLIS,
+                config.getFlagExposureDedupeWindowMillis());
+        assertEquals(LDConfig.DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE,
+                config.getFlagExposureDedupeMaxSize());
+    }
+
+    @Test
+    public void testBuilderFlagExposureDedupe() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .flagExposureDedupeWindowMillis(5_000)
+                .flagExposureDedupeMaxSize(50)
+                .build();
+
+        assertEquals(5_000, config.getFlagExposureDedupeWindowMillis());
+        assertEquals(50, config.getFlagExposureDedupeMaxSize());
     }
 
     @Test

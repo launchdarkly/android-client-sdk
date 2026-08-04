@@ -73,6 +73,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ConnectivityManager connectivityManager;
     private final LDLogger logger;
     private final HookRunner hookRunner;
+    private final ExposureDeduper exposureDeduper;
     private List<Plugin> plugins;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
@@ -440,6 +441,11 @@ public class LDClient implements LDClientInterface, Closeable {
         );
 
         hookRunner = new HookRunner(logger, config.hooks.getHooks());
+
+        exposureDeduper = new ExposureDeduper(
+                config.getFlagExposureDedupeWindowMillis(),
+                config.getFlagExposureDedupeMaxSize()
+        );
     }
 
     @Override
@@ -498,6 +504,11 @@ public class LDClient implements LDClientInterface, Closeable {
                                   Callback<Void> onCompleteListener) {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
+
+        // Exposures recorded before this point describe an earlier point in the app's lifecycle, so
+        // let them be reported again. This happens even when the context is unchanged, so that
+        // identify is a reliable way for an app to mark a new phase of a session.
+        exposureDeduper.reset();
 
         // Load cached flags for the new context so they're available in case initialization
         // times out or otherwise fails. This does not short-circuit initialization — the data
@@ -688,9 +699,11 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (flag == null) {
             logger.info("Unknown feature flag \"{}\"; returning default value", key);
-            eventProcessor.recordEvaluationEvent(context, key,
-                    EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
-                    null, defaultValue, false, null);
+            if (shouldRecordExposure(context, key, EvaluationDetail.NO_VARIATION, EventProcessor.NO_VERSION)) {
+                eventProcessor.recordEvaluationEvent(context, key,
+                        EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
+                        null, defaultValue, false, null);
+            }
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             if (flag.getPrerequisites() != null) {
@@ -731,21 +744,43 @@ public class LDClient implements LDClientInterface, Closeable {
             } else {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
-            eventProcessor.recordEvaluationEvent(
-                    context,
-                    key,
-                    flag.getVersionForEvents(),
-                    flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
-                    value,
-                    flag.isTrackReason() | needsReason ? result.getReason() : null,
-                    defaultValue,
-                    flag.isTrackEvents(),
-                    flag.getDebugEventsUntilDate()
-            );
+            if (shouldRecordExposure(context, key, variation, flag.getVersionForEvents())) {
+                eventProcessor.recordEvaluationEvent(
+                        context,
+                        key,
+                        flag.getVersionForEvents(),
+                        flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
+                        value,
+                        flag.isTrackReason() | needsReason ? result.getReason() : null,
+                        defaultValue,
+                        flag.isTrackEvents(),
+                        flag.getDebugEventsUntilDate()
+                );
+            }
         }
 
         logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
         return result;
+    }
+
+    /**
+     * Returns whether this evaluation should be reported to LaunchDarkly, and if so starts a new
+     * dedupe window for it.
+     * <p>
+     * The variation and version pair is the same identity LaunchDarkly uses to bucket evaluations in
+     * summary events, so two evaluations sharing that pair report identical data. Because the
+     * evaluation reason is carried on the versioned flag payload, a change in reason implies a change
+     * in version and so is covered without being part of the key.
+     */
+    private boolean shouldRecordExposure(LDContext context, String flagKey, int variation, int flagVersion) {
+        if (!exposureDeduper.isEnabled()) {
+            // Building the key allocates, so it is skipped entirely while deduplication is off, which
+            // is the default.
+            return true;
+        }
+        String dedupeKey = flagKey + '\n' + variation + '\n' + flagVersion + '\n'
+                + context.getFullyQualifiedKey();
+        return exposureDeduper.shouldRecord(dedupeKey, System.currentTimeMillis());
     }
 
     /**

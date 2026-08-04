@@ -62,6 +62,17 @@ public class LDConfig {
 
     static final String primaryEnvironmentName = "default";
 
+    /**
+     * The default value for {@link LDConfig.Builder#flagExposureDedupeWindowMillis(int)}: 0, meaning that
+     * deduplication is disabled.
+     */
+    public static final int DEFAULT_FLAG_EXPOSURE_DEDUPE_WINDOW_MILLIS = 0;
+
+    /**
+     * The default value for {@link LDConfig.Builder#flagExposureDedupeMaxSize(int)}: 2000.
+     */
+    public static final int DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE = 2_000;
+
     static final int DEFAULT_MAX_CACHED_CONTEXTS = 5;
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
 
@@ -87,6 +98,8 @@ public class LDConfig {
     private final String loggerName;
     private final int maxCachedContexts;
     private final boolean offline;
+    private final int flagExposureDedupeWindowMillis;
+    private final int flagExposureDedupeMaxSize;
     private final long connectionModeStateDebounceMs;
     private final PersistentDataStore persistentDataStore; // configurable for testing only
 
@@ -106,6 +119,8 @@ public class LDConfig {
              int maxCachedContexts,
              boolean generateAnonymousKeys,
              boolean autoEnvAttributes,
+             int flagExposureDedupeWindowMillis,
+             int flagExposureDedupeMaxSize,
              long connectionModeStateDebounceMs,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
@@ -126,6 +141,8 @@ public class LDConfig {
         this.maxCachedContexts = maxCachedContexts;
         this.generateAnonymousKeys = generateAnonymousKeys;
         this.autoEnvAttributes = autoEnvAttributes;
+        this.flagExposureDedupeWindowMillis = flagExposureDedupeWindowMillis;
+        this.flagExposureDedupeMaxSize = flagExposureDedupeMaxSize;
         this.connectionModeStateDebounceMs = connectionModeStateDebounceMs;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
@@ -196,6 +213,20 @@ public class LDConfig {
     }
 
     /**
+     * @return the feature flag exposure deduplication window in milliseconds, or 0 if deduplication is disabled
+     */
+    public int getFlagExposureDedupeWindowMillis() {
+        return flagExposureDedupeWindowMillis;
+    }
+
+    /**
+     * @return the maximum number of feature flag exposure keys tracked for deduplication at once
+     */
+    public int getFlagExposureDedupeMaxSize() {
+        return flagExposureDedupeMaxSize;
+    }
+
+    /**
      * @return true if keys should be generated for anonymous contexts, false otherwise
      */
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
@@ -263,6 +294,9 @@ public class LDConfig {
         private ComponentConfigurer<HttpConfiguration> http = null;
 
         private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
+
+        private int flagExposureDedupeWindowMillis = DEFAULT_FLAG_EXPOSURE_DEDUPE_WINDOW_MILLIS;
+        private int flagExposureDedupeMaxSize = DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE;
 
         private boolean offline = false;
         private boolean disableBackgroundUpdating = false;
@@ -630,6 +664,54 @@ public class LDConfig {
         }
 
         /**
+         * Sets the time window, in milliseconds, during which repeated feature flag evaluations that
+         * resolve to the same result are deduplicated.
+         * <p>
+         * Within the window, only a single evaluation is reported per unique combination of flag key,
+         * variation, flag version, and evaluation context. This is useful for reducing analytics event
+         * volume caused by frequent re-evaluations, for example a flag that is read on every redraw of
+         * a view.
+         * <p>
+         * Deduplicated evaluations are omitted from both the full feature events used by
+         * experimentation and the debugger, and the summary events that drive flag evaluation counts.
+         * Enabling this therefore reduces the evaluation counts LaunchDarkly reports for your flags.
+         * <p>
+         * The cache of recorded exposures is cleared by {@link LDClient#identify(LDContext)}, so the
+         * first evaluation after an identify is always reported.
+         * <p>
+         * If not specified, the default is {@link #DEFAULT_FLAG_EXPOSURE_DEDUPE_WINDOW_MILLIS} (0),
+         * which disables deduplication so that every evaluation is reported.
+         *
+         * @param flagExposureDedupeWindowMillis the dedupe window in milliseconds; zero or negative
+         *                                       disables deduplication
+         * @return the builder
+         * @see #flagExposureDedupeMaxSize(int)
+         */
+        public Builder flagExposureDedupeWindowMillis(int flagExposureDedupeWindowMillis) {
+            this.flagExposureDedupeWindowMillis = flagExposureDedupeWindowMillis;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of unique feature flag exposure keys tracked for deduplication at
+         * once.
+         * <p>
+         * When the limit is exceeded, the least recently recorded keys are evicted to bound memory
+         * usage. This only matters when {@link #flagExposureDedupeWindowMillis(int)} is enabled.
+         * <p>
+         * If not specified, the default is {@link #DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE} (2000).
+         *
+         * @param flagExposureDedupeMaxSize the maximum number of keys to track; zero or negative
+         *                                  values are ignored and the default is used instead
+         * @return the builder
+         * @see #flagExposureDedupeWindowMillis(int)
+         */
+        public Builder flagExposureDedupeMaxSize(int flagExposureDedupeMaxSize) {
+            this.flagExposureDedupeMaxSize = flagExposureDedupeMaxSize;
+            return this;
+        }
+
+        /**
          * Set to {@code true} to make the SDK provide unique keys for anonymous contexts.
          * <p>
          * If enabled, this option changes the SDK's behavior whenever the {@link LDContext} (as
@@ -839,6 +921,8 @@ public class LDConfig {
                     maxCachedContexts,
                     generateAnonymousKeys,
                     autoEnvAttributes,
+                    flagExposureDedupeWindowMillis,
+                    flagExposureDedupeMaxSize,
                     connectionModeStateDebounceMs,
                     persistentDataStore,
                     actualLogAdapter,
