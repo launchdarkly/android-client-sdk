@@ -76,6 +76,25 @@ public class ExposureDeduperTest {
     }
 
     @Test
+    public void keepsLiveKeysWhenReclaimingExpiredOnesIsEnough() {
+        // maxSize is 8 so that the batch term (maxSize / 4) is non-zero, which is what makes an
+        // over-eager batch drop observable.
+        ExposureDeduper deduper = new ExposureDeduper(100, 8);
+        for (int i = 0; i < 2; i++) {
+            assertTrue(deduper.shouldRecord("expired-" + i, 1000));
+        }
+        // The 7th of these exceeds the cap and triggers eviction. Reclaiming the two keys whose
+        // window has elapsed brings the map back within the cap on its own, so every one of these
+        // keys is still tracked and none of them should be reported again.
+        for (int i = 0; i < 7; i++) {
+            assertTrue(deduper.shouldRecord("live-" + i, 1150));
+        }
+        for (int i = 0; i < 7; i++) {
+            assertFalse(deduper.shouldRecord("live-" + i, 1150));
+        }
+    }
+
+    @Test
     public void fallsBackToDefaultCapForNonPositiveMaxSize() {
         ExposureDeduper deduper = new ExposureDeduper(10_000, 0);
         for (int i = 0; i < LDConfig.DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE; i++) {

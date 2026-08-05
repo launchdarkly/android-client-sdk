@@ -83,6 +83,12 @@ final class ExposureDeduper {
             it.remove();
         }
 
+        if (lastRecordedAt.size() <= maxSize) {
+            // Reclaiming expired keys was enough. Dropping live keys past this point would report
+            // their next identical evaluation again.
+            return;
+        }
+
         // Evict a batch rather than a single key, so that a workload tracking more live keys than
         // maxSize doesn't pay for an eviction on every subsequent exposure.
         int dropCount = lastRecordedAt.size() - maxSize + maxSize / 4;
