@@ -699,7 +699,7 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (flag == null) {
             logger.info("Unknown feature flag \"{}\"; returning default value", key);
-            if (shouldRecordExposure(context, key, EvaluationDetail.NO_VARIATION, EventProcessor.NO_VERSION)) {
+            if (shouldRecordExposure(context, key, EvaluationDetail.NO_VARIATION, EventProcessor.NO_VERSION, false)) {
                 eventProcessor.recordEvaluationEvent(context, key,
                         EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
                         null, defaultValue, false, null);
@@ -744,7 +744,8 @@ public class LDClient implements LDClientInterface, Closeable {
             } else {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
-            if (shouldRecordExposure(context, key, variation, flag.getVersionForEvents())) {
+            boolean inExperiment = flag.getReason() != null && flag.getReason().isInExperiment();
+            if (shouldRecordExposure(context, key, variation, flag.getVersionForEvents(), inExperiment)) {
                 eventProcessor.recordEvaluationEvent(
                         context,
                         key,
@@ -766,20 +767,16 @@ public class LDClient implements LDClientInterface, Closeable {
     /**
      * Returns whether this evaluation should be reported to LaunchDarkly, and if so starts a new
      * dedupe window for it.
-     * <p>
-     * The variation and version pair is the same identity LaunchDarkly uses to bucket evaluations in
-     * summary events, so two evaluations sharing that pair report identical data. Because the
-     * evaluation reason is carried on the versioned flag payload, a change in reason implies a change
-     * in version and so is covered without being part of the key.
      */
-    private boolean shouldRecordExposure(LDContext context, String flagKey, int variation, int flagVersion) {
+    private boolean shouldRecordExposure(LDContext context, String flagKey, int variation, int flagVersion,
+                                         boolean inExperiment) {
         if (!evaluationExposureDeduper.isEnabled()) {
             // Building the key allocates, so it is skipped entirely while deduplication is off, which
             // is the default.
             return true;
         }
-        String dedupeKey = flagKey + '\n' + variation + '\n' + flagVersion + '\n'
-                + context.getFullyQualifiedKey();
+        String dedupeKey = EvaluationExposureDeduper.exposureKey(flagKey, variation, flagVersion,
+                inExperiment, context.getFullyQualifiedKey());
         return evaluationExposureDeduper.shouldRecord(dedupeKey, System.currentTimeMillis());
     }
 

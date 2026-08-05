@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -15,6 +16,18 @@ public class EvaluationExposureDeduperTest {
             assertTrue(deduper.shouldRecord("a", 0));
             assertTrue(deduper.shouldRecord("a", 0));
         }
+    }
+
+    @Test
+    public void exposureKeyDistinguishesEveryComponent() {
+        String key = EvaluationExposureDeduper.exposureKey("flag", 1, 2, false, "user-key");
+        assertEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("other-flag", 1, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 3, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 4, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 2, false, "other-user-key"));
+        // Moving into an experiment on the same variation of the same flag version reports again.
+        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 2, true, "user-key"));
     }
 
     @Test
