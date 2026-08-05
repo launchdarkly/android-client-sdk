@@ -278,7 +278,7 @@ public class LDClientEventTest {
             TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
                     .persistentDataStore(store)
-                    .flagExposureDedupeWindowMillis(60_000)
+                    .evaluationExposureDedupeWindowMillis(60_000)
                     .build();
 
             try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
@@ -297,7 +297,7 @@ public class LDClientEventTest {
     }
 
     @Test
-    public void identifyResetsFlagExposureDedupeCache() throws IOException, InterruptedException {
+    public void identifyResetsEvaluationExposureDedupeCache() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             mockEventsServer.enqueue(new MockResponse());
@@ -308,7 +308,7 @@ public class LDClientEventTest {
             TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
                     .persistentDataStore(store)
-                    .flagExposureDedupeWindowMillis(60_000)
+                    .evaluationExposureDedupeWindowMillis(60_000)
                     .build();
 
             try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {

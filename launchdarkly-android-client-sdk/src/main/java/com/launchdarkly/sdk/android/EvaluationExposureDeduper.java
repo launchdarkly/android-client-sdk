@@ -5,7 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Tracks recently recorded feature flag exposures so that repeated evaluations resolving to the same
+ * Tracks recently recorded evaluation exposures so that repeated evaluations resolving to the same
  * result do not report a new evaluation event within a configured time window.
  * <p>
  * Each unique exposure key is only recorded once per window. The number of tracked keys is bounded;
@@ -14,7 +14,7 @@ import java.util.Map;
  * This class is thread-safe. Evaluations may be made from any thread, so the check of the window and
  * the update of it are performed together under a single lock.
  */
-final class ExposureDeduper {
+final class EvaluationExposureDeduper {
     private final long windowMillis;
     private final int maxSize;
 
@@ -26,11 +26,11 @@ final class ExposureDeduper {
      * @param windowMillis the dedupe window in milliseconds; zero or negative disables deduplication,
      *                     so every exposure is recorded
      * @param maxSize the maximum number of exposure keys to track; zero or negative falls back to
-     *                {@link LDConfig#DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE}
+     *                {@link LDConfig#DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE}
      */
-    ExposureDeduper(int windowMillis, int maxSize) {
+    EvaluationExposureDeduper(int windowMillis, int maxSize) {
         this.windowMillis = windowMillis;
-        this.maxSize = maxSize > 0 ? maxSize : LDConfig.DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE;
+        this.maxSize = maxSize > 0 ? maxSize : LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE;
     }
 
     boolean isEnabled() {

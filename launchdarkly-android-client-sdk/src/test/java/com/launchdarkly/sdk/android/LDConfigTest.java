@@ -41,21 +41,21 @@ public class LDConfigTest {
 
         assertEquals(0, config.hooks.getHooks().size());
 
-        assertEquals(LDConfig.DEFAULT_FLAG_EXPOSURE_DEDUPE_WINDOW_MILLIS,
-                config.getFlagExposureDedupeWindowMillis());
-        assertEquals(LDConfig.DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE,
-                config.getFlagExposureDedupeMaxSize());
+        assertEquals(LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS,
+                config.getEvaluationExposureDedupeWindowMillis());
+        assertEquals(LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE,
+                config.getEvaluationExposureDedupeMaxSize());
     }
 
     @Test
-    public void testBuilderFlagExposureDedupe() {
+    public void testBuilderEvaluationExposureDedupe() {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
-                .flagExposureDedupeWindowMillis(5_000)
-                .flagExposureDedupeMaxSize(50)
+                .evaluationExposureDedupeWindowMillis(5_000)
+                .evaluationExposureDedupeMaxSize(50)
                 .build();
 
-        assertEquals(5_000, config.getFlagExposureDedupeWindowMillis());
-        assertEquals(50, config.getFlagExposureDedupeMaxSize());
+        assertEquals(5_000, config.getEvaluationExposureDedupeWindowMillis());
+        assertEquals(50, config.getEvaluationExposureDedupeMaxSize());
     }
 
     @Test

@@ -73,7 +73,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ConnectivityManager connectivityManager;
     private final LDLogger logger;
     private final HookRunner hookRunner;
-    private final ExposureDeduper exposureDeduper;
+    private final EvaluationExposureDeduper evaluationExposureDeduper;
     private List<Plugin> plugins;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
@@ -442,9 +442,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
         hookRunner = new HookRunner(logger, config.hooks.getHooks());
 
-        exposureDeduper = new ExposureDeduper(
-                config.getFlagExposureDedupeWindowMillis(),
-                config.getFlagExposureDedupeMaxSize()
+        evaluationExposureDeduper = new EvaluationExposureDeduper(
+                config.getEvaluationExposureDedupeWindowMillis(),
+                config.getEvaluationExposureDedupeMaxSize()
         );
     }
 
@@ -508,7 +508,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // Exposures recorded before this point describe an earlier point in the app's lifecycle, so
         // let them be reported again. This happens even when the context is unchanged, so that
         // identify is a reliable way for an app to mark a new phase of a session.
-        exposureDeduper.reset();
+        evaluationExposureDeduper.reset();
 
         // Load cached flags for the new context so they're available in case initialization
         // times out or otherwise fails. This does not short-circuit initialization — the data
@@ -773,14 +773,14 @@ public class LDClient implements LDClientInterface, Closeable {
      * in version and so is covered without being part of the key.
      */
     private boolean shouldRecordExposure(LDContext context, String flagKey, int variation, int flagVersion) {
-        if (!exposureDeduper.isEnabled()) {
+        if (!evaluationExposureDeduper.isEnabled()) {
             // Building the key allocates, so it is skipped entirely while deduplication is off, which
             // is the default.
             return true;
         }
         String dedupeKey = flagKey + '\n' + variation + '\n' + flagVersion + '\n'
                 + context.getFullyQualifiedKey();
-        return exposureDeduper.shouldRecord(dedupeKey, System.currentTimeMillis());
+        return evaluationExposureDeduper.shouldRecord(dedupeKey, System.currentTimeMillis());
     }
 
     /**

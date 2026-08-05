@@ -6,11 +6,11 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-public class ExposureDeduperTest {
+public class EvaluationExposureDeduperTest {
     @Test
     public void disabledForNonPositiveWindow() {
         for (int window : new int[] { 0, -1 }) {
-            ExposureDeduper deduper = new ExposureDeduper(window, 10);
+            EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(window, 10);
             assertFalse(deduper.isEnabled());
             assertTrue(deduper.shouldRecord("a", 0));
             assertTrue(deduper.shouldRecord("a", 0));
@@ -19,7 +19,7 @@ public class ExposureDeduperTest {
 
     @Test
     public void suppressesRepeatsWithinWindow() {
-        ExposureDeduper deduper = new ExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
         assertTrue(deduper.shouldRecord("a", 1000));
         assertFalse(deduper.shouldRecord("a", 1000));
         assertFalse(deduper.shouldRecord("a", 1099));
@@ -27,7 +27,7 @@ public class ExposureDeduperTest {
 
     @Test
     public void recordsAgainOnceWindowElapses() {
-        ExposureDeduper deduper = new ExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
         assertTrue(deduper.shouldRecord("a", 1000));
         assertTrue(deduper.shouldRecord("a", 1100));
         // Recording restarts the window rather than extending the original one.
@@ -37,7 +37,7 @@ public class ExposureDeduperTest {
 
     @Test
     public void tracksKeysIndependently() {
-        ExposureDeduper deduper = new ExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
         assertTrue(deduper.shouldRecord("a", 1000));
         assertTrue(deduper.shouldRecord("b", 1000));
         assertFalse(deduper.shouldRecord("a", 1000));
@@ -46,7 +46,7 @@ public class ExposureDeduperTest {
 
     @Test
     public void recordsAgainAfterReset() {
-        ExposureDeduper deduper = new ExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
         assertTrue(deduper.shouldRecord("a", 1000));
         deduper.reset();
         assertTrue(deduper.shouldRecord("a", 1000));
@@ -54,7 +54,7 @@ public class ExposureDeduperTest {
 
     @Test
     public void evictsLeastRecentlyRecordedKeysPastCap() {
-        ExposureDeduper deduper = new ExposureDeduper(10_000, 4);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(10_000, 4);
         for (int i = 0; i < 5; i++) {
             assertTrue(deduper.shouldRecord("key-" + i, 1000 + i));
         }
@@ -66,7 +66,7 @@ public class ExposureDeduperTest {
 
     @Test
     public void reRecordingMovesKeyToMostRecentEndOfEvictionOrder() {
-        ExposureDeduper deduper = new ExposureDeduper(100, 2);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 2);
         assertTrue(deduper.shouldRecord("a", 1000));
         assertTrue(deduper.shouldRecord("b", 1000));
         // "a" is re-recorded once its window elapses, which makes "b" the oldest tracked key.
@@ -79,7 +79,7 @@ public class ExposureDeduperTest {
     public void keepsLiveKeysWhenReclaimingExpiredOnesIsEnough() {
         // maxSize is 8 so that the batch term (maxSize / 4) is non-zero, which is what makes an
         // over-eager batch drop observable.
-        ExposureDeduper deduper = new ExposureDeduper(100, 8);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 8);
         for (int i = 0; i < 2; i++) {
             assertTrue(deduper.shouldRecord("expired-" + i, 1000));
         }
@@ -96,8 +96,8 @@ public class ExposureDeduperTest {
 
     @Test
     public void fallsBackToDefaultCapForNonPositiveMaxSize() {
-        ExposureDeduper deduper = new ExposureDeduper(10_000, 0);
-        for (int i = 0; i < LDConfig.DEFAULT_FLAG_EXPOSURE_DEDUPE_MAX_SIZE; i++) {
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(10_000, 0);
+        for (int i = 0; i < LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE; i++) {
             assertTrue(deduper.shouldRecord("key-" + i, 1000));
         }
         assertFalse(deduper.shouldRecord("key-0", 1000));
@@ -105,7 +105,7 @@ public class ExposureDeduperTest {
 
     @Test
     public void recordsOnceWhenSameKeyIsCheckedConcurrently() throws Exception {
-        ExposureDeduper deduper = new ExposureDeduper(60_000, 100);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(60_000, 100);
         int threadCount = 10;
         Thread[] threads = new Thread[threadCount];
         boolean[] recorded = new boolean[threadCount];
