@@ -240,7 +240,7 @@ public class LDClientEventTest {
     }
 
     @Test
-    public void repeatedEvaluationsAreReportedWhenDedupeIsDisabledByDefault() throws IOException, InterruptedException {
+    public void exposureDeduplicationDoesNotSuppressEvaluationEvents() throws IOException, InterruptedException {
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
             mockEventsServer.enqueue(new MockResponse());
@@ -249,8 +249,12 @@ public class LDClientEventTest {
                     .variation(1).value(LDValue.of(true)).trackEvents(true).build();
             PersistentDataStore store = new InMemoryPersistentDataStore();
             TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
+            // Deduplication applies to hooks only, so a window wide enough to suppress every repeat
+            // must still leave the analytics events untouched.
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
-                    .persistentDataStore(store).build();
+                    .persistentDataStore(store)
+                    .evaluationExposureDedupeWindowMillis(60_000)
+                    .build();
 
             try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
                 for (int i = 0; i < 3; i++) {
@@ -263,71 +267,6 @@ public class LDClientEventTest {
                 assertSummaryEvent(events[4]);
                 assertEquals(LDValue.of(3), events[4].get("features").get("flagA").get("counters").get(0).get("count"));
             }
-        }
-    }
-
-    @Test
-    public void repeatedEvaluationsAreDeduplicatedWithinTheConfiguredWindow() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            mockEventsServer.enqueue(new MockResponse());
-
-            Flag flag = new FlagBuilder("flagA").version(1)
-                    .variation(1).value(LDValue.of(true)).trackEvents(true).build();
-            PersistentDataStore store = new InMemoryPersistentDataStore();
-            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
-                    .persistentDataStore(store)
-                    .evaluationExposureDedupeWindowMillis(60_000)
-                    .build();
-
-            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
-                for (int i = 0; i < 3; i++) {
-                    assertTrue(client.boolVariation("flagA", false));
-                }
-                client.blockingFlush();
-
-                // The repeats are suppressed, so only one feature event and one summary count remain.
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 3);
-                assertFeatureEvent(events[1], ldContext);
-                assertSummaryEvent(events[2]);
-                assertEquals(LDValue.of(1), events[2].get("features").get("flagA").get("counters").get(0).get("count"));
-            }
-        }
-    }
-
-    @Test
-    public void identifyResetsEvaluationExposureDedupeCache() throws IOException, InterruptedException {
-        try (MockWebServer mockEventsServer = new MockWebServer()) {
-            mockEventsServer.start();
-            mockEventsServer.enqueue(new MockResponse());
-
-            Flag flag = new FlagBuilder("flagA").version(1)
-                    .variation(1).value(LDValue.of(true)).build();
-            PersistentDataStore store = new InMemoryPersistentDataStore();
-            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
-            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
-                    .persistentDataStore(store)
-                    .evaluationExposureDedupeWindowMillis(60_000)
-                    .build();
-
-            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
-                assertTrue(client.boolVariation("flagA", false));
-                assertTrue(client.boolVariation("flagA", false));
-
-                // Identifying to the unchanged context still clears the cache, so the evaluation
-                // after it is reported rather than suppressed.
-                client.identify(ldContext).get();
-                assertTrue(client.boolVariation("flagA", false));
-                client.blockingFlush();
-
-                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 3);
-                LDValue summaryEvent = events[2];
-                assertSummaryEvent(summaryEvent);
-                assertEquals(LDValue.of(2), summaryEvent.get("features").get("flagA").get("counters").get(0).get("count"));
-            }
-        } catch (java.util.concurrent.ExecutionException e) {
-            fail("identify failed: " + e);
         }
     }
 

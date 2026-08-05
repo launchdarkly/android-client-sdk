@@ -69,6 +69,55 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
+    public void skipsBothStagesWhenTheExposureFilterSuppressesTheEvaluation() {
+        String key = "test-flag";
+        LDContext context = LDContext.create("user-123");
+        LDValue defaultValue = LDValue.of(false);
+        EvaluationDetail<LDValue> evaluationResult = EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off());
+
+        List<String> filtered = new ArrayList<>();
+        HookRunner suppressing = new HookRunner(logging.logger, List.of(testHook), (flagKey, evalContext) -> {
+            filtered.add(flagKey);
+            return false;
+        });
+
+        // No hook stage is expected: a suppressed evaluation must not leave a beforeEvaluation
+        // unmatched by its afterEvaluation.
+        replayAll();
+
+        EvaluationDetail<LDValue> result = suppressing.withEvaluation("testMethod", key, context, defaultValue, () -> evaluationResult);
+
+        verifyAll();
+        assertSame(evaluationResult, result);
+        assertEquals(List.of(key), filtered);
+        logging.assertNothingLogged();
+    }
+
+    @Test
+    public void consultsTheExposureFilterOncePerEvaluation() {
+        LDContext context = LDContext.create("user-123");
+        LDValue defaultValue = LDValue.of(false);
+        EvaluationDetail<LDValue> evaluationResult = EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off());
+        EvaluationSeriesContext seriesContext = new EvaluationSeriesContext("testMethod", "test-flag", context, defaultValue);
+
+        List<String> filtered = new ArrayList<>();
+        HookRunner allowing = new HookRunner(logging.logger, List.of(testHook), (flagKey, evalContext) -> {
+            filtered.add(flagKey);
+            return true;
+        });
+
+        expect(testHook.beforeEvaluation(seriesContext, Collections.emptyMap())).andReturn(Collections.unmodifiableMap(Collections.emptyMap()));
+        expect(testHook.afterEvaluation(seriesContext, Collections.emptyMap(), evaluationResult)).andReturn(Collections.unmodifiableMap(Collections.emptyMap()));
+        replayAll();
+
+        allowing.withEvaluation("testMethod", "test-flag", context, defaultValue, () -> evaluationResult);
+
+        verifyAll();
+        assertEquals(List.of("test-flag"), filtered);
+        logging.assertNothingLogged();
+    }
+
+    @Test
     public void handlesErrorInEvaluationHooks() {
         String method = "testMethod";
         String key = "test-flag";

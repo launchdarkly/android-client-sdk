@@ -178,11 +178,76 @@ public class LDClientHooksTest {
         }
     }
 
+    @Test
+    public void repeatedEvaluationsReachHooksWhenDedupeIsDisabledByDefault() throws Exception {
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
+            for (int i = 0; i < 3; i++) {
+                ldClient.boolVariation("test-flag", false);
+            }
+
+            assertEquals(3, testHook.beforeEvaluationCalls.size());
+            assertEquals(3, testHook.afterEvaluationCalls.size());
+        }
+    }
+
+    @Test
+    public void repeatedEvaluationsAreDeduplicatedWithinTheConfiguredWindow() throws Exception {
+        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
+                .evaluationExposureDedupeWindowMillis(60_000)
+                .build();
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+            for (int i = 0; i < 3; i++) {
+                ldClient.boolVariation("test-flag", false);
+            }
+
+            // The whole series is skipped, so a hook pairing its stages never sees an unmatched before.
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+            assertEquals(1, testHook.afterEvaluationCalls.size());
+        }
+    }
+
+    @Test
+    public void identifyResetsEvaluationExposureDedupeCache() throws Exception {
+        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
+                .evaluationExposureDedupeWindowMillis(60_000)
+                .build();
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+            ldClient.boolVariation("test-flag", false);
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(1, testHook.afterEvaluationCalls.size());
+
+            // Identifying to the unchanged context still clears the cache, so the evaluation after it
+            // reaches the hooks rather than being suppressed.
+            ldClient.identify(ldContext).get();
+            ldClient.boolVariation("test-flag", false);
+
+            assertEquals(2, testHook.afterEvaluationCalls.size());
+        }
+    }
+
+    @Test
+    public void evaluationsOfDifferentFlagsReachHooksSeparately() throws Exception {
+        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
+                .evaluationExposureDedupeWindowMillis(60_000)
+                .build();
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+            ldClient.boolVariation("test-flag", false);
+            ldClient.boolVariation("other-flag", false);
+            ldClient.boolVariation("test-flag", false);
+
+            assertEquals(2, testHook.afterEvaluationCalls.size());
+        }
+    }
+
     private LDConfig makeOfflineConfig() {
         return makeOfflineConfig(null);
     }
 
     private LDConfig makeOfflineConfig(List<Hook> hooks) {
+        return makeOfflineConfigBuilder(hooks).build();
+    }
+
+    private LDConfig.Builder makeOfflineConfigBuilder(List<Hook> hooks) {
         LDConfig.Builder builder = new LDConfig.Builder(LDConfig.Builder.AutoEnvAttributes.Disabled)
             .mobileKey(mobileKey)
             .offline(true)
@@ -193,7 +258,7 @@ public class LDClientHooksTest {
             builder.hooks(Components.hooks().setHooks(hooks));
         }
 
-        return builder.build();
+        return builder;
     }
 
     private static class MockHook extends Hook {

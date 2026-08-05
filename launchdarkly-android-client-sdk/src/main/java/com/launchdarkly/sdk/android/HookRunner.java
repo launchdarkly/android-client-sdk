@@ -26,14 +26,29 @@ public class HookRunner {
         void invoke(IdentifySeriesResult result);
     }
 
+    /**
+     * Decides whether an evaluation's exposure should be reported to hooks. Consulted once per
+     * evaluation, before the series opens, so that a suppressed evaluation runs neither stage.
+     */
+    @FunctionalInterface
+    public interface ExposureFilter {
+        boolean shouldReport(String flagKey, LDContext context);
+    }
+
     private static final String UNKNOWN_HOOK_NAME = "unknown hook";
 
     private final LDLogger logger;
     private final List<Hook> hooks = new ArrayList<>();
+    private final ExposureFilter exposureFilter;
 
     public HookRunner(LDLogger logger, List<Hook> initialHooks) {
+        this(logger, initialHooks, (flagKey, context) -> true);
+    }
+
+    public HookRunner(LDLogger logger, List<Hook> initialHooks, ExposureFilter exposureFilter) {
         this.logger = logger;
         this.hooks.addAll(initialHooks);
+        this.exposureFilter = exposureFilter;
     }
 
     private String getHookName(Hook hook) {
@@ -51,7 +66,7 @@ public class HookRunner {
     }
 
     public EvaluationDetail<LDValue> withEvaluation(String method, String key, LDContext context, LDValue defaultValue, EvaluationMethod evalMethod) {
-        if (hooks.isEmpty()) {
+        if (hooks.isEmpty() || !exposureFilter.shouldReport(key, context)) {
             return evalMethod.evaluate();
         }
 

@@ -665,16 +665,18 @@ public class LDConfig {
 
         /**
          * Sets the time window, in milliseconds, during which repeated feature flag evaluations that
-         * resolve to the same result are deduplicated.
+         * resolve to the same result are deduplicated before being reported to hooks.
          * <p>
-         * Within the window, only a single evaluation is reported per unique combination of flag key,
-         * variation, flag version, and evaluation context. This is useful for reducing analytics event
-         * volume caused by frequent re-evaluations, for example a flag that is read on every redraw of
-         * a view.
+         * Within the window, a hook observes only a single evaluation per unique combination of flag
+         * key, variation, flag version, experiment status, and evaluation context. This is useful for
+         * reducing the telemetry volume produced by frequent re-evaluations, for example a flag that is
+         * read on every redraw of a view.
          * <p>
-         * Deduplicated evaluations are omitted from both the full feature events used by
-         * experimentation and the debugger, and the summary events that drive flag evaluation counts.
-         * Enabling this therefore reduces the evaluation counts LaunchDarkly reports for your flags.
+         * Deduplication applies to the whole evaluation series, so a suppressed evaluation invokes
+         * neither {@code beforeEvaluation} nor {@code afterEvaluation} on any registered hook. This
+         * affects every hook, including your own, not only those added by plugins. Analytics events are
+         * unaffected: feature, debug, and summary events are still recorded for every evaluation, so the
+         * evaluation counts LaunchDarkly reports for your flags do not change.
          * <p>
          * The cache of recorded exposures is cleared by {@link LDClient#identify(LDContext)}, so the
          * first evaluation after an identify is always reported.

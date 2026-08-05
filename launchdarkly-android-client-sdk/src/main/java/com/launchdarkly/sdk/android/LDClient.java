@@ -440,12 +440,12 @@ public class LDClient implements LDClientInterface, Closeable {
                 environmentStore
         );
 
-        hookRunner = new HookRunner(logger, config.hooks.getHooks());
-
         evaluationExposureDeduper = new EvaluationExposureDeduper(
                 config.getEvaluationExposureDedupeWindowMillis(),
                 config.getEvaluationExposureDedupeMaxSize()
         );
+
+        hookRunner = new HookRunner(logger, config.hooks.getHooks(), this::shouldReportExposureToHooks);
     }
 
     @Override
@@ -699,11 +699,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
         if (flag == null) {
             logger.info("Unknown feature flag \"{}\"; returning default value", key);
-            if (shouldRecordExposure(context, key, EvaluationDetail.NO_VARIATION, EventProcessor.NO_VERSION, false)) {
-                eventProcessor.recordEvaluationEvent(context, key,
-                        EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
-                        null, defaultValue, false, null);
-            }
+            eventProcessor.recordEvaluationEvent(context, key,
+                    EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
+                    null, defaultValue, false, null);
             result = EvaluationDetail.fromValue(defaultValue, EvaluationDetail.NO_VARIATION, EvaluationReason.error(EvaluationReason.ErrorKind.FLAG_NOT_FOUND));
         } else {
             if (flag.getPrerequisites() != null) {
@@ -744,20 +742,17 @@ public class LDClient implements LDClientInterface, Closeable {
             } else {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
-            boolean inExperiment = flag.getReason() != null && flag.getReason().isInExperiment();
-            if (shouldRecordExposure(context, key, variation, flag.getVersionForEvents(), inExperiment)) {
-                eventProcessor.recordEvaluationEvent(
-                        context,
-                        key,
-                        flag.getVersionForEvents(),
-                        flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
-                        value,
-                        flag.isTrackReason() | needsReason ? result.getReason() : null,
-                        defaultValue,
-                        flag.isTrackEvents(),
-                        flag.getDebugEventsUntilDate()
-                );
-            }
+            eventProcessor.recordEvaluationEvent(
+                    context,
+                    key,
+                    flag.getVersionForEvents(),
+                    flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
+                    value,
+                    flag.isTrackReason() | needsReason ? result.getReason() : null,
+                    defaultValue,
+                    flag.isTrackEvents(),
+                    flag.getDebugEventsUntilDate()
+            );
         }
 
         logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
@@ -765,19 +760,35 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     /**
-     * Returns whether this evaluation should be reported to LaunchDarkly, and if so starts a new
-     * dedupe window for it.
+     * Returns whether this evaluation's exposure should be reported to the registered hooks, and if
+     * so starts a new dedupe window for it.
+     * <p>
+     * The decision is made before the series opens rather than after the evaluation completes,
+     * because hooks pair their stages: the observability plugin starts a span in
+     * {@code beforeEvaluation} and ends it in {@code afterEvaluation}, so suppressing only the after
+     * stage would leave that span open until something else closed it. Reading the stored flag here
+     * identifies the same exposure the result would, since the result is derived from it.
      */
-    private boolean shouldRecordExposure(LDContext context, String flagKey, int variation, int flagVersion,
-                                         boolean inExperiment) {
+    private boolean shouldReportExposureToHooks(String flagKey, LDContext context) {
         if (!evaluationExposureDeduper.isEnabled()) {
-            // Building the key allocates, so it is skipped entirely while deduplication is off, which
-            // is the default.
+            // Looking up the flag and building the key both cost more than the check they feed, so
+            // they are skipped entirely while deduplication is off, which is the default.
             return true;
         }
+
+        Flag flag = contextDataManager.getNonDeletedFlag(flagKey);
+        int variation = flag == null || flag.getVariation() == null
+                ? EvaluationDetail.NO_VARIATION : flag.getVariation();
+        int flagVersion = flag == null ? EventProcessor.NO_VERSION : flag.getVersionForEvents();
+        boolean inExperiment = flag != null && flag.getReason() != null && flag.getReason().isInExperiment();
+
         String dedupeKey = EvaluationExposureDeduper.exposureKey(flagKey, variation, flagVersion,
                 inExperiment, context.getFullyQualifiedKey());
-        return evaluationExposureDeduper.shouldRecord(dedupeKey, System.currentTimeMillis());
+        if (!evaluationExposureDeduper.shouldRecord(dedupeKey, System.currentTimeMillis())) {
+            logger.debug("Deduplicated exposure for flagKey: {}", flagKey);
+            return false;
+        }
+        return true;
     }
 
     /**
