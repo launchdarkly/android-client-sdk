@@ -180,23 +180,22 @@ public class LDClientHooksTest {
     }
 
     @Test
-    public void repeatedEvaluationsReachHooksWhenDedupeIsDisabledByDefault() throws Exception {
+    public void repeatedEvaluationsReachAHookThatAskedForNoDedupe() throws Exception {
         try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
             for (int i = 0; i < 3; i++) {
                 ldClient.boolVariation("test-flag", false);
             }
 
+            // Deduplication is opt-in per hook, and this one did not opt in.
             assertEquals(3, testHook.beforeEvaluationCalls.size());
             assertEquals(3, testHook.afterEvaluationCalls.size());
         }
     }
 
     @Test
-    public void repeatedEvaluationsAreDeduplicatedWithinTheConfiguredWindow() throws Exception {
-        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
-                .evaluationExposureDedupeWindowMillis(60_000)
-                .build();
-        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+    public void repeatedEvaluationsAreDeduplicatedWithinTheHooksWindow() throws Exception {
+        testHook.evaluationExposureDeduper(60_000, 100);
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
             for (int i = 0; i < 3; i++) {
                 ldClient.boolVariation("test-flag", false);
             }
@@ -209,10 +208,8 @@ public class LDClientHooksTest {
 
     @Test
     public void identifyResetsEvaluationExposureDedupeCache() throws Exception {
-        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
-                .evaluationExposureDedupeWindowMillis(60_000)
-                .build();
-        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+        testHook.evaluationExposureDeduper(60_000, 100);
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
             ldClient.boolVariation("test-flag", false);
             ldClient.boolVariation("test-flag", false);
             assertEquals(1, testHook.afterEvaluationCalls.size());
@@ -228,10 +225,8 @@ public class LDClientHooksTest {
 
     @Test
     public void evaluationsOfDifferentFlagsReachHooksSeparately() throws Exception {
-        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
-                .evaluationExposureDedupeWindowMillis(60_000)
-                .build();
-        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+        testHook.evaluationExposureDeduper(60_000, 100);
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
             ldClient.boolVariation("test-flag", false);
             ldClient.boolVariation("other-flag", false);
             ldClient.boolVariation("test-flag", false);
@@ -241,41 +236,26 @@ public class LDClientHooksTest {
     }
 
     @Test
-    public void hookKeepsItsOwnDeduperInsteadOfTheConfiguredOne() throws Exception {
+    public void hooksWithDifferentWindowsSuppressIndependently() throws Exception {
+        MockHook deduping = new MockHook();
+        deduping.evaluationExposureDeduper(60_000, 100);
         MockHook reportingEverything = new MockHook();
         reportingEverything.evaluationExposureDeduper(EvaluationExposureDeduper.disabled());
         LDConfig config = makeOfflineConfigBuilder(null)
-                .evaluationExposureDedupeWindowMillis(60_000)
-                .hooks(Components.hooks().addHook(testHook).addHook(reportingEverything))
+                .hooks(Components.hooks().addHook(testHook).addHook(deduping).addHook(reportingEverything))
                 .build();
         try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
             for (int i = 0; i < 3; i++) {
                 ldClient.boolVariation("test-flag", false);
             }
 
-            // testHook carries no deduper, so it falls back to the configured window.
-            assertEquals(1, testHook.afterEvaluationCalls.size());
-            assertEquals(3, reportingEverything.afterEvaluationCalls.size());
-        }
-    }
-
-    @Test
-    public void hookDeduperAppliesWithoutAnyConfiguredWindow() throws Exception {
-        MockHook deduping = new MockHook();
-        deduping.evaluationExposureDeduper(60_000, 100);
-        LDConfig config = makeOfflineConfigBuilder(null)
-                .hooks(Components.hooks().addHook(testHook).addHook(deduping))
-                .build();
-        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
-            for (int i = 0; i < 3; i++) {
-                ldClient.boolVariation("test-flag", false);
-            }
-
-            // Deduplication is off by default, so only the hook that asked for it suppresses.
+            // Only the hook that asked for a window suppresses. Carrying no deduper and carrying the
+            // disabled one behave the same way.
             assertEquals(3, testHook.afterEvaluationCalls.size());
             assertEquals(1, deduping.afterEvaluationCalls.size());
+            assertEquals(3, reportingEverything.afterEvaluationCalls.size());
 
-            // identify clears every hook's cache, whether it came from the hook or the config.
+            // identify clears the cache of every hook that has one.
             ldClient.identify(ldContext).get();
             ldClient.boolVariation("test-flag", false);
             assertEquals(2, deduping.afterEvaluationCalls.size());

@@ -36,8 +36,13 @@ public abstract class Hook {
     }
 
     /**
-     * Deduplicates this hook's evaluation series with the SDK's implementation, using the given
-     * parameters instead of the ones configured on {@link com.launchdarkly.sdk.android.LDConfig}.
+     * Deduplicates this hook's evaluation series with the SDK's implementation, so that repeated
+     * evaluations resolving to the same result reach it at most once per window.
+     * <p>
+     * Within the window, this hook observes only a single evaluation per unique combination of flag
+     * key, variation, flag version, experiment status, and evaluation context. This is useful for
+     * reducing the telemetry volume produced by frequent re-evaluations, for example a flag that is
+     * read on every redraw of a view.
      *
      * <pre><code>
      *     Components.hooks()
@@ -47,7 +52,7 @@ public abstract class Hook {
      * @param windowMillis the dedupe window in milliseconds; zero or negative reports every
      *                     evaluation
      * @param maxSize the maximum number of exposure keys to track; zero or negative uses
-     *                {@link com.launchdarkly.sdk.android.LDConfig#DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE}
+     *                {@link EvaluationExposureDeduper#DEFAULT_MAX_SIZE}
      * @return this hook
      */
     public Hook evaluationExposureDeduper(int windowMillis, int maxSize) {
@@ -55,24 +60,31 @@ public abstract class Hook {
     }
 
     /**
-     * Sets which evaluations reach this hook, overriding the deduplication configured on
-     * {@link com.launchdarkly.sdk.android.LDConfig}. It affects only this hook.
+     * Sets which evaluations reach this hook. It affects only this hook.
      * <p>
-     * Pass {@link EvaluationExposureDeduper#disabled()} to observe every evaluation, or your own
-     * subclass of {@link EvaluationExposureDeduper} to implement a different policy.
+     * Pass your own subclass of {@link EvaluationExposureDeduper} to implement a policy other than
+     * the SDK's, or {@link EvaluationExposureDeduper#disabled()} to state explicitly that this hook
+     * observes every evaluation, which is what it does anyway when no deduper is set.
      *
      * <pre><code>
      *     Components.hooks()
-     *         .addHook(new AuditHook().evaluationExposureDeduper(EvaluationExposureDeduper.disabled()))
      *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
      * </code></pre>
+     * <p>
+     * Deduplication applies to the whole evaluation series, so a suppressed evaluation invokes
+     * neither {@link #beforeEvaluation(EvaluationSeriesContext, Map)} nor
+     * {@link #afterEvaluation(EvaluationSeriesContext, Map, EvaluationDetail)}. Analytics events are
+     * unaffected: feature, debug, and summary events are still recorded for every evaluation, so the
+     * evaluation counts LaunchDarkly reports for your flags do not change. What the hook has
+     * observed is cleared by {@link com.launchdarkly.sdk.android.LDClient#identify(com.launchdarkly.sdk.LDContext)},
+     * so the first evaluation after an identify always reaches it.
      * <p>
      * The SDK reads this once, when the hook is registered, so call it before passing the hook to
      * the SDK. Give each hook its own deduper unless you intend hooks to share a window: the first
      * hook to observe an evaluation starts the window that suppresses the rest.
      *
-     * @param evaluationExposureDeduper the deduper for this hook, or null to use the SDK's
-     *                                  configured defaults
+     * @param evaluationExposureDeduper the deduper for this hook, or null to observe every
+     *                                  evaluation
      * @return this hook
      */
     public Hook evaluationExposureDeduper(EvaluationExposureDeduper evaluationExposureDeduper) {
@@ -81,8 +93,8 @@ public abstract class Hook {
     }
 
     /**
-     * @return the deduper deciding which evaluations reach this hook, or null if it uses the
-     *         deduplication configured on {@link com.launchdarkly.sdk.android.LDConfig}
+     * @return the deduper deciding which evaluations reach this hook, or null if it observes every
+     *         evaluation
      */
     public final EvaluationExposureDeduper getEvaluationExposureDeduper() {
         return evaluationExposureDeduper;

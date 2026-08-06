@@ -62,17 +62,6 @@ public class LDConfig {
 
     static final String primaryEnvironmentName = "default";
 
-    /**
-     * The default value for {@link LDConfig.Builder#evaluationExposureDedupeWindowMillis(int)}: 0, meaning that
-     * deduplication is disabled.
-     */
-    public static final int DEFAULT_EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS = 0;
-
-    /**
-     * The default value for {@link LDConfig.Builder#evaluationExposureDedupeMaxSize(int)}: 2000.
-     */
-    public static final int DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE = 2_000;
-
     static final int DEFAULT_MAX_CACHED_CONTEXTS = 5;
     static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000; // 10 seconds
 
@@ -98,8 +87,6 @@ public class LDConfig {
     private final String loggerName;
     private final int maxCachedContexts;
     private final boolean offline;
-    private final int evaluationExposureDedupeWindowMillis;
-    private final int evaluationExposureDedupeMaxSize;
     private final long connectionModeStateDebounceMs;
     private final PersistentDataStore persistentDataStore; // configurable for testing only
 
@@ -119,8 +106,6 @@ public class LDConfig {
              int maxCachedContexts,
              boolean generateAnonymousKeys,
              boolean autoEnvAttributes,
-             int evaluationExposureDedupeWindowMillis,
-             int evaluationExposureDedupeMaxSize,
              long connectionModeStateDebounceMs,
              PersistentDataStore persistentDataStore,
              LDLogAdapter logAdapter,
@@ -141,8 +126,6 @@ public class LDConfig {
         this.maxCachedContexts = maxCachedContexts;
         this.generateAnonymousKeys = generateAnonymousKeys;
         this.autoEnvAttributes = autoEnvAttributes;
-        this.evaluationExposureDedupeWindowMillis = evaluationExposureDedupeWindowMillis;
-        this.evaluationExposureDedupeMaxSize = evaluationExposureDedupeMaxSize;
         this.connectionModeStateDebounceMs = connectionModeStateDebounceMs;
         this.persistentDataStore = persistentDataStore;
         this.logAdapter = logAdapter;
@@ -213,20 +196,6 @@ public class LDConfig {
     }
 
     /**
-     * @return the evaluation exposure deduplication window in milliseconds, or 0 if deduplication is disabled
-     */
-    public int getEvaluationExposureDedupeWindowMillis() {
-        return evaluationExposureDedupeWindowMillis;
-    }
-
-    /**
-     * @return the maximum number of evaluation exposure keys tracked for deduplication at once
-     */
-    public int getEvaluationExposureDedupeMaxSize() {
-        return evaluationExposureDedupeMaxSize;
-    }
-
-    /**
      * @return true if keys should be generated for anonymous contexts, false otherwise
      */
     public boolean isGenerateAnonymousKeys() { return generateAnonymousKeys; }
@@ -294,9 +263,6 @@ public class LDConfig {
         private ComponentConfigurer<HttpConfiguration> http = null;
 
         private int maxCachedContexts = DEFAULT_MAX_CACHED_CONTEXTS;
-
-        private int evaluationExposureDedupeWindowMillis = DEFAULT_EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS;
-        private int evaluationExposureDedupeMaxSize = DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE;
 
         private boolean offline = false;
         private boolean disableBackgroundUpdating = false;
@@ -664,62 +630,6 @@ public class LDConfig {
         }
 
         /**
-         * Sets the time window, in milliseconds, during which repeated feature flag evaluations that
-         * resolve to the same result are deduplicated before being reported to hooks.
-         * <p>
-         * Within the window, a hook observes only a single evaluation per unique combination of flag
-         * key, variation, flag version, experiment status, and evaluation context. This is useful for
-         * reducing the telemetry volume produced by frequent re-evaluations, for example a flag that is
-         * read on every redraw of a view.
-         * <p>
-         * Deduplication applies to the whole evaluation series, so a suppressed evaluation invokes
-         * neither {@code beforeEvaluation} nor {@code afterEvaluation} on that hook. Analytics events
-         * are unaffected: feature, debug, and summary events are still recorded for every evaluation,
-         * so the evaluation counts LaunchDarkly reports for your flags do not change.
-         * <p>
-         * This is the default for hooks that do not carry a policy of their own. Each hook is
-         * deduplicated separately, and a hook can override this with
-         * {@link com.launchdarkly.sdk.android.integrations.Hook#evaluationExposureDeduper(com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper)},
-         * for example to observe every evaluation while other hooks are deduplicated.
-         * <p>
-         * Every hook's record of what it has observed is cleared by
-         * {@link LDClient#identify(LDContext)}, so the first evaluation after an identify is always
-         * reported.
-         * <p>
-         * If not specified, the default is {@link #DEFAULT_EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS} (0),
-         * which disables deduplication so that every evaluation is reported.
-         *
-         * @param evaluationExposureDedupeWindowMillis the dedupe window in milliseconds; zero or negative
-         *                                       disables deduplication
-         * @return the builder
-         * @see #evaluationExposureDedupeMaxSize(int)
-         */
-        public Builder evaluationExposureDedupeWindowMillis(int evaluationExposureDedupeWindowMillis) {
-            this.evaluationExposureDedupeWindowMillis = evaluationExposureDedupeWindowMillis;
-            return this;
-        }
-
-        /**
-         * Sets the maximum number of unique evaluation exposure keys tracked for deduplication at
-         * once.
-         * <p>
-         * When the limit is exceeded, the least recently recorded keys are evicted to bound memory
-         * usage. This only matters when {@link #evaluationExposureDedupeWindowMillis(int)} is enabled,
-         * and applies to hooks that do not carry a policy of their own.
-         * <p>
-         * If not specified, the default is {@link #DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE} (2000).
-         *
-         * @param evaluationExposureDedupeMaxSize the maximum number of keys to track; zero or negative
-         *                                  values are ignored and the default is used instead
-         * @return the builder
-         * @see #evaluationExposureDedupeWindowMillis(int)
-         */
-        public Builder evaluationExposureDedupeMaxSize(int evaluationExposureDedupeMaxSize) {
-            this.evaluationExposureDedupeMaxSize = evaluationExposureDedupeMaxSize;
-            return this;
-        }
-
-        /**
          * Set to {@code true} to make the SDK provide unique keys for anonymous contexts.
          * <p>
          * If enabled, this option changes the SDK's behavior whenever the {@link LDContext} (as
@@ -929,8 +839,6 @@ public class LDConfig {
                     maxCachedContexts,
                     generateAnonymousKeys,
                     autoEnvAttributes,
-                    evaluationExposureDedupeWindowMillis,
-                    evaluationExposureDedupeMaxSize,
                     connectionModeStateDebounceMs,
                     persistentDataStore,
                     actualLogAdapter,

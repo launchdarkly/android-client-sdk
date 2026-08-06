@@ -40,22 +40,6 @@ public class LDConfigTest {
         assertFalse(config.getDiagnosticOptOut());
 
         assertEquals(0, config.hooks.getHooks().size());
-
-        assertEquals(LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS,
-                config.getEvaluationExposureDedupeWindowMillis());
-        assertEquals(LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE,
-                config.getEvaluationExposureDedupeMaxSize());
-    }
-
-    @Test
-    public void testBuilderEvaluationExposureDedupe() {
-        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
-                .evaluationExposureDedupeWindowMillis(5_000)
-                .evaluationExposureDedupeMaxSize(50)
-                .build();
-
-        assertEquals(5_000, config.getEvaluationExposureDedupeWindowMillis());
-        assertEquals(50, config.getEvaluationExposureDedupeMaxSize());
     }
 
     @Test

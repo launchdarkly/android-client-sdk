@@ -1,7 +1,5 @@
 package com.launchdarkly.sdk.android.integrations;
 
-import com.launchdarkly.sdk.android.LDConfig;
-
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -10,16 +8,12 @@ import java.util.Map;
  * Decides whether a hook should be told about an evaluation, so that repeated evaluations resolving
  * to the same result do not invoke the hook again within a time window.
  * <p>
- * The SDK gives each registered hook its own deduper. Give one to a hook with
- * {@link Hook#evaluationExposureDeduper(EvaluationExposureDeduper)} to control that hook's behavior;
- * a hook carrying none gets a deduper built from
- * {@link LDConfig.Builder#evaluationExposureDedupeWindowMillis(int)} and
- * {@link LDConfig.Builder#evaluationExposureDedupeMaxSize(int)}.
+ * Deduplication is opt-in per hook: a hook is told about every evaluation until you give it a
+ * deduper with {@link Hook#evaluationExposureDeduper(int, int)}.
  *
  * <pre><code>
  *     Components.hooks()
- *         .addHook(new MetricsHook())                                // SDK defaults
- *         .addHook(new AuditHook().evaluationExposureDeduper(EvaluationExposureDeduper.disabled()))
+ *         .addHook(new MetricsHook())                                // told about every evaluation
  *         .addHook(new ObservabilityHook().evaluationExposureDeduper(30_000, 5_000))
  *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
  * </code></pre>
@@ -36,6 +30,11 @@ import java.util.Map;
  * window that suppresses the rest.
  */
 public class EvaluationExposureDeduper {
+    /**
+     * The number of exposure keys tracked by a deduper built without a positive cap of its own: 2000.
+     */
+    public static final int DEFAULT_MAX_SIZE = 2_000;
+
     private static final EvaluationExposureDeduper DISABLED = new Disabled();
 
     private final long windowMillis;
@@ -49,18 +48,19 @@ public class EvaluationExposureDeduper {
      * @param windowMillis the dedupe window in milliseconds; zero or negative disables
      *                     deduplication, so every evaluation reaches the hook
      * @param maxSize the maximum number of exposure keys to track; zero or negative falls back to
-     *                {@link LDConfig#DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE}
+     *                {@link #DEFAULT_MAX_SIZE}
      */
     public EvaluationExposureDeduper(int windowMillis, int maxSize) {
         this.windowMillis = windowMillis;
-        this.maxSize = maxSize > 0 ? maxSize : LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE;
+        this.maxSize = maxSize > 0 ? maxSize : DEFAULT_MAX_SIZE;
     }
 
     /**
-     * Returns a deduper that suppresses nothing, so its hook is told about every evaluation
-     * regardless of the SDK's configured window.
+     * Returns a deduper that suppresses nothing, so its hook is told about every evaluation.
      * <p>
-     * The returned instance holds no state and may be given to any number of hooks.
+     * This is what a hook gets when it is registered without a deduper, so passing it is only useful
+     * to state that intent explicitly. The returned instance holds no state and may be given to any
+     * number of hooks.
      *
      * @return a deduper that never suppresses an evaluation
      */

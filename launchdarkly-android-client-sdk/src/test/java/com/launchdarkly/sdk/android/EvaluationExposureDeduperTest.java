@@ -21,7 +21,7 @@ public class EvaluationExposureDeduperTest {
     }
 
     @Test
-    public void disabledRecordsEverythingAndIsShared() {
+    public void disabledRecordsEverythingAndIsSharedAcrossHooks() {
         EvaluationExposureDeduper deduper = EvaluationExposureDeduper.disabled();
         assertTrue(deduper.shouldRecord("a", 1000));
         assertTrue(deduper.shouldRecord("a", 1000));
@@ -123,7 +123,7 @@ public class EvaluationExposureDeduperTest {
     @Test
     public void fallsBackToDefaultCapForNonPositiveMaxSize() {
         EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(10_000, 0);
-        for (int i = 0; i < LDConfig.DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE; i++) {
+        for (int i = 0; i < EvaluationExposureDeduper.DEFAULT_MAX_SIZE; i++) {
             assertTrue(deduper.shouldRecord("key-" + i, 1000));
         }
         assertFalse(deduper.shouldRecord("key-0", 1000));

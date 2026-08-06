@@ -104,7 +104,7 @@ public class HookRunnerTest extends EasyMockSupport {
         RecordingHook hook = new RecordingHook("deduping");
         hook.evaluationExposureDeduper(60_000, 10);
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                EvaluationExposureDeduper::disabled, (flagKey, context) -> "exposure-key");
+                (flagKey, context) -> "exposure-key");
 
         evaluate(runner);
         evaluate(runner);
@@ -114,13 +114,24 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
+    public void hookWithoutADeduperObservesEveryEvaluation() {
+        RecordingHook hook = new RecordingHook("no-deduper");
+        HookRunner runner = new HookRunner(logging.logger, List.of(hook),
+                (flagKey, context) -> "exposure-key");
+
+        evaluate(runner);
+        evaluate(runner);
+
+        assertEquals(List.of("before", "after", "before", "after"), hook.stages);
+    }
+
+    @Test
     public void hooksAreDeduplicatedIndependentlyOfEachOther() {
         RecordingHook deduping = new RecordingHook("deduping");
         deduping.evaluationExposureDeduper(60_000, 10);
         RecordingHook reportingEverything = new RecordingHook("reporting-everything");
-        reportingEverything.evaluationExposureDeduper(EvaluationExposureDeduper.disabled());
         HookRunner runner = new HookRunner(logging.logger, List.of(deduping, reportingEverything),
-                EvaluationExposureDeduper::disabled, (flagKey, context) -> "exposure-key");
+                (flagKey, context) -> "exposure-key");
 
         evaluate(runner);
         evaluate(runner);
@@ -130,11 +141,13 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
-    public void hooksWithoutADeduperEachGetTheirOwnFromTheDefaultFactory() {
+    public void hooksGivenSeparateDedupersDoNotSuppressEachOther() {
         RecordingHook first = new RecordingHook("first");
+        first.evaluationExposureDeduper(60_000, 10);
         RecordingHook second = new RecordingHook("second");
+        second.evaluationExposureDeduper(60_000, 10);
         HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
-                () -> new EvaluationExposureDeduper(60_000, 10), (flagKey, context) -> "exposure-key");
+                (flagKey, context) -> "exposure-key");
 
         evaluate(runner);
         evaluate(runner);
@@ -145,11 +158,28 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
+    public void hooksSharingOneDeduperShareItsWindow() {
+        EvaluationExposureDeduper shared = new EvaluationExposureDeduper(60_000, 10);
+        RecordingHook first = new RecordingHook("first");
+        first.evaluationExposureDeduper(shared);
+        RecordingHook second = new RecordingHook("second");
+        second.evaluationExposureDeduper(shared);
+        HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
+                (flagKey, context) -> "exposure-key");
+
+        evaluate(runner);
+
+        // The first hook's report starts the window, which suppresses the second hook's.
+        assertEquals(List.of("before", "after"), first.stages);
+        assertEquals(List.of(), second.stages);
+    }
+
+    @Test
     public void resettingDedupersReportsTheSameEvaluationAgain() {
         RecordingHook hook = new RecordingHook("deduping");
         hook.evaluationExposureDeduper(60_000, 10);
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                EvaluationExposureDeduper::disabled, (flagKey, context) -> "exposure-key");
+                (flagKey, context) -> "exposure-key");
 
         evaluate(runner);
         runner.resetEvaluationExposureDedupers();
@@ -166,7 +196,7 @@ public class HookRunnerTest extends EasyMockSupport {
         second.evaluationExposureDeduper(60_000, 10);
         List<String> keyRequests = new ArrayList<>();
         HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
-                EvaluationExposureDeduper::disabled, (flagKey, context) -> {
+                (flagKey, context) -> {
                     keyRequests.add(flagKey);
                     return "exposure-key";
                 });
@@ -180,10 +210,9 @@ public class HookRunnerTest extends EasyMockSupport {
     @Test
     public void doesNotBuildTheExposureKeyWhenNoHookCanSuppress() {
         RecordingHook hook = new RecordingHook("reporting-everything");
-        hook.evaluationExposureDeduper(EvaluationExposureDeduper.disabled());
         List<String> keyRequests = new ArrayList<>();
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                EvaluationExposureDeduper::disabled, (flagKey, context) -> {
+                (flagKey, context) -> {
                     keyRequests.add(flagKey);
                     return "exposure-key";
                 });
@@ -199,7 +228,7 @@ public class HookRunnerTest extends EasyMockSupport {
         RecordingHook added = new RecordingHook("added");
         added.evaluationExposureDeduper(60_000, 10);
         HookRunner runner = new HookRunner(logging.logger, List.of(),
-                EvaluationExposureDeduper::disabled, (flagKey, context) -> "exposure-key");
+                (flagKey, context) -> "exposure-key");
         runner.addHook(added);
 
         evaluate(runner);

@@ -36,22 +36,12 @@ public class HookRunner {
         String exposureKey(String flagKey, LDContext context);
     }
 
-    /**
-     * Creates the deduper for a hook registered without one. Each hook needs its own instance,
-     * because a deduper starts a window as soon as it reports an evaluation.
-     */
-    @FunctionalInterface
-    public interface DefaultDeduperFactory {
-        EvaluationExposureDeduper create();
-    }
-
     private static final String UNKNOWN_HOOK_NAME = "unknown hook";
 
     private final LDLogger logger;
     private final List<Hook> hooks = new ArrayList<>();
     // Parallel to hooks: the deduper deciding which evaluations reach the hook at the same index.
     private final List<EvaluationExposureDeduper> dedupers = new ArrayList<>();
-    private final DefaultDeduperFactory defaultDeduperFactory;
     private final ExposureKeySupplier exposureKeySupplier;
 
     // False while every registered hook wants every evaluation, which is the default. Lets the
@@ -59,14 +49,12 @@ public class HookRunner {
     private volatile boolean anyDedupeActive = false;
 
     public HookRunner(LDLogger logger, List<Hook> initialHooks) {
-        this(logger, initialHooks, EvaluationExposureDeduper::disabled, (flagKey, context) -> "");
+        this(logger, initialHooks, (flagKey, context) -> "");
     }
 
     public HookRunner(LDLogger logger, List<Hook> initialHooks,
-                      DefaultDeduperFactory defaultDeduperFactory,
                       ExposureKeySupplier exposureKeySupplier) {
         this.logger = logger;
-        this.defaultDeduperFactory = defaultDeduperFactory;
         this.exposureKeySupplier = exposureKeySupplier;
         for (Hook hook : initialHooks) {
             addHook(hook);
@@ -85,13 +73,14 @@ public class HookRunner {
 
     /**
      * Adds a hook, resolving now which evaluations will reach it: the deduper the hook carries, or
-     * one built from the SDK's configured defaults if it carries none.
+     * every evaluation if it carries none.
      *
      * @param hook the hook to add
      */
     public void addHook(Hook hook) {
         EvaluationExposureDeduper declared = hook.getEvaluationExposureDeduper();
-        EvaluationExposureDeduper deduper = declared == null ? defaultDeduperFactory.create() : declared;
+        EvaluationExposureDeduper deduper =
+                declared == null ? EvaluationExposureDeduper.disabled() : declared;
         if (deduper != EvaluationExposureDeduper.disabled()) {
             anyDedupeActive = true;
         }

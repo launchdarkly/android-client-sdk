@@ -15,7 +15,6 @@ import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.integrations.EnvironmentMetadata;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.Plugin;
@@ -440,8 +439,7 @@ public class LDClient implements LDClientInterface, Closeable {
                 environmentStore
         );
 
-        hookRunner = new HookRunner(logger, config.hooks.getHooks(),
-                this::defaultEvaluationExposureDeduper, this::exposureKey);
+        hookRunner = new HookRunner(logger, config.hooks.getHooks(), this::exposureKey);
     }
 
     @Override
@@ -753,18 +751,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
         logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
         return result;
-    }
-
-    /**
-     * The deduper for a hook that does not carry its own, built from the window and cache size
-     * configured on {@link LDConfig}. Hooks get separate instances, because a deduper starts a
-     * window as soon as it reports an evaluation.
-     */
-    private EvaluationExposureDeduper defaultEvaluationExposureDeduper() {
-        int windowMillis = config.getEvaluationExposureDedupeWindowMillis();
-        return windowMillis > 0
-                ? new EvaluationExposureDeduper(windowMillis, config.getEvaluationExposureDedupeMaxSize())
-                : EvaluationExposureDeduper.disabled();
     }
 
     /**
