@@ -121,6 +121,24 @@ public class EvaluationExposureDeduperTest {
     }
 
     @Test
+    public void usesDefaultWindowAndCapWhenBuiltWithoutParameters() {
+        // Ten minutes over 2000 keys.
+        assertEquals(600_000, EvaluationExposureDeduper.DEFAULT_WINDOW_MILLIS);
+        assertEquals(2_000, EvaluationExposureDeduper.DEFAULT_MAX_SIZE);
+
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper();
+        assertTrue(deduper.shouldRecord("a", 1000));
+        assertFalse(deduper.shouldRecord("a", 600_999));
+        assertTrue(deduper.shouldRecord("a", 601_000));
+
+        for (int i = 0; i < EvaluationExposureDeduper.DEFAULT_MAX_SIZE - 1; i++) {
+            assertTrue(deduper.shouldRecord("key-" + i, 601_000));
+        }
+        // "a" and these keys fill the cap exactly, so nothing has been evicted yet.
+        assertFalse(deduper.shouldRecord("key-0", 601_000));
+    }
+
+    @Test
     public void fallsBackToDefaultCapForNonPositiveMaxSize() {
         EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(10_000, 0);
         for (int i = 0; i < EvaluationExposureDeduper.DEFAULT_MAX_SIZE; i++) {

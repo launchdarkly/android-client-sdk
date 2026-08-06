@@ -25,12 +25,13 @@ import java.util.List;
  * <p>
  * A hook observes every evaluation unless it carries an exposure deduplication policy, which limits
  * how often repeated evaluations resolving to the same result reach it. See
- * {@link Hook#evaluationExposureDeduper(int, int)}.
+ * {@link Hook#evaluationExposureDeduper()}.
  *
  * <pre><code>
  *     Components.hooks()
  *         .addHook(new MetricsHook())
- *         .addHook(new ObservabilityHook().evaluationExposureDeduper(60_000, 2_000))
+ *         .addHook(new ObservabilityHook().evaluationExposureDeduper())
+ *         .addHook(new TelemetryHook().evaluationExposureDeduper(60_000, 2_000))
  *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
  * </code></pre>
  * <p>

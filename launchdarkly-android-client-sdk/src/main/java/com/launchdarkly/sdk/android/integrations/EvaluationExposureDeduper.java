@@ -14,7 +14,8 @@ import java.util.Map;
  * <pre><code>
  *     Components.hooks()
  *         .addHook(new MetricsHook())                                // told about every evaluation
- *         .addHook(new ObservabilityHook().evaluationExposureDeduper(30_000, 5_000))
+ *         .addHook(new ObservabilityHook().evaluationExposureDeduper())  // default window and cap
+ *         .addHook(new TelemetryHook().evaluationExposureDeduper(30_000, 5_000))
  *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
  * </code></pre>
  * <p>
@@ -31,6 +32,12 @@ import java.util.Map;
  */
 public class EvaluationExposureDeduper {
     /**
+     * The dedupe window used by a deduper built without a window of its own: 10 minutes, in
+     * milliseconds.
+     */
+    public static final int DEFAULT_WINDOW_MILLIS = 600_000;
+
+    /**
      * The number of exposure keys tracked by a deduper built without a positive cap of its own: 2000.
      */
     public static final int DEFAULT_MAX_SIZE = 2_000;
@@ -43,6 +50,14 @@ public class EvaluationExposureDeduper {
     // Insertion-ordered so that iteration visits the least recently recorded key first. Guarded by
     // the instance lock, as is every access below.
     private final LinkedHashMap<String, Long> lastRecordedAt = new LinkedHashMap<>();
+
+    /**
+     * Creates a deduper with a window of {@link #DEFAULT_WINDOW_MILLIS} over at most
+     * {@link #DEFAULT_MAX_SIZE} exposure keys.
+     */
+    public EvaluationExposureDeduper() {
+        this(DEFAULT_WINDOW_MILLIS, DEFAULT_MAX_SIZE);
+    }
 
     /**
      * @param windowMillis the dedupe window in milliseconds; zero or negative disables

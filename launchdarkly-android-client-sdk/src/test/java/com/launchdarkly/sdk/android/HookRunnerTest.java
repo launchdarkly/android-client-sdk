@@ -114,6 +114,19 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
+    public void hookDeduperWithoutParametersSkipsARepeatedEvaluation() {
+        RecordingHook hook = new RecordingHook("deduping");
+        hook.evaluationExposureDeduper();
+        HookRunner runner = new HookRunner(logging.logger, List.of(hook),
+                (flagKey, context) -> "exposure-key");
+
+        evaluate(runner);
+        evaluate(runner);
+
+        assertEquals(List.of("before", "after"), hook.stages);
+    }
+
+    @Test
     public void hookWithoutADeduperObservesEveryEvaluation() {
         RecordingHook hook = new RecordingHook("no-deduper");
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),

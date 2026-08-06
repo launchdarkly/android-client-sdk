@@ -36,6 +36,23 @@ public abstract class Hook {
     }
 
     /**
+     * Deduplicates this hook's evaluation series with the SDK's implementation, using a window of
+     * {@link EvaluationExposureDeduper#DEFAULT_WINDOW_MILLIS} over at most
+     * {@link EvaluationExposureDeduper#DEFAULT_MAX_SIZE} exposure keys.
+     *
+     * <pre><code>
+     *     Components.hooks()
+     *         .addHook(new ObservabilityHook().evaluationExposureDeduper())
+     * </code></pre>
+     *
+     * @return this hook
+     * @see #evaluationExposureDeduper(int, int)
+     */
+    public Hook evaluationExposureDeduper() {
+        return evaluationExposureDeduper(new EvaluationExposureDeduper());
+    }
+
+    /**
      * Deduplicates this hook's evaluation series with the SDK's implementation, so that repeated
      * evaluations resolving to the same result reach it at most once per window.
      * <p>
