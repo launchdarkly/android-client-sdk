@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // make sure this line comes *after* you apply the Android plugin
     id("com.getkeepsafe.dexcount")
+}
+
+// local.properties is not checked in, so it is where machine-specific settings such as your mobile
+// key belong. See example/README.md for the keys this app reads.
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 
 android {
@@ -14,6 +24,15 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "MOBILE_KEY",
+                "\"${localProperties.getProperty('launchdarkly.mobileKey', '')}\"")
+        buildConfigField("String", "LD_ENVIRONMENT",
+                "\"${localProperties.getProperty('launchdarkly.environment', 'production')}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

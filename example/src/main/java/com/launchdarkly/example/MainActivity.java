@@ -13,7 +13,9 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
@@ -22,21 +24,88 @@ import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
+import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
+import com.launchdarkly.sdk.android.integrations.Hook;
 
 import java.util.Date;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import timber.log.Timber;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final int EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS = 5_000;
+
+    // The staging hosts mirror the production ones in StandardEndpoints under the ld-stg domain.
+    private static final String STAGING_DOMAIN = "ld-stg.launchdarkly.com";
+
     private LDClient ldClient;
     private LDStatusListener ldStatusListener;
     private LDAllFlagsListener allFlagsListener;
+
+    private final ExposureCountingHook exposureHook = new ExposureCountingHook();
+    private final AtomicInteger evaluationsRequested = new AtomicInteger();
+
+    /**
+     * Counts the evaluation hook stages so the example can show what exposure deduplication does.
+     * Deduplication skips the whole series, so both counts stay equal and both stop climbing while
+     * repeated evaluations resolve to the same result.
+     */
+    private class ExposureCountingHook extends Hook {
+        final AtomicInteger befores = new AtomicInteger();
+        final AtomicInteger afters = new AtomicInteger();
+
+        ExposureCountingHook() {
+            super("exposure-counting-hook");
+        }
+
+        @Override
+        public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
+            befores.incrementAndGet();
+            updateDedupeStatus();
+            return seriesData;
+        }
+
+        @Override
+        public Map<String, Object> afterEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData, EvaluationDetail<LDValue> evaluationDetail) {
+            afters.incrementAndGet();
+            updateDedupeStatus();
+            return seriesData;
+        }
+    }
+
+    private static boolean isStaging() {
+        return "staging".equalsIgnoreCase(BuildConfig.LD_ENVIRONMENT);
+    }
+
+    private void updateDedupeStatus() {
+        if (Looper.myLooper() != MainActivity.this.getMainLooper()) {
+            new Handler(MainActivity.this.getMainLooper()).post(this::updateDedupeStatus);
+            return;
+        }
+
+        int requested = evaluationsRequested.get();
+        int reported = exposureHook.afters.get();
+        String window = EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS > 0
+                ? EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS + " ms"
+                : "disabled";
+
+        String result = String.format(Locale.US,
+                "Environment: %s\nEvaluation Exposure dedupe window: %s\nEvaluations requested: %d\nReported to hooks: %d (before %d / after %d)",
+                isStaging() ? "staging" : "production",
+                window,
+                requested,
+                reported,
+                exposureHook.befores.get(),
+                reported);
+        ((TextView) MainActivity.this.findViewById(R.id.dedupe_status)).setText(result);
+    }
 
     private void updateStatusString(final ConnectionInformation connectionInformation) {
         if (Looper.myLooper() != MainActivity.this.getMainLooper()) {
@@ -68,14 +137,36 @@ public class MainActivity extends AppCompatActivity {
         setupIdentifyButton();
         setupOfflineSwitch();
         setupListeners();
+        updateDedupeStatus();
 
-        LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Enabled)
-                .mobileKey("MOBILE_KEY")
+        if (BuildConfig.MOBILE_KEY.isEmpty()) {
+            String message = "Set launchdarkly.mobileKey in local.properties and rebuild.";
+            Timber.e(message);
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        LDConfig.Builder configBuilder = new LDConfig.Builder(AutoEnvAttributes.Enabled)
+                .mobileKey(BuildConfig.MOBILE_KEY)
                 .http(
                         Components.httpConfiguration().useReport(false)
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
                 )
-                .build();
+                .hooks(
+                        Components.hooks().addHook(exposureHook.evaluationExposureDeduper(
+                                EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS, 2_000))
+                );
+
+        if (isStaging()) {
+            configBuilder.serviceEndpoints(
+                    Components.serviceEndpoints()
+                            .streaming("https://clientstream." + STAGING_DOMAIN)
+                            .polling("https://clientsdk." + STAGING_DOMAIN)
+                            .events("https://mobile." + STAGING_DOMAIN)
+            );
+        }
+
+        LDConfig ldConfig = configBuilder.build();
 
         LDContext context = LDContext.builder("user key")
                 .set("email", "fake@example.com")
@@ -161,6 +252,7 @@ public class MainActivity extends AppCompatActivity {
             String userKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText)).getText().toString();
             final LDContext updatedContext = LDContext.create(userKey);
             MainActivity.this.doSafeClientAction(() -> ldClient.identify(updatedContext));
+            MainActivity.this.updateDedupeStatus();
         });
     }
 
@@ -182,6 +274,7 @@ public class MainActivity extends AppCompatActivity {
         evalButton.setOnClickListener(v -> {
             Timber.i("eval onClick");
             final String flagKey = ((EditText) MainActivity.this.findViewById(R.id.feature_flag_key)).getText().toString();
+            evaluationsRequested.incrementAndGet();
 
             String type = spinner.getSelectedItem().toString();
             final String result;
@@ -194,10 +287,13 @@ public class MainActivity extends AppCompatActivity {
                 ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                 MainActivity.this.doSafeClientAction(() -> {
                     ldClient.registerFeatureFlagListener(flagKey, flagKey1 -> {
+                        evaluationsRequested.incrementAndGet();
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView))
                                 .setText(ldClient.stringVariation(flagKey1, "default"));
+                        MainActivity.this.updateDedupeStatus();
                     });
                 });
+                MainActivity.this.updateDedupeStatus();
                 return;
             case "Boolean":
                 result = MainActivity.this.doSafeClientGet(() -> String.valueOf(ldClient.boolVariation(flagKey, false)));
@@ -219,6 +315,7 @@ public class MainActivity extends AppCompatActivity {
             logResult = result == null ? "no result" : result;
             Timber.i(logResult);
             ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
+            MainActivity.this.updateDedupeStatus();
         });
     }
 
