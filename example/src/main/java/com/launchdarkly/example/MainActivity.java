@@ -13,9 +13,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
@@ -24,12 +22,9 @@ import com.launchdarkly.sdk.android.LDConfig;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
-import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
-import com.launchdarkly.sdk.android.integrations.Hook;
 
 import java.util.Date;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -40,7 +35,9 @@ import timber.log.Timber;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final int EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS = 5_000;
+    // Two hooks with different windows, to show that each one is deduplicated on its own.
+    private static final int FAST_DEDUPE_WINDOW_MILLIS = 5_000;
+    private static final int SLOW_DEDUPE_WINDOW_MILLIS = 60_000;
 
     // The staging hosts mirror the production ones in StandardEndpoints under the ld-stg domain.
     private static final String STAGING_DOMAIN = "ld-stg.launchdarkly.com";
@@ -49,36 +46,11 @@ public class MainActivity extends AppCompatActivity {
     private LDStatusListener ldStatusListener;
     private LDAllFlagsListener allFlagsListener;
 
-    private final ExposureCountingHook exposureHook = new ExposureCountingHook();
+    private final ExposureCountingHook fastHook =
+            new ExposureCountingHook("fast", FAST_DEDUPE_WINDOW_MILLIS, this::updateDedupeStatus);
+    private final ExposureCountingHook slowHook =
+            new ExposureCountingHook("slow", SLOW_DEDUPE_WINDOW_MILLIS, this::updateDedupeStatus);
     private final AtomicInteger evaluationsRequested = new AtomicInteger();
-
-    /**
-     * Counts the evaluation hook stages so the example can show what exposure deduplication does.
-     * Deduplication skips the whole series, so both counts stay equal and both stop climbing while
-     * repeated evaluations resolve to the same result.
-     */
-    private class ExposureCountingHook extends Hook {
-        final AtomicInteger befores = new AtomicInteger();
-        final AtomicInteger afters = new AtomicInteger();
-
-        ExposureCountingHook() {
-            super("exposure-counting-hook");
-        }
-
-        @Override
-        public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
-            befores.incrementAndGet();
-            updateDedupeStatus();
-            return seriesData;
-        }
-
-        @Override
-        public Map<String, Object> afterEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData, EvaluationDetail<LDValue> evaluationDetail) {
-            afters.incrementAndGet();
-            updateDedupeStatus();
-            return seriesData;
-        }
-    }
 
     private static boolean isStaging() {
         return "staging".equalsIgnoreCase(BuildConfig.LD_ENVIRONMENT);
@@ -90,20 +62,12 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        int requested = evaluationsRequested.get();
-        int reported = exposureHook.afters.get();
-        String window = EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS > 0
-                ? EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS + " ms"
-                : "disabled";
-
         String result = String.format(Locale.US,
-                "Environment: %s\nEvaluation Exposure dedupe window: %s\nEvaluations requested: %d\nReported to hooks: %d (before %d / after %d)",
+                "Environment: %s\nEvaluations requested: %d\n%s\n%s",
                 isStaging() ? "staging" : "production",
-                window,
-                requested,
-                reported,
-                exposureHook.befores.get(),
-                reported);
+                evaluationsRequested.get(),
+                fastHook.status(),
+                slowHook.status());
         ((TextView) MainActivity.this.findViewById(R.id.dedupe_status)).setText(result);
     }
 
@@ -153,8 +117,8 @@ public class MainActivity extends AppCompatActivity {
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
                 )
                 .hooks(
-                        Components.hooks().addHook(exposureHook.evaluationExposureDeduper(
-                                EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS, 2_000))
+                        // Each hook brought its own window, so neither suppresses the other.
+                        Components.hooks().addHook(fastHook).addHook(slowHook)
                 );
 
         if (isStaging()) {

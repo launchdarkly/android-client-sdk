@@ -20,30 +20,37 @@ has to match the environment: a production key against staging fails to authoriz
 
 ## Verifying evaluation exposure deduplication
 
-The app registers a hook that counts evaluation series stages and displays the totals below the
-evaluation result:
+The app registers two `ExposureCountingHook` instances with different dedupe windows, and each counts
+the evaluation series stages it observes. The totals appear below the evaluation result:
 
 ```
 Environment: production
-Evaluation Exposure dedupe window: 60000 ms
-Evaluations requested: 4
-Reported to hooks: 1 (before 1 / after 1)
+Evaluations requested: 7
+fast (5000 ms): 3 (before 3 / after 3)
+slow (60000 ms): 1 (before 1 / after 1)
 ```
 
-The window is the `EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS` constant in `MainActivity`, which the
-app gives to that one hook:
+Each hook declares its own window in its constructor, which is how a hook shipped by a plugin would
+choose its policy:
 
 ```java
-Components.hooks().addHook(exposureHook.evaluationExposureDeduper(60_000, 2_000))
+evaluationExposureDeduper(new EvaluationExposureDeduper(dedupeWindowMillis, DEDUPE_MAX_SIZE));
 ```
 
-Set it to `0` to turn deduplication off for the hook. Each hook is deduplicated on its own, so a
-second hook registered with `EvaluationExposureDeduper.disabled()` would keep seeing every
-evaluation. A hook registered without a deduper falls back to
-`LDConfig.Builder.evaluationExposureDedupeWindowMillis`.
+The windows are the `FAST_DEDUPE_WINDOW_MILLIS` and `SLOW_DEDUPE_WINDOW_MILLIS` constants in
+`MainActivity`, which registers both hooks without saying anything more about deduplication:
+
+```java
+Components.hooks().addHook(fastHook).addHook(slowHook)
+```
+
+Deduplication is opt-in per hook: a hook registered without a deduper observes every evaluation.
+Passing `EvaluationExposureDeduper.disabled()` states that explicitly, and passing your own subclass
+of `EvaluationExposureDeduper` replaces the policy entirely.
 
 Enter a flag key, then tap **Evaluate Flag** repeatedly. "Evaluations requested" climbs with every
-tap while "Reported to hooks" stays put, because repeated evaluations resolving to the same result
-within the window are suppressed for the whole series. Tapping **Identify** clears the dedupe cache,
-so the next evaluation is reported again. Analytics events are not deduplicated: every evaluation is
-still counted by LaunchDarkly.
+tap while each hook's count stays put, because repeated evaluations resolving to the same result
+within that hook's window are suppressed for the whole series. Keep tapping past five seconds and the
+`fast` count moves again while `slow` stays where it is. Tapping **Identify** clears both hooks'
+caches, so the next evaluation reaches both. Analytics events are not deduplicated: every evaluation
+is still counted by LaunchDarkly.
