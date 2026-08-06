@@ -15,6 +15,7 @@ import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.integrations.EnvironmentMetadata;
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.Plugin;
@@ -73,7 +74,6 @@ public class LDClient implements LDClientInterface, Closeable {
     private final ConnectivityManager connectivityManager;
     private final LDLogger logger;
     private final HookRunner hookRunner;
-    private final EvaluationExposureDeduper evaluationExposureDeduper;
     private List<Plugin> plugins;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
@@ -440,12 +440,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 environmentStore
         );
 
-        evaluationExposureDeduper = new EvaluationExposureDeduper(
-                config.getEvaluationExposureDedupeWindowMillis(),
-                config.getEvaluationExposureDedupeMaxSize()
-        );
-
-        hookRunner = new HookRunner(logger, config.hooks.getHooks(), this::shouldReportExposureToHooks);
+        hookRunner = new HookRunner(logger, config.hooks.getHooks(),
+                this::defaultEvaluationExposureDeduper, this::exposureKey);
     }
 
     @Override
@@ -505,10 +501,10 @@ public class LDClient implements LDClientInterface, Closeable {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
 
-        // Exposures recorded before this point describe an earlier point in the app's lifecycle, so
+        // Exposures observed before this point describe an earlier point in the app's lifecycle, so
         // let them be reported again. This happens even when the context is unchanged, so that
         // identify is a reliable way for an app to mark a new phase of a session.
-        evaluationExposureDeduper.reset();
+        hookRunner.resetEvaluationExposureDedupers();
 
         // Load cached flags for the new context so they're available in case initialization
         // times out or otherwise fails. This does not short-circuit initialization — the data
@@ -760,35 +756,36 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     /**
-     * Returns whether this evaluation's exposure should be reported to the registered hooks, and if
-     * so starts a new dedupe window for it.
+     * The deduper for a hook that does not carry its own, built from the window and cache size
+     * configured on {@link LDConfig}. Hooks get separate instances, because a deduper starts a
+     * window as soon as it reports an evaluation.
+     */
+    private EvaluationExposureDeduper defaultEvaluationExposureDeduper() {
+        int windowMillis = config.getEvaluationExposureDedupeWindowMillis();
+        return windowMillis > 0
+                ? new EvaluationExposureDeduper(windowMillis, config.getEvaluationExposureDedupeMaxSize())
+                : EvaluationExposureDeduper.disabled();
+    }
+
+    /**
+     * Identifies the evaluation a hook is about to be told about, so that a deduper can recognize a
+     * repeat of it.
      * <p>
-     * The decision is made before the series opens rather than after the evaluation completes,
-     * because hooks pair their stages: the observability plugin starts a span in
-     * {@code beforeEvaluation} and ends it in {@code afterEvaluation}, so suppressing only the after
-     * stage would leave that span open until something else closed it. Reading the stored flag here
+     * This reads the stored flag rather than the evaluation result because the decision is made
+     * before the series opens: hooks pair their stages, so the observability plugin starts a span in
+     * {@code beforeEvaluation} and ends it in {@code afterEvaluation}, and suppressing only the
+     * after stage would leave that span open until something else closed it. The stored flag
      * identifies the same exposure the result would, since the result is derived from it.
      */
-    private boolean shouldReportExposureToHooks(String flagKey, LDContext context) {
-        if (!evaluationExposureDeduper.isEnabled()) {
-            // Looking up the flag and building the key both cost more than the check they feed, so
-            // they are skipped entirely while deduplication is off, which is the default.
-            return true;
-        }
-
+    private String exposureKey(String flagKey, LDContext context) {
         Flag flag = contextDataManager.getNonDeletedFlag(flagKey);
         int variation = flag == null || flag.getVariation() == null
                 ? EvaluationDetail.NO_VARIATION : flag.getVariation();
         int flagVersion = flag == null ? EventProcessor.NO_VERSION : flag.getVersionForEvents();
         boolean inExperiment = flag != null && flag.getReason() != null && flag.getReason().isInExperiment();
 
-        String dedupeKey = EvaluationExposureDeduper.exposureKey(flagKey, variation, flagVersion,
-                inExperiment, context.getFullyQualifiedKey());
-        if (!evaluationExposureDeduper.shouldRecord(dedupeKey, System.currentTimeMillis())) {
-            logger.debug("Deduplicated exposure for flagKey: {}", flagKey);
-            return false;
-        }
-        return true;
+        return EvaluationExposureKey.of(flagKey, variation, flagVersion, inExperiment,
+                context.getFullyQualifiedKey());
     }
 
     /**

@@ -673,13 +673,18 @@ public class LDConfig {
          * read on every redraw of a view.
          * <p>
          * Deduplication applies to the whole evaluation series, so a suppressed evaluation invokes
-         * neither {@code beforeEvaluation} nor {@code afterEvaluation} on any registered hook. This
-         * affects every hook, including your own, not only those added by plugins. Analytics events are
-         * unaffected: feature, debug, and summary events are still recorded for every evaluation, so the
-         * evaluation counts LaunchDarkly reports for your flags do not change.
+         * neither {@code beforeEvaluation} nor {@code afterEvaluation} on that hook. Analytics events
+         * are unaffected: feature, debug, and summary events are still recorded for every evaluation,
+         * so the evaluation counts LaunchDarkly reports for your flags do not change.
          * <p>
-         * The cache of recorded exposures is cleared by {@link LDClient#identify(LDContext)}, so the
-         * first evaluation after an identify is always reported.
+         * This is the default for hooks that do not carry a policy of their own. Each hook is
+         * deduplicated separately, and a hook can override this with
+         * {@link com.launchdarkly.sdk.android.integrations.Hook#evaluationExposureDeduper(com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper)},
+         * for example to observe every evaluation while other hooks are deduplicated.
+         * <p>
+         * Every hook's record of what it has observed is cleared by
+         * {@link LDClient#identify(LDContext)}, so the first evaluation after an identify is always
+         * reported.
          * <p>
          * If not specified, the default is {@link #DEFAULT_EVALUATION_EXPOSURE_DEDUPE_WINDOW_MILLIS} (0),
          * which disables deduplication so that every evaluation is reported.
@@ -699,7 +704,8 @@ public class LDConfig {
          * once.
          * <p>
          * When the limit is exceeded, the least recently recorded keys are evicted to bound memory
-         * usage. This only matters when {@link #evaluationExposureDedupeWindowMillis(int)} is enabled.
+         * usage. This only matters when {@link #evaluationExposureDedupeWindowMillis(int)} is enabled,
+         * and applies to hooks that do not carry a policy of their own.
          * <p>
          * If not specified, the default is {@link #DEFAULT_EVALUATION_EXPOSURE_DEDUPE_MAX_SIZE} (2000).
          *

@@ -3,31 +3,44 @@ package com.launchdarkly.sdk.android;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
 
 import org.junit.Test;
 
 public class EvaluationExposureDeduperTest {
     @Test
-    public void disabledForNonPositiveWindow() {
+    public void recordsEverythingForNonPositiveWindow() {
         for (int window : new int[] { 0, -1 }) {
             EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(window, 10);
-            assertFalse(deduper.isEnabled());
             assertTrue(deduper.shouldRecord("a", 0));
             assertTrue(deduper.shouldRecord("a", 0));
         }
     }
 
     @Test
+    public void disabledRecordsEverythingAndIsShared() {
+        EvaluationExposureDeduper deduper = EvaluationExposureDeduper.disabled();
+        assertTrue(deduper.shouldRecord("a", 1000));
+        assertTrue(deduper.shouldRecord("a", 1000));
+        deduper.reset();
+        assertTrue(deduper.shouldRecord("a", 1000));
+        // The runner recognizes it by identity to skip building exposure keys altogether.
+        assertSame(deduper, EvaluationExposureDeduper.disabled());
+    }
+
+    @Test
     public void exposureKeyDistinguishesEveryComponent() {
-        String key = EvaluationExposureDeduper.exposureKey("flag", 1, 2, false, "user-key");
-        assertEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 2, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("other-flag", 1, 2, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 3, 2, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 4, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 2, false, "other-user-key"));
+        String key = EvaluationExposureKey.of("flag", 1, 2, false, "user-key");
+        assertEquals(key, EvaluationExposureKey.of("flag", 1, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("other-flag", 1, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("flag", 3, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("flag", 1, 4, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("flag", 1, 2, false, "other-user-key"));
         // Moving into an experiment on the same variation of the same flag version reports again.
-        assertNotEquals(key, EvaluationExposureDeduper.exposureKey("flag", 1, 2, true, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("flag", 1, 2, true, "user-key"));
     }
 
     @Test

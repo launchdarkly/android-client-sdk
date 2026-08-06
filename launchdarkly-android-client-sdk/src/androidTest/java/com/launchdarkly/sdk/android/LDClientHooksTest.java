@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
@@ -236,6 +237,48 @@ public class LDClientHooksTest {
             ldClient.boolVariation("test-flag", false);
 
             assertEquals(2, testHook.afterEvaluationCalls.size());
+        }
+    }
+
+    @Test
+    public void hookKeepsItsOwnDeduperInsteadOfTheConfiguredOne() throws Exception {
+        MockHook reportingEverything = new MockHook();
+        reportingEverything.evaluationExposureDeduper(EvaluationExposureDeduper.disabled());
+        LDConfig config = makeOfflineConfigBuilder(null)
+                .evaluationExposureDedupeWindowMillis(60_000)
+                .hooks(Components.hooks().addHook(testHook).addHook(reportingEverything))
+                .build();
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+            for (int i = 0; i < 3; i++) {
+                ldClient.boolVariation("test-flag", false);
+            }
+
+            // testHook carries no deduper, so it falls back to the configured window.
+            assertEquals(1, testHook.afterEvaluationCalls.size());
+            assertEquals(3, reportingEverything.afterEvaluationCalls.size());
+        }
+    }
+
+    @Test
+    public void hookDeduperAppliesWithoutAnyConfiguredWindow() throws Exception {
+        MockHook deduping = new MockHook();
+        deduping.evaluationExposureDeduper(60_000, 100);
+        LDConfig config = makeOfflineConfigBuilder(null)
+                .hooks(Components.hooks().addHook(testHook).addHook(deduping))
+                .build();
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+            for (int i = 0; i < 3; i++) {
+                ldClient.boolVariation("test-flag", false);
+            }
+
+            // Deduplication is off by default, so only the hook that asked for it suppresses.
+            assertEquals(3, testHook.afterEvaluationCalls.size());
+            assertEquals(1, deduping.afterEvaluationCalls.size());
+
+            // identify clears every hook's cache, whether it came from the hook or the config.
+            ldClient.identify(ldContext).get();
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(2, deduping.afterEvaluationCalls.size());
         }
     }
 
