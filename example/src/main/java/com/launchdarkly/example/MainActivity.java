@@ -37,19 +37,21 @@ public class MainActivity extends AppCompatActivity {
 
     // Two hooks with different windows, to show that each one is deduplicated on its own.
     private static final int FAST_DEDUPE_WINDOW_MILLIS = 5_000;
-    private static final int SLOW_DEDUPE_WINDOW_MILLIS = 60_000;
+    private static final int SLOW_DEDUPE_WINDOW_MILLIS = 10_000;
 
     // The staging hosts mirror the production ones in StandardEndpoints under the ld-stg domain.
     private static final String STAGING_DOMAIN = "ld-stg.launchdarkly.com";
+
+    private static final String DEFAULT_USER_KEY = "user key";
 
     private LDClient ldClient;
     private LDStatusListener ldStatusListener;
     private LDAllFlagsListener allFlagsListener;
 
     private final ExposureCountingHook fastHook =
-            new ExposureCountingHook("fast", FAST_DEDUPE_WINDOW_MILLIS, this::updateDedupeStatus);
+            new ExposureCountingHook("fast", this::updateDedupeStatus);
     private final ExposureCountingHook slowHook =
-            new ExposureCountingHook("slow", SLOW_DEDUPE_WINDOW_MILLIS, this::updateDedupeStatus);
+            new ExposureCountingHook("slow", this::updateDedupeStatus);
     private final AtomicInteger evaluationsRequested = new AtomicInteger();
 
     private static boolean isStaging() {
@@ -66,8 +68,8 @@ public class MainActivity extends AppCompatActivity {
                 "Environment: %s\nEvaluations requested: %d\n%s\n%s",
                 isStaging() ? "staging" : "production",
                 evaluationsRequested.get(),
-                fastHook.status(),
-                slowHook.status());
+                fastHook.status(FAST_DEDUPE_WINDOW_MILLIS),
+                slowHook.status(SLOW_DEDUPE_WINDOW_MILLIS));
         ((TextView) MainActivity.this.findViewById(R.id.dedupe_status)).setText(result);
     }
 
@@ -117,8 +119,11 @@ public class MainActivity extends AppCompatActivity {
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
                 )
                 .hooks(
-                        // Each hook brought its own window, so neither suppresses the other.
-                        Components.hooks().addHook(fastHook).addHook(slowHook)
+                        // Same fluent shape a customer uses for any hook: configure the deduper
+                        // at registration. Each hook has its own window, so neither suppresses the other.
+                        Components.hooks()
+                                .addHook(fastHook.evaluationExposureDeduper(FAST_DEDUPE_WINDOW_MILLIS, 2_000))
+                                .addHook(slowHook.evaluationExposureDeduper(SLOW_DEDUPE_WINDOW_MILLIS, 2_000))
                 );
 
         if (isStaging()) {
@@ -132,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
 
         LDConfig ldConfig = configBuilder.build();
 
-        LDContext context = LDContext.builder("user key")
+        LDContext context = LDContext.builder(DEFAULT_USER_KEY)
                 .set("email", "fake@example.com")
                 .build();
 
@@ -213,9 +218,16 @@ public class MainActivity extends AppCompatActivity {
         Button identify = findViewById(R.id.identify_button);
         identify.setOnClickListener(v -> {
             Timber.i("identify onClick");
-            String userKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText)).getText().toString();
+            String typedKey = ((EditText) MainActivity.this.findViewById(R.id.userKey_editText))
+                    .getText().toString().trim();
+            // An empty key builds an invalid context, which identify rejects before it resets the
+            // hooks' dedupe caches. Fall back to the key the client started with, so identifying to
+            // an unchanged context still demonstrates that the reset happens either way.
+            final String userKey = typedKey.isEmpty() ? DEFAULT_USER_KEY : typedKey;
             final LDContext updatedContext = LDContext.create(userKey);
-            MainActivity.this.doSafeClientAction(() -> ldClient.identify(updatedContext));
+            MainActivity.this.doSafeClientAction(() -> {
+                ldClient.identify(updatedContext);
+            });
             MainActivity.this.updateDedupeStatus();
         });
     }
