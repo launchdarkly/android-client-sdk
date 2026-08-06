@@ -36,12 +36,24 @@ public class HookRunner {
         String exposureKey(String flagKey, LDContext context);
     }
 
+    /**
+     * A registered hook together with the deduper that decides which evaluations reach it. Kept as
+     * one value so adding a hook never leaves the two out of sync.
+     */
+    private static final class RegisteredHook {
+        final Hook hook;
+        final EvaluationExposureDeduper deduper;
+
+        RegisteredHook(Hook hook, EvaluationExposureDeduper deduper) {
+            this.hook = hook;
+            this.deduper = deduper;
+        }
+    }
+
     private static final String UNKNOWN_HOOK_NAME = "unknown hook";
 
     private final LDLogger logger;
-    private final List<Hook> hooks = new ArrayList<>();
-    // Parallel to hooks: the deduper deciding which evaluations reach the hook at the same index.
-    private final List<EvaluationExposureDeduper> dedupers = new ArrayList<>();
+    private final List<RegisteredHook> hooks = new ArrayList<>();
     private final ExposureKeySupplier exposureKeySupplier;
 
     // False while every registered hook wants every evaluation, which is the default. Lets the
@@ -84,10 +96,7 @@ public class HookRunner {
         if (deduper != EvaluationExposureDeduper.disabled()) {
             anyDedupeActive = true;
         }
-        // The deduper goes in first so that an evaluation running concurrently with this never sees
-        // a hook whose deduper has not been appended yet.
-        dedupers.add(deduper);
-        hooks.add(hook);
+        hooks.add(new RegisteredHook(hook, deduper));
     }
 
     /**
@@ -95,8 +104,8 @@ public class HookRunner {
      * evaluation of each reaches the hook again. Called when the evaluation context changes.
      */
     public void resetEvaluationExposureDedupers() {
-        for (EvaluationExposureDeduper deduper : dedupers) {
-            deduper.reset();
+        for (RegisteredHook registered : hooks) {
+            registered.deduper.reset();
         }
     }
 
@@ -108,28 +117,27 @@ public class HookRunner {
      * {@code beforeEvaluation} and ends it in {@code afterEvaluation}, so suppressing only the after
      * stage would leave that span open until something else closed it.
      */
-    private List<Hook> hooksForEvaluation(String flagKey, LDContext context) {
+    private List<RegisteredHook> hooksForEvaluation(String flagKey, LDContext context) {
         if (!anyDedupeActive || hooks.isEmpty()) {
             return hooks;
         }
 
         String exposureKey = exposureKeySupplier.exposureKey(flagKey, context);
         long nowMillis = System.currentTimeMillis();
-        List<Hook> reporting = new ArrayList<>(hooks.size());
-        for (int i = 0; i < hooks.size(); i++) {
-            Hook hook = hooks.get(i);
-            if (dedupers.get(i).shouldRecord(exposureKey, nowMillis)) {
-                reporting.add(hook);
+        List<RegisteredHook> reporting = new ArrayList<>(hooks.size());
+        for (RegisteredHook registered : hooks) {
+            if (registered.deduper.shouldRecord(exposureKey, nowMillis)) {
+                reporting.add(registered);
             } else {
                 logger.debug("Deduplicated exposure of flag \"{}\" for hook \"{}\"", flagKey,
-                        getHookName(hook));
+                        getHookName(registered.hook));
             }
         }
         return reporting;
     }
 
     public EvaluationDetail<LDValue> withEvaluation(String method, String key, LDContext context, LDValue defaultValue, EvaluationMethod evalMethod) {
-        List<Hook> reportingHooks = hooksForEvaluation(key, context);
+        List<RegisteredHook> reportingHooks = hooksForEvaluation(key, context);
         if (reportingHooks.isEmpty()) {
             return evalMethod.evaluate();
         }
@@ -137,7 +145,7 @@ public class HookRunner {
         List<Map<String, Object>> seriesDataList = new ArrayList<>(reportingHooks.size());
         EvaluationSeriesContext seriesContext = new EvaluationSeriesContext(method, key, context, defaultValue);
         for (int i = 0; i < reportingHooks.size(); i++) {
-            Hook currentHook = reportingHooks.get(i);
+            Hook currentHook = reportingHooks.get(i).hook;
             try {
                 Map<String, Object> seriesData = currentHook.beforeEvaluation(seriesContext, Collections.unmodifiableMap(Collections.emptyMap()));
                 seriesDataList.add(Collections.unmodifiableMap(seriesData));
@@ -151,7 +159,7 @@ public class HookRunner {
 
         // Invoke hooks in reverse order and give them back the series data they gave us.
         for (int i = reportingHooks.size() - 1; i >= 0; i--) {
-            Hook currentHook = reportingHooks.get(i);
+            Hook currentHook = reportingHooks.get(i).hook;
             try {
                 currentHook.afterEvaluation(seriesContext, seriesDataList.get(i), result);
             } catch (Exception e) {
@@ -170,7 +178,7 @@ public class HookRunner {
         List<Map<String, Object>> seriesDataList = new ArrayList<>(hooks.size());
         IdentifySeriesContext seriesContext = new IdentifySeriesContext(context, timeout);
         for (int i = 0; i < hooks.size(); i++) {
-            Hook currentHook = hooks.get(i);
+            Hook currentHook = hooks.get(i).hook;
             try {
                 Map<String, Object> seriesData = currentHook.beforeIdentify(seriesContext, Collections.unmodifiableMap(Collections.emptyMap()));
                 seriesDataList.add(Collections.unmodifiableMap(seriesData));
@@ -183,7 +191,7 @@ public class HookRunner {
         return (IdentifySeriesResult result) -> {
             // Invoke hooks in reverse order and give them back the series data they gave us.
             for (int i = hooks.size() - 1; i >= 0; i--) {
-                Hook currentHook = hooks.get(i);
+                Hook currentHook = hooks.get(i).hook;
                 try {
                     currentHook.afterIdentify(seriesContext, seriesDataList.get(i), result);
                 } catch (Exception e) {
@@ -202,7 +210,7 @@ public class HookRunner {
         // The track series has only an "after" stage, so hooks run in registration order, as required by
         // the shared SDK contract tests (unlike afterEvaluation/afterIdentify, which run in reverse).
         for (int i = 0; i < hooks.size(); i++) {
-            Hook currentHook = hooks.get(i);
+            Hook currentHook = hooks.get(i).hook;
             try {
                 currentHook.afterTrack(seriesContext);
             } catch (Exception e) {
