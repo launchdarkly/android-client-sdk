@@ -770,8 +770,8 @@ public class LDClient implements LDClientInterface, Closeable {
         int flagVersion = flag == null ? EventProcessor.NO_VERSION : flag.getVersionForEvents();
         boolean inExperiment = flag != null && flag.getReason() != null && flag.getReason().isInExperiment();
 
-        return EvaluationExposureKey.of(flagKey, variation, flagVersion, inExperiment,
-                context.getFullyQualifiedKey());
+        return EvaluationExposureKey.of(clientContextImpl.getEnvironmentName(), flagKey, variation,
+                flagVersion, inExperiment, context.getFullyQualifiedKey());
     }
 
     /**

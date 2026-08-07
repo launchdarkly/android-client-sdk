@@ -262,6 +262,22 @@ public class LDClientHooksTest {
         }
     }
 
+    @Test
+    public void environmentsSharingAHookDoNotSuppressEachOther() throws Exception {
+        testHook.evaluationExposureDeduper(60_000, 100);
+        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
+                .secondaryMobileKeys(Collections.singletonMap("other", "other-mobile-key"))
+                .build();
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
+            ldClient.boolVariation("test-flag", false);
+            LDClient.getForMobileKey("other").boolVariation("test-flag", false);
+
+            // Both environments resolve the flag identically, but the hook they share, and so the
+            // deduper it carries, is told about each of them.
+            assertEquals(2, testHook.afterEvaluationCalls.size());
+        }
+    }
+
     private LDConfig makeOfflineConfig() {
         return makeOfflineConfig(null);
     }

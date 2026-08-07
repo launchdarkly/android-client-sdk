@@ -33,14 +33,16 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void exposureKeyDistinguishesEveryComponent() {
-        String key = EvaluationExposureKey.of("flag", 1, 2, false, "user-key");
-        assertEquals(key, EvaluationExposureKey.of("flag", 1, 2, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureKey.of("other-flag", 1, 2, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureKey.of("flag", 3, 2, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureKey.of("flag", 1, 4, false, "user-key"));
-        assertNotEquals(key, EvaluationExposureKey.of("flag", 1, 2, false, "other-user-key"));
+        String key = EvaluationExposureKey.of("default", "flag", 1, 2, false, "user-key");
+        assertEquals(key, EvaluationExposureKey.of("default", "flag", 1, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("default", "other-flag", 1, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("default", "flag", 3, 2, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("default", "flag", 1, 4, false, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("default", "flag", 1, 2, false, "other-user-key"));
         // Moving into an experiment on the same variation of the same flag version reports again.
-        assertNotEquals(key, EvaluationExposureKey.of("flag", 1, 2, true, "user-key"));
+        assertNotEquals(key, EvaluationExposureKey.of("default", "flag", 1, 2, true, "user-key"));
+        // A hook shared across environments observes the same result once per environment.
+        assertNotEquals(key, EvaluationExposureKey.of("other-env", "flag", 1, 2, false, "user-key"));
     }
 
     @Test

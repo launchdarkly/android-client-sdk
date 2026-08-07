@@ -56,10 +56,10 @@ public abstract class Hook {
      * Deduplicates this hook's evaluation series with the SDK's implementation, so that repeated
      * evaluations resolving to the same result reach it at most once per window.
      * <p>
-     * Within the window, this hook observes only a single evaluation per unique combination of flag
-     * key, variation, flag version, experiment status, and evaluation context. This is useful for
-     * reducing the telemetry volume produced by frequent re-evaluations, for example a flag that is
-     * read on every redraw of a view.
+     * Within the window, this hook observes only a single evaluation per unique combination of
+     * environment, flag key, variation, flag version, experiment status, and evaluation context. This
+     * is useful for reducing the telemetry volume produced by frequent re-evaluations, for example a
+     * flag that is read on every redraw of a view.
      *
      * <pre><code>
      *     Components.hooks()

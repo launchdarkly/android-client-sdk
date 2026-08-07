@@ -89,7 +89,9 @@ public class EvaluationExposureDeduper {
      * <p>
      * The SDK calls this once per evaluation per hook. The key identifies the evaluation result: two
      * evaluations share a key when they resolve to the same variation of the same flag version, with
-     * the same experiment status, for the same context.
+     * the same experiment status, for the same context, in the same environment. Evaluations made
+     * against different environments never share a key, so a hook shared by the clients for several
+     * environments observes each of them.
      *
      * @param key a stable key identifying the evaluation result
      * @param nowMillis the current time in milliseconds since the epoch
