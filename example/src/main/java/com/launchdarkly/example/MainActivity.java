@@ -122,8 +122,8 @@ public class MainActivity extends AppCompatActivity {
                         // Same fluent shape a customer uses for any hook: configure the deduper
                         // at registration. Each hook has its own window, so neither suppresses the other.
                         Components.hooks()
-                                .addHook(fastHook.evaluationExposureDeduper(FAST_DEDUPE_WINDOW_MILLIS, 2_000))
-                                .addHook(slowHook.evaluationExposureDeduper(SLOW_DEDUPE_WINDOW_MILLIS, 2_000))
+                                .addHook(fastHook.evaluationExposureDeduper(FAST_DEDUPE_WINDOW_MILLIS))
+                                .addHook(slowHook.evaluationExposureDeduper(SLOW_DEDUPE_WINDOW_MILLIS))
                 );
 
         if (isStaging()) {

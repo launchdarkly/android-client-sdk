@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Counts the evaluation series stages it observes, so the example can show what exposure
  * deduplication does. Deduplication is configured at registration with
- * {@link Hook#evaluationExposureDeduper(int, int)}, the same way a customer would configure any
+ * {@link Hook#evaluationExposureDeduper(int)}, the same way a customer would configure any
  * other hook.
  * <p>
  * Deduplication skips the whole series, so both counts stay equal and both stop climbing while
