@@ -5,11 +5,13 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.TrackSeriesContext;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,7 +35,7 @@ public class HookRunner {
      */
     @FunctionalInterface
     public interface ExposureKeySupplier {
-        String exposureKey(String flagKey, LDContext context);
+        EvaluationExposureKey exposureKey(String flagKey, LDContext context);
     }
 
     /**
@@ -61,7 +63,9 @@ public class HookRunner {
     private volatile boolean anyDedupeActive = false;
 
     public HookRunner(LDLogger logger, List<Hook> initialHooks) {
-        this(logger, initialHooks, (flagKey, context) -> "");
+        this(logger, initialHooks, (flagKey, context) -> new EvaluationExposureKey(
+                LDConfig.primaryEnvironmentName, flagKey, EvaluationDetail.NO_VARIATION,
+                EventProcessor.NO_VERSION, false, context.getFullyQualifiedKey()));
     }
 
     public HookRunner(LDLogger logger, List<Hook> initialHooks,
@@ -122,7 +126,7 @@ public class HookRunner {
             return hooks;
         }
 
-        String exposureKey = exposureKeySupplier.exposureKey(flagKey, context);
+        EvaluationExposureKey exposureKey = exposureKeySupplier.exposureKey(flagKey, context);
         long nowMillis = System.currentTimeMillis();
         List<RegisteredHook> reporting = new ArrayList<>(hooks.size());
         for (RegisteredHook registered : hooks) {

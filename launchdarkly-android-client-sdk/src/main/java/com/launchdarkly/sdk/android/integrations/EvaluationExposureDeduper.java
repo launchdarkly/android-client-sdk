@@ -1,6 +1,5 @@
 package com.launchdarkly.sdk.android.integrations;
 
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -20,9 +19,9 @@ import java.util.Map;
  * </code></pre>
  * <p>
  * This class is the SDK's implementation: it records each unique exposure key once per window and
- * bounds the number of tracked keys, evicting the least recently recorded ones when the cap is
- * exceeded. Subclass it to implement a different policy; only {@link #shouldRecord(String, long)}
- * and {@link #reset()} are called by the SDK.
+ * bounds the number of tracked keys, evicting the least recently recorded one when the cap is
+ * exceeded. Subclass it to implement a different policy; only
+ * {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are called by the SDK.
  * <p>
  * A deduper is consulted once per evaluation, before the series opens, so a suppressed evaluation
  * invokes neither {@code beforeEvaluation} nor {@code afterEvaluation}. Implementations must be
@@ -47,9 +46,17 @@ public class EvaluationExposureDeduper {
     private final long windowMillis;
     private final int maxSize;
 
-    // Insertion-ordered so that iteration visits the least recently recorded key first. Guarded by
-    // the instance lock, as is every access below.
-    private final LinkedHashMap<String, Long> lastRecordedAt = new LinkedHashMap<>();
+    // Insertion-ordered, and each recording re-inserts its key, so the eldest entry is the one
+    // recorded longest ago. That makes it the right one to evict: if any tracked window has elapsed,
+    // the eldest entry's has, and dropping it costs nothing because an elapsed window no longer
+    // suppresses anything. Guarded by the instance lock, as is every access below.
+    private final LinkedHashMap<EvaluationExposureKey, Long> lastRecordedAt =
+            new LinkedHashMap<EvaluationExposureKey, Long>() {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<EvaluationExposureKey, Long> eldest) {
+                    return size() > maxSize;
+                }
+            };
 
     /**
      * Creates a deduper with a window of {@link #DEFAULT_WINDOW_MILLIS} over at most
@@ -87,17 +94,14 @@ public class EvaluationExposureDeduper {
      * Returns whether the hook should be told about the evaluation identified by the given key, and
      * if so starts a new dedupe window for it.
      * <p>
-     * The SDK calls this once per evaluation per hook. The key identifies the evaluation result: two
-     * evaluations share a key when they resolve to the same variation of the same flag version, with
-     * the same experiment status, for the same context, in the same environment. Evaluations made
-     * against different environments never share a key, so a hook shared by the clients for several
-     * environments observes each of them.
+     * The SDK calls this once per evaluation per hook. See {@link EvaluationExposureKey} for what makes
+     * two evaluations the same exposure.
      *
-     * @param key a stable key identifying the evaluation result
+     * @param key the key identifying the evaluation result
      * @param nowMillis the current time in milliseconds since the epoch
      * @return true if the hook should observe this evaluation, false if it should be suppressed
      */
-    public synchronized boolean shouldRecord(String key, long nowMillis) {
+    public synchronized boolean shouldRecord(EvaluationExposureKey key, long nowMillis) {
         if (windowMillis <= 0) {
             return true;
         }
@@ -107,13 +111,10 @@ public class EvaluationExposureDeduper {
             return false;
         }
 
-        // Remove before putting so the key moves to the most recent end of the iteration order.
+        // Remove before putting so the key moves to the most recent end of the iteration order. The
+        // map evicts the eldest entry itself once this put takes it past the cap.
         lastRecordedAt.remove(key);
         lastRecordedAt.put(key, nowMillis);
-
-        if (lastRecordedAt.size() > maxSize) {
-            evict(nowMillis);
-        }
         return true;
     }
 
@@ -125,41 +126,13 @@ public class EvaluationExposureDeduper {
         lastRecordedAt.clear();
     }
 
-    private void evict(long nowMillis) {
-        // Keys whose window has already elapsed no longer change the outcome of shouldRecord, so
-        // reclaim those first. They sort before any live key, so this stops at the first live one.
-        long cutoff = nowMillis - windowMillis;
-        for (Iterator<Map.Entry<String, Long>> it = lastRecordedAt.entrySet().iterator(); it.hasNext(); ) {
-            if (it.next().getValue() > cutoff) {
-                break;
-            }
-            it.remove();
-        }
-
-        if (lastRecordedAt.size() <= maxSize) {
-            // Reclaiming expired keys was enough. Dropping live keys past this point would report
-            // their next identical evaluation again.
-            return;
-        }
-
-        // Evict a batch rather than a single key, so that a workload tracking more live keys than
-        // maxSize doesn't pay for an eviction on every subsequent exposure.
-        int dropCount = lastRecordedAt.size() - maxSize + maxSize / 4;
-        for (Iterator<Map.Entry<String, Long>> it = lastRecordedAt.entrySet().iterator();
-             dropCount > 0 && it.hasNext();
-             dropCount--) {
-            it.next();
-            it.remove();
-        }
-    }
-
     private static final class Disabled extends EvaluationExposureDeduper {
         Disabled() {
             super(0, 0);
         }
 
         @Override
-        public boolean shouldRecord(String key, long nowMillis) {
+        public boolean shouldRecord(EvaluationExposureKey key, long nowMillis) {
             return true;
         }
 
