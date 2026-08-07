@@ -194,7 +194,7 @@ public class LDClientHooksTest {
 
     @Test
     public void repeatedEvaluationsAreDeduplicatedWithinTheHooksWindow() throws Exception {
-        testHook.evaluationExposureDeduper(60_000, 100);
+        testHook.evaluationExposureDeduper(60_000);
         try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
             for (int i = 0; i < 3; i++) {
                 ldClient.boolVariation("test-flag", false);
@@ -208,7 +208,7 @@ public class LDClientHooksTest {
 
     @Test
     public void identifyResetsEvaluationExposureDedupeCache() throws Exception {
-        testHook.evaluationExposureDeduper(60_000, 100);
+        testHook.evaluationExposureDeduper(60_000);
         try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
             ldClient.boolVariation("test-flag", false);
             ldClient.boolVariation("test-flag", false);
@@ -225,7 +225,7 @@ public class LDClientHooksTest {
 
     @Test
     public void evaluationsOfDifferentFlagsReachHooksSeparately() throws Exception {
-        testHook.evaluationExposureDeduper(60_000, 100);
+        testHook.evaluationExposureDeduper(60_000);
         try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
             ldClient.boolVariation("test-flag", false);
             ldClient.boolVariation("other-flag", false);
@@ -238,7 +238,7 @@ public class LDClientHooksTest {
     @Test
     public void hooksWithDifferentWindowsSuppressIndependently() throws Exception {
         MockHook deduping = new MockHook();
-        deduping.evaluationExposureDeduper(60_000, 100);
+        deduping.evaluationExposureDeduper(60_000);
         MockHook reportingEverything = new MockHook();
         reportingEverything.evaluationExposureDeduper(EvaluationExposureDeduper.disabled());
         LDConfig config = makeOfflineConfigBuilder(null)
@@ -264,7 +264,7 @@ public class LDClientHooksTest {
 
     @Test
     public void environmentsSharingAHookDoNotSuppressEachOther() throws Exception {
-        testHook.evaluationExposureDeduper(60_000, 100);
+        testHook.evaluationExposureDeduper(60_000);
         LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
                 .secondaryMobileKeys(Collections.singletonMap("other", "other-mobile-key"))
                 .build();

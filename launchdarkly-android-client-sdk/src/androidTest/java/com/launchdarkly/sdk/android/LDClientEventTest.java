@@ -253,7 +253,7 @@ public class LDClientEventTest {
             // Deduplication applies to hooks only, so a hook given a window wide enough to suppress
             // every repeat must still leave the analytics events untouched.
             Hook dedupingHook = new Hook("deduping-hook") {};
-            dedupingHook.evaluationExposureDeduper(60_000, 100);
+            dedupingHook.evaluationExposureDeduper(60_000);
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
                     .persistentDataStore(store)
                     .hooks(Components.hooks().addHook(dedupingHook))

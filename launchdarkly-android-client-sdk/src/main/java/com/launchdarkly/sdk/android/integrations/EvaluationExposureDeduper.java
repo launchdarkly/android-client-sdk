@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
+import androidx.annotation.VisibleForTesting;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -9,23 +11,22 @@ import java.util.Objects;
  * to the same result do not invoke the hook again within a time window.
  * <p>
  * Deduplication is opt-in per hook: a hook is told about every evaluation until you give it a
- * deduper with {@link Hook#evaluationExposureDeduper(int, int)}.
+ * deduper with {@link Hook#evaluationExposureDeduper(int)}.
  *
  * <pre><code>
  *     Components.hooks()
  *         .addHook(new MetricsHook())                                // told about every evaluation
- *         .addHook(new ObservabilityHook().evaluationExposureDeduper())  // default window and cap
- *         .addHook(new TelemetryHook().evaluationExposureDeduper(30_000, 5_000))
+ *         .addHook(new ObservabilityHook().evaluationExposureDeduper())  // default window
+ *         .addHook(new TelemetryHook().evaluationExposureDeduper(30_000))
  *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
  * </code></pre>
  * <p>
  * This class is the SDK's implementation: it remembers the result each flag last reported, and tells
  * the hook about the flag again as soon as that result changes, or once the window elapses while it
  * stays the same. Tracking one result per flag rather than every result seen keeps a flag that flips
- * back and forth from hiding the flips, and bounds the cache by the size of the flag set. The cap is
- * a safety net on top of that, evicting the flag recorded longest ago. Subclass this to implement a
- * different policy; only {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are
- * called by the SDK.
+ * back and forth from hiding the flips, and bounds the cache by the size of the flag set, so the
+ * window is the only thing there is to configure. Subclass this to implement a different policy; only
+ * {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are called by the SDK.
  * <p>
  * A deduper is consulted once per evaluation, before the series opens, so a suppressed evaluation
  * invokes neither {@code beforeEvaluation} nor {@code afterEvaluation}. Implementations must be
@@ -40,15 +41,15 @@ public class EvaluationExposureDeduper {
      */
     public static final int DEFAULT_WINDOW_MILLIS = 600_000;
 
-    /**
-     * The number of flags tracked by a deduper built without a positive cap of its own: 2000.
-     */
-    public static final int DEFAULT_MAX_SIZE = 2_000;
+    // Far more flags than an application evaluates, so this is never reached by tracking a flag set.
+    // It is here for an application that builds flag keys rather than naming them, which would
+    // otherwise grow the cache for as long as it kept generating them.
+    private static final int MAX_TRACKED_FLAGS = 2_000;
 
     private static final EvaluationExposureDeduper DISABLED = new Disabled();
 
     private final long windowMillis;
-    private final int maxSize;
+    private final int maxTrackedFlags;
 
     // Insertion-ordered, and each recording re-inserts its flag, so the eldest entry is the flag
     // recorded longest ago. That makes it the right one to evict: if any tracked window has elapsed,
@@ -58,27 +59,29 @@ public class EvaluationExposureDeduper {
             new LinkedHashMap<TrackedFlag, LastReported>() {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<TrackedFlag, LastReported> eldest) {
-                    return size() > maxSize;
+                    return size() > maxTrackedFlags;
                 }
             };
 
     /**
-     * Creates a deduper with a window of {@link #DEFAULT_WINDOW_MILLIS} over at most
-     * {@link #DEFAULT_MAX_SIZE} exposure keys.
+     * Creates a deduper with a window of {@link #DEFAULT_WINDOW_MILLIS}.
      */
     public EvaluationExposureDeduper() {
-        this(DEFAULT_WINDOW_MILLIS, DEFAULT_MAX_SIZE);
+        this(DEFAULT_WINDOW_MILLIS);
     }
 
     /**
      * @param windowMillis the dedupe window in milliseconds; zero or negative disables
      *                     deduplication, so every evaluation reaches the hook
-     * @param maxSize the maximum number of flags to track, counting a flag once per environment it is
-     *                evaluated in; zero or negative falls back to {@link #DEFAULT_MAX_SIZE}
      */
-    public EvaluationExposureDeduper(int windowMillis, int maxSize) {
+    public EvaluationExposureDeduper(int windowMillis) {
+        this(windowMillis, MAX_TRACKED_FLAGS);
+    }
+
+    @VisibleForTesting
+    EvaluationExposureDeduper(int windowMillis, int maxTrackedFlags) {
         this.windowMillis = windowMillis;
-        this.maxSize = maxSize > 0 ? maxSize : DEFAULT_MAX_SIZE;
+        this.maxTrackedFlags = maxTrackedFlags;
     }
 
     /**
@@ -210,7 +213,7 @@ public class EvaluationExposureDeduper {
 
     private static final class Disabled extends EvaluationExposureDeduper {
         Disabled() {
-            super(0, 0);
+            super(0);
         }
 
         @Override

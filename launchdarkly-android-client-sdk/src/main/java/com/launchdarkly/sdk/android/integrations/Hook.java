@@ -37,8 +37,7 @@ public abstract class Hook {
 
     /**
      * Deduplicates this hook's evaluation series with the SDK's implementation, using a window of
-     * {@link EvaluationExposureDeduper#DEFAULT_WINDOW_MILLIS} over at most
-     * {@link EvaluationExposureDeduper#DEFAULT_MAX_SIZE} exposure keys.
+     * {@link EvaluationExposureDeduper#DEFAULT_WINDOW_MILLIS}.
      *
      * <pre><code>
      *     Components.hooks()
@@ -46,7 +45,7 @@ public abstract class Hook {
      * </code></pre>
      *
      * @return this hook
-     * @see #evaluationExposureDeduper(int, int)
+     * @see #evaluationExposureDeduper(int)
      */
     public Hook evaluationExposureDeduper() {
         return evaluationExposureDeduper(new EvaluationExposureDeduper());
@@ -56,24 +55,21 @@ public abstract class Hook {
      * Deduplicates this hook's evaluation series with the SDK's implementation, so that repeated
      * evaluations resolving to the same result reach it at most once per window.
      * <p>
-     * Within the window, this hook observes only a single evaluation per unique combination of
-     * environment, flag key, variation, flag version, experiment status, and evaluation context. This
-     * is useful for reducing the telemetry volume produced by frequent re-evaluations, for example a
-     * flag that is read on every redraw of a view.
+     * This hook observes a flag when its result changes, and at most once per window while the result
+     * stays the same. This is useful for reducing the telemetry volume produced by frequent
+     * re-evaluations, for example a flag that is read on every redraw of a view.
      *
      * <pre><code>
      *     Components.hooks()
-     *         .addHook(new ObservabilityHook().evaluationExposureDeduper(60_000, 2_000))
+     *         .addHook(new ObservabilityHook().evaluationExposureDeduper(60_000))
      * </code></pre>
      *
      * @param windowMillis the dedupe window in milliseconds; zero or negative reports every
      *                     evaluation
-     * @param maxSize the maximum number of exposure keys to track; zero or negative uses
-     *                {@link EvaluationExposureDeduper#DEFAULT_MAX_SIZE}
      * @return this hook
      */
-    public Hook evaluationExposureDeduper(int windowMillis, int maxSize) {
-        return evaluationExposureDeduper(new EvaluationExposureDeduper(windowMillis, maxSize));
+    public Hook evaluationExposureDeduper(int windowMillis) {
+        return evaluationExposureDeduper(new EvaluationExposureDeduper(windowMillis));
     }
 
     /**

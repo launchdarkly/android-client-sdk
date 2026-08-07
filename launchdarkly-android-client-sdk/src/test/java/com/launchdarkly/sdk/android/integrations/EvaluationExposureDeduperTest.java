@@ -1,4 +1,4 @@
-package com.launchdarkly.sdk.android;
+package com.launchdarkly.sdk.android.integrations;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -6,10 +6,12 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
-
 import org.junit.Test;
+
+/**
+ * Lives in the {@code integrations} package to reach the constructor that takes the bound on how many
+ * flags are tracked, which the SDK sets for itself rather than exposing.
+ */
 
 public class EvaluationExposureDeduperTest {
     /**
@@ -166,30 +168,29 @@ public class EvaluationExposureDeduperTest {
     }
 
     @Test
-    public void usesDefaultWindowAndCapWhenBuiltWithoutParameters() {
-        // Ten minutes over 2000 keys.
+    public void usesTheDefaultWindowWhenBuiltWithoutOne() {
+        // Ten minutes.
         assertEquals(600_000, EvaluationExposureDeduper.DEFAULT_WINDOW_MILLIS);
-        assertEquals(2_000, EvaluationExposureDeduper.DEFAULT_MAX_SIZE);
 
         EvaluationExposureDeduper deduper = new EvaluationExposureDeduper();
         assertTrue(deduper.shouldRecord(key("a"), 1000));
         assertFalse(deduper.shouldRecord(key("a"), 600_999));
         assertTrue(deduper.shouldRecord(key("a"), 601_000));
-
-        for (int i = 0; i < EvaluationExposureDeduper.DEFAULT_MAX_SIZE - 1; i++) {
-            assertTrue(deduper.shouldRecord(key("key-" + i), 601_000));
-        }
-        // "a" and these flags fill the cap exactly, so nothing has been evicted yet.
-        assertFalse(deduper.shouldRecord(key("key-0"), 601_000));
     }
 
     @Test
-    public void fallsBackToDefaultCapForNonPositiveMaxSize() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(10_000, 0);
-        for (int i = 0; i < EvaluationExposureDeduper.DEFAULT_MAX_SIZE; i++) {
+    public void boundsHowManyFlagsItTracks() {
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(600_000);
+        for (int i = 0; i < 2_000; i++) {
             assertTrue(deduper.shouldRecord(key("key-" + i), 1000));
         }
-        assertFalse(deduper.shouldRecord(key("key-0"), 1000));
+
+        // Nothing about the bound is configurable, because tracking one result per flag already keeps
+        // the cache to the size of the flag set. It is only reached by an application that generates
+        // flag keys, and then it evicts the flag recorded longest ago.
+        assertFalse(deduper.shouldRecord(key("key-1999"), 1000));
+        assertTrue(deduper.shouldRecord(key("key-2000"), 1000));
+        assertTrue(deduper.shouldRecord(key("key-0"), 1000));
     }
 
     @Test

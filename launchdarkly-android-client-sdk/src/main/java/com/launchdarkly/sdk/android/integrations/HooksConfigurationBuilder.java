@@ -31,7 +31,7 @@ import java.util.List;
  *     Components.hooks()
  *         .addHook(new MetricsHook())
  *         .addHook(new ObservabilityHook().evaluationExposureDeduper())
- *         .addHook(new TelemetryHook().evaluationExposureDeduper(60_000, 2_000))
+ *         .addHook(new TelemetryHook().evaluationExposureDeduper(60_000))
  *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
  * </code></pre>
  * <p>
