@@ -1,8 +1,6 @@
 package com.launchdarkly.sdk.android.integrations;
 
-import androidx.annotation.VisibleForTesting;
-
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -24,9 +22,10 @@ import java.util.Objects;
  * This class is the SDK's implementation: it remembers the result each flag last reported, and tells
  * the hook about the flag again as soon as that result changes, or once the window elapses while it
  * stays the same. Tracking one result per flag rather than every result seen keeps a flag that flips
- * back and forth from hiding the flips, and bounds the cache by the size of the flag set, so the
- * window is the only thing there is to configure. Subclass this to implement a different policy; only
- * {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are called by the SDK.
+ * back and forth from hiding the flips, and holds one record per flag the application evaluates, so
+ * the window is the only thing there is to configure. Subclass this to implement a different policy;
+ * only {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are called by the
+ * SDK.
  * <p>
  * A deduper is consulted once per evaluation, before the series opens, so a suppressed evaluation
  * invokes neither {@code beforeEvaluation} nor {@code afterEvaluation}. Implementations must be
@@ -41,27 +40,14 @@ public class EvaluationExposureDeduper {
      */
     public static final int DEFAULT_WINDOW_MILLIS = 600_000;
 
-    // Far more flags than an application evaluates, so this is never reached by tracking a flag set.
-    // It is here for an application that builds flag keys rather than naming them, which would
-    // otherwise grow the cache for as long as it kept generating them.
-    private static final int MAX_TRACKED_FLAGS = 2_000;
-
     private static final EvaluationExposureDeduper DISABLED = new Disabled();
 
     private final long windowMillis;
-    private final int maxTrackedFlags;
 
-    // Insertion-ordered, and each recording re-inserts its flag, so the eldest entry is the flag
-    // recorded longest ago. That makes it the right one to evict: if any tracked window has elapsed,
-    // the eldest entry's has, and dropping it costs nothing because an elapsed window no longer
-    // suppresses anything. Guarded by the instance lock, as is every access below.
-    private final LinkedHashMap<TrackedFlag, LastReported> lastReported =
-            new LinkedHashMap<TrackedFlag, LastReported>() {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<TrackedFlag, LastReported> eldest) {
-                    return size() > maxTrackedFlags;
-                }
-            };
+    // Holds one record per flag the application evaluates, in each environment it evaluates it in.
+    // Nothing is evicted, because that set is the flags the environment serves. Guarded by the
+    // instance lock, as is every access below.
+    private final Map<TrackedFlag, LastReported> lastReported = new HashMap<>();
 
     /**
      * Creates a deduper with a window of {@link #DEFAULT_WINDOW_MILLIS}.
@@ -75,13 +61,7 @@ public class EvaluationExposureDeduper {
      *                     deduplication, so every evaluation reaches the hook
      */
     public EvaluationExposureDeduper(int windowMillis) {
-        this(windowMillis, MAX_TRACKED_FLAGS);
-    }
-
-    @VisibleForTesting
-    EvaluationExposureDeduper(int windowMillis, int maxTrackedFlags) {
         this.windowMillis = windowMillis;
-        this.maxTrackedFlags = maxTrackedFlags;
     }
 
     /**
@@ -125,12 +105,7 @@ public class EvaluationExposureDeduper {
             return false;
         }
 
-        // The flag is being reported again, so its record is reused rather than replaced, and
-        // re-inserted to move it to the most recent end of the iteration order. The map evicts the
-        // eldest entry itself if that ever takes it past the cap.
         reported.update(key, nowMillis);
-        lastReported.remove(flag);
-        lastReported.put(flag, reported);
         return true;
     }
 

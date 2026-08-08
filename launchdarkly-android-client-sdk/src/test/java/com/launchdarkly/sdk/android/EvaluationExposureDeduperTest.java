@@ -1,4 +1,4 @@
-package com.launchdarkly.sdk.android.integrations;
+package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -6,12 +6,11 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
+
 import org.junit.Test;
 
-/**
- * Lives in the {@code integrations} package to reach the constructor that takes the bound on how many
- * flags are tracked, which the SDK sets for itself rather than exposing.
- */
 
 public class EvaluationExposureDeduperTest {
     /**
@@ -32,7 +31,7 @@ public class EvaluationExposureDeduperTest {
     @Test
     public void recordsEverythingForNonPositiveWindow() {
         for (int window : new int[] { 0, -1 }) {
-            EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(window, 10);
+            EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(window);
             assertTrue(deduper.shouldRecord(key("a"), 0));
             assertTrue(deduper.shouldRecord(key("a"), 0));
         }
@@ -68,7 +67,7 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void suppressesRepeatsWithinWindow() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
         assertTrue(deduper.shouldRecord(key("a"), 1000));
         assertFalse(deduper.shouldRecord(key("a"), 1000));
         assertFalse(deduper.shouldRecord(key("a"), 1099));
@@ -76,7 +75,7 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void recordsAgainOnceWindowElapses() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
         assertTrue(deduper.shouldRecord(key("a"), 1000));
         assertTrue(deduper.shouldRecord(key("a"), 1100));
         // Recording restarts the window rather than extending the original one.
@@ -86,7 +85,7 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void tracksFlagsIndependently() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
         assertTrue(deduper.shouldRecord(key("a"), 1000));
         assertTrue(deduper.shouldRecord(key("b"), 1000));
         assertFalse(deduper.shouldRecord(key("a"), 1000));
@@ -95,7 +94,7 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void reportsAFlagAgainAsSoonAsItsResultChanges() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
         assertTrue(deduper.shouldRecord(key("a"), 1000));
         assertTrue(deduper.shouldRecord(otherResult("a"), 1010));
         assertFalse(deduper.shouldRecord(otherResult("a"), 1020));
@@ -107,7 +106,7 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void tracksTheSameFlagSeparatelyPerEnvironment() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
         EvaluationExposureKey primary = new EvaluationExposureKey("default", "flag", 1, 2, false, "user-key");
         EvaluationExposureKey secondary = new EvaluationExposureKey("other", "flag", 3, 4, false, "user-key");
 
@@ -121,50 +120,10 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void recordsAgainAfterReset() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 10);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
         assertTrue(deduper.shouldRecord(key("a"), 1000));
         deduper.reset();
         assertTrue(deduper.shouldRecord(key("a"), 1000));
-    }
-
-    @Test
-    public void evictsTheFlagRecordedLongestAgoPastCap() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(10_000, 4);
-        for (int i = 0; i < 5; i++) {
-            assertTrue(deduper.shouldRecord(key("key-" + i), 1000 + i));
-        }
-        // "key-0" was recorded first, so it is the one dropped and can be recorded again, while the
-        // most recently recorded flag is still being tracked.
-        assertTrue(deduper.shouldRecord(key("key-0"), 1010));
-        assertFalse(deduper.shouldRecord(key("key-4"), 1010));
-    }
-
-    @Test
-    public void reRecordingMovesAFlagToMostRecentEndOfEvictionOrder() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 2);
-        assertTrue(deduper.shouldRecord(key("a"), 1000));
-        assertTrue(deduper.shouldRecord(key("b"), 1000));
-        // "a" is re-recorded once its window elapses, which makes "b" the oldest tracked flag.
-        assertTrue(deduper.shouldRecord(key("a"), 1100));
-        assertTrue(deduper.shouldRecord(key("c"), 1100));
-        assertFalse(deduper.shouldRecord(key("a"), 1100));
-    }
-
-    @Test
-    public void evictionPrefersFlagsWhoseWindowHasElapsed() {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100, 8);
-        for (int i = 0; i < 2; i++) {
-            assertTrue(deduper.shouldRecord(key("expired-" + i), 1000));
-        }
-        // The 7th of these takes the map past the cap. The flags recorded longest ago are the two
-        // whose window has since elapsed, so those are the ones evicted and every live flag is still
-        // tracked.
-        for (int i = 0; i < 7; i++) {
-            assertTrue(deduper.shouldRecord(key("live-" + i), 1150));
-        }
-        for (int i = 0; i < 7; i++) {
-            assertFalse(deduper.shouldRecord(key("live-" + i), 1150));
-        }
     }
 
     @Test
@@ -179,23 +138,21 @@ public class EvaluationExposureDeduperTest {
     }
 
     @Test
-    public void boundsHowManyFlagsItTracks() {
+    public void tracksEveryFlagTheApplicationEvaluates() {
         EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(600_000);
         for (int i = 0; i < 2_000; i++) {
             assertTrue(deduper.shouldRecord(key("key-" + i), 1000));
         }
 
-        // Nothing about the bound is configurable, because tracking one result per flag already keeps
-        // the cache to the size of the flag set. It is only reached by an application that generates
-        // flag keys, and then it evicts the flag recorded longest ago.
+        // Nothing is dropped to make room, so the flag recorded first is suppressed just like the
+        // flag recorded last. What the deduper holds is the flag set, which the environment bounds.
+        assertFalse(deduper.shouldRecord(key("key-0"), 1000));
         assertFalse(deduper.shouldRecord(key("key-1999"), 1000));
-        assertTrue(deduper.shouldRecord(key("key-2000"), 1000));
-        assertTrue(deduper.shouldRecord(key("key-0"), 1000));
     }
 
     @Test
     public void recordsOnceWhenSameKeyIsCheckedConcurrently() throws Exception {
-        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(60_000, 100);
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(60_000);
         EvaluationExposureKey key = key("a");
         int threadCount = 10;
         Thread[] threads = new Thread[threadCount];
