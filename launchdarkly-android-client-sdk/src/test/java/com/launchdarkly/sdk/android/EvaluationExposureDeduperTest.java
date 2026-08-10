@@ -3,7 +3,6 @@ package com.launchdarkly.sdk.android;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
@@ -35,17 +34,6 @@ public class EvaluationExposureDeduperTest {
             assertTrue(deduper.shouldRecord(key("a"), 0));
             assertTrue(deduper.shouldRecord(key("a"), 0));
         }
-    }
-
-    @Test
-    public void disabledRecordsEverythingAndIsSharedAcrossHooks() {
-        EvaluationExposureDeduper deduper = EvaluationExposureDeduper.disabled();
-        assertTrue(deduper.shouldRecord(key("a"), 1000));
-        assertTrue(deduper.shouldRecord(key("a"), 1000));
-        deduper.reset();
-        assertTrue(deduper.shouldRecord(key("a"), 1000));
-        // The runner recognizes it by identity to skip building exposure keys altogether.
-        assertSame(deduper, EvaluationExposureDeduper.disabled());
     }
 
     @Test

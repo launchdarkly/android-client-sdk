@@ -10,7 +10,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
+import com.launchdarkly.sdk.android.integrations.DedupingHook;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
@@ -194,8 +194,8 @@ public class LDClientHooksTest {
 
     @Test
     public void repeatedEvaluationsAreDeduplicatedWithinTheHooksWindow() throws Exception {
-        testHook.evaluationExposureDeduper(60_000);
-        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
+        Hook deduping = new DedupingHook(testHook, 60_000);
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(deduping)), ldContext, 1)) {
             for (int i = 0; i < 3; i++) {
                 ldClient.boolVariation("test-flag", false);
             }
@@ -208,8 +208,8 @@ public class LDClientHooksTest {
 
     @Test
     public void identifyResetsEvaluationExposureDedupeCache() throws Exception {
-        testHook.evaluationExposureDeduper(60_000);
-        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
+        Hook deduping = new DedupingHook(testHook, 60_000);
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(deduping)), ldContext, 1)) {
             ldClient.boolVariation("test-flag", false);
             ldClient.boolVariation("test-flag", false);
             assertEquals(1, testHook.afterEvaluationCalls.size());
@@ -225,8 +225,8 @@ public class LDClientHooksTest {
 
     @Test
     public void evaluationsOfDifferentFlagsReachHooksSeparately() throws Exception {
-        testHook.evaluationExposureDeduper(60_000);
-        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
+        Hook deduping = new DedupingHook(testHook, 60_000);
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(deduping)), ldContext, 1)) {
             ldClient.boolVariation("test-flag", false);
             ldClient.boolVariation("other-flag", false);
             ldClient.boolVariation("test-flag", false);
@@ -238,24 +238,25 @@ public class LDClientHooksTest {
     @Test
     public void hooksWithDifferentWindowsSuppressIndependently() throws Exception {
         MockHook deduping = new MockHook();
-        deduping.evaluationExposureDeduper(60_000);
         MockHook reportingEverything = new MockHook();
-        reportingEverything.evaluationExposureDeduper(EvaluationExposureDeduper.disabled());
         LDConfig config = makeOfflineConfigBuilder(null)
-                .hooks(Components.hooks().addHook(testHook).addHook(deduping).addHook(reportingEverything))
+                .hooks(Components.hooks()
+                        .addHook(testHook)
+                        .addHook(new DedupingHook(deduping, 60_000))
+                        .addHook(new DedupingHook(reportingEverything, 0)))
                 .build();
         try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
             for (int i = 0; i < 3; i++) {
                 ldClient.boolVariation("test-flag", false);
             }
 
-            // Only the hook that asked for a window suppresses. Carrying no deduper and carrying the
-            // disabled one behave the same way.
+            // Only the hook wrapped in a window suppresses. Being unwrapped and being wrapped in a
+            // window of zero behave the same way.
             assertEquals(3, testHook.afterEvaluationCalls.size());
             assertEquals(1, deduping.afterEvaluationCalls.size());
             assertEquals(3, reportingEverything.afterEvaluationCalls.size());
 
-            // identify clears the cache of every hook that has one.
+            // identify clears the cache of every wrapped hook.
             ldClient.identify(ldContext).get();
             ldClient.boolVariation("test-flag", false);
             assertEquals(2, deduping.afterEvaluationCalls.size());
@@ -264,8 +265,7 @@ public class LDClientHooksTest {
 
     @Test
     public void environmentsSharingAHookDoNotSuppressEachOther() throws Exception {
-        testHook.evaluationExposureDeduper(60_000);
-        LDConfig config = makeOfflineConfigBuilder(List.of(testHook))
+        LDConfig config = makeOfflineConfigBuilder(List.of(new DedupingHook(testHook, 60_000)))
                 .secondaryMobileKeys(Collections.singletonMap("other", "other-mobile-key"))
                 .build();
         try (LDClient ldClient = LDClient.init(application, config, ldContext, 1)) {
@@ -273,7 +273,7 @@ public class LDClientHooksTest {
             LDClient.getForMobileKey("other").boolVariation("test-flag", false);
 
             // Both environments resolve the flag identically, but the hook they share, and so the
-            // deduper it carries, is told about each of them.
+            // one deduper wrapped around it, is told about each of them.
             assertEquals(2, testHook.afterEvaluationCalls.size());
         }
     }

@@ -11,9 +11,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Counts the evaluation series stages it observes, so the example can show what exposure
- * deduplication does. Deduplication is configured at registration with
- * {@link Hook#evaluationExposureDeduper(int)}, the same way a customer would configure any
- * other hook.
+ * deduplication does. Deduplication is configured at registration by wrapping this hook in a
+ * {@link com.launchdarkly.sdk.android.integrations.DedupingHook}, the same way a customer would
+ * wrap any other hook.
  * <p>
  * Deduplication skips the whole series, so both counts stay equal and both stop climbing while
  * repeated evaluations resolve to the same result.

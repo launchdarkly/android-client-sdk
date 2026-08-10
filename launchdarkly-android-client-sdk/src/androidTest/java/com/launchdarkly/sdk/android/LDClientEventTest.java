@@ -16,6 +16,7 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
+import com.launchdarkly.sdk.android.integrations.DedupingHook;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.GsonHelpers;
@@ -252,8 +253,7 @@ public class LDClientEventTest {
             TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
             // Deduplication applies to hooks only, so a hook given a window wide enough to suppress
             // every repeat must still leave the analytics events untouched.
-            Hook dedupingHook = new Hook("deduping-hook") {};
-            dedupingHook.evaluationExposureDeduper(60_000);
+            Hook dedupingHook = new DedupingHook(new Hook("deduping-hook") {}, 60_000);
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
                     .persistentDataStore(store)
                     .hooks(Components.hooks().addHook(dedupingHook))

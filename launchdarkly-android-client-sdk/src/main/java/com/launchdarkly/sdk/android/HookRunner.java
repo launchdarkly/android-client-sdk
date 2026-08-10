@@ -4,14 +4,12 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureKeySupplier;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.TrackSeriesContext;
-import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,47 +27,26 @@ public class HookRunner {
         void invoke(IdentifySeriesResult result);
     }
 
-    /**
-     * Builds the key that the per-hook dedupers use to recognize a repeated evaluation. Consulted
-     * once per evaluation, before the series opens, and only when at least one hook can suppress.
-     */
-    @FunctionalInterface
-    public interface ExposureKeySupplier {
-        EvaluationExposureKey exposureKey(String flagKey, LDContext context);
-    }
-
-    /**
-     * A registered hook together with the deduper that decides which evaluations reach it. Kept as
-     * one value so adding a hook never leaves the two out of sync.
-     */
-    private static final class RegisteredHook {
-        final Hook hook;
-        final EvaluationExposureDeduper deduper;
-
-        RegisteredHook(Hook hook, EvaluationExposureDeduper deduper) {
-            this.hook = hook;
-            this.deduper = deduper;
-        }
-    }
-
     private static final String UNKNOWN_HOOK_NAME = "unknown hook";
 
     private final LDLogger logger;
-    private final List<RegisteredHook> hooks = new ArrayList<>();
-    private final ExposureKeySupplier exposureKeySupplier;
+    private final List<Hook> hooks = new ArrayList<>();
 
-    // False while every registered hook wants every evaluation, which is the default. Lets the
-    // evaluation path skip building the exposure key, which costs more than the checks it feeds.
-    private volatile boolean anyDedupeActive = false;
+    // Handed to every evaluation series context, which resolves it only if a hook asks what the
+    // evaluation's result identifies. Dedupe is the only thing that asks, and only a hook that has
+    // been wrapped in a DedupingHook dedupes, so an application without one never pays for this.
+    private final EvaluationExposureKeySupplier exposureKeySupplier;
 
+    /**
+     * Builds a runner whose evaluations describe no result, so a hook that asks what one identifies
+     * is told nothing and treats every evaluation as its own.
+     */
     public HookRunner(LDLogger logger, List<Hook> initialHooks) {
-        this(logger, initialHooks, (flagKey, context) -> new EvaluationExposureKey(
-                LDConfig.primaryEnvironmentName, flagKey, EvaluationDetail.NO_VARIATION,
-                EventProcessor.NO_VERSION, false, context.getFullyQualifiedKey()));
+        this(logger, initialHooks, null);
     }
 
     public HookRunner(LDLogger logger, List<Hook> initialHooks,
-                      ExposureKeySupplier exposureKeySupplier) {
+                      EvaluationExposureKeySupplier exposureKeySupplier) {
         this.logger = logger;
         this.exposureKeySupplier = exposureKeySupplier;
         for (Hook hook : initialHooks) {
@@ -87,69 +64,20 @@ public class HookRunner {
         }
     }
 
-    /**
-     * Adds a hook, resolving now which evaluations will reach it: the deduper the hook carries, or
-     * every evaluation if it carries none.
-     *
-     * @param hook the hook to add
-     */
     public void addHook(Hook hook) {
-        EvaluationExposureDeduper declared = hook.getEvaluationExposureDeduper();
-        EvaluationExposureDeduper deduper =
-                declared == null ? EvaluationExposureDeduper.disabled() : declared;
-        if (deduper != EvaluationExposureDeduper.disabled()) {
-            anyDedupeActive = true;
-        }
-        hooks.add(new RegisteredHook(hook, deduper));
-    }
-
-    /**
-     * Clears every hook's record of the evaluations it has already observed, so that the next
-     * evaluation of each reaches the hook again. Called when the evaluation context changes.
-     */
-    public void resetEvaluationExposureDedupers() {
-        for (RegisteredHook registered : hooks) {
-            registered.deduper.reset();
-        }
-    }
-
-    /**
-     * Returns the hooks that should observe this evaluation.
-     * <p>
-     * The decision is made before the series opens rather than after the evaluation completes,
-     * because hooks pair their stages: the observability plugin starts a span in
-     * {@code beforeEvaluation} and ends it in {@code afterEvaluation}, so suppressing only the after
-     * stage would leave that span open until something else closed it.
-     */
-    private List<RegisteredHook> hooksForEvaluation(String flagKey, LDContext context) {
-        if (!anyDedupeActive || hooks.isEmpty()) {
-            return hooks;
-        }
-
-        EvaluationExposureKey exposureKey = exposureKeySupplier.exposureKey(flagKey, context);
-        long nowMillis = System.currentTimeMillis();
-        List<RegisteredHook> reporting = new ArrayList<>(hooks.size());
-        for (RegisteredHook registered : hooks) {
-            if (registered.deduper.shouldRecord(exposureKey, nowMillis)) {
-                reporting.add(registered);
-            } else {
-                logger.debug("Deduplicated exposure of flag \"{}\" for hook \"{}\"", flagKey,
-                        getHookName(registered.hook));
-            }
-        }
-        return reporting;
+        hooks.add(hook);
     }
 
     public EvaluationDetail<LDValue> withEvaluation(String method, String key, LDContext context, LDValue defaultValue, EvaluationMethod evalMethod) {
-        List<RegisteredHook> reportingHooks = hooksForEvaluation(key, context);
-        if (reportingHooks.isEmpty()) {
+        if (hooks.isEmpty()) {
             return evalMethod.evaluate();
         }
 
-        List<Map<String, Object>> seriesDataList = new ArrayList<>(reportingHooks.size());
-        EvaluationSeriesContext seriesContext = new EvaluationSeriesContext(method, key, context, defaultValue);
-        for (int i = 0; i < reportingHooks.size(); i++) {
-            Hook currentHook = reportingHooks.get(i).hook;
+        List<Map<String, Object>> seriesDataList = new ArrayList<>(hooks.size());
+        EvaluationSeriesContext seriesContext =
+                new EvaluationSeriesContext(method, key, context, defaultValue, exposureKeySupplier);
+        for (int i = 0; i < hooks.size(); i++) {
+            Hook currentHook = hooks.get(i);
             try {
                 Map<String, Object> seriesData = currentHook.beforeEvaluation(seriesContext, Collections.unmodifiableMap(Collections.emptyMap()));
                 seriesDataList.add(Collections.unmodifiableMap(seriesData));
@@ -162,8 +90,8 @@ public class HookRunner {
         EvaluationDetail<LDValue> result = evalMethod.evaluate();
 
         // Invoke hooks in reverse order and give them back the series data they gave us.
-        for (int i = reportingHooks.size() - 1; i >= 0; i--) {
-            Hook currentHook = reportingHooks.get(i).hook;
+        for (int i = hooks.size() - 1; i >= 0; i--) {
+            Hook currentHook = hooks.get(i);
             try {
                 currentHook.afterEvaluation(seriesContext, seriesDataList.get(i), result);
             } catch (Exception e) {
@@ -182,7 +110,7 @@ public class HookRunner {
         List<Map<String, Object>> seriesDataList = new ArrayList<>(hooks.size());
         IdentifySeriesContext seriesContext = new IdentifySeriesContext(context, timeout);
         for (int i = 0; i < hooks.size(); i++) {
-            Hook currentHook = hooks.get(i).hook;
+            Hook currentHook = hooks.get(i);
             try {
                 Map<String, Object> seriesData = currentHook.beforeIdentify(seriesContext, Collections.unmodifiableMap(Collections.emptyMap()));
                 seriesDataList.add(Collections.unmodifiableMap(seriesData));
@@ -195,7 +123,7 @@ public class HookRunner {
         return (IdentifySeriesResult result) -> {
             // Invoke hooks in reverse order and give them back the series data they gave us.
             for (int i = hooks.size() - 1; i >= 0; i--) {
-                Hook currentHook = hooks.get(i).hook;
+                Hook currentHook = hooks.get(i);
                 try {
                     currentHook.afterIdentify(seriesContext, seriesDataList.get(i), result);
                 } catch (Exception e) {
@@ -214,7 +142,7 @@ public class HookRunner {
         // The track series has only an "after" stage, so hooks run in registration order, as required by
         // the shared SDK contract tests (unlike afterEvaluation/afterIdentify, which run in reverse).
         for (int i = 0; i < hooks.size(); i++) {
-            Hook currentHook = hooks.get(i).hook;
+            Hook currentHook = hooks.get(i);
             try {
                 currentHook.afterTrack(seriesContext);
             } catch (Exception e) {

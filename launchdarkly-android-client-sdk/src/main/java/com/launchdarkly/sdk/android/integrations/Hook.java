@@ -12,12 +12,13 @@ import java.util.Map;
  * Multiple hooks may be configured in the SDK. By default, the SDK will execute each hook's before
  * stages in the order they were configured, and each hook's after stages in reverse order. (i.e.
  * myHook1.beforeEvaluation, myHook2.beforeEvaluation, myHook2.afterEvaluation, myHook1.afterEvaluation)
+ * <p>
+ * To add behavior to a hook without changing it, such as the deduplication of repeated evaluations
+ * that {@link DedupingHook} performs, wrap it in a {@link HookDecorator} and register the wrapper.
  */
 public abstract class Hook {
 
     private final HookMetadata metadata;
-
-    private EvaluationExposureDeduper evaluationExposureDeduper;
 
     /**
      * @return the hooks metadata
@@ -33,84 +34,6 @@ public abstract class Hook {
      */
     public Hook(String name) {
         metadata = new HookMetadata(name) {};
-    }
-
-    /**
-     * Deduplicates this hook's evaluation series with the SDK's implementation, using a window of
-     * {@link EvaluationExposureDeduper#DEFAULT_WINDOW_MILLIS}.
-     *
-     * <pre><code>
-     *     Components.hooks()
-     *         .addHook(new ObservabilityHook().evaluationExposureDeduper())
-     * </code></pre>
-     *
-     * @return this hook
-     * @see #evaluationExposureDeduper(int)
-     */
-    public Hook evaluationExposureDeduper() {
-        return evaluationExposureDeduper(new EvaluationExposureDeduper());
-    }
-
-    /**
-     * Deduplicates this hook's evaluation series with the SDK's implementation, so that repeated
-     * evaluations resolving to the same result reach it at most once per window.
-     * <p>
-     * This hook observes a flag when its result changes, and at most once per window while the result
-     * stays the same. This is useful for reducing the telemetry volume produced by frequent
-     * re-evaluations, for example a flag that is read on every redraw of a view.
-     *
-     * <pre><code>
-     *     Components.hooks()
-     *         .addHook(new ObservabilityHook().evaluationExposureDeduper(60_000))
-     * </code></pre>
-     *
-     * @param windowMillis the dedupe window in milliseconds; zero or negative reports every
-     *                     evaluation
-     * @return this hook
-     */
-    public Hook evaluationExposureDeduper(int windowMillis) {
-        return evaluationExposureDeduper(new EvaluationExposureDeduper(windowMillis));
-    }
-
-    /**
-     * Sets which evaluations reach this hook. It affects only this hook.
-     * <p>
-     * Pass your own subclass of {@link EvaluationExposureDeduper} to implement a policy other than
-     * the SDK's, or {@link EvaluationExposureDeduper#disabled()} to state explicitly that this hook
-     * observes every evaluation, which is what it does anyway when no deduper is set.
-     *
-     * <pre><code>
-     *     Components.hooks()
-     *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
-     * </code></pre>
-     * <p>
-     * Deduplication applies to the whole evaluation series, so a suppressed evaluation invokes
-     * neither {@link #beforeEvaluation(EvaluationSeriesContext, Map)} nor
-     * {@link #afterEvaluation(EvaluationSeriesContext, Map, EvaluationDetail)}. Analytics events are
-     * unaffected: feature, debug, and summary events are still recorded for every evaluation, so the
-     * evaluation counts LaunchDarkly reports for your flags do not change. What the hook has
-     * observed is cleared by {@link com.launchdarkly.sdk.android.LDClient#identify(com.launchdarkly.sdk.LDContext)},
-     * so the first evaluation after an identify always reaches it.
-     * <p>
-     * The SDK reads this once, when the hook is registered, so call it before passing the hook to
-     * the SDK. Give each hook its own deduper unless you intend hooks to share a window: the first
-     * hook to observe an evaluation starts the window that suppresses the rest.
-     *
-     * @param evaluationExposureDeduper the deduper for this hook, or null to observe every
-     *                                  evaluation
-     * @return this hook
-     */
-    public Hook evaluationExposureDeduper(EvaluationExposureDeduper evaluationExposureDeduper) {
-        this.evaluationExposureDeduper = evaluationExposureDeduper;
-        return this;
-    }
-
-    /**
-     * @return the deduper deciding which evaluations reach this hook, or null if it observes every
-     *         evaluation
-     */
-    public final EvaluationExposureDeduper getEvaluationExposureDeduper() {
-        return evaluationExposureDeduper;
     }
 
     /**

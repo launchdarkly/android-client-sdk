@@ -500,11 +500,6 @@ public class LDClient implements LDClientInterface, Closeable {
 
         clientContextImpl = clientContextImpl.setEvaluationContext(context);
 
-        // Exposures observed before this point describe an earlier point in the app's lifecycle, so
-        // let them be reported again. This happens even when the context is unchanged, so that
-        // identify is a reliable way for an app to mark a new phase of a session.
-        hookRunner.resetEvaluationExposureDedupers();
-
         // Load cached flags for the new context so they're available in case initialization
         // times out or otherwise fails. This does not short-circuit initialization — the data
         // source still performs its network request regardless.

@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
+import androidx.annotation.Nullable;
+
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 
@@ -33,6 +35,13 @@ public class EvaluationSeriesContext {
      */
     public final LDValue defaultValue;
 
+    private final EvaluationExposureKeySupplier exposureKeySupplier;
+
+    // Resolved on demand and remembered, so that an evaluation costs a flag lookup only when a hook
+    // asks what its result identifies, and only once however many hooks ask. Guarded by the instance
+    // lock, because a hook may ask from any thread.
+    private EvaluationExposureKey exposureKey;
+
     /**
      * @param method        the variation method that was used to invoke the evaluation.
      * @param key           the key of the feature flag being evaluated.
@@ -40,10 +49,48 @@ public class EvaluationSeriesContext {
      * @param defaultValue  the user-provided default value for the evaluation.
      */
     public EvaluationSeriesContext(String method, String key, LDContext context, LDValue defaultValue) {
+        this(method, key, context, defaultValue, null);
+    }
+
+    /**
+     * Used by the SDK, which knows the result the evaluation will return. Application code has no use
+     * for this constructor: a context built with the four-argument one has no exposure key, and
+     * {@link #getEvaluationExposureKey()} explains what that means for a hook that wanted one.
+     *
+     * @param method              the variation method that was used to invoke the evaluation.
+     * @param key                 the key of the feature flag being evaluated.
+     * @param context             the context the evaluation was for.
+     * @param defaultValue        the user-provided default value for the evaluation.
+     * @param exposureKeySupplier resolves the key identifying the result of this evaluation, or null
+     *                            if the result is not known
+     */
+    public EvaluationSeriesContext(String method, String key, LDContext context, LDValue defaultValue,
+                                   @Nullable EvaluationExposureKeySupplier exposureKeySupplier) {
         this.flagKey = key;
         this.context = context;
         this.defaultValue = defaultValue;
         this.method = method;
+        this.exposureKeySupplier = exposureKeySupplier;
+    }
+
+    /**
+     * Returns the key identifying the result this evaluation will return, for a hook that decides what
+     * to do with an evaluation by whether it has seen the same result before. {@link DedupingHook} is
+     * such a hook.
+     * <p>
+     * The key describes the result as the SDK has it stored, which is what the evaluation is about to
+     * return, so it is available to {@link Hook#beforeEvaluation(EvaluationSeriesContext, Map)} as
+     * well as to the after stage.
+     *
+     * @return the key identifying this evaluation's result, or null if this context was not built by
+     *         the SDK and so has no result to describe
+     */
+    @Nullable
+    public synchronized EvaluationExposureKey getEvaluationExposureKey() {
+        if (exposureKey == null && exposureKeySupplier != null) {
+            exposureKey = exposureKeySupplier.exposureKey(flagKey, context);
+        }
+        return exposureKey;
     }
 
     @Override

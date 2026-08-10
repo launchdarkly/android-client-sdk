@@ -10,7 +10,6 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
 import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
@@ -104,129 +103,37 @@ public class HookRunnerTest extends EasyMockSupport {
                 () -> EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off()));
     }
 
+    /**
+     * Reads what an evaluation's result identifies, the way a deduping hook does, so a test can tell
+     * when the runner resolved that and how often.
+     */
+    private static class KeyReadingHook extends Hook {
+        final List<EvaluationExposureKey> keys = new ArrayList<>();
+
+        KeyReadingHook(String name) {
+            super(name);
+        }
+
+        @Override
+        public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
+            keys.add(seriesContext.getEvaluationExposureKey());
+            return seriesData;
+        }
+    }
+
     @Test
-    public void hookDeduperSkipsBothStagesOfARepeatedEvaluation() {
-        RecordingHook hook = new RecordingHook("deduping");
-        hook.evaluationExposureDeduper(60_000);
+    public void tellsAHookWhatTheEvaluationsResultIdentifies() {
+        KeyReadingHook hook = new KeyReadingHook("key-reading");
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
                 (flagKey, context) -> EXPOSURE_KEY);
 
         evaluate(runner);
-        evaluate(runner);
 
-        // A suppressed evaluation must not leave a beforeEvaluation unmatched by its afterEvaluation.
-        assertEquals(List.of("before", "after"), hook.stages);
+        assertEquals(List.of(EXPOSURE_KEY), hook.keys);
     }
 
     @Test
-    public void hookDeduperWithoutParametersSkipsARepeatedEvaluation() {
-        RecordingHook hook = new RecordingHook("deduping");
-        hook.evaluationExposureDeduper();
-        HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                (flagKey, context) -> EXPOSURE_KEY);
-
-        evaluate(runner);
-        evaluate(runner);
-
-        assertEquals(List.of("before", "after"), hook.stages);
-    }
-
-    @Test
-    public void hookWithoutADeduperObservesEveryEvaluation() {
-        RecordingHook hook = new RecordingHook("no-deduper");
-        HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                (flagKey, context) -> EXPOSURE_KEY);
-
-        evaluate(runner);
-        evaluate(runner);
-
-        assertEquals(List.of("before", "after", "before", "after"), hook.stages);
-    }
-
-    @Test
-    public void hooksAreDeduplicatedIndependentlyOfEachOther() {
-        RecordingHook deduping = new RecordingHook("deduping");
-        deduping.evaluationExposureDeduper(60_000);
-        RecordingHook reportingEverything = new RecordingHook("reporting-everything");
-        HookRunner runner = new HookRunner(logging.logger, List.of(deduping, reportingEverything),
-                (flagKey, context) -> EXPOSURE_KEY);
-
-        evaluate(runner);
-        evaluate(runner);
-
-        assertEquals(List.of("before", "after"), deduping.stages);
-        assertEquals(List.of("before", "after", "before", "after"), reportingEverything.stages);
-    }
-
-    @Test
-    public void hooksGivenSeparateDedupersDoNotSuppressEachOther() {
-        RecordingHook first = new RecordingHook("first");
-        first.evaluationExposureDeduper(60_000);
-        RecordingHook second = new RecordingHook("second");
-        second.evaluationExposureDeduper(60_000);
-        HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
-                (flagKey, context) -> EXPOSURE_KEY);
-
-        evaluate(runner);
-        evaluate(runner);
-
-        // Sharing one deduper would have let the first hook's report suppress the second hook's.
-        assertEquals(List.of("before", "after"), first.stages);
-        assertEquals(List.of("before", "after"), second.stages);
-    }
-
-    @Test
-    public void hooksSharingOneDeduperShareItsWindow() {
-        EvaluationExposureDeduper shared = new EvaluationExposureDeduper(60_000);
-        RecordingHook first = new RecordingHook("first");
-        first.evaluationExposureDeduper(shared);
-        RecordingHook second = new RecordingHook("second");
-        second.evaluationExposureDeduper(shared);
-        HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
-                (flagKey, context) -> EXPOSURE_KEY);
-
-        evaluate(runner);
-
-        // The first hook's report starts the window, which suppresses the second hook's.
-        assertEquals(List.of("before", "after"), first.stages);
-        assertEquals(List.of(), second.stages);
-    }
-
-    @Test
-    public void resettingDedupersReportsTheSameEvaluationAgain() {
-        RecordingHook hook = new RecordingHook("deduping");
-        hook.evaluationExposureDeduper(60_000);
-        HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                (flagKey, context) -> EXPOSURE_KEY);
-
-        evaluate(runner);
-        runner.resetEvaluationExposureDedupers();
-        evaluate(runner);
-
-        assertEquals(List.of("before", "after", "before", "after"), hook.stages);
-    }
-
-    @Test
-    public void buildsTheExposureKeyOncePerEvaluationRegardlessOfHookCount() {
-        RecordingHook first = new RecordingHook("first");
-        first.evaluationExposureDeduper(60_000);
-        RecordingHook second = new RecordingHook("second");
-        second.evaluationExposureDeduper(60_000);
-        List<String> keyRequests = new ArrayList<>();
-        HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
-                (flagKey, context) -> {
-                    keyRequests.add(flagKey);
-                    return EXPOSURE_KEY;
-                });
-
-        evaluate(runner);
-        evaluate(runner);
-
-        assertEquals(List.of("test-flag", "test-flag"), keyRequests);
-    }
-
-    @Test
-    public void doesNotBuildTheExposureKeyWhenNoHookCanSuppress() {
+    public void doesNotBuildTheExposureKeyUnlessAHookAsksForIt() {
         RecordingHook hook = new RecordingHook("reporting-everything");
         List<String> keyRequests = new ArrayList<>();
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
@@ -242,17 +149,23 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
-    public void hookAddedLaterCarriesItsOwnDeduper() {
-        RecordingHook added = new RecordingHook("added");
-        added.evaluationExposureDeduper(60_000);
-        HookRunner runner = new HookRunner(logging.logger, List.of(),
-                (flagKey, context) -> EXPOSURE_KEY);
-        runner.addHook(added);
+    public void buildsTheExposureKeyOncePerEvaluationHoweverManyHooksAskForIt() {
+        KeyReadingHook first = new KeyReadingHook("first");
+        KeyReadingHook second = new KeyReadingHook("second");
+        List<String> keyRequests = new ArrayList<>();
+        HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
+                (flagKey, context) -> {
+                    keyRequests.add(flagKey);
+                    return EXPOSURE_KEY;
+                });
 
         evaluate(runner);
         evaluate(runner);
 
-        assertEquals(List.of("before", "after"), added.stages);
+        // Both hooks in an evaluation share the one key the series context resolved for it.
+        assertEquals(List.of("test-flag", "test-flag"), keyRequests);
+        assertEquals(List.of(EXPOSURE_KEY, EXPOSURE_KEY), first.keys);
+        assertEquals(List.of(EXPOSURE_KEY, EXPOSURE_KEY), second.keys);
     }
 
     @Test

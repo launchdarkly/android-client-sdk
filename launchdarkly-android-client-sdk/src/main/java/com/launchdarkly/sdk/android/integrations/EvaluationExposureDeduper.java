@@ -8,15 +8,15 @@ import java.util.Objects;
  * Decides whether a hook should be told about an evaluation, so that repeated evaluations resolving
  * to the same result do not invoke the hook again within a time window.
  * <p>
- * Deduplication is opt-in per hook: a hook is told about every evaluation until you give it a
- * deduper with {@link Hook#evaluationExposureDeduper(int)}.
+ * Deduplication is opt-in per hook: a hook is told about every evaluation until you wrap it in a
+ * {@link DedupingHook}, which is what consults a deduper.
  *
  * <pre><code>
  *     Components.hooks()
- *         .addHook(new MetricsHook())                                // told about every evaluation
- *         .addHook(new ObservabilityHook().evaluationExposureDeduper())  // default window
- *         .addHook(new TelemetryHook().evaluationExposureDeduper(30_000))
- *         .addHook(new ExperimentHook().evaluationExposureDeduper(myCustomDeduper))
+ *         .addHook(new MetricsHook())                        // told about every evaluation
+ *         .addHook(new DedupingHook(new ObservabilityHook())) // default window
+ *         .addHook(new DedupingHook(new TelemetryHook(), 30_000))
+ *         .addHook(new DedupingHook(new ExperimentHook(), myCustomDeduper))
  * </code></pre>
  * <p>
  * This class is the SDK's implementation: it remembers the result each flag last reported, and tells
@@ -24,8 +24,8 @@ import java.util.Objects;
  * stays the same. Tracking one result per flag rather than every result seen keeps a flag that flips
  * back and forth from hiding the flips, and holds one record per flag the application evaluates, so
  * the window is the only thing there is to configure. Subclass this to implement a different policy;
- * only {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are called by the
- * SDK.
+ * only {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are called by
+ * {@link DedupingHook}.
  * <p>
  * A deduper is consulted once per evaluation, before the series opens, so a suppressed evaluation
  * invokes neither {@code beforeEvaluation} nor {@code afterEvaluation}. Implementations must be
@@ -39,8 +39,6 @@ public class EvaluationExposureDeduper {
      * milliseconds.
      */
     public static final int DEFAULT_WINDOW_MILLIS = 600_000;
-
-    private static final EvaluationExposureDeduper DISABLED = new Disabled();
 
     private final long windowMillis;
 
@@ -65,23 +63,10 @@ public class EvaluationExposureDeduper {
     }
 
     /**
-     * Returns a deduper that suppresses nothing, so its hook is told about every evaluation.
-     * <p>
-     * This is what a hook gets when it is registered without a deduper, so passing it is only useful
-     * to state that intent explicitly. The returned instance holds no state and may be given to any
-     * number of hooks.
-     *
-     * @return a deduper that never suppresses an evaluation
-     */
-    public static EvaluationExposureDeduper disabled() {
-        return DISABLED;
-    }
-
-    /**
      * Returns whether the hook should be told about the evaluation identified by the given key, and
      * if so starts a new dedupe window for the flag.
      * <p>
-     * The SDK calls this once per evaluation per hook. This implementation answers true when the flag
+     * {@link DedupingHook} calls this once per evaluation. This implementation answers true when the flag
      * is reporting a different result than it last did, and when the window has elapsed on the result
      * it is repeating. See {@link EvaluationExposureKey} for what makes two evaluations the same
      * result.
@@ -110,8 +95,8 @@ public class EvaluationExposureDeduper {
     }
 
     /**
-     * Clears all recorded exposures, so the next evaluation of each is reported again. The SDK calls
-     * this when the evaluation context changes.
+     * Clears all recorded exposures, so the next evaluation of each is reported again.
+     * {@link DedupingHook} calls this when the evaluation context changes.
      */
     public synchronized void reset() {
         lastReported.clear();
@@ -183,21 +168,6 @@ public class EvaluationExposureDeduper {
                     && flagVersion == key.getFlagVersion()
                     && inExperiment == key.isInExperiment()
                     && Objects.equals(fullyQualifiedContextKey, key.getFullyQualifiedContextKey());
-        }
-    }
-
-    private static final class Disabled extends EvaluationExposureDeduper {
-        Disabled() {
-            super(0);
-        }
-
-        @Override
-        public boolean shouldRecord(EvaluationExposureKey key, long nowMillis) {
-            return true;
-        }
-
-        @Override
-        public void reset() {
         }
     }
 }
