@@ -16,6 +16,7 @@ import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.integrations.EnvironmentMetadata;
 import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
+import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.Plugin;
@@ -759,7 +760,8 @@ public class LDClient implements LDClientInterface, Closeable {
      * after stage would leave that span open until something else closed it. The stored flag
      * identifies the same exposure the result would, since the result is derived from it.
      */
-    private EvaluationExposureKey exposureKey(String flagKey, LDContext context) {
+    private EvaluationExposureKey exposureKey(EvaluationSeriesContext seriesContext) {
+        String flagKey = seriesContext.flagKey;
         Flag flag = contextDataManager.getNonDeletedFlag(flagKey);
         int variation = flag == null || flag.getVariation() == null
                 ? EvaluationDetail.NO_VARIATION : flag.getVariation();
@@ -767,7 +769,7 @@ public class LDClient implements LDClientInterface, Closeable {
         boolean inExperiment = flag != null && flag.getReason() != null && flag.getReason().isInExperiment();
 
         return new EvaluationExposureKey(clientContextImpl.getEnvironmentName(), flagKey, variation,
-                flagVersion, inExperiment, context.getFullyQualifiedKey());
+                flagVersion, inExperiment, seriesContext.context.getFullyQualifiedKey());
     }
 
     /**

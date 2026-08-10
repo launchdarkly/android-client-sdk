@@ -125,7 +125,7 @@ public class HookRunnerTest extends EasyMockSupport {
     public void tellsAHookWhatTheEvaluationsResultIdentifies() {
         KeyReadingHook hook = new KeyReadingHook("key-reading");
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                (flagKey, context) -> EXPOSURE_KEY);
+                seriesContext -> EXPOSURE_KEY);
 
         evaluate(runner);
 
@@ -137,8 +137,8 @@ public class HookRunnerTest extends EasyMockSupport {
         RecordingHook hook = new RecordingHook("reporting-everything");
         List<String> keyRequests = new ArrayList<>();
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                (flagKey, context) -> {
-                    keyRequests.add(flagKey);
+                seriesContext -> {
+                    keyRequests.add(seriesContext.flagKey);
                     return EXPOSURE_KEY;
                 });
 
@@ -154,8 +154,8 @@ public class HookRunnerTest extends EasyMockSupport {
         KeyReadingHook second = new KeyReadingHook("second");
         List<String> keyRequests = new ArrayList<>();
         HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
-                (flagKey, context) -> {
-                    keyRequests.add(flagKey);
+                seriesContext -> {
+                    keyRequests.add(seriesContext.flagKey);
                     return EXPOSURE_KEY;
                 });
 

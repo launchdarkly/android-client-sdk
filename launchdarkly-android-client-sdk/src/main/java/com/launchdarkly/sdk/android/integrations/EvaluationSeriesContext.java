@@ -88,7 +88,7 @@ public class EvaluationSeriesContext {
     @Nullable
     public synchronized EvaluationExposureKey getEvaluationExposureKey() {
         if (exposureKey == null && exposureKeySupplier != null) {
-            exposureKey = exposureKeySupplier.exposureKey(flagKey, context);
+            exposureKey = exposureKeySupplier.exposureKey(this);
         }
         return exposureKey;
     }
