@@ -72,7 +72,11 @@ public class EvaluationExposureDeduper {
      * result.
      *
      * @param key the key identifying the evaluation result
-     * @param nowMillis the current time in milliseconds since the epoch
+     * @param nowMillis a reading of a clock that counts from an arbitrary point, in milliseconds.
+     *                  {@link DedupingHook} passes {@code SystemClock.elapsedRealtime()}, so that
+     *                  correcting the device clock cannot stretch a window. Only differences between
+     *                  readings are meaningful: this is not a time of day, and comparing it with
+     *                  {@code System.currentTimeMillis()} is a mistake.
      * @return true if the hook should observe this evaluation, false if it should be suppressed
      */
     public synchronized boolean shouldRecord(EvaluationExposureKey key, long nowMillis) {

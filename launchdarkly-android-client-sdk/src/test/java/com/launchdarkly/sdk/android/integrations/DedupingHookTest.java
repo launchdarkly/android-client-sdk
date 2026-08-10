@@ -1,4 +1,4 @@
-package com.launchdarkly.sdk.android;
+package com.launchdarkly.sdk.android.integrations;
 
 import static org.junit.Assert.assertEquals;
 
@@ -6,15 +6,8 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.android.integrations.DedupingHook;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
-import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
-import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
-import com.launchdarkly.sdk.android.integrations.Hook;
-import com.launchdarkly.sdk.android.integrations.HookDecorator;
-import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
-import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
-import com.launchdarkly.sdk.android.integrations.TrackSeriesContext;
+import com.launchdarkly.sdk.android.HookRunner;
+import com.launchdarkly.sdk.android.LogCaptureRule;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -26,6 +19,9 @@ import java.util.Map;
 /**
  * Drives hooks through {@link HookRunner} rather than calling the decorator directly, because how the
  * runner carries series data from one stage to the next is what a decorator has to work with.
+ * <p>
+ * Lives in the decorator's own package so that it can hand it a clock, since what the SDK reads is
+ * {@code SystemClock}, which a unit test cannot call.
  */
 public class DedupingHookTest {
     private static final EvaluationExposureKey EXPOSURE_KEY =
@@ -35,6 +31,18 @@ public class DedupingHookTest {
 
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
+
+    /** Lets a test decide how much time has passed, and how much has not. */
+    private static final class FakeClock implements DedupingHook.Clock {
+        long millis = 1_000;
+
+        @Override
+        public long elapsedMillis() {
+            return millis;
+        }
+    }
+
+    private final FakeClock clock = new FakeClock();
 
     /**
      * Records the stages it observes, so a test can tell a suppressed evaluation (no stages) from a
@@ -102,6 +110,14 @@ public class DedupingHookTest {
         }
     }
 
+    private DedupingHook deduping(Hook delegate, int windowMillis) {
+        return new DedupingHook(delegate, new EvaluationExposureDeduper(windowMillis), clock);
+    }
+
+    private DedupingHook deduping(Hook delegate, EvaluationExposureDeduper deduper) {
+        return new DedupingHook(delegate, deduper, clock);
+    }
+
     private HookRunner runner(EvaluationExposureKey key, Hook... hooks) {
         return new HookRunner(logging.logger, List.of(hooks), seriesContext -> key);
     }
@@ -118,7 +134,7 @@ public class DedupingHookTest {
     @Test
     public void skipsBothStagesOfARepeatedEvaluation() {
         RecordingHook hook = new RecordingHook("deduping");
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(hook, 60_000));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(hook, 60_000));
 
         evaluate(runner);
         evaluate(runner);
@@ -128,11 +144,26 @@ public class DedupingHookTest {
     }
 
     @Test
-    public void usesTheDefaultWindowWhenWrappedWithoutOne() {
+    public void reportsTheSameResultAgainOnceTheWindowElapses() {
         RecordingHook hook = new RecordingHook("deduping");
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(hook));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(hook, 60_000));
 
         evaluate(runner);
+        clock.millis += 59_999;
+        evaluate(runner);
+        clock.millis += 1;
+        evaluate(runner);
+
+        assertEquals(List.of("before", "after", "before", "after"), hook.stages);
+    }
+
+    @Test
+    public void usesTheDefaultWindowWhenWrappedWithoutOne() {
+        RecordingHook hook = new RecordingHook("deduping");
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(hook, new EvaluationExposureDeduper()));
+
+        evaluate(runner);
+        clock.millis += EvaluationExposureDeduper.DEFAULT_WINDOW_MILLIS - 1;
         evaluate(runner);
 
         assertEquals(List.of("before", "after"), hook.stages);
@@ -153,7 +184,7 @@ public class DedupingHookTest {
     public void reportsAnEvaluationWhoseResultChanged() {
         RecordingHook hook = new RecordingHook("deduping");
         List<EvaluationExposureKey> keys = new ArrayList<>(List.of(EXPOSURE_KEY, EXPOSURE_KEY, OTHER_RESULT));
-        HookRunner runner = new HookRunner(logging.logger, List.of(new DedupingHook(hook, 60_000)),
+        HookRunner runner = new HookRunner(logging.logger, List.of(deduping(hook, 60_000)),
                 seriesContext -> keys.remove(0));
 
         evaluate(runner);
@@ -165,14 +196,14 @@ public class DedupingHookTest {
 
     @Test
     public void wrappedHooksAreDeduplicatedIndependentlyOfEachOther() {
-        RecordingHook deduping = new RecordingHook("deduping");
+        RecordingHook wrapped = new RecordingHook("deduping");
         RecordingHook reportingEverything = new RecordingHook("reporting-everything");
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(deduping, 60_000), reportingEverything);
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(wrapped, 60_000), reportingEverything);
 
         evaluate(runner);
         evaluate(runner);
 
-        assertEquals(List.of("before", "after"), deduping.stages);
+        assertEquals(List.of("before", "after"), wrapped.stages);
         assertEquals(List.of("before", "after", "before", "after"), reportingEverything.stages);
     }
 
@@ -180,7 +211,7 @@ public class DedupingHookTest {
     public void hooksWrappedSeparatelyDoNotSuppressEachOther() {
         RecordingHook first = new RecordingHook("first");
         RecordingHook second = new RecordingHook("second");
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(first, 60_000), new DedupingHook(second, 60_000));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(first, 60_000), deduping(second, 60_000));
 
         evaluate(runner);
         evaluate(runner);
@@ -195,7 +226,7 @@ public class DedupingHookTest {
         EvaluationExposureDeduper shared = new EvaluationExposureDeduper(60_000);
         RecordingHook first = new RecordingHook("first");
         RecordingHook second = new RecordingHook("second");
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(first, shared), new DedupingHook(second, shared));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(first, shared), deduping(second, shared));
 
         evaluate(runner);
 
@@ -207,7 +238,7 @@ public class DedupingHookTest {
     @Test
     public void identifyReportsTheSameEvaluationAgain() {
         RecordingHook hook = new RecordingHook("deduping");
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(hook, 60_000));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(hook, 60_000));
 
         evaluate(runner);
         identify(runner);
@@ -220,7 +251,7 @@ public class DedupingHookTest {
     @Test
     public void forwardsTheStagesItDoesNotDeduplicate() {
         RecordingHook hook = new RecordingHook("deduping");
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(hook, 60_000));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(hook, 60_000));
 
         identify(runner);
         runner.afterTrack("event-key", LDContext.create("user-123"), LDValue.ofNull(), null);
@@ -233,7 +264,7 @@ public class DedupingHookTest {
         RecordingHook hook = new RecordingHook("deduping");
         // A series context built by something other than the SDK has no result to recognize repeats
         // by, so nothing is suppressed.
-        HookRunner runner = new HookRunner(logging.logger, List.of(new DedupingHook(hook, 60_000)),
+        HookRunner runner = new HookRunner(logging.logger, List.of(deduping(hook, 60_000)),
                 seriesContext -> null);
 
         evaluate(runner);
@@ -245,7 +276,7 @@ public class DedupingHookTest {
     @Test
     public void deduperStacksInsideAnotherDecorator() {
         RecordingHook hook = new RecordingHook("wrapped-twice");
-        CountingDecorator counting = new CountingDecorator(new DedupingHook(hook, 60_000));
+        CountingDecorator counting = new CountingDecorator(deduping(hook, 60_000));
         HookRunner runner = runner(EXPOSURE_KEY, counting);
 
         evaluate(runner);
@@ -260,7 +291,7 @@ public class DedupingHookTest {
     public void deduperStacksAroundAnotherDecorator() {
         RecordingHook hook = new RecordingHook("wrapped-twice");
         CountingDecorator counting = new CountingDecorator(hook);
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(counting, 60_000));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(counting, 60_000));
 
         evaluate(runner);
         evaluate(runner);
@@ -273,10 +304,10 @@ public class DedupingHookTest {
     @Test
     public void aDeduperDoesNotSwallowTheStagesOfADeduperInsideIt() {
         RecordingHook hook = new RecordingHook("deduped-twice");
-        CountingDecorator counting = new CountingDecorator(new DedupingHook(hook, 60_000));
+        CountingDecorator counting = new CountingDecorator(deduping(hook, 60_000));
         // The outer deduper reports everything, so what the inner one suppresses has to travel back
         // out through the decorator between them, which each stage of still belongs to.
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(counting, 0));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(counting, 0));
 
         evaluate(runner);
         evaluate(runner);
@@ -294,7 +325,7 @@ public class DedupingHookTest {
                 throw new RuntimeException("Hook error");
             }
         };
-        HookRunner runner = runner(EXPOSURE_KEY, new DedupingHook(throwing, 60_000));
+        HookRunner runner = runner(EXPOSURE_KEY, deduping(throwing, 60_000));
 
         evaluate(runner);
 

@@ -1,5 +1,9 @@
 package com.launchdarkly.sdk.android.integrations;
 
+import android.os.SystemClock;
+
+import androidx.annotation.VisibleForTesting;
+
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDValue;
 
@@ -44,10 +48,28 @@ import java.util.Objects;
  */
 public final class DedupingHook extends HookDecorator {
 
+    /**
+     * Reads the clock a window is measured against. Exists so that tests can control it; the SDK has
+     * one implementation.
+     */
+    interface Clock {
+        long elapsedMillis();
+    }
+
+    /**
+     * Counts from boot rather than from the epoch, so that correcting the device clock cannot stretch
+     * a window: were this wall clock time, a correction that moved the clock backwards would leave
+     * every recorded time in the future and suppress those flags until real time caught up. It also
+     * advances while the device sleeps, unlike {@code System.nanoTime()}, so a window is an interval
+     * of real time rather than of awake time.
+     */
+    private static final Clock ELAPSED_REALTIME = SystemClock::elapsedRealtime;
+
     // Namespaced because it travels in series data that the wrapped hook may also write to.
     private static final String SUPPRESSED = "com.launchdarkly.sdk.android.DedupingHook.suppressed";
 
     private final EvaluationExposureDeduper deduper;
+    private final Clock clock;
 
     // Returned in place of the wrapped hook's series data when an evaluation is suppressed, and
     // recognized by identity so that stacked instances each recognize only their own suppressions.
@@ -77,8 +99,14 @@ public final class DedupingHook extends HookDecorator {
      * @param deduper  decides which evaluations reach the wrapped hook
      */
     public DedupingHook(Hook delegate, EvaluationExposureDeduper deduper) {
+        this(delegate, deduper, ELAPSED_REALTIME);
+    }
+
+    @VisibleForTesting
+    DedupingHook(Hook delegate, EvaluationExposureDeduper deduper, Clock clock) {
         super(delegate);
         this.deduper = Objects.requireNonNull(deduper, "a deduping hook must have a deduper");
+        this.clock = clock;
     }
 
     /**
@@ -95,7 +123,7 @@ public final class DedupingHook extends HookDecorator {
     @Override
     public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
         EvaluationExposureKey key = seriesContext.getEvaluationExposureKey();
-        if (key != null && !deduper.shouldRecord(key, System.currentTimeMillis())) {
+        if (key != null && !deduper.shouldRecord(key, clock.elapsedMillis())) {
             return suppressedSeriesData;
         }
         return super.beforeEvaluation(seriesContext, seriesData);
