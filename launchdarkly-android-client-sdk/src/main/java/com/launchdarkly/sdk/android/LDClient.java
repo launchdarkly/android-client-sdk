@@ -620,21 +620,24 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     /**
-     * Runs an evaluation, and the hooks around it, against one read of the flag.
+     * Runs an evaluation, and the hooks around it, against one read of the flag and of the evaluation
+     * context.
      * <p>
-     * The read is done here rather than left to the evaluation so that there is one place expressing
-     * the order of the read, the hooks and the evaluation, and so that what an evaluation is about to
-     * return can be described to a hook without reading the store a second time.
+     * Both are read here rather than left to the evaluation so that there is one place expressing the
+     * order of the reads, the hooks and the evaluation. Reading only the flag here and letting the
+     * evaluation re-read the context would leave an identify landing in between attributing the prior
+     * context's flag to the new context in events.
      */
     private EvaluationDetail<LDValue> evaluateWithHooks(String method, String key, LDValue defaultValue,
                                                         boolean checkType, boolean needsReason) {
+        LDContext context = clientContextImpl.getEvaluationContext();
         Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
         return hookRunner.withEvaluation(
             method,
             key,
-            clientContextImpl.getEvaluationContext(),
+            context,
             defaultValue,
-            () -> variationDetailInternal(key, defaultValue, checkType, needsReason, null, flag)
+            () -> variationDetailInternal(key, defaultValue, checkType, needsReason, null, flag, context)
         );
     }
 
@@ -642,14 +645,7 @@ public class LDClient implements LDClientInterface, Closeable {
         return EvaluationDetail.fromValue(converter.toType(detail.getValue()), detail.getVariationIndex(), detail.getReason());
     }
 
-    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason, Set<String> visited) {
-        // returns null for nonexistent *or* deleted flag
-        return variationDetailInternal(key, defaultValue, checkType, needsReason, visited,
-                contextDataManager.getNonDeletedFlag(key));
-    }
-
-    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason, Set<String> visited, @Nullable Flag flag) {
-        LDContext context = clientContextImpl.getEvaluationContext();
+    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason, Set<String> visited, @Nullable Flag flag, @NonNull LDContext context) {
         EvaluationDetail<LDValue> result;
 
         if (flag == null) {
@@ -677,7 +673,9 @@ public class LDClient implements LDClientInterface, Closeable {
                             // value and reason (below) are unchanged.
                             continue;
                         }
-                        variationDetailInternal(prereqKey, LDValue.ofNull(), false, false, visited);
+                        // The prerequisite is evaluated as part of the same call, so it is attributed to the same context.
+                        variationDetailInternal(prereqKey, LDValue.ofNull(), false, false, visited,
+                                contextDataManager.getNonDeletedFlag(prereqKey), context);
                     }
                 } finally {
                     visited.remove(key);
