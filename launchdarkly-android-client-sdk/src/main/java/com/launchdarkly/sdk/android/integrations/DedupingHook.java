@@ -32,6 +32,10 @@ import java.util.Objects;
  * {@link EvaluationExposureKey} describes. Pass your own {@link EvaluationExposureDeduper} subclass to
  * decide that differently.
  * <p>
+ * An evaluation the SDK has no flag data for resolves to the default value, and is the same result as
+ * another that does. Evaluations made before the client has flags are of that kind, so the wrapped
+ * hook is told about one of them and then told about the flag again as soon as its data arrives.
+ * <p>
  * A suppressed evaluation reaches neither
  * {@link Hook#beforeEvaluation(EvaluationSeriesContext, Map)} nor
  * {@link Hook#afterEvaluation(EvaluationSeriesContext, Map, EvaluationDetail)}, because hooks pair
@@ -51,7 +55,7 @@ import java.util.Objects;
  * it stored in its own before stage. A decorator inside this one is unaffected, since a suppressed
  * evaluation never reaches it.
  */
-public final class DedupingHook extends HookDecorator {
+public final class DedupingHook extends Hook {
 
     /**
      * Reads the clock a window is measured against. Exists so that tests can control it; the SDK has
@@ -73,6 +77,7 @@ public final class DedupingHook extends HookDecorator {
     // Namespaced because it travels in series data that the wrapped hook may also write to.
     private static final String SUPPRESSED = "com.launchdarkly.sdk.android.DedupingHook.suppressed";
 
+    private final Hook delegate;
     private final EvaluationExposureDeduper deduper;
     private final Clock clock;
 
@@ -109,9 +114,18 @@ public final class DedupingHook extends HookDecorator {
 
     @VisibleForTesting
     DedupingHook(Hook delegate, EvaluationExposureDeduper deduper, Clock clock) {
-        super(delegate);
+        super(nameOf(delegate));
+        this.delegate = Objects.requireNonNull(delegate, "a deduping hook must wrap a hook");
         this.deduper = Objects.requireNonNull(deduper, "a deduping hook must have a deduper");
         this.clock = clock;
+    }
+
+    /**
+     * @return the wrapped hook's metadata, so that the SDK names the hook a stage belongs to
+     */
+    @Override
+    public HookMetadata getMetadata() {
+        return delegate.getMetadata();
     }
 
     /**
@@ -131,7 +145,7 @@ public final class DedupingHook extends HookDecorator {
         if (key != null && !deduper.shouldRecord(key, clock.elapsedMillis())) {
             return suppressedSeriesData;
         }
-        return super.beforeEvaluation(seriesContext, seriesData);
+        return delegate.beforeEvaluation(seriesContext, seriesData);
     }
 
     /**
@@ -148,7 +162,7 @@ public final class DedupingHook extends HookDecorator {
         if (seriesData != null && seriesData.get(SUPPRESSED) == this) {
             return seriesData;
         }
-        return super.afterEvaluation(seriesContext, seriesData, evaluationDetail);
+        return delegate.afterEvaluation(seriesContext, seriesData, evaluationDetail);
     }
 
     /**
@@ -166,6 +180,27 @@ public final class DedupingHook extends HookDecorator {
     @Override
     public Map<String, Object> beforeIdentify(IdentifySeriesContext seriesContext, Map<String, Object> seriesData) {
         deduper.reset();
-        return super.beforeIdentify(seriesContext, seriesData);
+        return delegate.beforeIdentify(seriesContext, seriesData);
+    }
+
+    @Override
+    public Map<String, Object> afterIdentify(IdentifySeriesContext seriesContext, Map<String, Object> seriesData,
+                                             IdentifySeriesResult result) {
+        return delegate.afterIdentify(seriesContext, seriesData, result);
+    }
+
+    @Override
+    public void afterTrack(TrackSeriesContext seriesContext) {
+        delegate.afterTrack(seriesContext);
+    }
+
+    // Static because it runs in the super() call, before this instance exists. Tolerates a hook whose
+    // metadata throws, which the SDK reports rather than propagates.
+    private static String nameOf(Hook delegate) {
+        try {
+            return delegate == null ? null : delegate.getMetadata().getName();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

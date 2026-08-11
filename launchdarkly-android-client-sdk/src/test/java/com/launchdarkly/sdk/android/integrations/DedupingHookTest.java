@@ -25,9 +25,9 @@ import java.util.Map;
  */
 public class DedupingHookTest {
     private static final EvaluationExposureKey EXPOSURE_KEY =
-            new EvaluationExposureKey("default", "test-flag", 1, 2, false, "user-123");
+            new EvaluationExposureKey("default", "test-flag", 1, 2, "user-123");
     private static final EvaluationExposureKey OTHER_RESULT =
-            new EvaluationExposureKey("default", "test-flag", 2, 2, false, "user-123");
+            new EvaluationExposureKey("default", "test-flag", 2, 2, "user-123");
 
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
@@ -87,26 +87,33 @@ public class DedupingHookTest {
         }
     }
 
-    /** A decorator with its own behavior, to check that decorators compose. */
-    private static class CountingDecorator extends HookDecorator {
+    /** A wrapper with its own behavior, to check that hook wrappers compose. */
+    private static class CountingDecorator extends Hook {
+        private final Hook delegate;
         int evaluationsForwarded = 0;
         int resultsForwarded = 0;
 
         CountingDecorator(Hook delegate) {
-            super(delegate);
+            super(delegate.getMetadata().getName());
+            this.delegate = delegate;
+        }
+
+        @Override
+        public HookMetadata getMetadata() {
+            return delegate.getMetadata();
         }
 
         @Override
         public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
             evaluationsForwarded++;
-            return super.beforeEvaluation(seriesContext, seriesData);
+            return delegate.beforeEvaluation(seriesContext, seriesData);
         }
 
         @Override
         public Map<String, Object> afterEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData,
                                                    EvaluationDetail<LDValue> evaluationDetail) {
             resultsForwarded++;
-            return super.afterEvaluation(seriesContext, seriesData, evaluationDetail);
+            return delegate.afterEvaluation(seriesContext, seriesData, evaluationDetail);
         }
     }
 

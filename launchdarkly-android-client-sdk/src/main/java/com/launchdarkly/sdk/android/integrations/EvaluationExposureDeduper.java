@@ -1,7 +1,5 @@
 package com.launchdarkly.sdk.android.integrations;
 
-import com.launchdarkly.sdk.LDValue;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -150,11 +148,7 @@ public class EvaluationExposureDeduper {
      * as it is tracked, however often its result changes.
      */
     private static final class LastReported {
-        private LDValue value;
-        private int variation;
-        private int flagVersion;
-        private boolean inExperiment;
-        private String fullyQualifiedContextKey;
+        private EvaluationExposureKey key;
         private long atMillis;
 
         LastReported(EvaluationExposureKey key, long atMillis) {
@@ -162,20 +156,18 @@ public class EvaluationExposureDeduper {
         }
 
         void update(EvaluationExposureKey key, long atMillis) {
-            this.value = key.getValue();
-            this.variation = key.getVariation();
-            this.flagVersion = key.getFlagVersion();
-            this.inExperiment = key.isInExperiment();
-            this.fullyQualifiedContextKey = key.getFullyQualifiedContextKey();
+            this.key = key;
             this.atMillis = atMillis;
         }
 
+        /**
+         * Holding the key rather than a copy of the components that describe its result is what keeps
+         * this from having to be revisited whenever {@link EvaluationExposureKey} gains one. The
+         * environment and flag key it also compares are equal by the time this is asked, since a
+         * record is only ever found under the {@link TrackedFlag} they make up.
+         */
         boolean isSameResultAs(EvaluationExposureKey key) {
-            return Objects.equals(value, key.getValue())
-                    && variation == key.getVariation()
-                    && flagVersion == key.getFlagVersion()
-                    && inExperiment == key.isInExperiment()
-                    && Objects.equals(fullyQualifiedContextKey, key.getFullyQualifiedContextKey());
+            return this.key.equals(key);
         }
     }
 }

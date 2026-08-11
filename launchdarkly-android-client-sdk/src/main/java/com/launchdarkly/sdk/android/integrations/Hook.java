@@ -13,8 +13,8 @@ import java.util.Map;
  * stages in the order they were configured, and each hook's after stages in reverse order. (i.e.
  * myHook1.beforeEvaluation, myHook2.beforeEvaluation, myHook2.afterEvaluation, myHook1.afterEvaluation)
  * <p>
- * To add behavior to a hook without changing it, such as the deduplication of repeated evaluations
- * that {@link DedupingHook} performs, wrap it in a {@link HookDecorator} and register the wrapper.
+ * To deduplicate the repeated evaluations observed by one hook, wrap it in a
+ * {@link DedupingHook} and register the wrapper.
  */
 public abstract class Hook {
 
