@@ -1,25 +1,27 @@
 package com.launchdarkly.sdk.android.integrations;
 
+import com.launchdarkly.sdk.LDValue;
+
 import java.util.Objects;
 
 /**
  * Identifies the evaluation result a hook is about to be told about, so that an
  * {@link EvaluationExposureDeduper} can recognize a repeat of it.
  * <p>
- * Two evaluations are the same exposure when every component here matches. The variation and version
- * pair is the same identity LaunchDarkly uses to bucket evaluations in summary events, so two
- * evaluations sharing that pair report identical data. Experiment status needs its own component
- * because the version reported on events is the flag's own version, which only moves when the flag
- * itself changes: a prerequisite flipping can move an evaluation into or out of an experiment while it
- * lands on the same variation of the same flag version. The environment is a component because a hook
- * configured on {@code LDConfig} is one instance shared by the clients for every environment in
- * {@code secondaryMobileKeys}, and so is its deduper.
+ * Two evaluations are the same exposure when every component here matches. The value is included
+ * directly rather than inferred from the variation and version: those are the identity LaunchDarkly
+ * uses to bucket summary events, but neither by itself guarantees that the payload is unchanged.
+ * Experiment status needs its own component because a prerequisite flipping can move an evaluation
+ * into or out of an experiment while it lands on the same value, variation, and flag version. The
+ * environment is a component because a hook configured on {@code LDConfig} is one instance shared by
+ * the clients for every environment in {@code secondaryMobileKeys}, and so is its deduper.
  * <p>
  * Instances are immutable, and their hash code is computed once, the first time one is asked for.
  */
 public final class EvaluationExposureKey {
     private final String environmentName;
     private final String flagKey;
+    private final LDValue value;
     private final int variation;
     private final int flagVersion;
     private final boolean inExperiment;
@@ -32,6 +34,9 @@ public final class EvaluationExposureKey {
     private int hashCode;
 
     /**
+     * Creates a key with a JSON null flag value. Prefer the overload accepting {@code value} when
+     * the evaluation's flag payload is available.
+     *
      * @param environmentName the name of the environment the evaluation was made against
      * @param flagKey the flag key
      * @param variation the variation index of the result
@@ -42,8 +47,25 @@ public final class EvaluationExposureKey {
     public EvaluationExposureKey(String environmentName, String flagKey, int variation,
                                  int flagVersion, boolean inExperiment,
                                  String fullyQualifiedContextKey) {
+        this(environmentName, flagKey, LDValue.ofNull(), variation, flagVersion, inExperiment,
+                fullyQualifiedContextKey);
+    }
+
+    /**
+     * @param environmentName the name of the environment the evaluation was made against
+     * @param flagKey the flag key
+     * @param value the value in the flag payload, or JSON null if the flag was not found
+     * @param variation the variation index of the result
+     * @param flagVersion the flag version reported on events
+     * @param inExperiment whether the evaluation was part of an experiment rollout
+     * @param fullyQualifiedContextKey the fully qualified key of the evaluation context
+     */
+    public EvaluationExposureKey(String environmentName, String flagKey, LDValue value, int variation,
+                                 int flagVersion, boolean inExperiment,
+                                 String fullyQualifiedContextKey) {
         this.environmentName = environmentName;
         this.flagKey = flagKey;
+        this.value = value;
         this.variation = variation;
         this.flagVersion = flagVersion;
         this.inExperiment = inExperiment;
@@ -62,6 +84,13 @@ public final class EvaluationExposureKey {
      */
     public String getFlagKey() {
         return flagKey;
+    }
+
+    /**
+     * @return the value in the flag payload, or JSON null if the flag was not found
+     */
+    public LDValue getValue() {
+        return value;
     }
 
     /**
@@ -108,6 +137,7 @@ public final class EvaluationExposureKey {
                 && inExperiment == o.inExperiment
                 && Objects.equals(flagKey, o.flagKey)
                 && Objects.equals(environmentName, o.environmentName)
+                && Objects.equals(value, o.value)
                 && Objects.equals(fullyQualifiedContextKey, o.fullyQualifiedContextKey);
     }
 
@@ -117,6 +147,7 @@ public final class EvaluationExposureKey {
         if (hash == 0) {
             hash = Objects.hashCode(environmentName);
             hash = 31 * hash + Objects.hashCode(flagKey);
+            hash = 31 * hash + Objects.hashCode(value);
             hash = 31 * hash + variation;
             hash = 31 * hash + flagVersion;
             hash = 31 * hash + (inExperiment ? 1 : 0);
@@ -130,6 +161,7 @@ public final class EvaluationExposureKey {
     public String toString() {
         return "EvaluationExposureKey(environmentName=" + environmentName
                 + ", flagKey=" + flagKey
+                + ", value=" + value
                 + ", variation=" + variation
                 + ", flagVersion=" + flagVersion
                 + ", inExperiment=" + inExperiment

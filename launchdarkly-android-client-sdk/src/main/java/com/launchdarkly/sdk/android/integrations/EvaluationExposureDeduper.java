@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android.integrations;
 
+import com.launchdarkly.sdk.LDValue;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -148,6 +150,7 @@ public class EvaluationExposureDeduper {
      * as it is tracked, however often its result changes.
      */
     private static final class LastReported {
+        private LDValue value;
         private int variation;
         private int flagVersion;
         private boolean inExperiment;
@@ -159,6 +162,7 @@ public class EvaluationExposureDeduper {
         }
 
         void update(EvaluationExposureKey key, long atMillis) {
+            this.value = key.getValue();
             this.variation = key.getVariation();
             this.flagVersion = key.getFlagVersion();
             this.inExperiment = key.isInExperiment();
@@ -167,7 +171,8 @@ public class EvaluationExposureDeduper {
         }
 
         boolean isSameResultAs(EvaluationExposureKey key) {
-            return variation == key.getVariation()
+            return Objects.equals(value, key.getValue())
+                    && variation == key.getVariation()
                     && flagVersion == key.getFlagVersion()
                     && inExperiment == key.isInExperiment()
                     && Objects.equals(fullyQualifiedContextKey, key.getFullyQualifiedContextKey());

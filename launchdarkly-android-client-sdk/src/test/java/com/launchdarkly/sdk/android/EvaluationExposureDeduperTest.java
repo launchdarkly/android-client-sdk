@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EvaluationExposureDeduper;
 import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
 
@@ -17,14 +18,16 @@ public class EvaluationExposureDeduperTest {
      * that a test can talk about "the exposure of a" without spelling out the whole key.
      */
     private static EvaluationExposureKey key(String flagKey) {
-        return new EvaluationExposureKey("default", flagKey, 1, 2, false, "user-key");
+        return new EvaluationExposureKey(
+                "default", flagKey, LDValue.of("value"), 1, 2, false, "user-key");
     }
 
     /**
      * The same flag as {@link #key(String)}, resolved to a different variation.
      */
     private static EvaluationExposureKey otherResult(String flagKey) {
-        return new EvaluationExposureKey("default", flagKey, 3, 2, false, "user-key");
+        return new EvaluationExposureKey(
+                "default", flagKey, LDValue.of("other-value"), 3, 2, false, "user-key");
     }
 
     @Test
@@ -38,19 +41,29 @@ public class EvaluationExposureDeduperTest {
 
     @Test
     public void exposureKeyDistinguishesEveryComponent() {
-        EvaluationExposureKey key = new EvaluationExposureKey("default", "flag", 1, 2, false, "user-key");
-        EvaluationExposureKey same = new EvaluationExposureKey("default", "flag", 1, 2, false, "user-key");
+        EvaluationExposureKey key = new EvaluationExposureKey(
+                "default", "flag", LDValue.of("value"), 1, 2, false, "user-key");
+        EvaluationExposureKey same = new EvaluationExposureKey(
+                "default", "flag", LDValue.of("value"), 1, 2, false, "user-key");
         assertEquals(key, same);
         assertEquals(key.hashCode(), same.hashCode());
 
-        assertNotEquals(key, new EvaluationExposureKey("default", "other-flag", 1, 2, false, "user-key"));
-        assertNotEquals(key, new EvaluationExposureKey("default", "flag", 3, 2, false, "user-key"));
-        assertNotEquals(key, new EvaluationExposureKey("default", "flag", 1, 4, false, "user-key"));
-        assertNotEquals(key, new EvaluationExposureKey("default", "flag", 1, 2, false, "other-user-key"));
+        assertNotEquals(key, new EvaluationExposureKey(
+                "default", "flag", LDValue.of("other-value"), 1, 2, false, "user-key"));
+        assertNotEquals(key, new EvaluationExposureKey(
+                "default", "other-flag", LDValue.of("value"), 1, 2, false, "user-key"));
+        assertNotEquals(key, new EvaluationExposureKey(
+                "default", "flag", LDValue.of("value"), 3, 2, false, "user-key"));
+        assertNotEquals(key, new EvaluationExposureKey(
+                "default", "flag", LDValue.of("value"), 1, 4, false, "user-key"));
+        assertNotEquals(key, new EvaluationExposureKey(
+                "default", "flag", LDValue.of("value"), 1, 2, false, "other-user-key"));
         // Moving into an experiment on the same variation of the same flag version reports again.
-        assertNotEquals(key, new EvaluationExposureKey("default", "flag", 1, 2, true, "user-key"));
+        assertNotEquals(key, new EvaluationExposureKey(
+                "default", "flag", LDValue.of("value"), 1, 2, true, "user-key"));
         // A hook shared across environments observes the same result once per environment.
-        assertNotEquals(key, new EvaluationExposureKey("other-env", "flag", 1, 2, false, "user-key"));
+        assertNotEquals(key, new EvaluationExposureKey(
+                "other-env", "flag", LDValue.of("value"), 1, 2, false, "user-key"));
     }
 
     @Test
@@ -90,6 +103,19 @@ public class EvaluationExposureDeduperTest {
         // hook is told about it rather than being left to think the flag never returned to it.
         assertTrue(deduper.shouldRecord(key("a"), 1030));
         assertFalse(deduper.shouldRecord(key("a"), 1040));
+    }
+
+    @Test
+    public void reportsAgainWhenOnlyTheFlagValueChanges() {
+        EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
+        EvaluationExposureKey first = new EvaluationExposureKey(
+                "default", "flag", LDValue.of("first"), 1, 2, false, "user-key");
+        EvaluationExposureKey second = new EvaluationExposureKey(
+                "default", "flag", LDValue.of("second"), 1, 2, false, "user-key");
+
+        assertTrue(deduper.shouldRecord(first, 1000));
+        assertTrue(deduper.shouldRecord(second, 1010));
+        assertFalse(deduper.shouldRecord(second, 1020));
     }
 
     @Test
