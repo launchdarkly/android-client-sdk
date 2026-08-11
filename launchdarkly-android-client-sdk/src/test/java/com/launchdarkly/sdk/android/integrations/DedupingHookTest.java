@@ -282,7 +282,9 @@ public class DedupingHookTest {
         evaluate(runner);
         evaluate(runner);
 
-        // The outer decorator sees both evaluations, and the deduper inside it passes on one.
+        // The outer decorator sees both evaluations, and the deduper inside it passes on one. This is
+        // the arrangement the documentation advises against, and it works as long as the decorator
+        // outside the deduper does not store series data, which a suppressed evaluation replaces.
         assertEquals(2, counting.evaluationsForwarded);
         assertEquals(List.of("before", "after"), hook.stages);
     }

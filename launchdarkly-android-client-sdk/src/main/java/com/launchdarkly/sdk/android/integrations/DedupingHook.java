@@ -45,6 +45,11 @@ import java.util.Objects;
  * <p>
  * Give each hook its own instance unless you intend hooks to share a window: the first hook to be told
  * about an evaluation starts the window that suppresses the rest.
+ * <p>
+ * Wrap outermost when you stack decorators. Suppressing an evaluation means returning series data that
+ * says so in place of what the stage was given, so a decorator outside this one does not get back what
+ * it stored in its own before stage. A decorator inside this one is unaffected, since a suppressed
+ * evaluation never reaches it.
  */
 public final class DedupingHook extends HookDecorator {
 

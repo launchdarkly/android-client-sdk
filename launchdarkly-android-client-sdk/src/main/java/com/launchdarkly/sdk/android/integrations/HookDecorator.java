@@ -49,6 +49,9 @@ import java.util.Objects;
  * {@link Hook#afterEvaluation(EvaluationSeriesContext, Map, EvaluationDetail)}, so suppressing only
  * the after stage leaves that span open. To carry the decision from one stage to the other, return
  * series data the after stage recognizes, the way {@link DedupingHook} does.
+ * <p>
+ * A decorator that does that belongs outermost, because the series data it returns replaces what it
+ * was given: a decorator outside it does not get back what it stored in its own before stage.
  */
 public abstract class HookDecorator extends Hook {
 
