@@ -42,9 +42,8 @@ public class EvaluationExposureDeduper {
 
     private final long windowMillis;
 
-    // Holds one record per flag the application evaluates, in each environment it evaluates it in.
-    // Nothing is evicted, because that set is the flags the environment serves. Guarded by the
-    // instance lock, as is every access below.
+    // Last result reported for each flag, per environment. Entries stay until reset().
+    // Accessed only from the synchronized methods on this instance.
     private final Map<TrackedFlag, LastReported> lastReported = new HashMap<>();
 
     /**

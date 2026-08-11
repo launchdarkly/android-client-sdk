@@ -132,8 +132,7 @@ public class EvaluationExposureDeduperTest {
             assertTrue(deduper.shouldRecord(key("key-" + i), 1000));
         }
 
-        // Nothing is dropped to make room, so the flag recorded first is suppressed just like the
-        // flag recorded last. What the deduper holds is the flag set, which the environment bounds.
+        // Records accumulate; the first flag is still suppressed after two thousand others have been recorded.
         assertFalse(deduper.shouldRecord(key("key-0"), 1000));
         assertFalse(deduper.shouldRecord(key("key-1999"), 1000));
     }
