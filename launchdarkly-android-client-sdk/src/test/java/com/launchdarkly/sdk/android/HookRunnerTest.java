@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
@@ -125,7 +126,7 @@ public class HookRunnerTest extends EasyMockSupport {
     public void tellsAHookWhatTheEvaluationsResultIdentifies() {
         KeyReadingHook hook = new KeyReadingHook("key-reading");
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                seriesContext -> EXPOSURE_KEY);
+                (seriesContext, flag) -> EXPOSURE_KEY);
 
         evaluate(runner);
 
@@ -137,7 +138,7 @@ public class HookRunnerTest extends EasyMockSupport {
         RecordingHook hook = new RecordingHook("reporting-everything");
         List<String> keyRequests = new ArrayList<>();
         HookRunner runner = new HookRunner(logging.logger, List.of(hook),
-                seriesContext -> {
+                (seriesContext, flag) -> {
                     keyRequests.add(seriesContext.flagKey);
                     return EXPOSURE_KEY;
                 });
@@ -149,23 +150,26 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
-    public void buildsTheExposureKeyOncePerEvaluationHoweverManyHooksAskForIt() {
+    public void describesTheEvaluationsOwnReadOfTheFlagToEveryHookThatAsks() {
         KeyReadingHook first = new KeyReadingHook("first");
         KeyReadingHook second = new KeyReadingHook("second");
-        List<String> keyRequests = new ArrayList<>();
+        List<Flag> described = new ArrayList<>();
         HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
-                seriesContext -> {
-                    keyRequests.add(seriesContext.flagKey);
+                (seriesContext, flag) -> {
+                    described.add(flag);
                     return EXPOSURE_KEY;
                 });
+        Flag flag = new FlagBuilder("test-flag").version(2).build();
 
-        evaluate(runner);
-        evaluate(runner);
+        runner.withEvaluation("testMethod", "test-flag", LDContext.create("user-123"), LDValue.of(false), flag,
+                () -> EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off()));
 
-        // Both hooks in an evaluation share the one key the series context resolved for it.
-        assertEquals(List.of("test-flag", "test-flag"), keyRequests);
-        assertEquals(List.of(EXPOSURE_KEY, EXPOSURE_KEY), first.keys);
-        assertEquals(List.of(EXPOSURE_KEY, EXPOSURE_KEY), second.keys);
+        // Both hooks describe the read handed to the evaluation, rather than a later look at the store.
+        assertEquals(2, described.size());
+        assertSame(flag, described.get(0));
+        assertSame(flag, described.get(1));
+        assertEquals(List.of(EXPOSURE_KEY), first.keys);
+        assertEquals(List.of(EXPOSURE_KEY), second.keys);
     }
 
     @Test

@@ -4,6 +4,7 @@ import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel;
 
 import java.util.Map;
 import java.util.Objects;
@@ -37,10 +38,9 @@ public class EvaluationSeriesContext {
 
     private final EvaluationExposureKeySupplier exposureKeySupplier;
 
-    // Resolved on demand and remembered, so that an evaluation costs a flag lookup only when a hook
-    // asks what its result identifies, and only once however many hooks ask. Guarded by the instance
-    // lock, because a hook may ask from any thread.
-    private EvaluationExposureKey exposureKey;
+    // The evaluation's own read of the flag, held rather than the key describing it so that an
+    // evaluation reaching only hooks that never ask what its result is builds nothing to describe it.
+    private final DataModel.Flag flag;
 
     /**
      * @param method        the variation method that was used to invoke the evaluation.
@@ -49,28 +49,31 @@ public class EvaluationSeriesContext {
      * @param defaultValue  the user-provided default value for the evaluation.
      */
     public EvaluationSeriesContext(String method, String key, LDContext context, LDValue defaultValue) {
-        this(method, key, context, defaultValue, null);
+        this(method, key, context, defaultValue, null, null);
     }
 
     /**
-     * Used by the SDK, which knows the result the evaluation will return. Application code has no use
-     * for this constructor: a context built with the four-argument one has no exposure key, and
-     * {@link #getEvaluationExposureKey()} explains what that means for a hook that wanted one.
+     * Used by the SDK, which has read the flag the evaluation will return a result from. Application
+     * code has no use for this constructor: a context built with the four-argument one has no exposure
+     * key, and {@link #getEvaluationExposureKey()} explains what that means for a hook that wanted one.
      *
      * @param method              the variation method that was used to invoke the evaluation.
      * @param key                 the key of the feature flag being evaluated.
      * @param context             the context the evaluation was for.
      * @param defaultValue        the user-provided default value for the evaluation.
-     * @param exposureKeySupplier resolves the key identifying the result of this evaluation, or null
-     *                            if the result is not known
+     * @param exposureKeySupplier builds the key identifying the result of this evaluation, or null if
+     *                            the result is not known
+     * @param flag                the evaluation's own read of the flag, or null if it was not found
      */
     public EvaluationSeriesContext(String method, String key, LDContext context, LDValue defaultValue,
-                                   @Nullable EvaluationExposureKeySupplier exposureKeySupplier) {
+                                   @Nullable EvaluationExposureKeySupplier exposureKeySupplier,
+                                   @Nullable DataModel.Flag flag) {
         this.flagKey = key;
         this.context = context;
         this.defaultValue = defaultValue;
         this.method = method;
         this.exposureKeySupplier = exposureKeySupplier;
+        this.flag = flag;
     }
 
     /**
@@ -78,19 +81,17 @@ public class EvaluationSeriesContext {
      * to do with an evaluation by whether it has seen the same result before. {@link DedupingHook} is
      * such a hook.
      * <p>
-     * The key describes the result as the SDK has it stored, which is what the evaluation is about to
-     * return, so it is available to {@link Hook#beforeEvaluation(EvaluationSeriesContext, Map)} as
-     * well as to the after stage.
+     * The key describes the evaluation's own read of the flag, the one its result is derived from, so
+     * it is available to {@link Hook#beforeEvaluation(EvaluationSeriesContext, Map)} as well as to the
+     * after stage, and every hook that asks is told about the same result. It is built on the ask, so
+     * an evaluation whose hooks never ask does not pay for one.
      *
      * @return the key identifying this evaluation's result, or null if this context was not built by
      *         the SDK and so has no result to describe
      */
     @Nullable
-    public synchronized EvaluationExposureKey getEvaluationExposureKey() {
-        if (exposureKey == null && exposureKeySupplier != null) {
-            exposureKey = exposureKeySupplier.exposureKey(this);
-        }
-        return exposureKey;
+    public EvaluationExposureKey getEvaluationExposureKey() {
+        return exposureKeySupplier == null ? null : exposureKeySupplier.exposureKey(this, flag);
     }
 
     @Override

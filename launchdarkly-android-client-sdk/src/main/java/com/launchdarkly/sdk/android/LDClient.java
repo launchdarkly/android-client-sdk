@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import android.app.Application;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import com.launchdarkly.logging.LDLogger;
@@ -555,123 +556,89 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean boolVariation(@NonNull String key, boolean defaultValue) {
-        return hookRunner.withEvaluation(
-            "LDClient.boolVariation",
-            key,
-            clientContextImpl.getEvaluationContext(),
-            LDValue.of(defaultValue),
-            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
-        ).getValue().booleanValue();
+        return evaluateWithHooks("LDClient.boolVariation", key, LDValue.of(defaultValue), true, false)
+                .getValue().booleanValue();
     }
 
     @Override
     public EvaluationDetail<Boolean> boolVariationDetail(@NonNull String key, boolean defaultValue) {
         return convertDetailType(
-            hookRunner.withEvaluation(
-                "LDClient.boolVariationDetail",
-                key,
-                clientContextImpl.getEvaluationContext(),
-                LDValue.of(defaultValue),
-                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
-            ),
+            evaluateWithHooks("LDClient.boolVariationDetail", key, LDValue.of(defaultValue), true, true),
             LDValue.Convert.Boolean
         );
     }
 
     @Override
     public int intVariation(@NonNull String key, int defaultValue) {
-        return hookRunner.withEvaluation(
-            "LDClient.intVariation",
-            key,
-            clientContextImpl.getEvaluationContext(),
-            LDValue.of(defaultValue),
-            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
-        ).getValue().intValue();
+        return evaluateWithHooks("LDClient.intVariation", key, LDValue.of(defaultValue), true, false)
+                .getValue().intValue();
     }
 
     @Override
     public EvaluationDetail<Integer> intVariationDetail(@NonNull String key, int defaultValue) {
         return convertDetailType(
-            hookRunner.withEvaluation(
-                "LDClient.intVariationDetail",
-                key,
-                clientContextImpl.getEvaluationContext(),
-                LDValue.of(defaultValue),
-                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
-            ),
+            evaluateWithHooks("LDClient.intVariationDetail", key, LDValue.of(defaultValue), true, true),
             LDValue.Convert.Integer
         );
     }
 
     @Override
     public double doubleVariation(@NonNull String key, double defaultValue) {
-        return hookRunner.withEvaluation(
-            "LDClient.doubleVariation",
-            key,
-            clientContextImpl.getEvaluationContext(),
-            LDValue.of(defaultValue),
-            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
-        ).getValue().doubleValue();
+        return evaluateWithHooks("LDClient.doubleVariation", key, LDValue.of(defaultValue), true, false)
+                .getValue().doubleValue();
     }
 
     @Override
     public EvaluationDetail<Double> doubleVariationDetail(@NonNull String key, double defaultValue) {
         return convertDetailType(
-            hookRunner.withEvaluation(
-                "LDClient.doubleVariationDetail",
-                key,
-                clientContextImpl.getEvaluationContext(),
-                LDValue.of(defaultValue),
-                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
-            ),
+            evaluateWithHooks("LDClient.doubleVariationDetail", key, LDValue.of(defaultValue), true, true),
             LDValue.Convert.Double
         );
     }
 
     @Override
     public String stringVariation(@NonNull String key, String defaultValue) {
-        return hookRunner.withEvaluation(
-            "LDClient.stringVariation",
-            key,
-            clientContextImpl.getEvaluationContext(),
-            LDValue.of(defaultValue),
-            () -> variationDetailInternal(key, LDValue.of(defaultValue), true, false)
-        ).getValue().stringValue();
+        return evaluateWithHooks("LDClient.stringVariation", key, LDValue.of(defaultValue), true, false)
+                .getValue().stringValue();
     }
 
     @Override
     public EvaluationDetail<String> stringVariationDetail(@NonNull String key, String defaultValue) {
         return convertDetailType(
-            hookRunner.withEvaluation(
-                "LDClient.stringVariationDetail",
-                key,
-                clientContextImpl.getEvaluationContext(),
-                LDValue.of(defaultValue),
-                () -> variationDetailInternal(key, LDValue.of(defaultValue), true, true)
-            ),
+            evaluateWithHooks("LDClient.stringVariationDetail", key, LDValue.of(defaultValue), true, true),
             LDValue.Convert.String
         );
     }
 
     @Override
     public LDValue jsonValueVariation(@NonNull String key, LDValue defaultValue) {
-        return hookRunner.withEvaluation(
-            "LDClient.jsonValueVariation",
-            key,
-            clientContextImpl.getEvaluationContext(),
-            LDValue.normalize(defaultValue),
-            () -> variationDetailInternal(key, LDValue.normalize(defaultValue), false, false)
-        ).getValue();
+        return evaluateWithHooks("LDClient.jsonValueVariation", key, LDValue.normalize(defaultValue), false, false)
+                .getValue();
     }
 
     @Override
     public EvaluationDetail<LDValue> jsonValueVariationDetail(@NonNull String key, LDValue defaultValue) {
+        return evaluateWithHooks("LDClient.jsonValueVariationDetail", key, LDValue.normalize(defaultValue), false, true);
+    }
+
+    /**
+     * Runs an evaluation, and the hooks around it, against one read of the flag.
+     * <p>
+     * The read is done here rather than left to the evaluation so that the result a hook is told the
+     * evaluation is about to return is the result it does return: were the store read a second time to
+     * describe the evaluation to hooks, an update landing in between would leave the two describing
+     * different results.
+     */
+    private EvaluationDetail<LDValue> evaluateWithHooks(String method, String key, LDValue defaultValue,
+                                                        boolean checkType, boolean needsReason) {
+        Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
         return hookRunner.withEvaluation(
-            "LDClient.jsonValueVariationDetail",
+            method,
             key,
             clientContextImpl.getEvaluationContext(),
-            LDValue.normalize(defaultValue),
-            () -> variationDetailInternal(key, LDValue.normalize(defaultValue), false, true)
+            defaultValue,
+            flag,
+            () -> variationDetailInternal(key, defaultValue, checkType, needsReason, null, flag)
         );
     }
 
@@ -679,13 +646,14 @@ public class LDClient implements LDClientInterface, Closeable {
         return EvaluationDetail.fromValue(converter.toType(detail.getValue()), detail.getVariationIndex(), detail.getReason());
     }
 
-    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason) {
-        return variationDetailInternal(key, defaultValue, checkType, needsReason, null);
+    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason, Set<String> visited) {
+        // returns null for nonexistent *or* deleted flag
+        return variationDetailInternal(key, defaultValue, checkType, needsReason, visited,
+                contextDataManager.getNonDeletedFlag(key));
     }
 
-    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason, Set<String> visited) {
+    private EvaluationDetail<LDValue> variationDetailInternal(@NonNull String key, @NonNull LDValue defaultValue, boolean checkType, boolean needsReason, Set<String> visited, @Nullable Flag flag) {
         LDContext context = clientContextImpl.getEvaluationContext();
-        Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
         EvaluationDetail<LDValue> result;
 
         if (flag == null) {
@@ -754,15 +722,15 @@ public class LDClient implements LDClientInterface, Closeable {
      * Identifies the evaluation a hook is about to be told about, so that a deduper can recognize a
      * repeat of it.
      * <p>
-     * This reads the stored flag rather than the evaluation result because the decision is made
-     * before the series opens: hooks pair their stages, so the observability plugin starts a span in
+     * This describes the flag rather than the evaluation result because the decision is made before
+     * the series opens: hooks pair their stages, so the observability plugin starts a span in
      * {@code beforeEvaluation} and ends it in {@code afterEvaluation}, and suppressing only the
-     * after stage would leave that span open until something else closed it. The stored flag
-     * identifies the same exposure the result would, since the result is derived from it.
+     * after stage would leave that span open until something else closed it. It is given the
+     * evaluation's own read of the flag, so it identifies the result that evaluation goes on to
+     * return.
      */
-    private EvaluationExposureKey exposureKey(EvaluationSeriesContext seriesContext) {
+    private EvaluationExposureKey exposureKey(EvaluationSeriesContext seriesContext, @Nullable Flag flag) {
         String flagKey = seriesContext.flagKey;
-        Flag flag = contextDataManager.getNonDeletedFlag(flagKey);
         int variation = flag == null || flag.getVariation() == null
                 ? EvaluationDetail.NO_VARIATION : flag.getVariation();
         int flagVersion = flag == null ? EventProcessor.NO_VERSION : flag.getVersionForEvents();

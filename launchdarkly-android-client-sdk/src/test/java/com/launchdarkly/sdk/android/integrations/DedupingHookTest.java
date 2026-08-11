@@ -119,7 +119,7 @@ public class DedupingHookTest {
     }
 
     private HookRunner runner(EvaluationExposureKey key, Hook... hooks) {
-        return new HookRunner(logging.logger, List.of(hooks), seriesContext -> key);
+        return new HookRunner(logging.logger, List.of(hooks), (seriesContext, flag) -> key);
     }
 
     private void evaluate(HookRunner runner) {
@@ -185,7 +185,7 @@ public class DedupingHookTest {
         RecordingHook hook = new RecordingHook("deduping");
         List<EvaluationExposureKey> keys = new ArrayList<>(List.of(EXPOSURE_KEY, EXPOSURE_KEY, OTHER_RESULT));
         HookRunner runner = new HookRunner(logging.logger, List.of(deduping(hook, 60_000)),
-                seriesContext -> keys.remove(0));
+                (seriesContext, flag) -> keys.remove(0));
 
         evaluate(runner);
         evaluate(runner);
@@ -265,7 +265,7 @@ public class DedupingHookTest {
         // A series context built by something other than the SDK has no result to recognize repeats
         // by, so nothing is suppressed.
         HookRunner runner = new HookRunner(logging.logger, List.of(deduping(hook, 60_000)),
-                seriesContext -> null);
+                (seriesContext, flag) -> null);
 
         evaluate(runner);
         evaluate(runner);
