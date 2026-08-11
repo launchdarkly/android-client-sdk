@@ -15,7 +15,7 @@ import java.util.Objects;
  * configured on {@code LDConfig} is one instance shared by the clients for every environment in
  * {@code secondaryMobileKeys}, and so is its deduper.
  * <p>
- * Instances are immutable, and their hash code is computed once, when the key is built.
+ * Instances are immutable, and their hash code is computed once, the first time one is asked for.
  */
 public final class EvaluationExposureKey {
     private final String environmentName;
@@ -24,7 +24,12 @@ public final class EvaluationExposureKey {
     private final int flagVersion;
     private final boolean inExperiment;
     private final String fullyQualifiedContextKey;
-    private final int hashCode;
+
+    // Computed on demand, because the SDK's own deduper recognizes a repeat by the flag a key belongs
+    // to and the result it describes, and so never hashes a whole key: only a deduper of your own
+    // that holds keys in a map or a set does. Races are benign, as every thread computes the same
+    // value from fields that cannot change.
+    private int hashCode;
 
     /**
      * @param environmentName the name of the environment the evaluation was made against
@@ -43,13 +48,6 @@ public final class EvaluationExposureKey {
         this.flagVersion = flagVersion;
         this.inExperiment = inExperiment;
         this.fullyQualifiedContextKey = fullyQualifiedContextKey;
-
-        int hash = Objects.hashCode(environmentName);
-        hash = 31 * hash + Objects.hashCode(flagKey);
-        hash = 31 * hash + variation;
-        hash = 31 * hash + flagVersion;
-        hash = 31 * hash + (inExperiment ? 1 : 0);
-        this.hashCode = 31 * hash + Objects.hashCode(fullyQualifiedContextKey);
     }
 
     /**
@@ -104,9 +102,8 @@ public final class EvaluationExposureKey {
         }
 
         EvaluationExposureKey o = (EvaluationExposureKey) other;
-        // The cached hash codes and the primitives reject unequal keys without touching the strings.
-        return hashCode == o.hashCode
-                && variation == o.variation
+        // The primitives reject most unequal keys without touching the strings.
+        return variation == o.variation
                 && flagVersion == o.flagVersion
                 && inExperiment == o.inExperiment
                 && Objects.equals(flagKey, o.flagKey)
@@ -116,7 +113,17 @@ public final class EvaluationExposureKey {
 
     @Override
     public int hashCode() {
-        return hashCode;
+        int hash = hashCode;
+        if (hash == 0) {
+            hash = Objects.hashCode(environmentName);
+            hash = 31 * hash + Objects.hashCode(flagKey);
+            hash = 31 * hash + variation;
+            hash = 31 * hash + flagVersion;
+            hash = 31 * hash + (inExperiment ? 1 : 0);
+            hash = 31 * hash + Objects.hashCode(fullyQualifiedContextKey);
+            hashCode = hash;
+        }
+        return hash;
     }
 
     @Override
