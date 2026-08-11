@@ -732,9 +732,13 @@ public class LDClient implements LDClientInterface, Closeable {
         int variation = flag == null || flag.getVariation() == null
                 ? EvaluationDetail.NO_VARIATION : flag.getVariation();
         int flagVersion = flag == null ? EventProcessor.NO_VERSION : flag.getVersionForEvents();
-        // The value the evaluation returns, which for a flag the SDK has no data for is the default
-        // value, as it is on the event the evaluation records.
-        LDValue value = flag == null ? seriesContext.defaultValue : flag.getValue();
+        // The value the evaluation returns, which is the default value when there is no value to
+        // return: a flag the SDK has no data for, and a flag whose data carries no value, both fall
+        // back to it, as they do on the event the evaluation records. A value the calling method
+        // rejects as the wrong type also falls back to the default, but is not recognized here,
+        // because the type that method wanted is not part of the series context.
+        LDValue flagValue = flag == null ? LDValue.ofNull() : flag.getValue();
+        LDValue value = flagValue.isNull() ? seriesContext.defaultValue : flagValue;
 
         return new EvaluationExposureKey(clientContextImpl.getEnvironmentName(), flagKey, value,
                 variation, flagVersion, seriesContext.context.getFullyQualifiedKey());

@@ -21,9 +21,11 @@ import java.util.Objects;
  * reports for a flag it did not find, the same identity it summarizes such an evaluation under.
  * Evaluations made before the client has flags are of that kind, as are evaluations of a flag that
  * does not exist, so the data arriving changes the value, variation, and version, and the hook is
- * told about the flag again rather than waiting out a window. The environment name is never unknown
- * this way: it names a mobile key in the configuration, so it is fixed before the client it belongs
- * to exists.
+ * told about the flag again rather than waiting out a window. A flag whose data carries no value,
+ * which is what a flag that is off without an off variation has, likewise returns the default value
+ * and is described by it, under the flag's own variation and version. The environment name is never
+ * unknown this way: it names a mobile key in the configuration, so it is fixed before the client it
+ * belongs to exists.
  * <p>
  * Instances are immutable, and their hash code is computed once, the first time one is asked for.
  */

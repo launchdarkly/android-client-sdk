@@ -1,6 +1,8 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 
@@ -16,6 +18,8 @@ import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.TrackSeriesContext;
+import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
+import com.launchdarkly.sdk.android.subsystems.DataSource;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -236,6 +240,27 @@ public class LDClientHooksTest {
     }
 
     @Test
+    public void evaluationsOfAFlagWithNoValueAreTheExposuresOfTheDefaultsTheyReturn() throws Exception {
+        // A flag that is off without an off variation arrives carrying no value, so every evaluation of
+        // it returns the default the caller passed.
+        EnvironmentData data = new DataSetBuilder()
+                .add(new FlagBuilder("test-flag").version(1).build())
+                .build();
+        try (LDClient ldClient = makeClientWithData(data, new DedupingHook(testHook, 60_000))) {
+            assertTrue(ldClient.boolVariation("test-flag", true));
+            assertFalse(ldClient.boolVariation("test-flag", false));
+
+            // The two evaluations returned different values, so they are two exposures. Describing both
+            // by the value the flag holds would make the second look like a repeat of the first.
+            assertEquals(2, testHook.afterEvaluationCalls.size());
+
+            // Repeating one of them is still a repeat.
+            assertFalse(ldClient.boolVariation("test-flag", false));
+            assertEquals(2, testHook.afterEvaluationCalls.size());
+        }
+    }
+
+    @Test
     public void hooksWithDifferentWindowsSuppressIndependently() throws Exception {
         MockHook deduping = new MockHook();
         MockHook reportingEverything = new MockHook();
@@ -276,6 +301,23 @@ public class LDClientHooksTest {
             // one deduper wrapped around it, is told about each of them.
             assertEquals(2, testHook.afterEvaluationCalls.size());
         }
+    }
+
+    // A client whose flags are the given data, for the tests that need an evaluation to resolve to
+    // something. The other tests here are offline, where every flag is unknown.
+    private LDClient makeClientWithData(EnvironmentData data, Hook hook) {
+        ComponentConfigurer<DataSource> dataSourceConfig = clientContext ->
+                MockComponents.successfulDataSource(clientContext, data,
+                        ConnectionInformation.ConnectionMode.POLLING, null, null);
+        LDConfig config = new LDConfig.Builder(LDConfig.Builder.AutoEnvAttributes.Disabled)
+                .mobileKey(mobileKey)
+                .dataSource(dataSourceConfig)
+                .events(Components.noEvents())
+                .hooks(Components.hooks().setHooks(List.of(hook)))
+                .logAdapter(logging.logAdapter)
+                .persistentDataStore(new InMemoryPersistentDataStore())
+                .build();
+        return LDClient.init(application, config, ldContext, 5);
     }
 
     private LDConfig makeOfflineConfig() {
