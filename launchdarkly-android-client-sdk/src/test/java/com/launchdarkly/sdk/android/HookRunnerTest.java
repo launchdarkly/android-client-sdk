@@ -5,6 +5,7 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
@@ -26,6 +27,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class HookRunnerTest extends EasyMockSupport {
     private HookRunner hookRunner;
@@ -389,6 +393,98 @@ public class HookRunnerTest extends EasyMockSupport {
 
         verifyAll();
         assertSame(evaluationResult, result);
+        logging.assertNothingLogged();
+    }
+
+    @Test
+    public void givesAnEvaluationTheHooksItBeganWith() {
+        List<String> stages = new ArrayList<>();
+        Map<String, Object> seriesData = Collections.unmodifiableMap(Collections.emptyMap());
+
+        Hook addedDuring = mock(Hook.class);
+        expect(addedDuring.beforeEvaluation(anyObject(), anyObject())).andStubAnswer(() -> { stages.add("added:before"); return seriesData; });
+        expect(addedDuring.afterEvaluation(anyObject(), anyObject(), anyObject())).andStubAnswer(() -> { stages.add("added:after"); return seriesData; });
+        expect(testHook.beforeEvaluation(anyObject(), anyObject())).andStubAnswer(() -> {
+            stages.add("first:before");
+            hookRunner.addHook(addedDuring);
+            return seriesData;
+        });
+        expect(testHook.afterEvaluation(anyObject(), anyObject(), anyObject())).andStubAnswer(() -> { stages.add("first:after"); return seriesData; });
+        replayAll();
+
+        EvaluationDetail<LDValue> evaluationResult = EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off());
+        HookRunner.EvaluationMethod evaluationMethod = () -> evaluationResult;
+        LDContext context = LDContext.create("user-123");
+        hookRunner.withEvaluation("testMethod", "test-flag", context, LDValue.of(false), evaluationMethod);
+        hookRunner.withEvaluation("testMethod", "test-flag", context, LDValue.of(false), evaluationMethod);
+
+        // A hook registered part way through an evaluation runs from the next one, rather than joining a series whose
+        // earlier stages it was not in.
+        assertEquals(List.of("first:before", "first:after",
+                             "first:before", "added:before", "added:after", "first:after"), stages);
+        logging.assertNothingLogged();
+    }
+
+    @Test
+    public void givesAnIdentifyTheHooksItBeganWith() {
+        LDContext context = LDContext.create("user-123");
+        Integer timeout = 10;
+
+        IdentifySeriesResult identifyResult = new IdentifySeriesResult(IdentifySeriesResult.IdentifySeriesStatus.COMPLETED);
+        IdentifySeriesContext seriesContext = new IdentifySeriesContext(context, timeout);
+        Hook addedDuring = mock(Hook.class);
+
+        expect(testHook.beforeIdentify(seriesContext, Collections.emptyMap())).andReturn(Collections.unmodifiableMap(Collections.emptyMap()));
+        expect(testHook.afterIdentify(seriesContext, Collections.emptyMap(), identifyResult)).andReturn(Collections.unmodifiableMap(Collections.emptyMap()));
+        replayAll();
+
+        // An identify's two stages are separated by a round trip, which is time enough for an application to register a
+        // hook. The new hook is left for the next identify: there is no series data to give it for this one.
+        HookRunner.AfterIdentifyMethod afterIdentifyMethod = hookRunner.identify(context, timeout);
+        hookRunner.addHook(addedDuring);
+        afterIdentifyMethod.invoke(identifyResult);
+
+        verifyAll();
+        logging.assertNothingLogged();
+    }
+
+    @Test
+    public void addsHooksFromSeveralThreadsWithoutLosingAny() throws InterruptedException {
+        int threads = 4;
+        int hooksPerThread = 50;
+        HookRunner runner = new HookRunner(logging.logger, Collections.emptyList());
+        AtomicInteger evaluationsObserved = new AtomicInteger();
+        CountDownLatch startLine = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(threads);
+
+        for (int i = 0; i < threads; i++) {
+            new Thread(() -> {
+                try {
+                    startLine.await();
+                    for (int j = 0; j < hooksPerThread; j++) {
+                        runner.addHook(new Hook("counting-hook") {
+                            @Override
+                            public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
+                                evaluationsObserved.incrementAndGet();
+                                return seriesData;
+                            }
+                        });
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    finished.countDown();
+                }
+            }).start();
+        }
+        startLine.countDown();
+        assertTrue(finished.await(10, TimeUnit.SECONDS));
+
+        EvaluationDetail<LDValue> evaluationResult = EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off());
+        runner.withEvaluation("testMethod", "test-flag", LDContext.create("user-123"), LDValue.of(false), () -> evaluationResult);
+
+        // Registrations racing one another are each kept, rather than one thread's copy of the list overwriting another's.
+        assertEquals(threads * hooksPerThread, evaluationsObserved.get());
         logging.assertNothingLogged();
     }
 
