@@ -698,6 +698,37 @@ public class FDv2DataSourceTest {
     }
 
     @Test
+    public void synchronizersThatShutDownImmediatelyDoNotSpin() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger(0);
+
+        // Every session ends as soon as it starts, so the rotation has nothing to wait on and would
+        // run at CPU speed if it were not rate limited.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> {
+                            buildCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
+                        },
+                        () -> {
+                            buildCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
+                        }));
+
+        startDataSource(dataSource);
+        Thread.sleep(1500);
+
+        // Pauses of 500ms, 1s, 2s and so on allow only a handful of attempts in this window.
+        int builds = buildCount.get();
+        assertTrue("expected rate limited rotation, but saw " + builds + " synchronizers built",
+                builds <= 6);
+        stopDataSource(dataSource);
+    }
+
+    @Test
     public void fallbackMovesToNextSynchronizer() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         BlockingQueue<Boolean> secondCalledQueue = new LinkedBlockingQueue<>();
