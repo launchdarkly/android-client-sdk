@@ -740,7 +740,7 @@ public class LDClient implements LDClientInterface, Closeable {
         LDValue flagValue = flag == null ? LDValue.ofNull() : flag.getValue();
         LDValue value = flagValue.isNull() ? seriesContext.defaultValue : flagValue;
 
-        return new EvaluationExposureKey(clientContextImpl.getEnvironmentName(), flagKey, value,
+        return new EvaluationExposureKey(clientContextImpl.getMobileKey(), flagKey, value,
                 variation, flagVersion, seriesContext.context.getFullyQualifiedKey());
     }
 

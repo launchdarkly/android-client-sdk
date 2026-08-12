@@ -106,20 +106,20 @@ public class EvaluationExposureDeduper {
     }
 
     /**
-     * The flag a record belongs to. The environment is part of it because a hook set on the
-     * configuration is one instance shared by the clients for every environment in
-     * {@code secondaryMobileKeys}: were the environments to share a record, each would look like the
-     * other having changed its result, and neither would ever be suppressed.
+     * The flag a record belongs to. The mobile key, which is what identifies the environment, is part
+     * of it because a hook set on the configuration is one instance shared by the clients for every
+     * environment in {@code secondaryMobileKeys}: were the environments to share a record, each would
+     * look like the other having changed its result, and neither would ever be suppressed.
      */
     private static final class TrackedFlag {
-        private final String environmentName;
+        private final String mobileKey;
         private final String flagKey;
         private final int hashCode;
 
         TrackedFlag(EvaluationExposureKey key) {
-            this.environmentName = key.getEnvironmentName();
+            this.mobileKey = key.getMobileKey();
             this.flagKey = key.getFlagKey();
-            this.hashCode = 31 * Objects.hashCode(environmentName) + Objects.hashCode(flagKey);
+            this.hashCode = 31 * Objects.hashCode(mobileKey) + Objects.hashCode(flagKey);
         }
 
         @Override
@@ -134,7 +134,7 @@ public class EvaluationExposureDeduper {
             TrackedFlag o = (TrackedFlag) other;
             return hashCode == o.hashCode
                     && Objects.equals(flagKey, o.flagKey)
-                    && Objects.equals(environmentName, o.environmentName);
+                    && Objects.equals(mobileKey, o.mobileKey);
         }
 
         @Override
@@ -163,7 +163,7 @@ public class EvaluationExposureDeduper {
         /**
          * Holding the key rather than a copy of the components that describe its result is what keeps
          * this from having to be revisited whenever {@link EvaluationExposureKey} gains one. The
-         * environment and flag key it also compares are equal by the time this is asked, since a
+         * mobile key and flag key it also compares are equal by the time this is asked, since a
          * record is only ever found under the {@link TrackedFlag} they make up.
          */
         boolean isSameResultAs(EvaluationExposureKey key) {
