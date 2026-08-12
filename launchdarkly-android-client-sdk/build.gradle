@@ -52,6 +52,17 @@ android {
     useLibrary("android.test.mock")
 }
 
+androidComponents {
+    // This module has no variant-specific source sets, so the release variant's unit tests compile
+    // and run exactly the same code as the debug variant's. Leaving them enabled makes `check`, and
+    // therefore every CI run, execute the whole suite twice: it doubles the unit test time and
+    // doubles the chance of a run tripping a flaky test. Re-enable if a variant-specific difference
+    // (such as the BuildConfig.DEBUG branch in LDTimberLogging) ever gains unit test coverage.
+    beforeVariants(selector().withBuildType("release")) { variantBuilder ->
+        variantBuilder.enableUnitTest = false
+    }
+}
+
 configurations {
     commonClasses {
         transitive = false
