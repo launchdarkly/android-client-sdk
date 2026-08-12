@@ -2,6 +2,29 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.14.0](https://github.com/launchdarkly/android-client-sdk/compare/5.13.3...5.14.0) (2026-08-12)
+
+
+### Features
+
+* add per-hook evaluation exposure deduplication ([#380](https://github.com/launchdarkly/android-client-sdk/issues/380)) ([7c49324](https://github.com/launchdarkly/android-client-sdk/commit/7c49324f9d386ca986d93dfb5ab177c75d2e72a0))
+* default the exposure deduper to a 10 minute window over 2000 keys ([749508e](https://github.com/launchdarkly/android-client-sdk/commit/749508e82d90a803d475520cb6c15b043d52b3cb))
+* let each hook choose how its exposures are deduplicated ([399fcd7](https://github.com/launchdarkly/android-client-sdk/commit/399fcd78998388488b7df5b1f795ed3c2d8680e3))
+
+
+### Bug Fixes
+
+* attribute an evaluation to the context it read the flag for ([9e88483](https://github.com/launchdarkly/android-client-sdk/commit/9e88483205c7dcb75644930d8a9cc98d2cd29f80))
+* keep exposure keys distinct across environments ([f46f1c9](https://github.com/launchdarkly/android-client-sdk/commit/f46f1c9f947dd2bfa755244e57e6e41cd21a9622))
+* measure a dedupe window against a clock a time correction cannot move ([4c3467a](https://github.com/launchdarkly/android-client-sdk/commit/4c3467a33b1780237c30787ab46dc9f14c82ff9d))
+* publish the hook list safely across threads ([fd34a85](https://github.com/launchdarkly/android-client-sdk/commit/fd34a857b2bd9a1ee9868d630a2039d562e508f9))
+* publish the hook list safely across threads ([#382](https://github.com/launchdarkly/android-client-sdk/issues/382)) ([c2687ad](https://github.com/launchdarkly/android-client-sdk/commit/c2687ad1276a5f2f1fce9f482870410e340910cb))
+
+
+### Performance Improvements
+
+* hash an exposure key only when something asks for its hash ([2c29f46](https://github.com/launchdarkly/android-client-sdk/commit/2c29f469efa66a580067939eda3f74db4f9cb707))
+
 ## [5.13.3](https://github.com/launchdarkly/android-client-sdk/compare/5.13.2...5.13.3) (2026-07-31)
 
 
