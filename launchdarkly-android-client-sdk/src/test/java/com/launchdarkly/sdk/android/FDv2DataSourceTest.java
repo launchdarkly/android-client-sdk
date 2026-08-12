@@ -517,22 +517,27 @@ public class FDv2DataSourceTest {
 
     @Test
     public void fallbackAndRecoveryTasksWellBehaved() throws Exception {
-        // First sync: changeset then INTERRUPTED; second sync: changeset; recovery brings back first
-        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                interrupted());
-        MockQueuedSynchronizer secondSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false));
-
         AtomicInteger firstCallCount = new AtomicInteger(0);
         AtomicInteger secondCallCount = new AtomicInteger(0);
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
 
+        // First sync: changeset then INTERRUPTED; second sync: changeset; recovery brings back first.
+        // Each factory must build a fresh synchronizer, because the data source closes the previous
+        // one when it switches, and a closed synchronizer only ever reports SHUTDOWN.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Arrays.asList(
-                        () -> { firstCallCount.incrementAndGet(); return firstSync; },
-                        () -> { secondCallCount.incrementAndGet(); return secondSync; }),
+                        () -> {
+                            firstCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                    interrupted());
+                        },
+                        () -> {
+                            secondCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false));
+                        }),
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -663,17 +668,22 @@ public class FDv2DataSourceTest {
         AtomicInteger firstCallCount = new AtomicInteger(0);
         AtomicInteger secondCallCount = new AtomicInteger(0);
 
-        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                interrupted());
-        MockQueuedSynchronizer secondSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false));
-
+        // Each factory must build a fresh synchronizer, because the data source closes the previous
+        // one when it switches, and a closed synchronizer only ever reports SHUTDOWN.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Arrays.asList(
-                        () -> { firstCallCount.incrementAndGet(); return firstSync; },
-                        () -> { secondCallCount.incrementAndGet(); return secondSync; }),
+                        () -> {
+                            firstCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                    interrupted());
+                        },
+                        () -> {
+                            secondCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false));
+                        }),
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -2024,16 +2034,16 @@ public class FDv2DataSourceTest {
     @Test
     public void orchestrationLogging_recovery_logsInfo() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                interrupted());
-        MockQueuedSynchronizer secondSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false));
+        // Fresh instances per build: the data source closes the previous synchronizer when it
+        // switches, and a closed synchronizer only ever reports SHUTDOWN.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Arrays.asList(
-                        () -> firstSync,
-                        () -> secondSync),
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                interrupted()),
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(false), false))),
                 1, 2);
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         try {
