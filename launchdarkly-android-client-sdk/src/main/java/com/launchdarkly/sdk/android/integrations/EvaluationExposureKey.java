@@ -41,7 +41,7 @@ import java.util.Objects;
  * Instances are immutable, and their hash code is computed once, the first time one is asked for.
  */
 public final class EvaluationExposureKey {
-    private final String environmentId;
+    private final String mobileKeyHash;
     private final String flagKey;
     private final LDValue value;
     private final int variation;
@@ -58,20 +58,22 @@ public final class EvaluationExposureKey {
      * Creates a key with a JSON null value. Prefer the overload accepting {@code value}, since the
      * variation and version do not by themselves distinguish one result from another.
      *
-     * @param environmentId an opaque identifier for the environment the evaluation was made against
+     * @param mobileKeyHash a hash of the mobile key of the environment the evaluation was made
+     *                      against
      * @param flagKey the flag key
      * @param variation the variation index of the result
      * @param flagVersion the flag version reported on events
      * @param fullyQualifiedContextKey the fully qualified key of the evaluation context
      */
-    public EvaluationExposureKey(String environmentId, String flagKey, int variation,
+    public EvaluationExposureKey(String mobileKeyHash, String flagKey, int variation,
                                  int flagVersion, String fullyQualifiedContextKey) {
-        this(environmentId, flagKey, LDValue.ofNull(), variation, flagVersion,
+        this(mobileKeyHash, flagKey, LDValue.ofNull(), variation, flagVersion,
                 fullyQualifiedContextKey);
     }
 
     /**
-     * @param environmentId an opaque identifier for the environment the evaluation was made against
+     * @param mobileKeyHash a hash of the mobile key of the environment the evaluation was made
+     *                      against
      * @param flagKey the flag key
      * @param value the value the evaluation returns, which is the default value if the flag was not
      *              found
@@ -79,9 +81,9 @@ public final class EvaluationExposureKey {
      * @param flagVersion the flag version reported on events
      * @param fullyQualifiedContextKey the fully qualified key of the evaluation context
      */
-    public EvaluationExposureKey(String environmentId, String flagKey, LDValue value, int variation,
+    public EvaluationExposureKey(String mobileKeyHash, String flagKey, LDValue value, int variation,
                                  int flagVersion, String fullyQualifiedContextKey) {
-        this.environmentId = environmentId;
+        this.mobileKeyHash = mobileKeyHash;
         this.flagKey = flagKey;
         this.value = value;
         this.variation = variation;
@@ -90,15 +92,15 @@ public final class EvaluationExposureKey {
     }
 
     /**
-     * Identifies the environment the evaluation was made against, for comparison only: it is a hash
-     * of the mobile key, so nothing can be read out of it, and the SDK gives no guarantee about how
-     * it is derived beyond being the same for two evaluations made against the same environment and
-     * different otherwise.
+     * Identifies the environment the evaluation was made against, for comparison only: the mobile
+     * key is hashed so that a hook is not handed the credential, and the hash the SDK uses is not
+     * part of its contract. All that is guaranteed is that two evaluations made against the same
+     * environment give the same value, and evaluations made against different environments do not.
      *
-     * @return an opaque identifier for the environment the evaluation was made against
+     * @return a hash of the mobile key of the environment the evaluation was made against
      */
-    public String getEnvironmentId() {
-        return environmentId;
+    public String getMobileKeyHash() {
+        return mobileKeyHash;
     }
 
     /**
@@ -150,7 +152,7 @@ public final class EvaluationExposureKey {
         return variation == o.variation
                 && flagVersion == o.flagVersion
                 && Objects.equals(flagKey, o.flagKey)
-                && Objects.equals(environmentId, o.environmentId)
+                && Objects.equals(mobileKeyHash, o.mobileKeyHash)
                 && Objects.equals(value, o.value)
                 && Objects.equals(fullyQualifiedContextKey, o.fullyQualifiedContextKey);
     }
@@ -159,7 +161,7 @@ public final class EvaluationExposureKey {
     public int hashCode() {
         int hash = hashCode;
         if (hash == 0) {
-            hash = Objects.hashCode(environmentId);
+            hash = Objects.hashCode(mobileKeyHash);
             hash = 31 * hash + Objects.hashCode(flagKey);
             hash = 31 * hash + Objects.hashCode(value);
             hash = 31 * hash + variation;
@@ -172,7 +174,7 @@ public final class EvaluationExposureKey {
 
     @Override
     public String toString() {
-        return "EvaluationExposureKey(environmentId=" + environmentId
+        return "EvaluationExposureKey(mobileKeyHash=" + mobileKeyHash
                 + ", flagKey=" + flagKey
                 + ", value=" + value
                 + ", variation=" + variation

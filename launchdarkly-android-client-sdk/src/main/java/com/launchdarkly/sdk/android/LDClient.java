@@ -78,7 +78,7 @@ public class LDClient implements LDClientInterface, Closeable {
     private final HookRunner hookRunner;
     // Hashed once here rather than per evaluation, because a deduping hook asks for it on a path an
     // application may take on every redraw of a view.
-    private final String environmentId;
+    private final String mobileKeyHash;
     private List<Plugin> plugins;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
@@ -402,7 +402,7 @@ public class LDClient implements LDClientInterface, Closeable {
         if (mobileKey == null) {
             throw new LaunchDarklyException("Mobile key cannot be null");
         }
-        this.environmentId = LDUtil.urlSafeBase64Hash(mobileKey);
+        this.mobileKeyHash = LDUtil.urlSafeBase64Hash(mobileKey);
 
         // We may be recreating the DataSource component repeatedly due to changes in things like
         // the online state and the current evaluation context-- but we don't want to have to
@@ -744,7 +744,7 @@ public class LDClient implements LDClientInterface, Closeable {
         LDValue flagValue = flag == null ? LDValue.ofNull() : flag.getValue();
         LDValue value = flagValue.isNull() ? seriesContext.defaultValue : flagValue;
 
-        return new EvaluationExposureKey(environmentId, flagKey, value,
+        return new EvaluationExposureKey(mobileKeyHash, flagKey, value,
                 variation, flagVersion, seriesContext.context.getFullyQualifiedKey());
     }
 

@@ -112,14 +112,14 @@ public class EvaluationExposureDeduper {
      * other having changed its result, and neither would ever be suppressed.
      */
     private static final class TrackedFlag {
-        private final String environmentId;
+        private final String mobileKeyHash;
         private final String flagKey;
         private final int hashCode;
 
         TrackedFlag(EvaluationExposureKey key) {
-            this.environmentId = key.getEnvironmentId();
+            this.mobileKeyHash = key.getMobileKeyHash();
             this.flagKey = key.getFlagKey();
-            this.hashCode = 31 * Objects.hashCode(environmentId) + Objects.hashCode(flagKey);
+            this.hashCode = 31 * Objects.hashCode(mobileKeyHash) + Objects.hashCode(flagKey);
         }
 
         @Override
@@ -134,7 +134,7 @@ public class EvaluationExposureDeduper {
             TrackedFlag o = (TrackedFlag) other;
             return hashCode == o.hashCode
                     && Objects.equals(flagKey, o.flagKey)
-                    && Objects.equals(environmentId, o.environmentId);
+                    && Objects.equals(mobileKeyHash, o.mobileKeyHash);
         }
 
         @Override

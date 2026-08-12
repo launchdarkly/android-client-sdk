@@ -56,6 +56,9 @@ public class EvaluationSeriesContext {
      * Used by the SDK, which has read the flag the evaluation will return a result from. Application
      * code has no use for this constructor: a context built with the four-argument one has no exposure
      * key, and {@link #getEvaluationExposureKey()} explains what that means for a hook that wanted one.
+     * <p>
+     * This constructor is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+     * It is experimental.
      *
      * @param method              the variation method that was used to invoke the evaluation.
      * @param key                 the key of the feature flag being evaluated.
@@ -80,6 +83,9 @@ public class EvaluationSeriesContext {
      * Returns the key identifying the result this evaluation will return, for a hook that decides what
      * to do with an evaluation by whether it has seen the same result before. {@link DedupingHook} is
      * such a hook.
+     * <p>
+     * This method is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+     * It is experimental.
      * <p>
      * The key describes the evaluation's own read of the flag, the one its result is derived from, so
      * it is available to {@link Hook#beforeEvaluation(EvaluationSeriesContext, Map)} as well as to the

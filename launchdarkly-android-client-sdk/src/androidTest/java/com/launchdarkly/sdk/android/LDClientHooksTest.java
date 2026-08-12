@@ -296,13 +296,13 @@ public class LDClientHooksTest {
 
             EvaluationSeriesContext seriesContext =
                     (EvaluationSeriesContext) testHook.beforeEvaluationCalls.get(0).get("seriesContext");
-            String environmentId = seriesContext.getEvaluationExposureKey().getEnvironmentId();
+            String mobileKeyHash = seriesContext.getEvaluationExposureKey().getMobileKeyHash();
 
             // A hook is told which environment an evaluation was made against, but not the
             // credential that identifies it.
-            assertFalse(environmentId.isEmpty());
-            assertNotEquals(mobileKey, environmentId);
-            assertFalse(environmentId.contains(mobileKey));
+            assertFalse(mobileKeyHash.isEmpty());
+            assertNotEquals(mobileKey, mobileKeyHash);
+            assertFalse(mobileKeyHash.contains(mobileKey));
         }
     }
 

@@ -25,9 +25,9 @@ import java.util.Map;
  */
 public class DedupingHookTest {
     private static final EvaluationExposureKey EXPOSURE_KEY =
-            new EvaluationExposureKey("environment-id", "test-flag", 1, 2, "user-123");
+            new EvaluationExposureKey("mobile-key-hash", "test-flag", 1, 2, "user-123");
     private static final EvaluationExposureKey OTHER_RESULT =
-            new EvaluationExposureKey("environment-id", "test-flag", 2, 2, "user-123");
+            new EvaluationExposureKey("mobile-key-hash", "test-flag", 2, 2, "user-123");
 
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
