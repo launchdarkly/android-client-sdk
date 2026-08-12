@@ -32,7 +32,7 @@ import java.util.Map;
 public class HookRunnerTest extends EasyMockSupport {
     // Every evaluation in these tests is the same exposure, so the runner's supplier returns this.
     private static final EvaluationExposureKey EXPOSURE_KEY =
-            new EvaluationExposureKey("mobile-key", "test-flag", 1, 2, "user-123");
+            new EvaluationExposureKey("environment-id", "test-flag", 1, 2, "user-123");
 
     private HookRunner hookRunner;
     private Hook testHook;

@@ -2,6 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -285,6 +286,23 @@ public class LDClientHooksTest {
             ldClient.identify(ldContext).get();
             ldClient.boolVariation("test-flag", false);
             assertEquals(2, deduping.afterEvaluationCalls.size());
+        }
+    }
+
+    @Test
+    public void theExposureKeyIdentifiesTheEnvironmentWithoutRevealingTheMobileKey() throws Exception {
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testHook)), ldContext, 1)) {
+            ldClient.boolVariation("test-flag", false);
+
+            EvaluationSeriesContext seriesContext =
+                    (EvaluationSeriesContext) testHook.beforeEvaluationCalls.get(0).get("seriesContext");
+            String environmentId = seriesContext.getEvaluationExposureKey().getEnvironmentId();
+
+            // A hook is told which environment an evaluation was made against, but not the
+            // credential that identifies it.
+            assertFalse(environmentId.isEmpty());
+            assertNotEquals(mobileKey, environmentId);
+            assertFalse(environmentId.contains(mobileKey));
         }
     }
 

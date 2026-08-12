@@ -11,9 +11,12 @@ import java.util.Objects;
  * Two evaluations are the same exposure when every component here matches. The value is included
  * directly rather than inferred from the variation and version: those are the identity LaunchDarkly
  * uses to bucket summary events, but neither by itself guarantees that the payload is unchanged.
- * The mobile key, which is what identifies the environment an evaluation was made against, is a
- * component because a hook configured on {@code LDConfig} is one instance shared by the clients for
- * every environment in {@code secondaryMobileKeys}, and so is its deduper.
+ * The environment is a component because a hook configured on {@code LDConfig} is one instance
+ * shared by the clients for every environment in {@code secondaryMobileKeys}, and so is its
+ * deduper. It is identified by a hash of the mobile key rather than by the key itself, so that a
+ * hook cannot read the credential out of what it is told, and rather than by the configured
+ * environment name, which is arbitrary metadata that is always {@code "default"} for the primary
+ * environment.
  * <p>
  * The components describe the result the evaluation returns, which is how the SDK identifies an
  * evaluation on analytics events too. An evaluation the SDK has no flag data for returns the default
@@ -23,9 +26,9 @@ import java.util.Objects;
  * does not exist, so the data arriving changes the value, variation, and version, and the hook is
  * told about the flag again rather than waiting out a window. A flag whose data carries no value,
  * which is what a flag that is off without an off variation has, likewise returns the default value
- * and is described by it, under the flag's own variation and version. The mobile key is never
- * unknown this way: it comes from the configuration, so it is fixed before the client it belongs to
- * exists.
+ * and is described by it, under the flag's own variation and version. The environment is never
+ * unknown this way: it is derived from the configuration, so it is fixed before the client it
+ * belongs to exists.
  * <p>
  * The reason the SDK gives for a result is not a component, so neither is the experiment membership
  * drawn from it. A prerequisite that starts failing to the variation an experiment had been choosing
@@ -38,7 +41,7 @@ import java.util.Objects;
  * Instances are immutable, and their hash code is computed once, the first time one is asked for.
  */
 public final class EvaluationExposureKey {
-    private final String mobileKey;
+    private final String environmentId;
     private final String flagKey;
     private final LDValue value;
     private final int variation;
@@ -55,20 +58,20 @@ public final class EvaluationExposureKey {
      * Creates a key with a JSON null value. Prefer the overload accepting {@code value}, since the
      * variation and version do not by themselves distinguish one result from another.
      *
-     * @param mobileKey the mobile key of the environment the evaluation was made against
+     * @param environmentId an opaque identifier for the environment the evaluation was made against
      * @param flagKey the flag key
      * @param variation the variation index of the result
      * @param flagVersion the flag version reported on events
      * @param fullyQualifiedContextKey the fully qualified key of the evaluation context
      */
-    public EvaluationExposureKey(String mobileKey, String flagKey, int variation,
+    public EvaluationExposureKey(String environmentId, String flagKey, int variation,
                                  int flagVersion, String fullyQualifiedContextKey) {
-        this(mobileKey, flagKey, LDValue.ofNull(), variation, flagVersion,
+        this(environmentId, flagKey, LDValue.ofNull(), variation, flagVersion,
                 fullyQualifiedContextKey);
     }
 
     /**
-     * @param mobileKey the mobile key of the environment the evaluation was made against
+     * @param environmentId an opaque identifier for the environment the evaluation was made against
      * @param flagKey the flag key
      * @param value the value the evaluation returns, which is the default value if the flag was not
      *              found
@@ -76,9 +79,9 @@ public final class EvaluationExposureKey {
      * @param flagVersion the flag version reported on events
      * @param fullyQualifiedContextKey the fully qualified key of the evaluation context
      */
-    public EvaluationExposureKey(String mobileKey, String flagKey, LDValue value, int variation,
+    public EvaluationExposureKey(String environmentId, String flagKey, LDValue value, int variation,
                                  int flagVersion, String fullyQualifiedContextKey) {
-        this.mobileKey = mobileKey;
+        this.environmentId = environmentId;
         this.flagKey = flagKey;
         this.value = value;
         this.variation = variation;
@@ -87,10 +90,15 @@ public final class EvaluationExposureKey {
     }
 
     /**
-     * @return the mobile key of the environment the evaluation was made against
+     * Identifies the environment the evaluation was made against, for comparison only: it is a hash
+     * of the mobile key, so nothing can be read out of it, and the SDK gives no guarantee about how
+     * it is derived beyond being the same for two evaluations made against the same environment and
+     * different otherwise.
+     *
+     * @return an opaque identifier for the environment the evaluation was made against
      */
-    public String getMobileKey() {
-        return mobileKey;
+    public String getEnvironmentId() {
+        return environmentId;
     }
 
     /**
@@ -142,7 +150,7 @@ public final class EvaluationExposureKey {
         return variation == o.variation
                 && flagVersion == o.flagVersion
                 && Objects.equals(flagKey, o.flagKey)
-                && Objects.equals(mobileKey, o.mobileKey)
+                && Objects.equals(environmentId, o.environmentId)
                 && Objects.equals(value, o.value)
                 && Objects.equals(fullyQualifiedContextKey, o.fullyQualifiedContextKey);
     }
@@ -151,7 +159,7 @@ public final class EvaluationExposureKey {
     public int hashCode() {
         int hash = hashCode;
         if (hash == 0) {
-            hash = Objects.hashCode(mobileKey);
+            hash = Objects.hashCode(environmentId);
             hash = 31 * hash + Objects.hashCode(flagKey);
             hash = 31 * hash + Objects.hashCode(value);
             hash = 31 * hash + variation;
@@ -164,7 +172,7 @@ public final class EvaluationExposureKey {
 
     @Override
     public String toString() {
-        return "EvaluationExposureKey(mobileKey=" + mobileKey
+        return "EvaluationExposureKey(environmentId=" + environmentId
                 + ", flagKey=" + flagKey
                 + ", value=" + value
                 + ", variation=" + variation

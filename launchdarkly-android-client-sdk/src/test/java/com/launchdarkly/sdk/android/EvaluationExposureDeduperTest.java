@@ -21,7 +21,7 @@ public class EvaluationExposureDeduperTest {
      */
     private static EvaluationExposureKey key(String flagKey) {
         return new EvaluationExposureKey(
-                "mobile-key", flagKey, LDValue.of("value"), 1, 2, "user-key");
+                "environment-id", flagKey, LDValue.of("value"), 1, 2, "user-key");
     }
 
     /**
@@ -29,7 +29,7 @@ public class EvaluationExposureDeduperTest {
      */
     private static EvaluationExposureKey otherResult(String flagKey) {
         return new EvaluationExposureKey(
-                "mobile-key", flagKey, LDValue.of("other-value"), 3, 2, "user-key");
+                "environment-id", flagKey, LDValue.of("other-value"), 3, 2, "user-key");
     }
 
     /**
@@ -38,7 +38,7 @@ public class EvaluationExposureDeduperTest {
      * so that is the value describing it, under the placeholders the SDK reports on events.
      */
     private static EvaluationExposureKey unknownFlag(String flagKey, LDValue defaultValue) {
-        return new EvaluationExposureKey("mobile-key", flagKey, defaultValue,
+        return new EvaluationExposureKey("environment-id", flagKey, defaultValue,
                 EvaluationDetail.NO_VARIATION, EventProcessor.NO_VERSION, "user-key");
     }
 
@@ -54,25 +54,25 @@ public class EvaluationExposureDeduperTest {
     @Test
     public void exposureKeyDistinguishesEveryComponent() {
         EvaluationExposureKey key = new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("value"), 1, 2, "user-key");
+                "environment-id", "flag", LDValue.of("value"), 1, 2, "user-key");
         EvaluationExposureKey same = new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("value"), 1, 2, "user-key");
+                "environment-id", "flag", LDValue.of("value"), 1, 2, "user-key");
         assertEquals(key, same);
         assertEquals(key.hashCode(), same.hashCode());
 
         assertNotEquals(key, new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("other-value"), 1, 2, "user-key"));
+                "environment-id", "flag", LDValue.of("other-value"), 1, 2, "user-key"));
         assertNotEquals(key, new EvaluationExposureKey(
-                "mobile-key", "other-flag", LDValue.of("value"), 1, 2, "user-key"));
+                "environment-id", "other-flag", LDValue.of("value"), 1, 2, "user-key"));
         assertNotEquals(key, new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("value"), 3, 2, "user-key"));
+                "environment-id", "flag", LDValue.of("value"), 3, 2, "user-key"));
         assertNotEquals(key, new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("value"), 1, 4, "user-key"));
+                "environment-id", "flag", LDValue.of("value"), 1, 4, "user-key"));
         assertNotEquals(key, new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("value"), 1, 2, "other-user-key"));
+                "environment-id", "flag", LDValue.of("value"), 1, 2, "other-user-key"));
         // A hook shared across environments observes the same result once per environment.
         assertNotEquals(key, new EvaluationExposureKey(
-                "other-mobile-key", "flag", LDValue.of("value"), 1, 2, "user-key"));
+                "other-environment-id", "flag", LDValue.of("value"), 1, 2, "user-key"));
     }
 
     @Test
@@ -128,9 +128,9 @@ public class EvaluationExposureDeduperTest {
     public void reportsAgainWhenOnlyTheFlagValueChanges() {
         EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
         EvaluationExposureKey first = new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("first"), 1, 2, "user-key");
+                "environment-id", "flag", LDValue.of("first"), 1, 2, "user-key");
         EvaluationExposureKey second = new EvaluationExposureKey(
-                "mobile-key", "flag", LDValue.of("second"), 1, 2, "user-key");
+                "environment-id", "flag", LDValue.of("second"), 1, 2, "user-key");
 
         assertTrue(deduper.shouldRecord(first, 1000));
         assertTrue(deduper.shouldRecord(second, 1010));
@@ -168,8 +168,8 @@ public class EvaluationExposureDeduperTest {
     @Test
     public void tracksTheSameFlagSeparatelyPerEnvironment() {
         EvaluationExposureDeduper deduper = new EvaluationExposureDeduper(100);
-        EvaluationExposureKey primary = new EvaluationExposureKey("mobile-key", "flag", 1, 2, "user-key");
-        EvaluationExposureKey secondary = new EvaluationExposureKey("other-mobile-key", "flag", 3, 4, "user-key");
+        EvaluationExposureKey primary = new EvaluationExposureKey("environment-id", "flag", 1, 2, "user-key");
+        EvaluationExposureKey secondary = new EvaluationExposureKey("other-environment-id", "flag", 3, 4, "user-key");
 
         // A hook set on the configuration is shared by the clients for every environment, so its
         // deduper sees both. Neither environment may look to the other like its result changing.
