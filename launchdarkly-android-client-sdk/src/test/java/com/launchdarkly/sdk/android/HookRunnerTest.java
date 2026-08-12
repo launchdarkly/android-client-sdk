@@ -11,6 +11,8 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.DataModel.Flag;
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureKey;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.HookMetadata;
@@ -32,6 +34,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class HookRunnerTest extends EasyMockSupport {
+    // Every evaluation in these tests is the same exposure, so the runner's supplier returns this.
+    private static final EvaluationExposureKey EXPOSURE_KEY =
+            new EvaluationExposureKey("mobile-key-hash", "test-flag", 1, 2, "user-123");
+
     private HookRunner hookRunner;
     private Hook testHook;
 
@@ -70,6 +76,104 @@ public class HookRunnerTest extends EasyMockSupport {
         verifyAll();
         assertSame(evaluationResult, result);
         logging.assertNothingLogged();
+    }
+
+    /**
+     * Records the evaluation stages it observes, so a test can tell a suppressed evaluation (no
+     * stages) from a reported one.
+     */
+    private static class RecordingHook extends Hook {
+        final List<String> stages = new ArrayList<>();
+
+        RecordingHook(String name) {
+            super(name);
+        }
+
+        @Override
+        public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
+            stages.add("before");
+            return seriesData;
+        }
+
+        @Override
+        public Map<String, Object> afterEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData,
+                                                   EvaluationDetail<LDValue> evaluationDetail) {
+            stages.add("after");
+            return seriesData;
+        }
+    }
+
+    private void evaluate(HookRunner runner) {
+        runner.withEvaluation("testMethod", "test-flag", LDContext.create("user-123"), LDValue.of(false),
+                () -> EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off()));
+    }
+
+    /**
+     * Reads what an evaluation's result identifies, the way a deduping hook does, so a test can tell
+     * when the runner resolved that and how often.
+     */
+    private static class KeyReadingHook extends Hook {
+        final List<EvaluationExposureKey> keys = new ArrayList<>();
+
+        KeyReadingHook(String name) {
+            super(name);
+        }
+
+        @Override
+        public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
+            keys.add(seriesContext.getEvaluationExposureKey());
+            return seriesData;
+        }
+    }
+
+    @Test
+    public void tellsAHookWhatTheEvaluationsResultIdentifies() {
+        KeyReadingHook hook = new KeyReadingHook("key-reading");
+        HookRunner runner = new HookRunner(logging.logger, List.of(hook),
+                (seriesContext, flag) -> EXPOSURE_KEY);
+
+        evaluate(runner);
+
+        assertEquals(List.of(EXPOSURE_KEY), hook.keys);
+    }
+
+    @Test
+    public void doesNotBuildTheExposureKeyUnlessAHookAsksForIt() {
+        RecordingHook hook = new RecordingHook("reporting-everything");
+        List<String> keyRequests = new ArrayList<>();
+        HookRunner runner = new HookRunner(logging.logger, List.of(hook),
+                (seriesContext, flag) -> {
+                    keyRequests.add(seriesContext.flagKey);
+                    return EXPOSURE_KEY;
+                });
+
+        evaluate(runner);
+
+        assertEquals(List.of(), keyRequests);
+        assertEquals(List.of("before", "after"), hook.stages);
+    }
+
+    @Test
+    public void describesTheEvaluationsOwnReadOfTheFlagToEveryHookThatAsks() {
+        KeyReadingHook first = new KeyReadingHook("first");
+        KeyReadingHook second = new KeyReadingHook("second");
+        List<Flag> described = new ArrayList<>();
+        HookRunner runner = new HookRunner(logging.logger, List.of(first, second),
+                (seriesContext, flag) -> {
+                    described.add(flag);
+                    return EXPOSURE_KEY;
+                });
+        Flag flag = new FlagBuilder("test-flag").version(2).build();
+
+        runner.withEvaluation("testMethod", "test-flag", LDContext.create("user-123"), LDValue.of(false), flag,
+                () -> EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off()));
+
+        // Both hooks describe the read handed to the evaluation, rather than a later look at the store.
+        assertEquals(2, described.size());
+        assertSame(flag, described.get(0));
+        assertSame(flag, described.get(1));
+        assertEquals(List.of(EXPOSURE_KEY), first.keys);
+        assertEquals(List.of(EXPOSURE_KEY), second.keys);
     }
 
     @Test

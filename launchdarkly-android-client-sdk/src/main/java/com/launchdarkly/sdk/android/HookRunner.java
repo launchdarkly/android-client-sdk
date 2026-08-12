@@ -4,6 +4,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.EvaluationExposureKeySupplier;
 import com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
@@ -36,8 +37,23 @@ public class HookRunner {
      */
     private volatile List<Hook> hooks;
 
+    // Handed to every evaluation series context, which calls it only if a hook asks what the
+    // evaluation's result identifies. Dedupe is the only thing that asks, and only a hook that has
+    // been wrapped in a DedupingHook dedupes, so an application without one never pays for this.
+    private final EvaluationExposureKeySupplier exposureKeySupplier;
+
+    /**
+     * Builds a runner whose evaluations describe no result, so a hook that asks what one identifies
+     * is told nothing and treats every evaluation as its own.
+     */
     public HookRunner(LDLogger logger, List<Hook> initialHooks) {
+        this(logger, initialHooks, null);
+    }
+
+    public HookRunner(LDLogger logger, List<Hook> initialHooks,
+                      EvaluationExposureKeySupplier exposureKeySupplier) {
         this.logger = logger;
+        this.exposureKeySupplier = exposureKeySupplier;
         this.hooks = Collections.unmodifiableList(new ArrayList<>(initialHooks));
     }
 
@@ -62,14 +78,29 @@ public class HookRunner {
         hooks = Collections.unmodifiableList(updated);
     }
 
+    /**
+     * Runs the evaluation series around an evaluation of a flag the caller has not read, so a hook
+     * that asks what the evaluation's result identifies is told nothing.
+     */
     public EvaluationDetail<LDValue> withEvaluation(String method, String key, LDContext context, LDValue defaultValue, EvaluationMethod evalMethod) {
+        return withEvaluation(method, key, context, defaultValue, null, evalMethod);
+    }
+
+    /**
+     * Runs the evaluation series around an evaluation, against the caller's own read of the flag.
+     *
+     * @param flag the read the evaluation derives its result from, so that a hook is told about the
+     *             result the evaluation returns rather than about a later read of the store
+     */
+    public EvaluationDetail<LDValue> withEvaluation(String method, String key, LDContext context, LDValue defaultValue, DataModel.Flag flag, EvaluationMethod evalMethod) {
         List<Hook> hooks = this.hooks;
         if (hooks.isEmpty()) {
             return evalMethod.evaluate();
         }
 
         List<Map<String, Object>> seriesDataList = new ArrayList<>(hooks.size());
-        EvaluationSeriesContext seriesContext = new EvaluationSeriesContext(method, key, context, defaultValue);
+        EvaluationSeriesContext seriesContext =
+                new EvaluationSeriesContext(method, key, context, defaultValue, exposureKeySupplier, flag);
         for (int i = 0; i < hooks.size(); i++) {
             Hook currentHook = hooks.get(i);
             try {

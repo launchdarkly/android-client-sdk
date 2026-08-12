@@ -16,6 +16,8 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
+import com.launchdarkly.sdk.android.integrations.DedupingHook;
+import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -235,6 +237,38 @@ public class LDClientEventTest {
                 assertEquals(LDValue.of(2), summaryEvent.get("features").get("flagAB").get("counters").get(0).get("count"));
                 assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagAC").get("counters").get(0).get("count"));
                 assertEquals(LDValue.of(1), summaryEvent.get("features").get("flagABD").get("counters").get(0).get("count"));
+            }
+        }
+    }
+
+    @Test
+    public void exposureDeduplicationDoesNotSuppressEvaluationEvents() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            Flag flag = new FlagBuilder("flagA").version(1)
+                    .variation(1).value(LDValue.of(true)).trackEvents(true).build();
+            PersistentDataStore store = new InMemoryPersistentDataStore();
+            TestUtil.writeFlagUpdateToStore(store, mobileKey, ldContext, flag);
+            // Deduplication applies to hooks only, so a hook given a window wide enough to suppress
+            // every repeat must still leave the analytics events untouched.
+            Hook dedupingHook = new DedupingHook(new Hook("deduping-hook") {}, 60_000);
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .persistentDataStore(store)
+                    .hooks(Components.hooks().addHook(dedupingHook))
+                    .build();
+
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                for (int i = 0; i < 3; i++) {
+                    assertTrue(client.boolVariation("flagA", false));
+                }
+                client.blockingFlush();
+
+                // identify, three feature events, then the summary.
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 5);
+                assertSummaryEvent(events[4]);
+                assertEquals(LDValue.of(3), events[4].get("features").get("flagA").get("counters").get(0).get("count"));
             }
         }
     }

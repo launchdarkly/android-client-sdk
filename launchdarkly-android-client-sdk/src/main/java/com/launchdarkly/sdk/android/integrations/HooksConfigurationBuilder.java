@@ -23,6 +23,17 @@ import java.util.List;
  *         .build();
  * </code></pre>
  * <p>
+ * A hook observes every evaluation unless it is wrapped in a {@link DedupingHook}, which limits how
+ * often repeated evaluations resolving to the same result reach it.
+ *
+ * <pre><code>
+ *     Components.hooks()
+ *         .addHook(new MetricsHook())
+ *         .addHook(new DedupingHook(new ObservabilityHook()))
+ *         .addHook(new DedupingHook(new TelemetryHook(), 60_000))
+ *         .addHook(new DedupingHook(new ExperimentHook(), myCustomDeduper))
+ * </code></pre>
+ * <p>
  * Note that this class is abstract; the actual implementation is created by calling {@link Components#hooks()}.
  */
 public abstract class HooksConfigurationBuilder {
@@ -43,6 +54,19 @@ public abstract class HooksConfigurationBuilder {
         // copy to avoid list manipulations impacting the SDK
         this.hooks = Collections.unmodifiableList(new ArrayList<>(hooks));
         return this;
+    }
+
+    /**
+     * Adds a hook to the configuration.  Note that the order of hooks is important and controls the order in which
+     * they will be executed.  See {@link Hook} for more details.
+     *
+     * @param hook to be added to the configuration
+     * @return the builder
+     */
+    public HooksConfigurationBuilder addHook(Hook hook) {
+        List<Hook> hooks = new ArrayList<>(this.hooks);
+        hooks.add(hook);
+        return setHooks(hooks);
     }
 
     /**

@@ -12,6 +12,9 @@ import java.util.Map;
  * Multiple hooks may be configured in the SDK. By default, the SDK will execute each hook's before
  * stages in the order they were configured, and each hook's after stages in reverse order. (i.e.
  * myHook1.beforeEvaluation, myHook2.beforeEvaluation, myHook2.afterEvaluation, myHook1.afterEvaluation)
+ * <p>
+ * To deduplicate the repeated evaluations observed by one hook, wrap it in a
+ * {@link DedupingHook} and register the wrapper.
  */
 public abstract class Hook {
 
