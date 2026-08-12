@@ -29,11 +29,16 @@ public class HookRunner {
     private static final String UNKNOWN_HOOK_NAME = "unknown hook";
 
     private final LDLogger logger;
-    private final List<Hook> hooks = new ArrayList<>();
+    /**
+     * The hooks to run, which is replaced rather than modified so that a caller of {@link #addHook(Hook)} on one thread
+     * cannot be seen half way by a series running on another. Every method that runs hooks reads this once into a local
+     * and works from that, so the hooks a series ends with are the hooks it began with.
+     */
+    private volatile List<Hook> hooks;
 
     public HookRunner(LDLogger logger, List<Hook> initialHooks) {
         this.logger = logger;
-        this.hooks.addAll(initialHooks);
+        this.hooks = Collections.unmodifiableList(new ArrayList<>(initialHooks));
     }
 
     private String getHookName(Hook hook) {
@@ -46,11 +51,19 @@ public class HookRunner {
         }
     }
 
-    public void addHook(Hook hook) {
-        hooks.add(hook);
+    /**
+     * Adds a hook, which the next series to begin will run. A series already under way runs the hooks it began with.
+     *
+     * @param hook the hook to add
+     */
+    public synchronized void addHook(Hook hook) {
+        List<Hook> updated = new ArrayList<>(hooks);
+        updated.add(hook);
+        hooks = Collections.unmodifiableList(updated);
     }
 
     public EvaluationDetail<LDValue> withEvaluation(String method, String key, LDContext context, LDValue defaultValue, EvaluationMethod evalMethod) {
+        List<Hook> hooks = this.hooks;
         if (hooks.isEmpty()) {
             return evalMethod.evaluate();
         }
@@ -84,6 +97,10 @@ public class HookRunner {
     }
 
     public AfterIdentifyMethod identify(LDContext context, Integer timeout) {
+        // The returned method runs when the identify completes, which is a round trip later, so it closes over these
+        // hooks rather than reading the field again: otherwise a hook added in between would be given an "after" stage
+        // for a series whose "before" stage it was never in.
+        List<Hook> hooks = this.hooks;
         if (hooks.isEmpty()) {
             return (IdentifySeriesResult result) -> {};
         }
@@ -115,6 +132,7 @@ public class HookRunner {
     }
 
     public void afterTrack(String key, LDContext context, LDValue data, Double metricValue) {
+        List<Hook> hooks = this.hooks;
         if (hooks.isEmpty()) {
             return;
         }
