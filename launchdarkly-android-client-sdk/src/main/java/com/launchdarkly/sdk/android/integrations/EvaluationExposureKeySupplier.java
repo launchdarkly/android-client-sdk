@@ -7,6 +7,9 @@ import com.launchdarkly.sdk.android.DataModel;
 /**
  * Builds the key identifying the result an evaluation is about to return.
  * <p>
+ * This interface is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+ * It is experimental.
+ * <p>
  * The SDK gives one of these to each {@link EvaluationSeriesContext} it builds, so that a hook which
  * needs the identity of an evaluation can ask for it without the SDK building one for hooks that do
  * not. {@link DedupingHook} is the hook that needs it.
