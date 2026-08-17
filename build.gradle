@@ -77,8 +77,5 @@ subprojects { subproject ->
     tasks.withType(Test).configureEach {
         // Allow EasyMock/CGLIB to use reflection on Java base classes when running on newer JDKs.
         jvmArgs += ["--add-opens", "java.base/java.lang=ALL-UNNAMED"]
-        // org.gradle.jvmargs sizes the daemon, not the forked test JVM, which Gradle otherwise
-        // leaves at 512m. The suite runs against that ceiling and intermittently exhausts it.
-        maxHeapSize = "2g"
     }
 }
