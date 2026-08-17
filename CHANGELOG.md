@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.15.0](https://github.com/launchdarkly/android-client-sdk/compare/5.14.0...5.15.0) (2026-08-17)
+
+
+### Features
+
+* add HookDecorator so a hook wrapper forwards the stages it does not override ([c78c612](https://github.com/launchdarkly/android-client-sdk/commit/c78c612c5cd3fab001ff0716cb4a68fc5a93f28f))
+* add HookDecorator so a hook wrapper forwards the stages it does not override ([#387](https://github.com/launchdarkly/android-client-sdk/issues/387)) ([d118a62](https://github.com/launchdarkly/android-client-sdk/commit/d118a62eeb02cdd26a4a64591e9405d4d214ebaa))
+
 ## [5.14.0](https://github.com/launchdarkly/android-client-sdk/compare/5.13.3...5.14.0) (2026-08-12)
 
 
