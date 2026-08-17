@@ -21,16 +21,14 @@ import java.util.Objects;
  *         .addHook(new MetricsHook())                        // told about every evaluation
  *         .addHook(new DedupingHook(new ObservabilityHook())) // default window
  *         .addHook(new DedupingHook(new TelemetryHook(), 30_000))
- *         .addHook(new DedupingHook(new ExperimentHook(), myCustomDeduper))
+ *         .addHook(new DedupingHook(new ExperimentHook(), sharedDeduper))
  * </code></pre>
  * <p>
  * This class is the SDK's implementation: it remembers the result each flag last reported, and tells
  * the hook about the flag again as soon as that result changes, or once the window elapses while it
  * stays the same. Tracking one result per flag rather than every result seen keeps a flag that flips
  * back and forth from hiding the flips, and holds one record per flag the application evaluates, so
- * the window is the only thing there is to configure. Subclass this to implement a different policy;
- * only {@link #shouldRecord(EvaluationExposureKey, long)} and {@link #reset()} are called by
- * {@link DedupingHook}.
+ * the window is the only thing there is to configure.
  * <p>
  * A deduper is consulted once per evaluation, before the series opens, so a suppressed evaluation
  * invokes neither {@code beforeEvaluation} nor {@code afterEvaluation}. Implementations must be
