@@ -156,7 +156,7 @@ public class FlagTest {
     public void variationIsDeserialized() {
         final String jsonStr = "{\"version\": 99, \"variation\": 2}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertEquals(Integer.valueOf(2), r.getVariation());
+        assertEquals(new Integer(2), r.getVariation());
     }
 
     @Test
@@ -243,12 +243,12 @@ public class FlagTest {
     public void debugEventsUntilDateIsDeserialized() {
         final String jsonStr = "{\"version\": 99, \"debugEventsUntilDate\": 12345}";
         final Flag r = gson.fromJson(jsonStr, Flag.class);
-        assertEquals(Long.valueOf(12345L), r.getDebugEventsUntilDate());
+        assertEquals(new Long(12345L), r.getDebugEventsUntilDate());
 
         // Test long sized number
         final String jsonStrl = "{\"version\": 99, \"debugEventsUntilDate\": 2500000000}";
         final Flag rl = gson.fromJson(jsonStrl, Flag.class);
-        assertEquals(Long.valueOf(2500000000L), rl.getDebugEventsUntilDate());
+        assertEquals(new Long(2500000000L), rl.getDebugEventsUntilDate());
     }
 
     @Test
