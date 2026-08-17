@@ -87,33 +87,30 @@ public class DedupingHookTest {
         }
     }
 
-    /** A wrapper with its own behavior, to check that hook wrappers compose. */
-    private static class CountingDecorator extends Hook {
-        private final Hook delegate;
+    /**
+     * A wrapper with its own behavior, to check that hook wrappers compose.
+     * <p>
+     * Overrides only the evaluation stages, as a wrapper a customer writes would: the rest are inherited.
+     */
+    private static class CountingDecorator extends HookDecorator {
         int evaluationsForwarded = 0;
         int resultsForwarded = 0;
 
         CountingDecorator(Hook delegate) {
-            super(delegate.getMetadata().getName());
-            this.delegate = delegate;
-        }
-
-        @Override
-        public HookMetadata getMetadata() {
-            return delegate.getMetadata();
+            super(delegate);
         }
 
         @Override
         public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
             evaluationsForwarded++;
-            return delegate.beforeEvaluation(seriesContext, seriesData);
+            return super.beforeEvaluation(seriesContext, seriesData);
         }
 
         @Override
         public Map<String, Object> afterEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData,
                                                    EvaluationDetail<LDValue> evaluationDetail) {
             resultsForwarded++;
-            return delegate.afterEvaluation(seriesContext, seriesData, evaluationDetail);
+            return super.afterEvaluation(seriesContext, seriesData, evaluationDetail);
         }
     }
 
@@ -263,6 +260,19 @@ public class DedupingHookTest {
         identify(runner);
         runner.afterTrack("event-key", LDContext.create("user-123"), LDValue.ofNull(), null);
 
+        assertEquals(List.of("beforeIdentify", "afterIdentify", "afterTrack"), hook.stages);
+    }
+
+    @Test
+    public void aDecoratorForwardsTheStagesItDoesNotOverride() {
+        RecordingHook hook = new RecordingHook("decorated");
+        HookRunner runner = runner(EXPOSURE_KEY, new CountingDecorator(hook));
+
+        identify(runner);
+        runner.afterTrack("event-key", LDContext.create("user-123"), LDValue.ofNull(), null);
+
+        // The decorator mentions neither identify nor track, and the hook it wraps is still told about
+        // both: a stage a decorator leaves alone is forwarded rather than dropped.
         assertEquals(List.of("beforeIdentify", "afterIdentify", "afterTrack"), hook.stages);
     }
 
