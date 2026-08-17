@@ -117,12 +117,10 @@ public class EvaluationExposureDeduper {
     private static final class TrackedFlag {
         private final String mobileKeyHash;
         private final String flagKey;
-        private final int hashCode;
 
         TrackedFlag(EvaluationExposureKey key) {
             this.mobileKeyHash = key.getMobileKeyHash();
             this.flagKey = key.getFlagKey();
-            this.hashCode = 31 * Objects.hashCode(mobileKeyHash) + Objects.hashCode(flagKey);
         }
 
         @Override
@@ -135,14 +133,13 @@ public class EvaluationExposureDeduper {
             }
 
             TrackedFlag o = (TrackedFlag) other;
-            return hashCode == o.hashCode
-                    && Objects.equals(flagKey, o.flagKey)
+            return Objects.equals(flagKey, o.flagKey)
                     && Objects.equals(mobileKeyHash, o.mobileKeyHash);
         }
 
         @Override
         public int hashCode() {
-            return hashCode;
+            return 31 * Objects.hashCode(mobileKeyHash) + Objects.hashCode(flagKey);
         }
     }
 
