@@ -28,6 +28,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -53,6 +55,15 @@ final class FDv2DataSource implements DataSource {
     private static final String INITIALIZER_ERROR = "Initializer error: {}";
     private static final String INITIALIZER_CANCELLED = "Initializer cancelled: {}";
     private static final String INITIALIZER_INTERRUPTED = "Initializer interrupted: {}";
+
+    /**
+     * A synchronizer session shorter than this never really connected to anything, so the rotation
+     * to the next synchronizer is paused rather than attempted immediately.
+     */
+    private static final long MIN_SYNCHRONIZER_SESSION_MILLIS = 500;
+
+    /** Upper bound for the growing pause between synchronizer sessions that keep ending at once. */
+    private static final long MAX_ROTATION_PAUSE_MILLIS = 30_000;
 
     private final List<DataSourceFactory<Initializer>> cacheInitializers;
     private final SourceManager sourceManager;
@@ -510,13 +521,36 @@ final class FDv2DataSource implements DataSource {
         logger.info("Synchronizer '{}' reported status: {}.", sourceName, state.name());
     }
 
+    /**
+     * Waits before building the next synchronizer. Waiting on {@link #shutdownCause} rather than
+     * sleeping means a {@link #stop(Callback)} during the pause is acted on right away.
+     *
+     * @return false if the data source shut down while waiting, in which case the caller must stop
+     */
+    private boolean pauseBeforeRotation(long pauseMillis) {
+        logger.debug("Waiting {}ms before trying the next synchronizer.", pauseMillis);
+        try {
+            shutdownCause.get(pauseMillis, TimeUnit.MILLISECONDS);
+            return false;
+        } catch (TimeoutException e) {
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            return false;
+        }
+    }
+
     private void runSynchronizers(
             @NonNull LDContext context,
             @NonNull DataSourceUpdateSinkV2 sink
     ) {
+        long rotationPauseMillis = 0;
         try {
             Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
             while (synchronizer != null) {
+                long sessionStartNanos = System.nanoTime();
                 String synchronizerName = synchronizer.name();
                 logger.info("Synchronizer '{}' is starting.", synchronizerName);
                 resetSynchronizerStatusDedupe();
@@ -651,6 +685,22 @@ final class FDv2DataSource implements DataSource {
                     Thread.currentThread().interrupt();
                     return;
                 }
+
+                // A source that ends its session at once, such as one reporting SHUTDOWN as soon as
+                // it is built, must not be allowed to drive this rotation at CPU speed. The pause
+                // grows while sessions keep ending immediately and resets once one of them lasts.
+                if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sessionStartNanos)
+                        < MIN_SYNCHRONIZER_SESSION_MILLIS) {
+                    rotationPauseMillis = rotationPauseMillis == 0
+                            ? MIN_SYNCHRONIZER_SESSION_MILLIS
+                            : Math.min(rotationPauseMillis * 2, MAX_ROTATION_PAUSE_MILLIS);
+                    if (!pauseBeforeRotation(rotationPauseMillis)) {
+                        return;
+                    }
+                } else {
+                    rotationPauseMillis = 0;
+                }
+
                 synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
             }
             if (!stopCalled.get()) {
