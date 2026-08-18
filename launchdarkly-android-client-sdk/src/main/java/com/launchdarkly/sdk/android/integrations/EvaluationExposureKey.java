@@ -8,6 +8,10 @@ import java.util.Objects;
  * Identifies the evaluation result a hook is about to be told about, so that an
  * {@link EvaluationExposureDeduper} can recognize a repeat of it.
  * <p>
+ * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+ * It is experimental. Which components make up the identity of an evaluation is the most likely part to be
+ * revised, so a deduper subclass that reasons about them may need to change with it.
+ * <p>
  * Two evaluations are the same exposure when every component here matches. The value is included
  * directly rather than inferred from the variation and version: those are the identity LaunchDarkly
  * uses to bucket summary events, but neither by itself guarantees that the payload is unchanged.
@@ -38,7 +42,7 @@ import java.util.Objects;
  * experiment does not depend on the window; a hook that reads the reason itself is what can miss such
  * a change until the window elapses.
  * <p>
- * Instances are immutable, and their hash code is computed once, the first time one is asked for.
+ * Instances are immutable.
  */
 public final class EvaluationExposureKey {
     private final String mobileKeyHash;
@@ -47,12 +51,6 @@ public final class EvaluationExposureKey {
     private final int variation;
     private final int flagVersion;
     private final String fullyQualifiedContextKey;
-
-    // Computed on demand, because the SDK's own deduper recognizes a repeat by the flag a key belongs
-    // to and the result it describes, and so never hashes a whole key: only a deduper of your own
-    // that holds keys in a map or a set does. Races are benign, as every thread computes the same
-    // value from fields that cannot change.
-    private int hashCode;
 
     /**
      * Creates a key with a JSON null value. Prefer the overload accepting {@code value}, since the
@@ -159,17 +157,12 @@ public final class EvaluationExposureKey {
 
     @Override
     public int hashCode() {
-        int hash = hashCode;
-        if (hash == 0) {
-            hash = Objects.hashCode(mobileKeyHash);
-            hash = 31 * hash + Objects.hashCode(flagKey);
-            hash = 31 * hash + Objects.hashCode(value);
-            hash = 31 * hash + variation;
-            hash = 31 * hash + flagVersion;
-            hash = 31 * hash + Objects.hashCode(fullyQualifiedContextKey);
-            hashCode = hash;
-        }
-        return hash;
+        int hash = Objects.hashCode(mobileKeyHash);
+        hash = 31 * hash + Objects.hashCode(flagKey);
+        hash = 31 * hash + Objects.hashCode(value);
+        hash = 31 * hash + variation;
+        hash = 31 * hash + flagVersion;
+        return 31 * hash + Objects.hashCode(fullyQualifiedContextKey);
     }
 
     @Override

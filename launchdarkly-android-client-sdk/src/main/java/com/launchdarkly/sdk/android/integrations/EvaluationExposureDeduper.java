@@ -8,6 +8,11 @@ import java.util.Objects;
  * Decides whether a hook should be told about an evaluation, so that repeated evaluations resolving
  * to the same result do not invoke the hook again within a time window.
  * <p>
+ * This class is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+ * It is experimental. Subclassing it to change which evaluations are deduplicated is supported, but the shape
+ * it is subclassed through, and the components of {@link EvaluationExposureKey} a subclass reasons about, may
+ * change.
+ * <p>
  * Deduplication is opt-in per hook: a hook is told about every evaluation until you wrap it in a
  * {@link DedupingHook}, which is what consults a deduper.
  *
@@ -112,12 +117,10 @@ public class EvaluationExposureDeduper {
     private static final class TrackedFlag {
         private final String mobileKeyHash;
         private final String flagKey;
-        private final int hashCode;
 
         TrackedFlag(EvaluationExposureKey key) {
             this.mobileKeyHash = key.getMobileKeyHash();
             this.flagKey = key.getFlagKey();
-            this.hashCode = 31 * Objects.hashCode(mobileKeyHash) + Objects.hashCode(flagKey);
         }
 
         @Override
@@ -130,14 +133,13 @@ public class EvaluationExposureDeduper {
             }
 
             TrackedFlag o = (TrackedFlag) other;
-            return hashCode == o.hashCode
-                    && Objects.equals(flagKey, o.flagKey)
+            return Objects.equals(flagKey, o.flagKey)
                     && Objects.equals(mobileKeyHash, o.mobileKeyHash);
         }
 
         @Override
         public int hashCode() {
-            return hashCode;
+            return 31 * Objects.hashCode(mobileKeyHash) + Objects.hashCode(flagKey);
         }
     }
 
