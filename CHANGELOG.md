@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.15.1](https://github.com/launchdarkly/android-client-sdk/compare/5.15.0...5.15.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* make the close/reset timer tests deterministic ([0160533](https://github.com/launchdarkly/android-client-sdk/commit/0160533a7fa985ccf36caf84fcee9ebed85d344d))
+* make the close/reset timer tests deterministic ([#394](https://github.com/launchdarkly/android-client-sdk/issues/394)) ([984d2e6](https://github.com/launchdarkly/android-client-sdk/commit/984d2e6cc8f09eb166b41bd8b4832ef4c1061a12))
+
 ## [5.15.0](https://github.com/launchdarkly/android-client-sdk/compare/5.14.0...5.15.0) (2026-08-17)
 
 
