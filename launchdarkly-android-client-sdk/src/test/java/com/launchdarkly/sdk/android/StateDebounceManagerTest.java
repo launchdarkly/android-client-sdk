@@ -144,15 +144,21 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void closeCancelsPendingTimer() throws InterruptedException {
+    public void closeCancelsPendingTimer() {
+        // Uses a manually-driven executor instead of Thread.sleep so the test is deterministic:
+        // sleeping for a fraction of the debounce window and expecting close() to win the race
+        // is flaky on loaded CI runners, where the short sleep can overshoot the window and let
+        // the timer fire first.
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
         mgr.close();
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("close should cancel the scheduled timer", 1, manualExecutor.cancelledCount());
+        manualExecutor.runPendingTasks();
         assertEquals("pending timer should be cancelled on close", 0, callCount.get());
     }
 
@@ -341,15 +347,19 @@ public class StateDebounceManagerTest {
     // ==== reset() (CONNMODE 3.5.6 — identify bypasses debounce) ====
 
     @Test
-    public void resetCancelsPendingTimer() throws InterruptedException {
+    public void resetCancelsPendingTimer() {
+        // Manually-driven executor for the same reason as closeCancelsPendingTimer: reset() must
+        // win against the pending timer, which a wall-clock sleep cannot guarantee.
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
         mgr.reset(true, true);
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        assertEquals("reset should cancel the scheduled timer", 1, manualExecutor.cancelledCount());
+        manualExecutor.runPendingTasks();
         assertEquals("reset should cancel the pending timer", 0, callCount.get());
 
         mgr.close();
