@@ -144,15 +144,20 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void closeCancelsPendingTimer() throws InterruptedException {
+    public void closeCancelsPendingTimer() {
+        // Manually-driven executor for the same reason as resetCancelsPendingTimer: the pre-close
+        // sleep can overshoot the debounce window on a loaded runner, letting the timer fire before
+        // close() has a chance to cancel it.
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
         mgr.close();
+        assertEquals("close should cancel the scheduled timer", 1, manualExecutor.cancelledCount());
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("pending timer should be cancelled on close", 0, callCount.get());
     }
 
@@ -341,15 +346,23 @@ public class StateDebounceManagerTest {
     // ==== reset() (CONNMODE 3.5.6 — identify bypasses debounce) ====
 
     @Test
-    public void resetCancelsPendingTimer() throws InterruptedException {
+    public void resetCancelsPendingTimer() {
+        // Uses a manually-driven executor instead of Thread.sleep so the test is deterministic:
+        // the short pre-reset sleep can overshoot the debounce window on a loaded runner, and once
+        // the timer has begun firing reset() cannot recall it -- reset() re-seeds the baseline
+        // under taskLock while fireIfChanged() reads it under workLock, an interleaving the
+        // implementation documents as harmless but which this assertion cannot tolerate.
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr = new StateDebounceManager(
+                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS / 3);
         mgr.reset(true, true);
+        assertEquals("reset should cancel the scheduled timer", 1, manualExecutor.cancelledCount());
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        // Draining the queue runs nothing, because the only scheduled task was cancelled.
+        manualExecutor.runPendingTasks();
         assertEquals("reset should cancel the pending timer", 0, callCount.get());
 
         mgr.close();
