@@ -6,6 +6,7 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.Hook;
+import com.launchdarkly.sdk.android.integrations.Plugin;
 
 import java.io.Closeable;
 import java.util.Map;
@@ -402,4 +403,17 @@ public interface LDClientInterface extends Closeable {
      * @param hook The hook to add.
      */
     void addHook(Hook hook);
+
+    /**
+     * Registers a single {@link Plugin} with this client after it has been created; to register
+     * plugins beforehand, use the {@code plugins} method of {@link LDConfig.Builder} instead.
+     * <p>
+     * The plugin's hooks only start running once {@link Plugin#register} returns, so they do not
+     * observe what {@code register} itself does. Exceptions from {@link Plugin#getHooks} or
+     * {@code register} are logged rather than propagated, and leave the plugin contributing no
+     * hooks. Registration covers this client, and so this environment, alone.
+     *
+     * @param plugin the plugin to register; must not be null
+     */
+    void registerPlugin(Plugin plugin);
 }
