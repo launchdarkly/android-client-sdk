@@ -224,22 +224,23 @@ public class LDClientPluginsTest {
     }
 
     @Test
-    public void registerPluginDoesNotRunTheRegisteringPluginsOwnHooks() throws Exception {
+    public void registerPluginRunsTheRegisteringPluginsOwnHooks() throws Exception {
         MockHook testHook = new MockHook();
         EvaluateOnRegisterPlugin testPlugin = new EvaluateOnRegisterPlugin(testHook);
 
         try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
             ldClient.registerPlugin(testPlugin);
 
-            // The plugin evaluated a flag from inside register, but its own hooks were not live yet.
+            // The plugin evaluated a flag from inside register, and its own hooks were already live,
+            // as they would have been for a plugin configured up front.
             assertEquals(1, testPlugin.registerCalls.size());
-            assertEquals(0, testHook.beforeEvaluationCalls.size());
-            assertEquals(0, testHook.afterEvaluationCalls.size());
-
-            // They do run for evaluations made once registration has completed.
-            ldClient.boolVariation("test-flag", false);
             assertEquals(1, testHook.beforeEvaluationCalls.size());
             assertEquals(1, testHook.afterEvaluationCalls.size());
+
+            // And they keep running for evaluations made after registration.
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(2, testHook.beforeEvaluationCalls.size());
+            assertEquals(2, testHook.afterEvaluationCalls.size());
 
             logging.assertNoErrorsLogged();
         }
@@ -289,10 +290,11 @@ public class LDClientPluginsTest {
             ldClient.registerPlugin(testPlugin);
             assertEquals(1, testPlugin.registerCalls.size());
 
-            // A plugin that failed to register contributes no hooks.
+            // The hooks were already live when register threw, so they stay live, as they do for a
+            // plugin configured up front whose register throws.
             ldClient.boolVariation("test-flag", false);
-            assertEquals(0, testHook.beforeEvaluationCalls.size());
-            assertEquals(0, testHook.afterEvaluationCalls.size());
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+            assertEquals(1, testHook.afterEvaluationCalls.size());
 
             // The failure is reported in the log alone, since this path does not call
             // onPluginsReady.

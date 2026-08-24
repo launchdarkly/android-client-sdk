@@ -408,10 +408,11 @@ public interface LDClientInterface extends Closeable {
      * Registers a single {@link Plugin} with this client after it has been created; to register
      * plugins beforehand, use the {@code plugins} method of {@link LDConfig.Builder} instead.
      * <p>
-     * The plugin's hooks only start running once {@link Plugin#register} returns, so they do not
-     * observe what {@code register} itself does. Exceptions from {@link Plugin#getHooks} or
-     * {@code register} are logged rather than propagated, and leave the plugin contributing no
-     * hooks. Registration covers this client, and so this environment, alone.
+     * The plugin's hooks start running before {@link Plugin#register} is called, as they do for a
+     * plugin configured up front, so they observe what {@code register} itself does. An exception
+     * from {@link Plugin#getHooks} is logged and leaves the plugin unregistered and contributing no
+     * hooks; one from {@code register} is logged but leaves the hooks in place. Neither propagates.
+     * Registration covers this client, and so this environment, alone.
      * {@link Plugin#onPluginsReady} is not called, because it reports on a batch of plugins
      * registered together.
      *

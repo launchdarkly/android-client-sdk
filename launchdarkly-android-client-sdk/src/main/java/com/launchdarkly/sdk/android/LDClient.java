@@ -915,13 +915,14 @@ public class LDClient implements LDClientInterface, Closeable {
             return;
         }
 
+        // The hooks go live before register is called, as they do for a plugin configured on
+        // LDConfig, so that a plugin behaves the same however it was registered.
+        for (Hook hook : pluginHooks) {
+            hookRunner.addHook(hook);
+        }
+
         try {
             plugin.register(this, metadata);
-            // Adding the hooks only after register returns keeps them from observing the register
-            // call itself, and leaves a plugin whose registration threw contributing none.
-            for (Hook hook : pluginHooks) {
-                hookRunner.addHook(hook);
-            }
         } catch (Exception e) {
             logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
         }
