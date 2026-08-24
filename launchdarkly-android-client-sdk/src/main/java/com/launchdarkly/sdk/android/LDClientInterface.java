@@ -412,6 +412,8 @@ public interface LDClientInterface extends Closeable {
      * observe what {@code register} itself does. Exceptions from {@link Plugin#getHooks} or
      * {@code register} are logged rather than propagated, and leave the plugin contributing no
      * hooks. Registration covers this client, and so this environment, alone.
+     * {@link Plugin#onPluginsReady} is not called, because it reports on a batch of plugins
+     * registered together.
      *
      * @param plugin the plugin to register; must not be null
      */

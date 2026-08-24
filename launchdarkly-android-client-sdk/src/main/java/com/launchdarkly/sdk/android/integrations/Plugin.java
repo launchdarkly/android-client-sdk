@@ -48,6 +48,18 @@ public abstract class Plugin {
         return Collections.emptyList();
     }
 
+    /**
+     * Called once every plugin configured on {@link com.launchdarkly.sdk.android.LDConfig} has been
+     * registered, reporting whether they all succeeded.
+     *
+     * @param result   the outcome of registering that batch of plugins
+     * @param metadata metadata about the environment where the plugin is running.
+     * @deprecated This reports on a batch of plugins registered together, so it has no meaning for
+     *             {@link LDClient#registerPlugin(Plugin)}, which registers a single plugin and does
+     *             not call it. Do work that needs the client in {@link #register} instead, which
+     *             both paths call.
+     */
+    @Deprecated
     public void onPluginsReady(RegistrationCompleteResult result, EnvironmentMetadata metadata) {
         // default: do nothing
     }

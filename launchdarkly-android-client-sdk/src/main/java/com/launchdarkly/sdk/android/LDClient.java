@@ -84,6 +84,14 @@ public class LDClient implements LDClientInterface, Closeable {
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
 
+    // Shared by both registration paths, so that a plugin failing during init and the same plugin
+    // failing under registerPlugin are reported identically.
+    private static final String PLUGIN_GET_HOOKS_ERROR =
+            "Exception thrown getting hooks for plugin {}. Unable to get hooks, plugin will not be registered.";
+    private static final String PLUGIN_REGISTER_ERROR = "Exception thrown registering plugin {}.";
+    private static final String PLUGIN_ON_PLUGINS_READY_ERROR =
+            "Exception thrown executing onPluginsReady for plugin {}.";
+
 
     /**
      * Initializes the singleton/primary instance. The result is a {@link Future} which
@@ -229,7 +237,7 @@ public class LDClient implements LDClientInterface, Closeable {
                         instance.hookRunner.addHook(hook);
                     }
                 } catch (Exception e) {
-                    logger.error("Exception thrown getting hooks for plugin " + plugin.getMetadata().getName() + ". Unable to get hooks, plugin will not be registered.");
+                    logger.error(PLUGIN_GET_HOOKS_ERROR, pluginName(plugin));
                 }
             }
 
@@ -238,8 +246,8 @@ public class LDClient implements LDClientInterface, Closeable {
                 try {
                     plugin.register(instance, metadata);
                 } catch (Exception e) {
-                    pluginFailures.add(new RegistrationCompleteResult.Failure.PluginFailure(plugin.getMetadata().getName(), e.getMessage(), e));
-                    logger.error("Exception thrown registering plugin " + plugin.getMetadata().getName() + ".");
+                    pluginFailures.add(new RegistrationCompleteResult.Failure.PluginFailure(pluginName(plugin), e.getMessage(), e));
+                    logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
                 }
             }
 
@@ -247,13 +255,7 @@ public class LDClient implements LDClientInterface, Closeable {
                     ? RegistrationCompleteResult.success()
                     : RegistrationCompleteResult.failure(pluginFailures);
 
-            for (Plugin plugin : instance.plugins) {
-                try {
-                    plugin.onPluginsReady(pluginsRegistrationResult, metadata);
-                } catch (Exception e) {
-                    logger.error("Exception thrown executing onPluginsReady for plugin " + plugin.getMetadata().getName() + ".");
-                }
-            }
+            notifyPluginsReady(instance, metadata, pluginsRegistrationResult, logger);
         }
 
         final AtomicInteger initCounter = new AtomicInteger(config.getMobileKeys().size());
@@ -909,32 +911,41 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             pluginHooks = plugin.getHooks(metadata);
         } catch (Exception e) {
-            logger.error("Exception thrown getting hooks for plugin " + pluginName(plugin) + ". Unable to get hooks, plugin will not be registered.");
+            logger.error(PLUGIN_GET_HOOKS_ERROR, pluginName(plugin));
             return;
         }
 
-        RegistrationCompleteResult result;
         try {
             plugin.register(this, metadata);
-            result = RegistrationCompleteResult.success();
-        } catch (Exception e) {
-            logger.error("Exception thrown registering plugin " + pluginName(plugin) + ".");
-            result = RegistrationCompleteResult.failure(Collections.singletonList(
-                    new RegistrationCompleteResult.Failure.PluginFailure(pluginName(plugin), e.getMessage(), e)));
-        }
-
-        // The hooks go live only once register has succeeded, so a plugin whose registration failed
-        // never contributes hooks, and a plugin's own hooks do not observe its register call.
-        if (result instanceof RegistrationCompleteResult.Success) {
+            // Adding the hooks only after register returns keeps them from observing the register
+            // call itself, and leaves a plugin whose registration threw contributing none.
             for (Hook hook : pluginHooks) {
                 hookRunner.addHook(hook);
             }
-        }
-
-        try {
-            plugin.onPluginsReady(result, metadata);
         } catch (Exception e) {
-            logger.error("Exception thrown executing onPluginsReady for plugin " + pluginName(plugin) + ".");
+            logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
+        }
+    }
+
+    /**
+     * Tells every plugin configured on the environment how registering that whole batch went.
+     *
+     * <p>Kept in one place so that the SDK's only remaining call to the deprecated
+     * {@link Plugin#onPluginsReady} can be removed along with it.
+     */
+    @SuppressWarnings("deprecation")
+    private static void notifyPluginsReady(
+            LDClient instance,
+            EnvironmentMetadata metadata,
+            RegistrationCompleteResult result,
+            LDLogger logger
+    ) {
+        for (Plugin plugin : instance.plugins) {
+            try {
+                plugin.onPluginsReady(result, metadata);
+            } catch (Exception e) {
+                logger.error(PLUGIN_ON_PLUGINS_READY_ERROR, pluginName(plugin));
+            }
         }
     }
 
@@ -942,7 +953,7 @@ public class LDClient implements LDClientInterface, Closeable {
      * Reads a plugin's name for a log message, tolerating a plugin whose metadata itself throws:
      * otherwise reporting one failure would raise another out of the handler that reports it.
      */
-    private String pluginName(Plugin plugin) {
+    private static String pluginName(Plugin plugin) {
         try {
             return plugin.getMetadata().getName();
         } catch (Exception e) {

@@ -2,7 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import android.app.Application;
@@ -247,17 +246,16 @@ public class LDClientPluginsTest {
     }
 
     @Test
-    public void registerPluginReportsSuccessToOnPluginsReady() throws Exception {
+    public void registerPluginDoesNotCallOnPluginsReady() throws Exception {
         MockPlugin testPlugin = new MockPlugin(Collections.emptyList());
 
         try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
             ldClient.registerPlugin(testPlugin);
 
-            assertEquals(1, testPlugin.onPluginsReadyCalls.size());
-            assertEquals(RegistrationCompleteResult.success(), testPlugin.onPluginsReadyCalls.get(0).get("result"));
-
-            EnvironmentMetadata metadata = (EnvironmentMetadata) testPlugin.onPluginsReadyCalls.get(0).get("environmentMetadata");
-            assertEquals(mobileKey, metadata.getCredential());
+            // onPluginsReady reports on a batch of plugins registered together, so registering a
+            // single plugin on its own has nothing to report and does not call it.
+            assertEquals(1, testPlugin.registerCalls.size());
+            assertEquals(0, testPlugin.onPluginsReadyCalls.size());
 
             logging.assertNoErrorsLogged();
         }
@@ -296,14 +294,9 @@ public class LDClientPluginsTest {
             assertEquals(0, testHook.beforeEvaluationCalls.size());
             assertEquals(0, testHook.afterEvaluationCalls.size());
 
-            assertEquals(1, testPlugin.onPluginsReadyCalls.size());
-            RegistrationCompleteResult result =
-                    (RegistrationCompleteResult) testPlugin.onPluginsReadyCalls.get(0).get("result");
-            assertTrue(result instanceof RegistrationCompleteResult.Failure);
-            List<RegistrationCompleteResult.Failure.PluginFailure> failures =
-                    ((RegistrationCompleteResult.Failure) result).getFailures();
-            assertEquals(1, failures.size());
-            assertEquals("mock-plugin-name", failures.get(0).getPluginName());
+            // The failure is reported in the log alone, since this path does not call
+            // onPluginsReady.
+            assertEquals(0, testPlugin.onPluginsReadyCalls.size());
 
             logging.assertErrorLogged("Exception thrown registering plugin");
         }
@@ -427,6 +420,9 @@ public class LDClientPluginsTest {
             return this.hooks;
         }
 
+        // Overridden despite the deprecation so tests can assert both that the configured-plugin
+        // path still calls it and that registerPlugin does not.
+        @SuppressWarnings("deprecation")
         @Override
         public void onPluginsReady(RegistrationCompleteResult result, EnvironmentMetadata metadata) {
             onPluginsReadyCalls.add(Map.of(
