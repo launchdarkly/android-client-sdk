@@ -12,6 +12,7 @@ import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.TrackSeriesContext;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -73,8 +74,25 @@ public class HookRunner {
      * @param hook the hook to add
      */
     public synchronized void addHook(Hook hook) {
+        addHooks(Collections.singletonList(hook));
+    }
+
+    /**
+     * Adds hooks, which the next series to begin will run. A series already under way runs the hooks it began with.
+     * <p>
+     * The hooks become visible in a single step, so a series beginning on another thread runs either all of them or
+     * none of them, never part of the group. Adding the hooks a plugin contributes this way, rather than with repeated
+     * {@link #addHook(Hook)} calls, keeps hooks that are meant to work as a set from running half applied.
+     *
+     * @param hooksToAdd the hooks to add
+     */
+    public synchronized void addHooks(Collection<Hook> hooksToAdd) {
+        if (hooksToAdd.isEmpty()) {
+            return;
+        }
+
         List<Hook> updated = new ArrayList<>(hooks);
-        updated.add(hook);
+        updated.addAll(hooksToAdd);
         hooks = Collections.unmodifiableList(updated);
     }
 

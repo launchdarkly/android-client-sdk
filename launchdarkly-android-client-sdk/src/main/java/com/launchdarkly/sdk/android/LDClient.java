@@ -933,9 +933,9 @@ public class LDClient implements LDClientInterface, Closeable {
             hooksToActivate.addAll(pluginHooks);
         }
 
-        for (Hook hook : hooksToActivate) {
-            hookRunner.addHook(hook);
-        }
+        // Added in one step, so that a series beginning on another thread cannot run a plugin's hooks
+        // half applied.
+        hookRunner.addHooks(hooksToActivate);
 
         return failures;
     }

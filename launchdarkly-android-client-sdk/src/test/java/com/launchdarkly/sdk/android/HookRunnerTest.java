@@ -593,6 +593,48 @@ public class HookRunnerTest extends EasyMockSupport {
     }
 
     @Test
+    public void addsAGroupOfHooksAllAtOnce() throws InterruptedException {
+        int groupSize = 8;
+        int groups = 300;
+        HookRunner runner = new HookRunner(logging.logger, Collections.emptyList());
+        AtomicInteger hooksObserved = new AtomicInteger();
+        List<Integer> partialGroups = new ArrayList<>();
+
+        Thread adder = new Thread(() -> {
+            for (int i = 0; i < groups; i++) {
+                List<Hook> group = new ArrayList<>(groupSize);
+                for (int j = 0; j < groupSize; j++) {
+                    group.add(new Hook("group-hook") {
+                        @Override
+                        public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData) {
+                            hooksObserved.incrementAndGet();
+                            return seriesData;
+                        }
+                    });
+                }
+                runner.addHooks(group);
+            }
+        });
+
+        EvaluationDetail<LDValue> evaluationResult = EvaluationDetail.fromValue(LDValue.of(true), 1, EvaluationReason.off());
+        adder.start();
+        while (adder.isAlive()) {
+            hooksObserved.set(0);
+            runner.withEvaluation("testMethod", "test-flag", LDContext.create("user-123"), LDValue.of(false), () -> evaluationResult);
+            int observed = hooksObserved.get();
+            if (observed % groupSize != 0) {
+                partialGroups.add(observed);
+            }
+        }
+        adder.join();
+
+        // A group of hooks becomes visible in one step, so an evaluation racing the registration runs either
+        // all of a group's hooks or none of them, never part of one.
+        assertEquals(Collections.emptyList(), partialGroups);
+        logging.assertNothingLogged();
+    }
+
+    @Test
     public void logsUnknownHookWhenGetMetadataThrows() {
         String method = "testMethod";
         String key = "test-flag";
