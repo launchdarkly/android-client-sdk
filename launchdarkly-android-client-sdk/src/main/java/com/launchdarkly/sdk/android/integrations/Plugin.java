@@ -54,10 +54,8 @@ public abstract class Plugin {
      *
      * @param result   the outcome of registering that batch of plugins
      * @param metadata metadata about the environment where the plugin is running.
-     * @deprecated This reports on a batch of plugins registered together, so it has no meaning for
-     *             {@link LDClient#registerPlugin(Plugin)}, which registers a single plugin and does
-     *             not call it. Do work that needs the client in {@link #register} instead, which
-     *             both paths call.
+     * @deprecated onPluginsReady was necessary in the past, 
+     * but has since been determined to be problematic and is being removed in the next major version.
      */
     @Deprecated
     public void onPluginsReady(RegistrationCompleteResult result, EnvironmentMetadata metadata) {
