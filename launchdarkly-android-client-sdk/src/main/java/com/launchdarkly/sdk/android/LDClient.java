@@ -225,31 +225,12 @@ public class LDClient implements LDClientInterface, Closeable {
             instances = newInstances;
         }
 
-        // after instances have been created, set up hooks for each plugin of the instance and call register
+        // after instances have been created, register each instance's plugins
         for (LDClient instance : createdInstances) {
             EnvironmentMetadata metadata = instance.environmentMetadata;
 
-            for (Plugin plugin : instance.plugins) {
-                // try is for each plugin so that if one plugin has an issue, the others will have an opportunity to be used
-                try {
-                    List<Hook> pluginHooks = plugin.getHooks(metadata);
-                    for (Hook hook : pluginHooks) {
-                        instance.hookRunner.addHook(hook);
-                    }
-                } catch (Exception e) {
-                    logger.error(PLUGIN_GET_HOOKS_ERROR, pluginName(plugin));
-                }
-            }
-
-            List<RegistrationCompleteResult.Failure.PluginFailure> pluginFailures = new ArrayList<>();
-            for (Plugin plugin : instance.plugins) {
-                try {
-                    plugin.register(instance, metadata);
-                } catch (Exception e) {
-                    pluginFailures.add(new RegistrationCompleteResult.Failure.PluginFailure(pluginName(plugin), e.getMessage(), e));
-                    logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
-                }
-            }
+            List<RegistrationCompleteResult.Failure.PluginFailure> pluginFailures =
+                    instance.registerPlugins(instance.plugins, metadata);
 
             RegistrationCompleteResult pluginsRegistrationResult = pluginFailures.isEmpty()
                     ? RegistrationCompleteResult.success()
@@ -905,27 +886,58 @@ public class LDClient implements LDClientInterface, Closeable {
             throw new NullPointerException("plugin must not be null");
         }
 
-        EnvironmentMetadata metadata = environmentMetadata;
+        registerPlugins(Collections.singletonList(plugin), environmentMetadata);
+    }
 
-        List<Hook> pluginHooks;
-        try {
-            pluginHooks = plugin.getHooks(metadata);
-        } catch (Exception e) {
-            logger.error(PLUGIN_GET_HOOKS_ERROR, pluginName(plugin));
-            return;
+    /**
+     * Registers each of {@code plugins} with this client, then activates the hooks contributed by
+     * those that registered successfully.
+     * <p>
+     * The hooks go live as the last step, once every plugin has registered, so that no plugin's
+     * hooks observe any plugin's {@link Plugin#register} call, and a plugin that failed to register
+     * contributes none. Shared by the plugins configured on {@link LDConfig} and by
+     * {@link #registerPlugin}, so that a plugin behaves the same however it was registered.
+     * <p>
+     * Exceptions from a plugin are logged rather than propagated, so that one failing plugin does
+     * not stop the others being registered.
+     *
+     * @param plugins  the plugins to register
+     * @param metadata the environment to describe to the plugins
+     * @return the failures to report to {@link Plugin#onPluginsReady}, empty if all succeeded
+     */
+    private List<RegistrationCompleteResult.Failure.PluginFailure> registerPlugins(
+            List<Plugin> plugins,
+            EnvironmentMetadata metadata
+    ) {
+        List<RegistrationCompleteResult.Failure.PluginFailure> failures = new ArrayList<>();
+        List<Hook> hooksToActivate = new ArrayList<>();
+
+        for (Plugin plugin : plugins) {
+            List<Hook> pluginHooks;
+            try {
+                pluginHooks = plugin.getHooks(metadata);
+            } catch (Exception e) {
+                logger.error(PLUGIN_GET_HOOKS_ERROR, pluginName(plugin));
+                failures.add(new RegistrationCompleteResult.Failure.PluginFailure(pluginName(plugin), e.getMessage(), e));
+                continue;
+            }
+
+            try {
+                plugin.register(this, metadata);
+            } catch (Exception e) {
+                logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
+                failures.add(new RegistrationCompleteResult.Failure.PluginFailure(pluginName(plugin), e.getMessage(), e));
+                continue;
+            }
+
+            hooksToActivate.addAll(pluginHooks);
         }
 
-        // The hooks go live before register is called, as they do for a plugin configured on
-        // LDConfig, so that a plugin behaves the same however it was registered.
-        for (Hook hook : pluginHooks) {
+        for (Hook hook : hooksToActivate) {
             hookRunner.addHook(hook);
         }
 
-        try {
-            plugin.register(this, metadata);
-        } catch (Exception e) {
-            logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
-        }
+        return failures;
     }
 
     /**
