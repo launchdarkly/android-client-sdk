@@ -890,14 +890,15 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     /**
-     * Registers each of {@code plugins} with this client, then activates the hooks contributed by
-     * those that registered successfully.
+     * Activates the hooks contributed by {@code plugins}, then registers each of those plugins with
+     * this client.
      * <p>
-     * The hooks go live as the last step, once every plugin has registered, so that no plugin's
-     * hooks observe any plugin's {@link Plugin#register} call, and a plugin that failed to register
-     * contributes none. Shared by the plugins configured on {@link LDConfig} and by
-     * {@link #registerPlugin}, so that a plugin behaves the same however it was registered.
+     * The hooks go live before any of the plugins registers, so that a plugin's hooks observe its own
+     * {@link Plugin#register} call and those of the plugins registered alongside it. Shared by the
+     * plugins configured on {@link LDConfig} and by {@link #registerPlugin}, so that a plugin behaves
+     * the same however it was registered.
      * <p>
+     * A plugin whose {@link Plugin#getHooks} throws contributes no hooks and is not registered.
      * Exceptions from a plugin are logged rather than propagated, so that one failing plugin does
      * not stop the others being registered.
      *
@@ -911,6 +912,7 @@ public class LDClient implements LDClientInterface, Closeable {
     ) {
         List<RegistrationCompleteResult.Failure.PluginFailure> failures = new ArrayList<>();
         List<Hook> hooksToActivate = new ArrayList<>();
+        List<Plugin> pluginsToRegister = new ArrayList<>();
 
         for (Plugin plugin : plugins) {
             List<Hook> pluginHooks;
@@ -922,20 +924,22 @@ public class LDClient implements LDClientInterface, Closeable {
                 continue;
             }
 
-            try {
-                plugin.register(this, metadata);
-            } catch (Exception e) {
-                logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
-                failures.add(new RegistrationCompleteResult.Failure.PluginFailure(pluginName(plugin), e.getMessage(), e));
-                continue;
-            }
-
             hooksToActivate.addAll(pluginHooks);
+            pluginsToRegister.add(plugin);
         }
 
         // Added in one step, so that a series beginning on another thread cannot run a plugin's hooks
         // half applied.
         hookRunner.addHooks(hooksToActivate);
+
+        for (Plugin plugin : pluginsToRegister) {
+            try {
+                plugin.register(this, metadata);
+            } catch (Exception e) {
+                logger.error(PLUGIN_REGISTER_ERROR, pluginName(plugin));
+                failures.add(new RegistrationCompleteResult.Failure.PluginFailure(pluginName(plugin), e.getMessage(), e));
+            }
+        }
 
         return failures;
     }
