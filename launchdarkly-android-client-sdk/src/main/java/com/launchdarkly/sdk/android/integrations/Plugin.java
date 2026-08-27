@@ -48,6 +48,16 @@ public abstract class Plugin {
         return Collections.emptyList();
     }
 
+    /**
+     * Called once every plugin configured on {@link com.launchdarkly.sdk.android.LDConfig} has been
+     * registered, reporting whether they all succeeded.
+     *
+     * @param result   the outcome of registering that batch of plugins
+     * @param metadata metadata about the environment where the plugin is running.
+     * @deprecated onPluginsReady was necessary in the past, 
+     * but has since been determined to be problematic and is being removed in the next major version.
+     */
+    @Deprecated
     public void onPluginsReady(RegistrationCompleteResult result, EnvironmentMetadata metadata) {
         // default: do nothing
     }

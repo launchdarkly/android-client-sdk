@@ -1,6 +1,8 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import android.app.Application;
@@ -18,6 +20,7 @@ import com.launchdarkly.sdk.android.integrations.IdentifySeriesContext;
 import com.launchdarkly.sdk.android.integrations.IdentifySeriesResult;
 import com.launchdarkly.sdk.android.integrations.Plugin;
 import com.launchdarkly.sdk.android.integrations.PluginMetadata;
+import com.launchdarkly.sdk.android.integrations.RegistrationCompleteResult;
 import com.launchdarkly.sdk.android.integrations.TrackSeriesContext;
 
 import org.junit.Before;
@@ -175,6 +178,245 @@ public class LDClientPluginsTest {
         }
     }
 
+    @Test
+    public void configuredPluginThatFailsToRegisterKeepsItsHooks() throws Exception {
+        MockHook testHook = new MockHook();
+        MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook), false, true);
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testPlugin)), ldContext, 1)) {
+            assertEquals(1, testPlugin.registerCalls.size());
+
+            // The hooks were already live when register threw, so they stay live.
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+            assertEquals(1, testHook.afterEvaluationCalls.size());
+
+            assertEquals(1, testPlugin.onPluginsReadyCalls.size());
+            RegistrationCompleteResult result =
+                    (RegistrationCompleteResult) testPlugin.onPluginsReadyCalls.get(0).get("result");
+            assertTrue(result instanceof RegistrationCompleteResult.Failure);
+
+            logging.assertErrorLogged("Exception thrown registering plugin");
+        }
+    }
+
+    @Test
+    public void configuredPluginWhoseGetHooksThrowsIsNotRegistered() throws Exception {
+        MockHook testHook = new MockHook();
+        MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook), true, false);
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(testPlugin)), ldContext, 1)) {
+            // The logged message says the plugin will not be registered, and it is not.
+            assertEquals(0, testPlugin.registerCalls.size());
+
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(0, testHook.beforeEvaluationCalls.size());
+
+            logging.assertErrorLogged("Unable to get hooks");
+        }
+    }
+
+    @Test
+    public void configuredPluginHooksObserveAnotherPluginsRegister() throws Exception {
+        MockHook firstHook = new MockHook();
+        MockPlugin firstPlugin = new MockPlugin(Collections.singletonList(firstHook));
+        // Registers after the first plugin, and evaluates a flag while doing so.
+        EvaluateOnRegisterPlugin secondPlugin = new EvaluateOnRegisterPlugin(new MockHook());
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(firstPlugin, secondPlugin)), ldContext, 1)) {
+            assertEquals(1, secondPlugin.registerCalls.size());
+
+            // Hooks are activated before any plugin registers, so the first plugin's hooks observed
+            // the evaluation the second plugin made while registering.
+            assertEquals(1, firstHook.beforeEvaluationCalls.size());
+
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(2, firstHook.beforeEvaluationCalls.size());
+
+            logging.assertNoErrorsLogged();
+        }
+    }
+
+    @Test
+    public void configuredPluginFailureDoesNotPreventOtherPlugins() throws Exception {
+        MockHook goodHook = new MockHook();
+        MockPlugin badPlugin = new MockPlugin(Collections.emptyList(), false, true);
+        MockPlugin goodPlugin = new MockPlugin(Collections.singletonList(goodHook));
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(List.of(badPlugin, goodPlugin)), ldContext, 1)) {
+            assertEquals(1, goodPlugin.registerCalls.size());
+
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(1, goodHook.beforeEvaluationCalls.size());
+
+            logging.assertErrorLogged("Exception thrown registering plugin");
+        }
+    }
+
+    @Test
+    public void registerPluginPassesClientAndEnvironmentMetadata() throws Exception {
+        MockPlugin testPlugin = new MockPlugin(Collections.emptyList());
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
+            ldClient.registerPlugin(testPlugin);
+
+            assertEquals(1, testPlugin.getHooksCalls.size());
+            assertEquals(1, testPlugin.registerCalls.size());
+            assertEquals(ldClient, testPlugin.registerCalls.get(0).get("client"));
+
+            EnvironmentMetadata metadata = (EnvironmentMetadata) testPlugin.registerCalls.get(0).get("environmentMetadata");
+            assertEquals(mobileKey, metadata.getCredential());
+            assertEquals("AndroidClient", metadata.getSdkMetadata().getName());
+
+            // The same environment description a plugin configured up front would have been given.
+            assertEquals(metadata, testPlugin.getHooksCalls.get(0).get("environmentMetadata"));
+
+            logging.assertNoErrorsLogged();
+        }
+    }
+
+    @Test
+    public void registerPluginActivatesBundledHooks() throws Exception {
+        MockHook testHook = new MockHook();
+        MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook));
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
+            ldClient.registerPlugin(testPlugin);
+
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+            assertEquals(1, testHook.afterEvaluationCalls.size());
+
+            ldClient.identify(LDContext.create("newUserKey")).get();
+            // Only the identify made after registration: the implicit one during init predates the plugin.
+            assertEquals(1, testHook.beforeIdentifyCalls.size());
+            assertEquals(1, testHook.afterIdentifyCalls.size());
+
+            ldClient.track("test-event");
+            assertEquals(1, testHook.afterTrackCalls.size());
+
+            logging.assertNoErrorsLogged();
+        }
+    }
+
+    @Test
+    public void registerPluginRunsTheRegisteringPluginsOwnHooks() throws Exception {
+        MockHook testHook = new MockHook();
+        EvaluateOnRegisterPlugin testPlugin = new EvaluateOnRegisterPlugin(testHook);
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
+            ldClient.registerPlugin(testPlugin);
+
+            // The plugin evaluated a flag from inside register, and its own hooks were already live
+            // by then, as they are for a plugin configured up front.
+            assertEquals(1, testPlugin.registerCalls.size());
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+            assertEquals(1, testHook.afterEvaluationCalls.size());
+
+            // And they keep running for evaluations made after registration.
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(2, testHook.beforeEvaluationCalls.size());
+            assertEquals(2, testHook.afterEvaluationCalls.size());
+
+            logging.assertNoErrorsLogged();
+        }
+    }
+
+    @Test
+    public void registerPluginDoesNotCallOnPluginsReady() throws Exception {
+        MockPlugin testPlugin = new MockPlugin(Collections.emptyList());
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
+            ldClient.registerPlugin(testPlugin);
+
+            // onPluginsReady reports on a batch of plugins registered together, so registering a
+            // single plugin on its own has nothing to report and does not call it.
+            assertEquals(1, testPlugin.registerCalls.size());
+            assertEquals(0, testPlugin.onPluginsReadyCalls.size());
+
+            logging.assertNoErrorsLogged();
+        }
+    }
+
+    @Test
+    public void registerPluginDoesNotRegisterPluginWhoseGetHooksThrows() throws Exception {
+        MockHook testHook = new MockHook();
+        MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook), true, false);
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
+            ldClient.registerPlugin(testPlugin);
+
+            assertEquals(0, testPlugin.registerCalls.size());
+            assertEquals(0, testPlugin.onPluginsReadyCalls.size());
+
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(0, testHook.beforeEvaluationCalls.size());
+
+            logging.assertErrorLogged("Unable to get hooks");
+        }
+    }
+
+    @Test
+    public void registerPluginToleratesRegisterThrowing() throws Exception {
+        MockHook testHook = new MockHook();
+        MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook), false, true);
+
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
+            // The exception is logged rather than propagated.
+            ldClient.registerPlugin(testPlugin);
+            assertEquals(1, testPlugin.registerCalls.size());
+
+            // The hooks were already live when register threw, so they stay live, as they do for a
+            // plugin configured up front whose register throws.
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+            assertEquals(1, testHook.afterEvaluationCalls.size());
+
+            // The failure is reported in the log alone, since this path does not call
+            // onPluginsReady.
+            assertEquals(0, testPlugin.onPluginsReadyCalls.size());
+
+            logging.assertErrorLogged("Exception thrown registering plugin");
+        }
+    }
+
+    @Test
+    public void registerPluginRejectsNullPlugin() throws Exception {
+        try (LDClient ldClient = LDClient.init(application, makeOfflineConfig(null), ldContext, 1)) {
+            assertThrows(NullPointerException.class, () -> ldClient.registerPlugin(null));
+        }
+    }
+
+    @Test
+    public void registerPluginAppliesOnlyToTheClientItIsCalledOn() throws Exception {
+        MockHook testHook = new MockHook();
+        MockPlugin testPlugin = new MockPlugin(Collections.singletonList(testHook));
+
+        LDConfig config = new LDConfig.Builder(LDConfig.Builder.AutoEnvAttributes.Disabled)
+                .mobileKey(mobileKey)
+                .secondaryMobileKeys(Map.of("secondaryEnvironment", secondaryMobileKey))
+                .offline(true)
+                .events(Components.noEvents())
+                .logAdapter(logging.logAdapter)
+                .build();
+
+        try (LDClient ldClient = LDClient.init(application, config, ldContext, 10)) {
+            ldClient.registerPlugin(testPlugin);
+
+            assertEquals(1, testPlugin.registerCalls.size());
+            assertEquals(ldClient, testPlugin.registerCalls.get(0).get("client"));
+
+            ldClient.boolVariation("test-flag", false);
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+
+            // The other environment has its own client, which this plugin was not registered with.
+            LDClient.getForMobileKey("secondaryEnvironment").boolVariation("test-flag", false);
+            assertEquals(1, testHook.beforeEvaluationCalls.size());
+
+            logging.assertNoErrorsLogged();
+        }
+    }
+
     private LDConfig makeOfflineConfig(List<Plugin> plugins) {
         LDConfig.Builder builder = new LDConfig.Builder(LDConfig.Builder.AutoEnvAttributes.Disabled)
                 .mobileKey(mobileKey)
@@ -192,12 +434,21 @@ public class LDClientPluginsTest {
     private static class MockPlugin extends Plugin {
 
         private final List<Hook> hooks;
+        private final boolean throwOnGetHooks;
+        private final boolean throwOnRegister;
 
         public final List<Map<String, Object>> getHooksCalls = new ArrayList<>();
         public final List<Map<String, Object>> registerCalls = new ArrayList<>();
+        public final List<Map<String, Object>> onPluginsReadyCalls = new ArrayList<>();
 
         public MockPlugin(List<Hook> hooks) {
+            this(hooks, false, false);
+        }
+
+        public MockPlugin(List<Hook> hooks, boolean throwOnGetHooks, boolean throwOnRegister) {
             this.hooks = hooks;
+            this.throwOnGetHooks = throwOnGetHooks;
+            this.throwOnRegister = throwOnRegister;
         }
 
         @NonNull
@@ -230,6 +481,9 @@ public class LDClientPluginsTest {
                     "client", client,
                     "environmentMetadata", metadata
             ));
+            if (throwOnRegister) {
+                throw new RuntimeException("register failed for mock-plugin-name");
+            }
         }
 
         @NonNull
@@ -238,7 +492,60 @@ public class LDClientPluginsTest {
             getHooksCalls.add(Map.of(
                     "environmentMetadata", metadata
             ));
+            if (throwOnGetHooks) {
+                throw new RuntimeException("getHooks failed for mock-plugin-name");
+            }
             return this.hooks;
+        }
+
+        // Overridden despite the deprecation so tests can assert both that the configured-plugin
+        // path still calls it and that registerPlugin does not.
+        @SuppressWarnings("deprecation")
+        @Override
+        public void onPluginsReady(RegistrationCompleteResult result, EnvironmentMetadata metadata) {
+            onPluginsReadyCalls.add(Map.of(
+                    "result", result,
+                    "environmentMetadata", metadata
+            ));
+        }
+    }
+
+    /**
+     * Evaluates a flag from inside {@code register}, so a test can tell whether the plugin's own hooks were live at
+     * that point.
+     */
+    private static class EvaluateOnRegisterPlugin extends Plugin {
+
+        private final Hook hook;
+
+        public final List<Map<String, Object>> registerCalls = new ArrayList<>();
+
+        public EvaluateOnRegisterPlugin(Hook hook) {
+            this.hook = hook;
+        }
+
+        @NonNull
+        @Override
+        public PluginMetadata getMetadata() {
+            return new PluginMetadata() {
+                @NonNull
+                @Override
+                public String getName() {
+                    return "evaluate-on-register-plugin";
+                }
+            };
+        }
+
+        @Override
+        public void register(LDClient client, EnvironmentMetadata metadata) {
+            registerCalls.add(Map.of("client", client, "environmentMetadata", metadata));
+            client.boolVariation("test-flag", false);
+        }
+
+        @NonNull
+        @Override
+        public List<Hook> getHooks(EnvironmentMetadata metadata) {
+            return Collections.singletonList(hook);
         }
     }
 
