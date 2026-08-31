@@ -663,17 +663,23 @@ public class FDv2DataSourceTest {
         AtomicInteger firstCallCount = new AtomicInteger(0);
         AtomicInteger secondCallCount = new AtomicInteger(0);
 
-        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                interrupted());
-        MockQueuedSynchronizer secondSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false));
-
+        // Each factory must build a fresh synchronizer, as the real ones do. SourceManager closes
+        // the synchronizer it is switching away from, and a closed one reports SHUTDOWN
+        // immediately, so handing the same instance back on every recovery would spin this loop.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Arrays.asList(
-                        () -> { firstCallCount.incrementAndGet(); return firstSync; },
-                        () -> { secondCallCount.incrementAndGet(); return secondSync; }),
+                        () -> {
+                            firstCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                    interrupted());
+                        },
+                        () -> {
+                            secondCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false));
+                        }),
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);

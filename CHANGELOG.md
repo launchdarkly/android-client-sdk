@@ -2,6 +2,20 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.16.0](https://github.com/launchdarkly/android-client-sdk/compare/5.15.0...5.16.0) (2026-08-27)
+
+
+### Features
+
+* add registerPlugin so a plugin can be added after the client starts ([8204d6b](https://github.com/launchdarkly/android-client-sdk/commit/8204d6b5cd5ea410cd752446a1d2eba50f6562ff))
+* add registerPlugin so a plugin can be added after the client starts ([#393](https://github.com/launchdarkly/android-client-sdk/issues/393)) ([49b7c9f](https://github.com/launchdarkly/android-client-sdk/commit/49b7c9f74f88e9054d4004a521e447a483742637))
+
+
+### Bug Fixes
+
+* make the close/reset timer tests deterministic ([0160533](https://github.com/launchdarkly/android-client-sdk/commit/0160533a7fa985ccf36caf84fcee9ebed85d344d))
+* make the close/reset timer tests deterministic ([#394](https://github.com/launchdarkly/android-client-sdk/issues/394)) ([984d2e6](https://github.com/launchdarkly/android-client-sdk/commit/984d2e6cc8f09eb166b41bd8b4832ef4c1061a12))
+
 ## [5.15.0](https://github.com/launchdarkly/android-client-sdk/compare/5.14.0...5.15.0) (2026-08-17)
 
 
