@@ -13,6 +13,27 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+/**
+ * Tests for {@link StateDebounceManager}.
+ * <p>
+ * Tests here use one of two task executors, and the choice is deliberate:
+ * <ul>
+ *   <li>{@link ManualTaskExecutor} for everything asserting debounce <em>semantics</em>
+ *       (coalescing, A&rarr;B&rarr;A dedup, close, reset). A scheduled task runs only when the
+ *       test calls {@link ManualTaskExecutor#runPendingTasks()}, so each such call stands in for
+ *       "the debounce window elapsed". This makes the test single-threaded and removes both
+ *       timing races that {@code Thread.sleep} introduces: the timer thread never has to be
+ *       scheduled within a wall-clock budget, and a sequence of setters can never be split
+ *       across two debounce windows by an unlucky pause.</li>
+ *   <li>{@link SimpleTestTaskExecutor} (a real single-thread scheduled pool) only where the
+ *       real-time or cross-thread behavior <em>is</em> the thing under test:
+ *       {@link #callbackFiredAfterDebounceWindow()} and
+ *       {@link #closeWaitsForInflightReconcileCallback()}. Both use latches with generous
+ *       timeouts rather than fixed sleeps.</li>
+ * </ul>
+ * Immediate-mode tests ({@code debounceMs == 0}) touch no executor at all -- the callback fires
+ * synchronously inside the setter -- so they are deterministic either way.
+ */
 public class StateDebounceManagerTest {
 
     private static final long TEST_DEBOUNCE_MS = 50;
@@ -39,6 +60,22 @@ public class StateDebounceManagerTest {
         );
     }
 
+    /**
+     * Builds a manager driven by a caller-supplied {@link ManualTaskExecutor} so the test decides
+     * when the debounce window elapses. See the class Javadoc for why this is preferred.
+     */
+    private StateDebounceManager createManager(
+            ManualTaskExecutor manualExecutor,
+            boolean networkAvailable,
+            boolean foreground,
+            Runnable onReconcile
+    ) {
+        return new StateDebounceManager(
+                networkAvailable, foreground,
+                manualExecutor, TEST_DEBOUNCE_MS, onReconcile
+        );
+    }
+
     @Test
     public void callbackFiredAfterDebounceWindow() throws InterruptedException {
         CountDownLatch latch = new CountDownLatch(1);
@@ -53,13 +90,10 @@ public class StateDebounceManagerTest {
 
     @Test
     public void callbackNotFiredBeforeDebounceWindow() {
-        // Uses a manually-driven executor instead of Thread.sleep so the test is deterministic:
-        // a wall-clock "should not have fired yet" assertion is flaky on loaded CI runners, where
-        // the short pre-window sleep can overshoot the debounce window and let the timer fire.
         AtomicInteger callCount = new AtomicInteger(0);
         ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
-        StateDebounceManager mgr = new StateDebounceManager(
-                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         // The state change schedules the debounce timer but must not fire the callback yet.
         mgr.setNetworkAvailable(false);
@@ -73,14 +107,18 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void duplicateValueIsNoOp() throws InterruptedException {
+    public void duplicateValueIsNoOp() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
+        // Both setters write the value the manager already holds, so neither should schedule
+        // a timer; draining the queue therefore has nothing to run.
         mgr.setNetworkAvailable(true);
         mgr.setForeground(true);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
 
+        manualExecutor.runPendingTasks();
         assertEquals("no-op changes should not trigger callback", 0, callCount.get());
 
         mgr.close();
@@ -88,13 +126,10 @@ public class StateDebounceManagerTest {
 
     @Test
     public void timerResetsOnEachEvent() {
-        // Uses a manually-driven executor instead of Thread.sleep so the test is deterministic:
-        // wall-clock-based timing made the mid-window "should not have fired yet" assertion flaky
-        // on loaded CI runners (the cumulative sleeps could overshoot the debounce window).
         AtomicInteger callCount = new AtomicInteger(0);
         ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
-        StateDebounceManager mgr = new StateDebounceManager(
-                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         // First event schedules a timer; it has not fired yet.
         mgr.setNetworkAvailable(false);
@@ -113,9 +148,11 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void multipleRapidChangesCoalesceIntoOneCallback() throws InterruptedException {
+    public void multipleRapidChangesCoalesceIntoOneCallback() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
         mgr.setNetworkAvailable(true);
@@ -123,7 +160,12 @@ public class StateDebounceManagerTest {
         mgr.setForeground(false);
         mgr.setForeground(true);
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 4);
+        // All five changes land in one window: each reschedules, cancelling the timer its
+        // predecessor scheduled, so only the last one survives to run.
+        assertEquals("every change after the first should reschedule",
+                4, manualExecutor.cancelledCount());
+
+        manualExecutor.runPendingTasks();
         // Final state (network=false, foreground=true) differs from initial baseline
         // (network=true, foreground=true), so the dedup allows the callback to fire.
         assertEquals("rapid changes should coalesce into one callback", 1, callCount.get());
@@ -132,26 +174,25 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void closePreventsFutureCallbacks() throws InterruptedException {
+    public void closePreventsFutureCallbacks() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
         mgr.close();
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("callback should not fire after close()", 0, callCount.get());
     }
 
     @Test
     public void closeCancelsPendingTimer() {
-        // Manually-driven executor for the same reason as resetCancelsPendingTimer: the pre-close
-        // sleep can overshoot the debounce window on a loaded runner, letting the timer fire before
-        // close() has a chance to cancel it.
         AtomicInteger callCount = new AtomicInteger(0);
         ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
-        StateDebounceManager mgr = new StateDebounceManager(
-                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
         mgr.close();
@@ -162,15 +203,17 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void settersAfterCloseDoNotTriggerCallback() throws InterruptedException {
+    public void settersAfterCloseDoNotTriggerCallback() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         mgr.close();
         mgr.setNetworkAvailable(false);
         mgr.setForeground(false);
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("setters after close should not trigger callback", 0, callCount.get());
     }
 
@@ -270,16 +313,20 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void separateEventsProduceSeparateCallbacks() throws InterruptedException {
+    public void separateEventsProduceSeparateCallbacks() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
+        // Each runPendingTasks() closes one debounce window, so these are two distinct windows
+        // rather than two changes coalescing into one.
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals(1, callCount.get());
 
         mgr.setNetworkAvailable(true);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals(2, callCount.get());
 
         mgr.close();
@@ -292,24 +339,29 @@ public class StateDebounceManagerTest {
     // debounce window and returned to the baseline state.
 
     @Test
-    public void dedupSuppressesAtoBtoAWithinWindow() throws InterruptedException {
+    public void dedupSuppressesAtoBtoAWithinWindow() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
-        // foreground: true → false → true within the same window
+        // foreground: true → false → true. Both setters are guaranteed to land in the same
+        // window, because no timer can fire until runPendingTasks() below.
         mgr.setForeground(false);
         mgr.setForeground(true);
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("A→B→A within window should suppress the callback", 0, callCount.get());
 
         mgr.close();
     }
 
     @Test
-    public void dedupSuppressesMultiAxisAtoBtoAWithinWindow() throws InterruptedException {
+    public void dedupSuppressesMultiAxisAtoBtoAWithinWindow() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         // Both axes oscillate and return to their baseline within the window.
         mgr.setNetworkAvailable(false);
@@ -317,7 +369,7 @@ public class StateDebounceManagerTest {
         mgr.setNetworkAvailable(true);
         mgr.setForeground(true);
 
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("multi-axis A→B→A within window should suppress the callback",
                 0, callCount.get());
 
@@ -325,19 +377,21 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void dedupAllowsGenuineChangeAfterSuppression() throws InterruptedException {
+    public void dedupAllowsGenuineChangeAfterSuppression() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         // First window: A→B→A, suppressed.
         mgr.setForeground(false);
         mgr.setForeground(true);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("first window should be suppressed", 0, callCount.get());
 
         // Second window: a genuine transition still fires.
         mgr.setForeground(false);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("subsequent genuine transition should fire", 1, callCount.get());
 
         mgr.close();
@@ -347,15 +401,15 @@ public class StateDebounceManagerTest {
 
     @Test
     public void resetCancelsPendingTimer() {
-        // Uses a manually-driven executor instead of Thread.sleep so the test is deterministic:
-        // the short pre-reset sleep can overshoot the debounce window on a loaded runner, and once
-        // the timer has begun firing reset() cannot recall it -- reset() re-seeds the baseline
-        // under taskLock while fireIfChanged() reads it under workLock, an interleaving the
-        // implementation documents as harmless but which this assertion cannot tolerate.
+        // Driving the timer manually also sidesteps an interleaving this assertion cannot
+        // tolerate: once the timer has begun firing, reset() cannot recall it, because reset()
+        // re-seeds the baseline under taskLock while fireIfChanged() reads it under workLock.
+        // The implementation documents that interleaving as harmless, but it is not observable
+        // as "cancelled" from the test's point of view.
         AtomicInteger callCount = new AtomicInteger(0);
         ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
-        StateDebounceManager mgr = new StateDebounceManager(
-                true, true, manualExecutor, TEST_DEBOUNCE_MS, callCount::incrementAndGet);
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         mgr.setNetworkAvailable(false);
         mgr.reset(true, true);
@@ -369,56 +423,63 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void resetDoesNotInvokeReconcileCallback() throws InterruptedException {
+    public void resetDoesNotInvokeReconcileCallback() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         // Drive a state transition through to a successful fire.
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals(1, callCount.get());
 
-        // Reset should NOT invoke the callback even though it changes the seed.
+        // Reset should NOT invoke the callback even though it changes the seed, and it should
+        // leave nothing behind for a later window to run.
         mgr.reset(true, true);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("reset itself should not fire onReconcile", 1, callCount.get());
 
         mgr.close();
     }
 
     @Test
-    public void resetReseedsBaselineForNewWindow() throws InterruptedException {
+    public void resetReseedsBaselineForNewWindow() {
         // After reset, the A→B→C→A baseline must match the new seed values, so the
         // first genuine change relative to the new seed produces a fire.
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         // Re-seed to (false, false). lastApplied also becomes (false, false).
         mgr.reset(false, false);
 
         // setNetworkAvailable(true): differs from new baseline → schedule + fire.
         mgr.setNetworkAvailable(true);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("change relative to reset seed should fire", 1, callCount.get());
 
         mgr.close();
     }
 
     @Test
-    public void resetClearsAtoBtoABaseline() throws InterruptedException {
+    public void resetClearsAtoBtoABaseline() {
         // Without reset(), setForeground(true)→false→true within a single window is
         // dedup'd (raw state returned to baseline). After reset, the same sequence
         // measured from the NEW baseline should also be dedup'd — i.e. reset re-anchors
         // the baseline to its argument, not to the previous fire.
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         mgr.reset(false, true);
 
         // From baseline (false, true): toggle network true→false→true within window.
         mgr.setNetworkAvailable(true);
         mgr.setNetworkAvailable(false);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("A→B→A relative to reset baseline should also be suppressed",
                 0, callCount.get());
 
@@ -426,16 +487,18 @@ public class StateDebounceManagerTest {
     }
 
     @Test
-    public void resetAfterCloseIsNoOp() throws InterruptedException {
+    public void resetAfterCloseIsNoOp() {
         AtomicInteger callCount = new AtomicInteger(0);
-        StateDebounceManager mgr = createManager(true, true, callCount::incrementAndGet);
+        ManualTaskExecutor manualExecutor = new ManualTaskExecutor();
+        StateDebounceManager mgr =
+                createManager(manualExecutor, true, true, callCount::incrementAndGet);
 
         mgr.close();
         mgr.reset(false, false);
 
         // Subsequent setX must not produce a fire (manager remains closed).
         mgr.setNetworkAvailable(true);
-        Thread.sleep(TEST_DEBOUNCE_MS * 3);
+        manualExecutor.runPendingTasks();
         assertEquals("reset on a closed manager must not resurrect it", 0, callCount.get());
     }
 
