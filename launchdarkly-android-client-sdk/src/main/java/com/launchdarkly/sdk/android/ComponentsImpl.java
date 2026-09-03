@@ -20,12 +20,10 @@ import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HookConfiguration;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.PluginsConfiguration;
-import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
+import com.launchdarkly.sdk.internal.events.AndroidEventBuffer;
 import com.launchdarkly.sdk.internal.events.DefaultEventSender;
-import com.launchdarkly.sdk.internal.events.Event;
-import com.launchdarkly.sdk.internal.events.EventsConfiguration;
+import com.launchdarkly.sdk.internal.events.EventSender;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -101,33 +99,30 @@ abstract class ComponentsImpl {
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
-            EventsConfiguration eventsConfig = new EventsConfiguration(
-                    allAttributesPrivate,
-                    capacity,
-                    null, // contextDeduplicator - not needed for client-side use
-                    diagnosticRecordingIntervalMillis,
-                    clientContextImpl.getDiagnosticStore(),
-                    new DefaultEventSender(
-                            LDUtil.makeHttpProperties(clientContext),
-                            StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
-                            StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
-                            0L, // use default retry delay
-                            false, // disable gzip compression for Android
+            EventSender eventSender = new DefaultEventSender(
+                    LDUtil.makeHttpProperties(clientContext),
+                    StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
+                    StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
+                    0L, // use default retry delay
+                    false, // disable gzip compression for Android
+                    clientContext.getBaseLogger());
+            return new AndroidEventProcessor(
+                    new AndroidEventBuffer(
+                            capacity,
+                            allAttributesPrivate,
+                            privateAttributes,
+                            true, // perContextSummarization - enable for client SDK
                             clientContext.getBaseLogger()),
-                    1, // eventSendingThreadPoolSize
+                    eventSender,
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
+                    clientContextImpl.getDiagnosticStore(),
                     flushIntervalMillis,
+                    diagnosticRecordingIntervalMillis,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
-                    privateAttributes,
-                    true // perContextSummarization - enable for client SDK
-            );
-            return new DefaultEventProcessorWrapper(new DefaultEventProcessor(
-                    eventsConfig,
                     EventUtil.makeEventsTaskExecutor(),
-                    Thread.NORM_PRIORITY, // note, we may want to make this configurable as it is in java-server-sdk
                     clientContext.getBaseLogger()
-            ));
+            );
         }
 
         @Override
@@ -139,72 +134,6 @@ abstract class ComponentsImpl {
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .build();
-        }
-
-        /**
-         * Adapter from the public component interface of EventProcessor to the internal
-         * implementation class from java-sdk-internal.
-         */
-        private final class DefaultEventProcessorWrapper implements EventProcessor {
-            private final DefaultEventProcessor eventProcessor;
-
-            DefaultEventProcessorWrapper(DefaultEventProcessor eventProcessor) {
-                this.eventProcessor = eventProcessor;
-            }
-
-            @Override
-            public void recordEvaluationEvent(
-                    LDContext context,
-                    String flagKey,
-                    int flagVersion,
-                    int variation,
-                    LDValue value,
-                    EvaluationReason reason,
-                    LDValue defaultValue,
-                    boolean requireFullEvent,
-                    Long debugEventsUntilDate
-            ) {
-                eventProcessor.sendEvent(new Event.FeatureRequest(
-                        System.currentTimeMillis(), flagKey, context, flagVersion, variation,
-                        value, defaultValue, reason, null, requireFullEvent,
-                        debugEventsUntilDate, false));
-            }
-
-            @Override
-            public void recordIdentifyEvent(LDContext context) {
-                eventProcessor.sendEvent(new Event.Identify(System.currentTimeMillis(), context));
-            }
-
-            @Override
-            public void recordCustomEvent(LDContext context, String eventKey, LDValue data, Double metricValue) {
-                eventProcessor.sendEvent(new Event.Custom(System.currentTimeMillis(), eventKey,
-                        context, data, metricValue));
-            }
-
-            @Override
-            public void setInBackground(boolean inBackground) {
-                eventProcessor.setInBackground(inBackground);
-            }
-
-            @Override
-            public void setOffline(boolean offline) {
-                eventProcessor.setOffline(offline);
-            }
-
-            @Override
-            public void flush() {
-                eventProcessor.flushAsync();
-            }
-
-            @Override
-            public void blockingFlush() {
-                eventProcessor.flushBlocking();
-            }
-
-            @Override
-            public void close() throws IOException {
-                eventProcessor.close();
-            }
         }
     }
 
