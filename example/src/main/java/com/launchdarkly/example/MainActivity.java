@@ -102,6 +102,7 @@ public class MainActivity extends AppCompatActivity {
         setupFlushButton();
         setupTrackButton();
         setupIdentifyButton();
+        setupKillUnsentButton();
         setupOfflineSwitch();
         setupListeners();
         updateDedupeStatus();
@@ -212,6 +213,29 @@ public class MainActivity extends AppCompatActivity {
         trackButton.setOnClickListener(v -> {
             Timber.i("track onClick");
             MainActivity.this.doSafeClientAction(() -> ldClient.track("Android event name"));
+        });
+    }
+
+    /**
+     * Reproduces in-memory event loss: evaluate (exposure) and track (stand-in for an error),
+     * wait 5s so both calls are queued, then kill the process before the 30s flush.
+     * {@code finish()} or backgrounding would run the SDK's background flush, so this uses
+     * {@link android.os.Process#killProcess}.
+     */
+    private void setupKillUnsentButton() {
+        Button killUnsentButton = findViewById(R.id.kill_unsent_button);
+        killUnsentButton.setOnClickListener(v -> {
+            final String typedKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString().trim();
+            final String flagKey = typedKey.isEmpty() ? "kill-flag" : typedKey;
+            Timber.w("eval+track+kill flag=%s", flagKey);
+            doSafeClientAction(() -> {
+                ldClient.boolVariation(flagKey, false);
+                ldClient.track("$ld:telemetry:error");
+                ldClient.flush();
+                new Handler(Looper.getMainLooper()).postDelayed(
+                        () -> android.os.Process.killProcess(android.os.Process.myPid()),
+                        5_000);
+            });
         });
     }
 

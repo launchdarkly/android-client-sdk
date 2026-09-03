@@ -131,15 +131,27 @@ def androidJavadoc = tasks.register("javadoc", Javadoc) {
     dependsOn("generateDebugBuildConfig", "generateReleaseBuildConfig")
 
     include("**/*.java")
+    // AndroidEventBuffer is public only so that com.launchdarkly.sdk.android can use it, and it
+    // sits in java-sdk-internal's package solely to reach that library's package-private event
+    // serialization. Documenting it would advertise a package this SDK does not own. Excluding it
+    // from the sources means javadoc resolves it from the compiled classes added below instead.
+    exclude("**/com/launchdarkly/sdk/internal/**")
 
     if (options instanceof StandardJavadocDocletOptions) {
         options.source = "8"
     }
 
+    dependsOn(android.libraryVariants.collect { it.javaCompileProvider })
+
     doFirst {
         // Include classpaths for dependencies
         classpath += files(android.libraryVariants.collect { variant ->
             variant.javaCompileProvider.get().classpath.files
+        })
+        // ...and the SDK's own compiled classes, so that the excluded internal sources above can
+        // still be resolved by the classes that reference them.
+        classpath += files(android.libraryVariants.collect { variant ->
+            variant.javaCompileProvider.get().destinationDirectory
         })
         // Add Android boot classpath for references to Android OS classes.
         def bootClasspath = files(android.bootClasspath)
