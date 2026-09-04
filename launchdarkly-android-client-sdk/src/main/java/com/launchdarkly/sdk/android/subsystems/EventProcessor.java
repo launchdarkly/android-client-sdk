@@ -6,6 +6,7 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 
 import java.io.Closeable;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Interface for an object that can send or store analytics events.
@@ -98,4 +99,21 @@ public interface EventProcessor extends Closeable {
      * Specifies that any buffered events should be sent immediately, blocking until done.
      */
     void blockingFlush();
+
+    /**
+     * Specifies that any buffered events should be sent immediately, blocking until they have been
+     * delivered or until the timeout expires, whichever comes first.
+     *
+     * @param timeout how long to wait for delivery
+     * @param unit the time unit of {@code timeout}
+     * @return true if the events were delivered, or there were none to deliver; false if the
+     *   timeout expired first or the events could not be delivered
+     * @since 5.17.0
+     */
+    default boolean blockingFlush(long timeout, TimeUnit unit) {
+        // An implementation written before this method existed has no way to honor a timeout, so it
+        // gets its unbounded flush and reports success, having no way to tell otherwise.
+        blockingFlush();
+        return true;
+    }
 }

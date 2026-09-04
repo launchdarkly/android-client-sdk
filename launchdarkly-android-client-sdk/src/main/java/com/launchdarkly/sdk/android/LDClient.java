@@ -779,6 +779,23 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.flush();
     }
 
+    @Override
+    public boolean flushAndWait(long timeout, TimeUnit unit) {
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        boolean delivered = true;
+        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+            // Each environment gets what is left of the one budget rather than a fresh copy of it,
+            // so that the timeout the caller asked for is the time this call can take.
+            long remaining = Math.max(0, deadline - System.nanoTime());
+            delivered &= client.flushAndWaitInternal(remaining, TimeUnit.NANOSECONDS);
+        }
+        return delivered;
+    }
+
+    private boolean flushAndWaitInternal(long timeout, TimeUnit unit) {
+        return eventProcessor.blockingFlush(timeout, unit);
+    }
+
     @VisibleForTesting
     void blockingFlush() {
         eventProcessor.blockingFlush();

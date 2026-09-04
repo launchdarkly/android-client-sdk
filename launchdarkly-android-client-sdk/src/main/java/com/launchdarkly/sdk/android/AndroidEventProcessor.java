@@ -15,11 +15,13 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.Charset;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -178,6 +180,34 @@ final class AndroidEventProcessor implements EventProcessor {
     }
 
     @Override
+    public boolean blockingFlush(long timeout, TimeUnit unit) {
+        if (isStopped()) {
+            return false;
+        }
+        // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
+        Callable<Boolean> delivery = this::deliverPayloadReportingOutcome;
+        Future<Boolean> pending;
+        try {
+            pending = scheduler.submit(delivery);
+        } catch (RuntimeException e) { // the executor was shut down under us
+            return false;
+        }
+        try {
+            return Boolean.TRUE.equals(pending.get(timeout, unit));
+        } catch (TimeoutException e) {
+            // Left running rather than cancelled: the buffer has already been drained into the
+            // payload, so interrupting the delivery now would only make the loss certain.
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            logUnexpectedError(e.getCause() == null ? e : e.getCause());
+            return false;
+        }
+    }
+
+    @Override
     public void close() throws IOException {
         if (!closed.compareAndSet(false, true)) {
             return;
@@ -208,27 +238,41 @@ final class AndroidEventProcessor implements EventProcessor {
      * is ever in flight and the buffer is drained exactly once per delivery.
      */
     private void deliverPayload() {
+        deliverPayloadReportingOutcome();
+    }
+
+    /**
+     * Delivers as {@link #deliverPayload()} does, and says whether it worked, for a caller that is
+     * waiting to find out.
+     *
+     * @return true if the events reached the service, or if there were none to send; false if they
+     *   could not be sent or the service did not accept them
+     */
+    private boolean deliverPayloadReportingOutcome() {
         if (disabled.get() || offline.get()) {
-            return;
+            return false;
         }
         AndroidEventBuffer.Payload payload;
         try {
             payload = buffer.drain();
         } catch (IOException e) {
             logUnexpectedError(e);
-            return;
+            return false;
         }
         if (payload == null) {
-            return;
+            return true;
         }
         if (diagnosticStore != null) {
             diagnosticStore.recordEventsInBatch(payload.getEventCount());
         }
         try {
-            handleResponse(eventSender.sendAnalyticsEvents(payload.getData(),
-                    payload.getEventCount(), eventsUri));
+            EventSender.Result result = eventSender.sendAnalyticsEvents(payload.getData(),
+                    payload.getEventCount(), eventsUri);
+            handleResponse(result);
+            return result != null && result.isSuccess();
         } catch (Exception e) {
             logUnexpectedError(e);
+            return false;
         }
     }
 
