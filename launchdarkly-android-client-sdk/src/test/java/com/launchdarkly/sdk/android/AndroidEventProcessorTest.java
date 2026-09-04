@@ -1,16 +1,20 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
 import org.junit.Test;
 
 import java.util.List;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -239,6 +243,75 @@ public class AndroidEventProcessorTest extends EventProcessorTestBase {
 
                 server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
             } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushWithTimeoutReportsDeliveredEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                assertEquals(1, countEventsOfKind(collectDelivered(server), "custom"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushWithTimeoutReportsSuccessWhenThereIsNothingToSend() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                // Nothing was recorded, so the caller's events are not waiting anywhere.
+                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushWithTimeoutReportsFailureWhileOffline() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(true);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                // The events are still buffered rather than delivered, and no amount of waiting
+                // changes that, so the caller is told so instead of being told they are safe.
+                assertFalse(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushWithTimeoutReportsFailureWhenTheTimeoutExpiresFirst() throws Exception {
+        Semaphore letResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.all(Handlers.waitFor(letResponseFinish),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                assertFalse(eventProcessor.blockingFlush(100, TimeUnit.MILLISECONDS));
+            } finally {
+                // Released before closing, so that the delivery still in flight can finish rather
+                // than hold up the shutdown that close() waits on.
+                letResponseFinish.release(Integer.MAX_VALUE);
                 eventProcessor.close();
             }
         }

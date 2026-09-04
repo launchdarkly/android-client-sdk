@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.android.integrations.Plugin;
 import java.io.Closeable;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The interface for the LaunchDarkly SDK client.
@@ -145,6 +146,27 @@ public interface LDClientInterface extends Closeable {
      * Sends all pending events to LaunchDarkly.
      */
     void flush();
+
+    /**
+     * Sends all pending events to LaunchDarkly and waits for them to be delivered.
+     * <p>
+     * Unlike {@link #flush()}, which returns before the events reach the network, this reports
+     * whether they arrived, which is what makes it usable at a point where the application is about
+     * to lose the ability to send them: an uncaught exception handler, a move to the background, or
+     * any other last chance. Events buffered in memory do not survive the process, so a caller that
+     * knows the process is ending can use this to give them one.
+     * <p>
+     * The timeout bounds the whole call, including when the SDK is configured for more than one
+     * environment. Choose it with the caller in mind: a dying process is not a good place to wait on
+     * a network request that may never answer.
+     *
+     * @param timeout how long to wait for delivery
+     * @param unit the time unit of {@code timeout}
+     * @return true if the events were delivered, or there were none to deliver; false if the timeout
+     *   expired first, or the SDK is offline, closed, or otherwise unable to deliver them
+     * @since 5.17.0
+     */
+    boolean flushAndWait(long timeout, TimeUnit unit);
 
     /**
      * Returns a map of all feature flags for the current evaluation context. No events are sent to LaunchDarkly.

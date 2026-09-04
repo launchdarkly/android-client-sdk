@@ -103,7 +103,12 @@ public class MainActivity extends AppCompatActivity {
         setupTrackButton();
         setupIdentifyButton();
         setupKillUnsentButton();
+        setupKillNowButton();
+        setupCrashNowButton();
         setupOfflineSwitch();
+        // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
+        // makes the pair worth pressing.
+        FlushOnCrashHandler.install();
         setupListeners();
         updateDedupeStatus();
 
@@ -217,6 +222,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * The flag the kill and crash buttons evaluate: whatever is typed in the feature key field, or a
+     * default, so the buttons work without anything being typed first.
+     */
+    private String flagKeyToKillOver() {
+        String typedKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString().trim();
+        return typedKey.isEmpty() ? "kill-flag" : typedKey;
+    }
+
+    /**
+     * Records the pair whose survival is in question: an evaluation, which is the exposure, and a
+     * track, standing in for the error an application reports just before it dies.
+     *
+     * <p>Returns false when there is no client, in which case nothing was recorded and ending the
+     * process would demonstrate nothing.
+     */
+    private boolean recordExposureAndError(String flagKey) {
+        if (ldClient == null) {
+            return false;
+        }
+        ldClient.boolVariation(flagKey, false);
+        ldClient.track("$ld:telemetry:error");
+        return true;
+    }
+
+    /**
      * Reproduces in-memory event loss: evaluate (exposure) and track (stand-in for an error),
      * wait 5s so both calls are queued, then kill the process before the 30s flush.
      * {@code finish()} or backgrounding would run the SDK's background flush, so this uses
@@ -225,17 +255,58 @@ public class MainActivity extends AppCompatActivity {
     private void setupKillUnsentButton() {
         Button killUnsentButton = findViewById(R.id.kill_unsent_button);
         killUnsentButton.setOnClickListener(v -> {
-            final String typedKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString().trim();
-            final String flagKey = typedKey.isEmpty() ? "kill-flag" : typedKey;
+            final String flagKey = flagKeyToKillOver();
             Timber.w("eval+track+kill flag=%s", flagKey);
-            doSafeClientAction(() -> {
-                ldClient.boolVariation(flagKey, false);
-                ldClient.track("$ld:telemetry:error");
-                ldClient.flush();
-                new Handler(Looper.getMainLooper()).postDelayed(
-                        () -> android.os.Process.killProcess(android.os.Process.myPid()),
-                        5_000);
-            });
+            if (!recordExposureAndError(flagKey)) {
+                return;
+            }
+            ldClient.flush();
+            new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> android.os.Process.killProcess(android.os.Process.myPid()),
+                    5_000);
+        });
+    }
+
+    /**
+     * The same sequence with nothing at all between the track and the process dying: no flush to
+     * deliver the events, no delay for a timer to fire in, and SIGKILL to itself, which cannot be
+     * caught, so no part of the SDK gets to run on the way out.
+     *
+     * <p>Whether the exposure and the track are reported therefore says exactly one thing: whether
+     * recording them had already put them somewhere that outlives the process. They should arrive on
+     * the next launch of the app, not this one.
+     */
+    private void setupKillNowButton() {
+        Button killNowButton = findViewById(R.id.kill_now_button);
+        killNowButton.setOnClickListener(v -> {
+            final String flagKey = flagKeyToKillOver();
+            Timber.w("eval+track+kill now flag=%s", flagKey);
+            if (!recordExposureAndError(flagKey)) {
+                return;
+            }
+            android.os.Process.killProcess(android.os.Process.myPid());
+        });
+    }
+
+    /**
+     * The same again, ending in an uncaught exception instead of a signal the process never sees.
+     *
+     * <p>This is the shape a customer report takes: app code fails immediately after reporting the
+     * failure. Unlike SIGKILL, an uncaught exception runs the default handler before the process
+     * goes, so this is the one variant an application can rescue on its own, which
+     * {@link FlushOnCrashHandler} does by calling {@link LDClient#flushAndWait} from there. So these
+     * events should arrive and the ones from the button next to it should not.
+     */
+    private void setupCrashNowButton() {
+        Button crashNowButton = findViewById(R.id.crash_now_button);
+        crashNowButton.setOnClickListener(v -> {
+            final String flagKey = flagKeyToKillOver();
+            Timber.w("eval+track+crash now flag=%s", flagKey);
+            if (!recordExposureAndError(flagKey)) {
+                return;
+            }
+            throw new RuntimeException(
+                    "Eval+Crash: deliberate uncaught exception immediately after track, to test event persistence");
         });
     }
 
