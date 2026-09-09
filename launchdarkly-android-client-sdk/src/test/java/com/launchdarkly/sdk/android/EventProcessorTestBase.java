@@ -16,6 +16,7 @@ import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
 import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
 import java.util.ArrayList;
@@ -37,8 +38,23 @@ public abstract class EventProcessorTestBase {
     public Timeout globalTimeout = Timeout.seconds(60);
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
+    /**
+     * A directory of its own per test, so that the events one test persists are never found by the next.
+     */
+    @Rule
+    public TemporaryFolder eventsDirectory = new TemporaryFolder();
 
     private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
+
+    /**
+     * The processor persists events, so it needs somewhere to put them. Tests get a real directory
+     * rather than a stub, which is what makes them exercise the same path an application does.
+     */
+    protected MockPlatformState platformState() {
+        MockPlatformState platformState = new MockPlatformState();
+        platformState.setNoBackupFilesDir(eventsDirectory.getRoot());
+        return platformState;
+    }
 
     protected HttpServer startEventsServer() {
         return HttpServer.start(Handlers.status(202));
@@ -72,7 +88,7 @@ public abstract class EventProcessorTestBase {
                 .serviceEndpoints(Components.serviceEndpoints().events(server.getUri()))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
-                null, null, CONTEXT, logging.logger, null, environmentReporter, null);
+                null, null, CONTEXT, logging.logger, platformState(), environmentReporter, null);
         EventProcessor eventProcessor = config.events.build(clientContext);
         // The processor is built offline; LDClient turns it on once initialization decides the SDK
         // is not in offline mode.

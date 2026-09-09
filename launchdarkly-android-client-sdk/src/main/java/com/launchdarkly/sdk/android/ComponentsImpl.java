@@ -113,7 +113,10 @@ abstract class ComponentsImpl {
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK
                             clientContext.getBaseLogger()),
+                    makeEventStore(clientContext, clientContextImpl),
                     eventSender,
+                    new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
+                            clientContext.getBaseLogger()),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
                     flushIntervalMillis,
@@ -123,6 +126,23 @@ abstract class ComponentsImpl {
                     EventUtil.makeEventsTaskExecutor(),
                     clientContext.getBaseLogger()
             );
+        }
+
+        /**
+         * Builds the store this environment's events are kept in until LaunchDarkly has them.
+         * <p>
+         * The mobile key and the process are both part of where it writes, so an application configured
+         * for several environments, or running the SDK in several processes, gets one store per
+         * combination and they never touch each other's events.
+         */
+        private EventStore makeEventStore(ClientContext clientContext, ClientContextImpl impl) {
+            PlatformState platformState = impl.getPlatformState();
+            return EventStore.create(
+                    platformState.getNoBackupFilesDir(),
+                    clientContext.getMobileKey(),
+                    platformState.getProcessName(),
+                    capacity,
+                    clientContext.getBaseLogger());
         }
 
         @Override

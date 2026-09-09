@@ -35,7 +35,9 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 final class AndroidEventProcessor implements EventProcessor {
     private final AndroidEventBuffer buffer;
+    private final EventStore store;
     private final EventSender eventSender;
+    private final AnalyticsEventSender analyticsEventSender;
     private final URI eventsUri;
     private final DiagnosticStore diagnosticStore;
     private final long flushIntervalMillis;
@@ -50,6 +52,17 @@ final class AndroidEventProcessor implements EventProcessor {
     private final AtomicBoolean disabled = new AtomicBoolean(false);
     private final AtomicBoolean diagnosticInitSent = new AtomicBoolean(false);
     private final AtomicLong lastKnownPastTime = new AtomicLong(0);
+    private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
+    private final AtomicLong droppedEvents = new AtomicLong(0);
+    /**
+     * Whether a previous run of the application left events behind.
+     * <p>
+     * Those events are already as old as whatever happened to that run, so they are sent as soon as the
+     * SDK is allowed to send anything rather than at the next interval. The application in front of the
+     * user has moved on; an error report about a crash is not worth much thirty seconds late, and the
+     * process might not live that long either.
+     */
+    private final AtomicBoolean hasEventsFromPreviousRun = new AtomicBoolean(false);
 
     private final Object stateLock = new Object();
     private ScheduledFuture<?> flushTask;
@@ -57,7 +70,9 @@ final class AndroidEventProcessor implements EventProcessor {
 
     AndroidEventProcessor(
             AndroidEventBuffer buffer,
+            EventStore store,
             EventSender eventSender,
+            AnalyticsEventSender analyticsEventSender,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
             long flushIntervalMillis,
@@ -68,7 +83,9 @@ final class AndroidEventProcessor implements EventProcessor {
             LDLogger logger
     ) {
         this.buffer = buffer;
+        this.store = store;
         this.eventSender = eventSender;
+        this.analyticsEventSender = analyticsEventSender;
         this.eventsUri = eventsUri;
         this.diagnosticStore = diagnosticStore;
         this.flushIntervalMillis = flushIntervalMillis;
@@ -77,6 +94,21 @@ final class AndroidEventProcessor implements EventProcessor {
         this.logger = logger;
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
+
+        // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem.
+        submit(() -> {
+            store.recoverInterruptedLog();
+            if (store.pendingBatches().isEmpty()) {
+                return;
+            }
+            // Either end of the race is handled: if the SDK is already allowed to send, these go now,
+            // and if it is not, going online later will pick them up.
+            if (offline.get() || isStopped()) {
+                hasEventsFromPreviousRun.set(true);
+            } else {
+                deliverPayload();
+            }
+        });
 
         synchronized (stateLock) {
             updateScheduledTasks(initiallyInBackground, initiallyOffline);
@@ -103,11 +135,14 @@ final class AndroidEventProcessor implements EventProcessor {
                 requireFullEvent, debugEventsUntilDate, false);
         buffer.summarize(event);
         if (requireFullEvent) {
-            buffer.addFullEvent(event);
+            record(event);
         }
         if (shouldDebugEvent(debugEventsUntilDate)) {
-            buffer.addFullEvent(event.toDebugEvent());
+            record(event.toDebugEvent());
         }
+        // Deliberately no commit. An evaluation is expected to cost what a map lookup costs, and it is
+        // usually the main thread doing it; the store writes these on its own thread once enough of them
+        // have piled up, and the next event recorded at a commit point makes them durable along with itself.
     }
 
     @Override
@@ -115,7 +150,8 @@ final class AndroidEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        buffer.addFullEvent(new Event.Identify(System.currentTimeMillis(), context));
+        record(new Event.Identify(System.currentTimeMillis(), context));
+        commitDurably();
     }
 
     @Override
@@ -123,8 +159,53 @@ final class AndroidEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        buffer.addFullEvent(new Event.Custom(System.currentTimeMillis(), eventKey, context, data,
-                metricValue));
+        record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
+        commitDurably();
+    }
+
+    /**
+     * Serializes an event and stages it, counting it as dropped if the store is full.
+     */
+    private void record(Event event) {
+        byte[] serialized = buffer.serialize(event);
+        if (serialized == null) {
+            return; // sampled out, or unserializable, and already logged
+        }
+        if (!store.stage(serialized)) {
+            if (capacityExceeded.compareAndSet(false, true)) {
+                logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+            }
+            droppedEvents.incrementAndGet();
+            return;
+        }
+        capacityExceeded.set(false);
+    }
+
+    /**
+     * Makes everything recorded so far survive the process, on the caller's thread.
+     * <p>
+     * This is the point of the whole arrangement, so it is worth being precise about which callers get
+     * it: those recording an event the application asked for by name. An application that calls
+     * {@code track} to report an error is telling the SDK that this event matters more than the
+     * microseconds it costs to write it, and the crash it is reporting may be moments away.
+     * <p>
+     * The evaluations counted since the last commit point are written too, because a summary is only worth
+     * having if it covers the evaluations that led up to whatever is about to happen.
+     */
+    private void commitDurably() {
+        stageSummaries();
+        store.commit();
+    }
+
+    /**
+     * Turns the evaluation counters into summary events in the store.
+     */
+    private void stageSummaries() {
+        for (byte[] summary : buffer.serializeSummariesAndReset()) {
+            // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
+            // counted, and dropping it would lose all of them at once.
+            store.stage(summary, true);
+        }
     }
 
     @Override
@@ -158,6 +239,9 @@ final class AndroidEventProcessor implements EventProcessor {
         if (isStopped()) {
             return;
         }
+        // Flush is a commit point: persist everything accepted before this call before returning,
+        // even when the queued delivery cannot run because the client is offline.
+        commitDurably();
         submit(this::deliverPayload);
     }
 
@@ -166,6 +250,7 @@ final class AndroidEventProcessor implements EventProcessor {
         if (isStopped()) {
             return;
         }
+        commitDurably();
         Future<?> delivery = submit(this::deliverPayload);
         if (delivery == null) {
             return;
@@ -184,6 +269,7 @@ final class AndroidEventProcessor implements EventProcessor {
         if (isStopped()) {
             return false;
         }
+        commitDurably();
         // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
         Callable<Boolean> delivery = this::deliverPayloadReportingOutcome;
         Future<Boolean> pending;
@@ -230,7 +316,11 @@ final class AndroidEventProcessor implements EventProcessor {
             }
         }
         scheduler.shutdown();
+        // Last: whatever could not be delivered is written down instead, so a caller who closed the
+        // client and then let the process end still has those events on the next run.
+        store.close();
         eventSender.close();
+        analyticsEventSender.close();
     }
 
     /**
@@ -252,24 +342,49 @@ final class AndroidEventProcessor implements EventProcessor {
         if (disabled.get() || offline.get()) {
             return false;
         }
-        AndroidEventBuffer.Payload payload;
-        try {
-            payload = buffer.drain();
-        } catch (IOException e) {
-            logUnexpectedError(e);
-            return false;
+
+        stageSummaries();
+        store.closeBatch();
+
+        // Every batch, not just the one just closed: the others are deliveries an earlier attempt did not
+        // finish, or that a previous run of the application never got to start.
+        boolean allDelivered = true;
+        for (EventStore.Batch batch : store.pendingBatches()) {
+            if (disabled.get() || offline.get()) {
+                return false;
+            }
+            allDelivered &= deliver(batch);
         }
-        if (payload == null) {
+        return allDelivered;
+    }
+
+    /**
+     * @return true if the batch is no longer the SDK's problem, whether because it arrived or because it
+     *   never can
+     */
+    private boolean deliver(EventStore.Batch batch) {
+        byte[] body = store.body(batch);
+        if (body == null) {
+            // Unreadable, or already delivered by another process of this application. Either way there
+            // is nothing to send and nothing to keep.
+            store.remove(batch);
             return true;
         }
         if (diagnosticStore != null) {
-            diagnosticStore.recordEventsInBatch(payload.getEventCount());
+            diagnosticStore.recordEventsInBatch(batch.eventCount);
         }
         try {
-            EventSender.Result result = eventSender.sendAnalyticsEvents(payload.getData(),
-                    payload.getEventCount(), eventsUri);
+            EventSender.Result result = analyticsEventSender.sendBatch(body, batch.eventCount,
+                    batch.payloadId, eventsUri);
             handleResponse(result);
-            return result != null && result.isSuccess();
+            if (result != null && (result.isSuccess() || result.isMustShutDown())) {
+                // Forgotten once the service has either taken the events or told us to stop sending
+                // them. Anything else - a timeout, a 503, no network - leaves the batch where it is, to
+                // be tried again on the next flush or the next run of the application.
+                store.remove(batch);
+                return result.isSuccess();
+            }
+            return false;
         } catch (Exception e) {
             logUnexpectedError(e);
             return false;
@@ -296,7 +411,7 @@ final class AndroidEventProcessor implements EventProcessor {
         if (disabled.get() || diagnosticStore == null) {
             return;
         }
-        sendDiagnosticEvent(diagnosticStore.createEventAndReset(buffer.getAndClearDroppedCount(), 0),
+        sendDiagnosticEvent(diagnosticStore.createEventAndReset(droppedEvents.getAndSet(0), 0),
                 false);
     }
 
@@ -333,6 +448,9 @@ final class AndroidEventProcessor implements EventProcessor {
         // events recorded before the app was backgrounded still get delivered.
         flushTask = enableOrDisableTask(!offline, flushTask, flushIntervalMillis,
                 this::deliverPayload);
+        if (!offline && hasEventsFromPreviousRun.compareAndSet(true, false)) {
+            submit(this::deliverPayload);
+        }
         boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);

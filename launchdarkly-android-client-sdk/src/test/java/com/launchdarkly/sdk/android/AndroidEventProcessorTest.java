@@ -70,6 +70,35 @@ public class AndroidEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void flushPersistsFeatureAndSummaryEventsSynchronouslyWhileOffline() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, true, null);
+                eventProcessor.setOffline(true);
+
+                eventProcessor.flush();
+
+                EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                        DEFAULT_CAPACITY, logging.logger);
+                List<byte[]> persisted = reader.pendingEventPayloads();
+                int featureEvents = 0;
+                int summaryEvents = 0;
+                for (byte[] payload : persisted) {
+                    String kind = LDValue.parse(new String(payload, "UTF-8")).get("kind").stringValue();
+                    featureEvents += "feature".equals(kind) ? 1 : 0;
+                    summaryEvents += "summary".equals(kind) ? 1 : 0;
+                }
+                assertEquals(1, featureEvents);
+                assertEquals(1, summaryEvents);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void identifyAndCustomEventsAreDelivered() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
