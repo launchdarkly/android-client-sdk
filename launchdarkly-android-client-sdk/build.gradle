@@ -31,6 +31,17 @@ android {
 
     testOptions {
         execution = "ANDROIDX_TEST_ORCHESTRATOR"
+
+        // EventPersistenceBenchmark reports its measurements on stdout, which Gradle otherwise
+        // swallows, and it is worth re-running even when nothing has changed. Both only apply when
+        // LD_EVENT_BENCH is set, which is also what un-skips the benchmark, so an ordinary test run
+        // is unaffected.
+        unitTests.all { test ->
+            if (System.getenv("LD_EVENT_BENCH") == "1") {
+                test.testLogging.showStandardStreams = true
+                test.outputs.upToDateWhen { false }
+            }
+        }
     }
 
     buildFeatures {
