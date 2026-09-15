@@ -1,28 +1,3 @@
-// TEMPORARY: builds java-sdk-internal from a working copy instead of the published artifact.
-//
-// The event durability work needs event serialization classes that are package-private in
-// java-sdk-internal, and the PR making them public is not released yet. Until a release carries
-// it, this points the build at a local checkout so the two can be developed together.
-//
-// Revert this block and bump `launchdarklyJavaSdkInternal` in
-// launchdarkly-android-client-sdk/build.gradle once the release is out.
-//
-// Set `ldJavaSdkInternalDir` in ~/.gradle/gradle.properties or on the command line to override the
-// default location; skipped entirely if the directory is not there, so a clean checkout still builds
-// against the published artifact.
-def javaSdkInternalDir = providers.gradleProperty("ldJavaSdkInternalDir")
-        .map { new File(it) }
-        .getOrElse(new File(rootDir, "../java-core/lib/shared/internal"))
-if (javaSdkInternalDir.directory) {
-    includeBuild(javaSdkInternalDir) {
-        dependencySubstitution {
-            substitute module("com.launchdarkly:launchdarkly-java-sdk-internal") using project(":")
-        }
-    }
-} else {
-    logger.lifecycle("Local java-sdk-internal not found at ${javaSdkInternalDir}; using the published artifact")
-}
-
 include(":launchdarkly-android-client-sdk")
 include(":shared-test-code")
 include(":example")
