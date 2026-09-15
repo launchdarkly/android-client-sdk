@@ -6,7 +6,6 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
-import com.launchdarkly.sdk.internal.events.AndroidEventBuffer;
 import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;

@@ -1,7 +1,15 @@
-package com.launchdarkly.sdk.internal.events;
+package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.AttributeRef;
+import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
+import com.launchdarkly.sdk.internal.events.Event;
+import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
+import com.launchdarkly.sdk.internal.events.EventSummarizer;
+import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
+import com.launchdarkly.sdk.internal.events.EventsConfiguration;
+import com.launchdarkly.sdk.internal.events.PerContextEventSummarizer;
+import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
@@ -18,24 +26,13 @@ import java.util.List;
  * counters as they are recorded, full-fidelity events are held in a capacity-limited list, and a
  * flush turns whatever has accumulated into a serialized payload.
  * <p>
- * This class is deliberately in java-sdk-internal's package rather than the Android SDK's own.
- * The summarizers, the output formatter, and the context formatter that redacts private
- * attributes are all package-private there, and there is no public way to hand java-sdk-internal
- * a summary that has already been aggregated - {@code DefaultEventProcessor} only accepts
- * individual events and summarizes them itself, on the far side of the bounded queue we are
- * trying to get in front of. Sharing the package lets the Android SDK reuse that serialization
- * instead of growing a second copy of the wire format that could drift.
- * <p>
- * Everything exposed here is a public type, so the rest of the Android SDK stays in its own
- * package and only this one file depends on the split. If java-sdk-internal ever offers this
- * capability publicly, this class should be deleted in favor of it.
- * <p>
- * It is public only so that {@code com.launchdarkly.sdk.android} can use it across the package
- * boundary; it is not SDK API and is kept out of the published Javadoc.
- *
- * @hidden
+ * The summarization and the wire format come from java-sdk-internal rather than being
+ * reimplemented here, so there is one definition of what an event looks like on the wire.
+ * {@code DefaultEventProcessor} is not reused along with them because it only accepts individual
+ * events and summarizes them itself, on the far side of the bounded queue this is meant to get in
+ * front of.
  */
-public final class AndroidEventBuffer {
+final class AndroidEventBuffer {
     private static final int INITIAL_OUTPUT_BUFFER_SIZE = 2000;
 
     private final EventOutputFormatter formatter;
@@ -53,7 +50,7 @@ public final class AndroidEventBuffer {
      * @param perContextSummarization true to emit one summary per context rather than one overall
      * @param logger the logger to warn on when capacity is exceeded
      */
-    public AndroidEventBuffer(
+    AndroidEventBuffer(
             int capacity,
             boolean allAttributesPrivate,
             Collection<AttributeRef> privateAttributes,
@@ -81,7 +78,7 @@ public final class AndroidEventBuffer {
      *
      * @param event the evaluation
      */
-    public synchronized void summarize(Event.FeatureRequest event) {
+    synchronized void summarize(Event.FeatureRequest event) {
         summarizer.summarizeEvent(
                 event.getCreationDate(),
                 event.getKey(),
@@ -98,7 +95,7 @@ public final class AndroidEventBuffer {
      *
      * @param event the event
      */
-    public synchronized void addFullEvent(Event event) {
+    synchronized void addFullEvent(Event event) {
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
             return;
         }
@@ -117,14 +114,14 @@ public final class AndroidEventBuffer {
     /**
      * @return true if there is nothing buffered and no summary counters
      */
-    public synchronized boolean isEmpty() {
+    synchronized boolean isEmpty() {
         return events.isEmpty() && summarizer.isEmpty();
     }
 
     /**
      * @return the number of full events dropped for capacity since this was last called
      */
-    public synchronized long getAndClearDroppedCount() {
+    synchronized long getAndClearDroppedCount() {
         long result = droppedEventCount;
         droppedEventCount = 0;
         return result;
@@ -136,7 +133,7 @@ public final class AndroidEventBuffer {
      * @return the payload to send, or null if there was nothing to send
      * @throws IOException if the events could not be serialized
      */
-    public synchronized Payload drain() throws IOException {
+    synchronized Payload drain() throws IOException {
         if (events.isEmpty() && summarizer.isEmpty()) {
             return null;
         }
@@ -160,10 +157,8 @@ public final class AndroidEventBuffer {
 
     /**
      * A serialized batch of analytics events.
-     *
-     * @hidden
      */
-    public static final class Payload {
+    static final class Payload {
         private final byte[] data;
         private final int eventCount;
 
@@ -175,14 +170,14 @@ public final class AndroidEventBuffer {
         /**
          * @return the JSON request body
          */
-        public byte[] getData() {
+        byte[] getData() {
             return data;
         }
 
         /**
          * @return how many events the body represents, including summaries
          */
-        public int getEventCount() {
+        int getEventCount() {
             return eventCount;
         }
     }
