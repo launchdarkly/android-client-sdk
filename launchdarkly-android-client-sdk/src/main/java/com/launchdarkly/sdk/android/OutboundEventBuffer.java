@@ -25,7 +25,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The buffer behind the Android SDK's event processor: evaluations are folded into summary
+ * The buffer behind {@link DirectEventProcessor}: evaluations are folded into summary
  * counters as they are recorded, full-fidelity events are held in a capacity-limited list, and a
  * flush turns whatever has accumulated into a serialized payload.
  * <p>
@@ -35,7 +35,7 @@ import java.util.List;
  * events and summarizes them itself, on the far side of the bounded queue this is meant to get in
  * front of.
  */
-final class AndroidEventBuffer {
+final class OutboundEventBuffer {
     private static final int INITIAL_OUTPUT_BUFFER_SIZE = 2000;
 
     private final EventOutputFormatter formatter;
@@ -53,7 +53,7 @@ final class AndroidEventBuffer {
      * @param perContextSummarization true to emit one summary per context rather than one overall
      * @param logger the logger to warn on when capacity is exceeded
      */
-    AndroidEventBuffer(
+    OutboundEventBuffer(
             int capacity,
             boolean allAttributesPrivate,
             Collection<AttributeRef> privateAttributes,
@@ -61,7 +61,7 @@ final class AndroidEventBuffer {
             LDLogger logger
     ) {
         // Only the private-attribute settings affect the output; the rest of EventsConfiguration
-        // describes the delivery behavior that the Android event processor now handles itself.
+        // describes the delivery behavior that the processor now handles itself.
         EventsConfiguration outputConfig = new EventsConfiguration(allAttributesPrivate, capacity,
                 null, 0, null, null, 1, null, 0, false, false, privateAttributes,
                 perContextSummarization);

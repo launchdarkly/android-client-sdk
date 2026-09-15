@@ -23,14 +23,14 @@ import java.util.List;
  * These are deliberately narrow. Everything the log does depends on a frame holding exactly one
  * event object, so the assumption is checked here rather than inferred from a delivered payload.
  */
-public class AndroidEventBufferSerializationTest {
+public class OutboundEventBufferSerializationTest {
     private static final LDContext CONTEXT = LDContext.create("user-key");
     private static final String FLAG_KEY = "flag-key";
 
     private final LDLogAdapter logAdapter = Logs.none();
 
-    private AndroidEventBuffer makeBuffer() {
-        return new AndroidEventBuffer(100, false, Collections.emptyList(), true,
+    private OutboundEventBuffer makeBuffer() {
+        return new OutboundEventBuffer(100, false, Collections.emptyList(), true,
                 LDLogger.withAdapter(logAdapter, ""));
     }
 
@@ -81,7 +81,7 @@ public class AndroidEventBufferSerializationTest {
 
     @Test
     public void summariesSerializeOneObjectEachAndLeaveTheCountersEmpty() {
-        AndroidEventBuffer buffer = makeBuffer();
+        OutboundEventBuffer buffer = makeBuffer();
         buffer.summarize(new Event.FeatureRequest(1000, FLAG_KEY, CONTEXT, 10, 1, LDValue.of(true),
                 LDValue.of(false), null, null, false, null, false));
         buffer.summarize(new Event.FeatureRequest(1001, FLAG_KEY, CONTEXT, 10, 1, LDValue.of(true),
@@ -109,7 +109,7 @@ public class AndroidEventBufferSerializationTest {
 
     @Test
     public void framesJoinIntoTheSamePayloadTheBufferWouldHaveSent() throws Exception {
-        AndroidEventBuffer staged = makeBuffer();
+        OutboundEventBuffer staged = makeBuffer();
         byte[] first = staged.serialize(new Event.Custom(1000, "first", CONTEXT, LDValue.ofNull(), null));
         byte[] second = staged.serialize(new Event.Custom(1001, "second", CONTEXT, LDValue.ofNull(), null));
 
@@ -117,7 +117,7 @@ public class AndroidEventBufferSerializationTest {
         String body = "[" + new String(first, Charset.forName("UTF-8")) + ","
                 + new String(second, Charset.forName("UTF-8")) + "]";
 
-        AndroidEventBuffer drained = makeBuffer();
+        OutboundEventBuffer drained = makeBuffer();
         drained.addFullEvent(new Event.Custom(1000, "first", CONTEXT, LDValue.ofNull(), null));
         drained.addFullEvent(new Event.Custom(1001, "second", CONTEXT, LDValue.ofNull(), null));
         String expected = new String(drained.drain().getData(), Charset.forName("UTF-8"));

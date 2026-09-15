@@ -105,8 +105,8 @@ abstract class ComponentsImpl {
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
-            return new AndroidEventProcessor(
-                    new AndroidEventBuffer(
+            return new DirectEventProcessor(
+                    new OutboundEventBuffer(
                             capacity,
                             allAttributesPrivate,
                             privateAttributes,

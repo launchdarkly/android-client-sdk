@@ -145,7 +145,7 @@ public class EventPersistenceBenchmark {
             })));
 
             for (PrivacyShape privacy : privacyShapes()) {
-                final AndroidEventBuffer buffer = makeBuffer(privacy);
+                final OutboundEventBuffer buffer = makeBuffer(privacy);
 
                 byte[] sample = buffer.serialize(featureEvent(context, true));
                 assertNotNull("the corpus produced an event that will not serialize", sample);
@@ -164,7 +164,7 @@ public class EventPersistenceBenchmark {
     }
 
     /**
-     * The figures a customer actually pays, mirroring what {@link AndroidEventProcessor} does per call.
+     * The figures a customer actually pays, mirroring what {@link DirectEventProcessor} does per call.
      * <p>
      * The three rows are the three paths through {@code recordEvaluationEvent} and {@code recordCustomEvent}:
      * an evaluation of an untracked flag is a counter increment; an evaluation of a tracked flag also
@@ -177,7 +177,7 @@ public class EventPersistenceBenchmark {
      */
     @Test
     public void recordingCostPerCall() throws IOException {
-        final AndroidEventBuffer buffer = makeBuffer(noRedaction());
+        final OutboundEventBuffer buffer = makeBuffer(noRedaction());
         final EventStore store = EventStore.create(eventsDirectory.getRoot(), "benchmark-key",
                 "benchmark", Integer.MAX_VALUE, logger);
         final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
@@ -258,7 +258,7 @@ public class EventPersistenceBenchmark {
             store[0].commit();
         };
 
-        final AndroidEventBuffer buffer = makeBuffer(noRedaction());
+        final OutboundEventBuffer buffer = makeBuffer(noRedaction());
         final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
 
         try {
@@ -321,7 +321,7 @@ public class EventPersistenceBenchmark {
     @Test
     public void commitPointOutliers() throws IOException {
         final byte[] serialized = SERIALIZED_EVENT.getBytes(StandardCharsets.UTF_8);
-        final AndroidEventBuffer buffer = makeBuffer(noRedaction());
+        final OutboundEventBuffer buffer = makeBuffer(noRedaction());
         final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
 
         // A store of its own for each size and each row, so that a log inherited from an earlier measurement
@@ -413,7 +413,7 @@ public class EventPersistenceBenchmark {
         List<Measurement> results = new ArrayList<>();
 
         for (final int flagCount : new int[] {1, 10, 50}) {
-            final AndroidEventBuffer buffer = makeBuffer(noRedaction());
+            final OutboundEventBuffer buffer = makeBuffer(noRedaction());
 
             double countingOnly = measure(20_000, i -> {
                 for (int flag = 0; flag < flagCount; flag++) {
@@ -538,8 +538,8 @@ public class EventPersistenceBenchmark {
                 new PrivacyShape("all private", true, Collections.<AttributeRef>emptyList()));
     }
 
-    private AndroidEventBuffer makeBuffer(PrivacyShape privacy) {
-        return new AndroidEventBuffer(Integer.MAX_VALUE, privacy.allAttributesPrivate,
+    private OutboundEventBuffer makeBuffer(PrivacyShape privacy) {
+        return new OutboundEventBuffer(Integer.MAX_VALUE, privacy.allAttributesPrivate,
                 privacy.privateAttributes, true, logger);
     }
 
