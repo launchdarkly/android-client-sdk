@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
  * Behavior of the SDK's own event processor, covering the parts that are not about buffering under
  * load (see {@link EventProcessorBufferingTest} for those).
  */
-public class AndroidEventProcessorTest extends EventProcessorTestBase {
+public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final String FLAG_KEY = "flag-key";
     private static final int FLAG_VERSION = 10;
     private static final int VARIATION = 1;

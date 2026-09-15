@@ -19,7 +19,7 @@ import java.util.List;
  * Context attribute redaction, as observed in the payload the processor actually posts.
  * <p>
  * Redaction is not reimplemented by the SDK's event processor - it reuses java-sdk-internal's
- * context formatter through {@link AndroidEventBuffer}. These
+ * context formatter through {@link OutboundEventBuffer}. These
  * tests exist because that reuse is the whole argument for the current design, and nothing else in
  * this repository asserts that an attribute an application marked private stays out of the wire
  * format. Beyond the redaction itself they pin the two rules that are easy to get wrong when

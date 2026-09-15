@@ -30,8 +30,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * evaluations cannot displace anything: evaluations of untracked flags cost a counter increment,
  * and the configured capacity limits only the events that genuinely have to be sent one by one.
  */
-final class AndroidEventProcessor implements EventProcessor {
-    private final AndroidEventBuffer buffer;
+final class DirectEventProcessor implements EventProcessor {
+    private final OutboundEventBuffer buffer;
     private final EventSender eventSender;
     private final URI eventsUri;
     private final DiagnosticStore diagnosticStore;
@@ -52,8 +52,8 @@ final class AndroidEventProcessor implements EventProcessor {
     private ScheduledFuture<?> flushTask;
     private ScheduledFuture<?> diagnosticTask;
 
-    AndroidEventProcessor(
-            AndroidEventBuffer buffer,
+    DirectEventProcessor(
+            OutboundEventBuffer buffer,
             EventSender eventSender,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
@@ -210,7 +210,7 @@ final class AndroidEventProcessor implements EventProcessor {
         if (disabled.get() || offline.get()) {
             return;
         }
-        AndroidEventBuffer.Payload payload;
+        OutboundEventBuffer.Payload payload;
         try {
             payload = buffer.drain();
         } catch (IOException e) {
