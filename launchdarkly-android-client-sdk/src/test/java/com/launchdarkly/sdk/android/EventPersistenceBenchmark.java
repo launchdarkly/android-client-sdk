@@ -10,7 +10,6 @@ import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.internal.events.AndroidEventBuffer;
 import com.launchdarkly.sdk.internal.events.Event;
 
 import org.junit.Before;

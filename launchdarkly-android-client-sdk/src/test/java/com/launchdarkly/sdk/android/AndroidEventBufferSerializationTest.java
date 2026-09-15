@@ -9,7 +9,6 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.internal.events.AndroidEventBuffer;
 import com.launchdarkly.sdk.internal.events.Event;
 
 import org.junit.Test;
