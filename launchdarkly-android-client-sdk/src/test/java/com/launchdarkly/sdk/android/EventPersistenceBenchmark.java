@@ -18,12 +18,20 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntConsumer;
 
 /**
@@ -63,8 +71,34 @@ public class EventPersistenceBenchmark {
      */
     private static final long CREATION_DATE = 1_700_000_000_000L;
 
+    /**
+     * One already serialized event, byte for byte what the iOS benchmark stages, so the store figures on the
+     * two platforms are measuring the same amount of work reaching the same kind of file.
+     */
+    private static final String SERIALIZED_EVENT =
+            "{\"kind\":\"feature\",\"key\":\"benchmark-flag\",\"value\":true,\"default\":false,"
+                    + "\"variation\":1,\"version\":7,\"creationDate\":1740000000000}";
+
     /** How many times each timed loop is repeated; the fastest round is reported. */
     private static final int ROUNDS = 5;
+
+    /**
+     * The bulk sizes the recording figures are swept over.
+     * <p>
+     * Chosen around the store's 16 KiB staging threshold rather than for being round. At the event size used
+     * here a hundred events stay under it and cause no write at all, a thousand cross it a handful of times,
+     * and ten thousand cross it often enough that the deferred column is an average rather than a report on
+     * one commit. The same three are used by the iOS benchmark, so the two platforms' tables line up row for
+     * row.
+     */
+    private static final int[] BULK_SIZES = {100, 1_000, 10_000};
+
+    /**
+     * How many calls it takes to get this loop compiled, independent of how many the measurement then makes.
+     * <p>
+     * The smallest bulk size is below it on purpose, which is exactly why this is not a share of the round.
+     */
+    private static final int JIT_WARMUP = 10_000;
 
     /**
      * Consumes results so that the JIT cannot prove the work is unused and delete it. Never read for
@@ -184,6 +218,145 @@ public class EventPersistenceBenchmark {
             report("recording, per call", results);
         } finally {
             store.close();
+        }
+    }
+
+    /**
+     * What a bulk of recordings costs, split by which thread pays for it.
+     * <p>
+     * Every other figure here prices one call, which hides the thing that decides whether the store is
+     * affordable: it does not write on the thread that staged an event. Bytes accumulate to 16 KiB and then
+     * the write is handed to {@code commitExecutor}, so a row that times {@code stage} alone reports an array
+     * copy and silently omits the write it caused.
+     * <p>
+     * So this records a bulk the way an application would, and prices both sides of the hand-off:
+     * <ul>
+     *   <li><i>caller thread</i> is wall time on the thread that recorded. It includes whatever the commit
+     *       executor made it wait for on {@code bufferLock}, because a real evaluation waits for that too.</li>
+     *   <li><i>commit thread</i> is how long the executor spent running the commits those recordings caused.
+     *       Measured by wrapping the executor rather than inferred, which is the part the staging rows omit.</li>
+     * </ul>
+     * <p>
+     * Deliberately no {@code closeBatch} and no {@code remove}. Those run on the delivery path once per flush
+     * interval, so folding them into a per-event figure answers a question nobody asked.
+     */
+    @Test
+    public void callerThreadCostOfABulk() {
+        final byte[] serialized = SERIALIZED_EVENT.getBytes(StandardCharsets.UTF_8);
+
+        final TimingExecutor commits = new TimingExecutor();
+        final EventStore[] store = new EventStore[1];
+        final List<EventStore> toClose = new ArrayList<>();
+
+        final Runnable newRound = () -> {
+            if (store[0] != null) {
+                toClose.add(store[0]);
+            }
+            store[0] = new EventStore(new File(eventsDirectory.getRoot(), UUID.randomUUID().toString()),
+                    "benchmark", Integer.MAX_VALUE, logger, commits);
+            // Opens the output stream outside the timed region, so the round's first event does not pay for it.
+            store[0].stage(serialized);
+            store[0].commit();
+        };
+
+        final AndroidEventBuffer buffer = makeBuffer(noRedaction());
+        final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
+
+        try {
+            // Three sizes, because the 16 KiB threshold is what decides whether there is any deferred work at
+            // all. A hundred events of this size never reach it: nothing is written, and the whole cost is the
+            // caller's. A thousand cross it about eight times and ten thousand about eighty.
+            for (int bulk : BULK_SIZES) {
+                List<BulkMeasurement> results = new ArrayList<>();
+
+                results.add(new BulkMeasurement("staging a serialized event",
+                        measureBulk(bulk, commits, newRound, i -> store[0].stage(serialized))));
+
+                // The same bulk through the whole recording path, which is what puts the write in proportion.
+                // Serializing is by far the larger cost on this platform, and a figure for the store alone
+                // invites being read as though it were not.
+                results.add(new BulkMeasurement("evaluation of a tracked flag, end to end",
+                        measureBulk(bulk, commits, newRound, i -> {
+                            Event.FeatureRequest event = featureEvent(context, true);
+                            buffer.summarize(event);
+                            byte[] out = buffer.serialize(event);
+                            if (out != null) {
+                                store[0].stage(out);
+                                blackhole += out.length;
+                            }
+                        })));
+
+                reportBulk("recording " + count(bulk) + " events, nothing delivered", results);
+            }
+        } finally {
+            for (EventStore closing : toClose) {
+                closing.close();
+            }
+            if (store[0] != null) {
+                store[0].close();
+            }
+            commits.shutdown();
+        }
+    }
+
+    /**
+     * What a commit point costs when it goes badly, rather than on average.
+     * <p>
+     * {@code track} and {@code identify} commit on the caller's thread by design -- that is the durable
+     * barrier -- so this is the one figure here an application can observe as a stall. The mean is the number
+     * that gets quoted; the tail is the number a user notices.
+     * <p>
+     * The counterpart iOS test runs this against a SQLite store as well, where the tail is the point: a
+     * database in WAL mode folds its write-ahead log back into the file every thousand pages, on whichever
+     * thread happens to be committing, so one unlucky caller pays for all of them. An append has no such
+     * thing, and these rows are what that claim is measured against.
+     * <p>
+     * Two rows per size, for the two things a caller's thread actually does. {@code track} commits where it
+     * stands, so its tail is the write. An evaluation only stages and lets the executor write, so its tail is
+     * whatever the executor made it wait for -- which is the cost the deferred column cannot show.
+     * <p>
+     * <b>p99.9 only separates from the worst at ten thousand samples.</b> Below that the index falls on the
+     * last sample and the two columns are the same number by construction. They are left side by side so the
+     * table lines up across the sweep, and so the size at which they part is visible rather than asserted.
+     */
+    @Test
+    public void commitPointOutliers() throws IOException {
+        final byte[] serialized = SERIALIZED_EVENT.getBytes(StandardCharsets.UTF_8);
+        final AndroidEventBuffer buffer = makeBuffer(noRedaction());
+        final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
+
+        // A store of its own for each size and each row, so that a log inherited from an earlier measurement
+        // does not charge the next one for the file it had already grown.
+        for (int calls : BULK_SIZES) {
+            final EventStore committing = EventStore.create(eventsDirectory.newFolder(), "benchmark-key",
+                    "benchmark", Integer.MAX_VALUE, logger);
+            final EventStore staging = EventStore.create(eventsDirectory.newFolder(), "benchmark-key",
+                    "benchmark", Integer.MAX_VALUE, logger);
+            try {
+                List<DistributionMeasurement> results = new ArrayList<>();
+
+                results.add(new DistributionMeasurement("track, commits on this thread",
+                        measureDistribution(calls, i -> {
+                            committing.stage(serialized);
+                            committing.commit();
+                        })));
+
+                results.add(new DistributionMeasurement("evaluation, write handed off",
+                        measureDistribution(calls, i -> {
+                            Event.FeatureRequest event = featureEvent(context, true);
+                            buffer.summarize(event);
+                            byte[] out = buffer.serialize(event);
+                            if (out != null) {
+                                staging.stage(out);
+                                blackhole += out.length;
+                            }
+                        })));
+
+                reportDistribution("one call, " + count(calls) + " of them, on the caller's thread", results);
+            } finally {
+                committing.close();
+                staging.close();
+            }
         }
     }
 
@@ -410,6 +583,183 @@ public class EventPersistenceBenchmark {
         return best;
     }
 
+    /**
+     * An {@link Executor} that reports how long it spent running what it was handed.
+     * <p>
+     * This is what makes the deferred column a measurement rather than an inference. The store hands its
+     * commits here, and each one is timed on the thread that runs it, so the figure is the write itself
+     * rather than the difference between two numbers taken elsewhere.
+     */
+    private static final class TimingExecutor implements Executor {
+        private final ExecutorService delegate = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "benchmark-commit");
+            thread.setDaemon(true);
+            return thread;
+        });
+        private final AtomicLong busyNanos = new AtomicLong();
+
+        @Override
+        public void execute(Runnable command) {
+            delegate.execute(() -> {
+                long start = System.nanoTime();
+                try {
+                    command.run();
+                } finally {
+                    busyNanos.addAndGet(System.nanoTime() - start);
+                }
+            });
+        }
+
+        /** Waits for everything queued so far, so a commit still in flight is counted rather than lost. */
+        void drain() {
+            try {
+                delegate.submit(() -> { }).get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        long busyNanosAndReset() {
+            return busyNanos.getAndSet(0);
+        }
+
+        void shutdown() {
+            delegate.shutdownNow();
+        }
+    }
+
+    /** What one bulk of recordings cost, per event, split by which thread paid for it. */
+    private static final class BulkCost {
+        final double caller;
+        final double deferred;
+
+        BulkCost(double caller, double deferred) {
+            this.caller = caller;
+            this.deferred = deferred;
+        }
+
+        double total() {
+            return caller + deferred;
+        }
+    }
+
+    /**
+     * Records {@code iterations} events per round, returning the cheapest round priced on both sides of the
+     * hand-off.
+     * <p>
+     * {@code newRound} gets a fresh store, so that a log file growing across the rounds cannot make the later
+     * ones look worse than the earlier ones.
+     */
+    private BulkCost measureBulk(int iterations, TimingExecutor commits, Runnable newRound, IntConsumer record) {
+        // Warmed against a store of its own, because a JVM measured cold reports the interpreter rather than
+        // the compiled code, and because what the warmup stages should not land in a measured round.
+        //
+        // A fixed count rather than a share of the round. What the JIT needs to compile this loop has nothing
+        // to do with how many events the round is going to record, and scaling the warmup down with the round
+        // is what made the hundred-event row report the interpreter while the ten-thousand-event row did not.
+        newRound.run();
+        for (int i = 0; i < JIT_WARMUP; i++) {
+            record.accept(i);
+        }
+        commits.drain();
+        commits.busyNanosAndReset();
+
+        BulkCost best = null;
+        for (int round = 0; round < ROUNDS; round++) {
+            newRound.run();
+            commits.drain();
+            // Whatever setting the round up cost belongs to no round.
+            commits.busyNanosAndReset();
+
+            long start = System.nanoTime();
+            for (int i = 0; i < iterations; i++) {
+                record.accept(i);
+            }
+            long callerNanos = System.nanoTime() - start;
+
+            // Drained before reading, so a commit still in flight when the loop ended is charged to the
+            // executor rather than escaping the figure entirely.
+            commits.drain();
+            long deferredNanos = commits.busyNanosAndReset();
+
+            BulkCost cost = new BulkCost((double) callerNanos / iterations,
+                    (double) deferredNanos / iterations);
+            if (best == null || cost.total() < best.total()) {
+                best = cost;
+            }
+        }
+        return best;
+    }
+
+    /** How long one call took, across many of them, when the tail is the point. */
+    private static final class Distribution {
+        final double median;
+        final double mean;
+        final double p999;
+        final double worst;
+
+        Distribution(double median, double mean, double p999, double worst) {
+            this.median = median;
+            this.mean = mean;
+            this.p999 = p999;
+            this.worst = worst;
+        }
+    }
+
+    /**
+     * Times every call rather than the enclosing loop, so the tail survives to be reported.
+     * <p>
+     * One round, and the median rather than the fastest. Every other figure here reports the cheapest of
+     * several rounds, on the reasoning that noise can only make a round slower -- but here an outlier is the
+     * measurement, and that aggregation would throw away the answer.
+     */
+    private Distribution measureDistribution(int iterations, IntConsumer body) {
+        int warmup = Math.max(10_000, iterations / 4);
+        for (int i = 0; i < warmup; i++) {
+            body.accept(i);
+        }
+
+        long[] samples = new long[iterations];
+        for (int i = 0; i < iterations; i++) {
+            long start = System.nanoTime();
+            body.accept(i);
+            samples[i] = System.nanoTime() - start;
+        }
+
+        long total = 0;
+        for (long sample : samples) {
+            total += sample;
+        }
+        Arrays.sort(samples);
+        return new Distribution(samples[iterations / 2],
+                (double) total / iterations,
+                samples[Math.min(iterations - 1, (int) ((long) iterations * 999 / 1000))],
+                samples[iterations - 1]);
+    }
+
+    private static final class BulkMeasurement {
+        final String name;
+        final BulkCost cost;
+
+        BulkMeasurement(String name, BulkCost cost) {
+            this.name = name;
+            this.cost = cost;
+        }
+    }
+
+    private static final class DistributionMeasurement {
+        final String name;
+        final Distribution distribution;
+
+        DistributionMeasurement(String name, Distribution distribution) {
+            this.name = name;
+            this.distribution = distribution;
+        }
+    }
+
     private static final class Measurement {
         final String name;
         final double nanosPerOp;
@@ -432,6 +782,63 @@ public class EventPersistenceBenchmark {
         }
         System.out.print(out);
         System.out.flush();
+    }
+
+    /** Three columns rather than one, because the split is the whole point of the table. */
+    private static void reportBulk(String title, List<BulkMeasurement> results) {
+        int width = 0;
+        for (BulkMeasurement result : results) {
+            width = Math.max(width, result.name.length());
+        }
+        StringBuilder out = new StringBuilder("\n").append(title).append(", per event\n")
+                .append("  ").append(pad("", width))
+                .append("  ").append(column("caller thread"))
+                .append("  ").append(column("commit thread"))
+                .append("  ").append(column("total")).append('\n');
+        for (BulkMeasurement result : results) {
+            out.append("  ").append(pad(result.name, width))
+                    .append("  ").append(format(result.cost.caller))
+                    .append("  ").append(format(result.cost.deferred))
+                    .append("  ").append(format(result.cost.total())).append('\n');
+        }
+        System.out.print(out);
+        System.out.flush();
+    }
+
+    private static void reportDistribution(String title, List<DistributionMeasurement> results) {
+        int width = 0;
+        for (DistributionMeasurement result : results) {
+            width = Math.max(width, result.name.length());
+        }
+        StringBuilder out = new StringBuilder("\n").append(title).append('\n')
+                .append("  ").append(pad("", width))
+                .append("  ").append(column("median"))
+                .append("  ").append(column("mean"))
+                .append("  ").append(column("p99.9"))
+                .append("  ").append(column("worst")).append('\n');
+        for (DistributionMeasurement result : results) {
+            out.append("  ").append(pad(result.name, width))
+                    .append("  ").append(format(result.distribution.median))
+                    .append("  ").append(format(result.distribution.mean))
+                    .append("  ").append(format(result.distribution.p999))
+                    .append("  ").append(format(result.distribution.worst)).append('\n');
+        }
+        System.out.print(out);
+        System.out.flush();
+    }
+
+    /** Renders a count with thousands separators, so a table title reads as a quantity, not a code literal. */
+    private static String count(int value) {
+        return String.format("%,d", value);
+    }
+
+    /** Right-aligns a column heading over the fixed width {@link #format} produces. */
+    private static String column(String title) {
+        StringBuilder padded = new StringBuilder();
+        for (int i = title.length(); i < 11; i++) {
+            padded.append(' ');
+        }
+        return padded.append(title).toString();
     }
 
     private static String pad(String value, int width) {
