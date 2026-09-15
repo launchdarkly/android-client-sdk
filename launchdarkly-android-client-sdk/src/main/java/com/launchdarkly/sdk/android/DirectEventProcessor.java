@@ -32,8 +32,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * evaluations cannot displace anything: evaluations of untracked flags cost a counter increment,
  * and the configured capacity limits only the events that genuinely have to be sent one by one.
  */
-final class AndroidEventProcessor implements EventProcessor {
-    private final AndroidEventBuffer buffer;
+final class DirectEventProcessor implements EventProcessor {
+    private final OutboundEventBuffer buffer;
     private final EventSender eventSender;
     private final URI eventsUri;
     private final DiagnosticStore diagnosticStore;
@@ -54,8 +54,8 @@ final class AndroidEventProcessor implements EventProcessor {
     private ScheduledFuture<?> flushTask;
     private ScheduledFuture<?> diagnosticTask;
 
-    AndroidEventProcessor(
-            AndroidEventBuffer buffer,
+    DirectEventProcessor(
+            OutboundEventBuffer buffer,
             EventSender eventSender,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
@@ -251,7 +251,7 @@ final class AndroidEventProcessor implements EventProcessor {
         if (disabled.get() || offline.get()) {
             return false;
         }
-        AndroidEventBuffer.Payload payload;
+        OutboundEventBuffer.Payload payload;
         try {
             payload = buffer.drain();
         } catch (IOException e) {
@@ -276,7 +276,7 @@ final class AndroidEventProcessor implements EventProcessor {
     }
 
     private void sendDiagnosticEvent(DiagnosticEvent diagnosticEvent, boolean isInit) {
-        if (disabled.get()) {
+        if (diagnosticsSuspended()) {
             return;
         }
         try {
@@ -292,11 +292,23 @@ final class AndroidEventProcessor implements EventProcessor {
     }
 
     private void sendDiagnosticStats() {
-        if (disabled.get() || diagnosticStore == null) {
+        // Checked before createEventAndReset, which clears the counters it hands back: bailing out
+        // after that call would discard a period's worth of statistics instead of deferring them.
+        if (diagnosticsSuspended() || diagnosticStore == null) {
             return;
         }
         sendDiagnosticEvent(diagnosticStore.createEventAndReset(buffer.getAndClearDroppedCount(), 0),
                 false);
+    }
+
+    /**
+     * Unlike analytics events, diagnostics are not sent while offline or in the background.
+     * {@link #updateScheduledTasks} cancels the periodic task when either becomes true, but
+     * cancelling does not stop a run that has already begun, and the init event is submitted before
+     * it reaches the executor, so both paths can still arrive here after the state has changed.
+     */
+    private boolean diagnosticsSuspended() {
+        return isStopped() || offline.get() || inBackground.get();
     }
 
     private void handleResponse(EventSender.Result result) {
