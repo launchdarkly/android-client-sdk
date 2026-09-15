@@ -20,7 +20,6 @@ import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HookConfiguration;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.PluginsConfiguration;
-import com.launchdarkly.sdk.internal.events.AndroidEventBuffer;
 import com.launchdarkly.sdk.internal.events.DefaultEventSender;
 import com.launchdarkly.sdk.internal.events.EventSender;
 
