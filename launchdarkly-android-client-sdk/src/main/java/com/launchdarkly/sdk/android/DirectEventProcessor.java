@@ -14,6 +14,8 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -27,12 +29,38 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * The Android SDK's analytics event processor.
  * <p>
- * Recording an event summarizes it immediately and, only if it has to be delivered in full,
- * buffers it. There is no queue between the calling thread and the summarizer, so a burst of flag
- * evaluations cannot displace anything: evaluations of untracked flags cost a counter increment,
- * and the configured capacity limits only the events that genuinely have to be sent one by one.
+ * Recording an event summarizes it immediately and, only if it has to be delivered in full, holds it. A full
+ * event is kept as an {@link Event} until a commit turns the run of them into bytes and writes them, so
+ * evaluations of untracked flags cost a counter increment and evaluations of tracked ones cost that plus a
+ * list append. Nothing is encoded on the thread that evaluated.
+ * <p>
+ * Where the line falls is the subject of O12 in the event-encoding research, and it falls between the events
+ * an application asked for by name and the ones it did not. {@code track} and {@code identify} commit on the
+ * caller's thread before returning, because an application reporting an error is saying this matters more
+ * than the microseconds it costs and the crash it describes may be moments away; that commit encodes the
+ * whole held run, so the exposures leading up to the error go down with it. Evaluations get no such promise
+ * and are committed once {@link #PENDING_COMMIT_THRESHOLD} of them have accumulated, on {@code flush}, or
+ * when the application flushes from its own crash handler.
  */
 final class DirectEventProcessor implements EventProcessor {
+    /**
+     * How many full events may be held unencoded before one of them pays for a commit.
+     * <p>
+     * It replaces the store's staged-byte threshold, which cannot apply here because there are no bytes
+     * until the commit runs, and it sets two things at once.
+     * <p>
+     * The first is how many evaluations a termination can take. That is narrower than everything a crash
+     * could take: an uncaught exception runs the application's handler while the process is still alive, and
+     * a handler that flushes commits the whole held run, so this is the window for the terminations that run
+     * nothing on the way out -- {@code SIGKILL}, a native crash, an ANR kill, and the system reclaiming a
+     * backgrounded process. A {@code track} closes it too, because it commits.
+     * <p>
+     * The second is the worst a {@code track} can cost, since it encodes whatever is held before returning.
+     * The common case is far below the bound, because the commit executor keeps the run drained; raising
+     * this trades that tail against the number of writes.
+     */
+    private static final int PENDING_COMMIT_THRESHOLD = 32;
+
     private final OutboundEventBuffer eventBuffer;
     private final EventStore store;
     private final EventSender eventSender;
@@ -67,6 +95,40 @@ final class DirectEventProcessor implements EventProcessor {
     private ScheduledFuture<?> flushTask;
     private ScheduledFuture<?> diagnosticTask;
 
+    /**
+     * Full events recorded but not yet encoded, guarded by {@link #pendingLock}.
+     * <p>
+     * Held rather than serialized because serializing early would not make them durable: the store stages
+     * bytes into memory too, and only {@link EventStore#commit()} reaches the file. Both forms are equally
+     * lost to a crash, so the encode may as well happen where it is cheapest.
+     */
+    private final List<Event> pending = new ArrayList<>();
+    private final Object pendingLock = new Object();
+
+    /**
+     * Held for the whole of a commit, so that only one runs at a time.
+     * <p>
+     * This is what {@code track}'s guarantee rests on. Without it a commit already in flight could take the
+     * caller's event out of {@link #pending} before the caller got there, leaving the caller nothing to
+     * write and returning while those bytes were still being produced somewhere else. Waiting here instead
+     * means that when the call returns the event is on disk, whichever commit put it there.
+     * <p>
+     * Distinct from {@link #pendingLock}, which is only held long enough to hand the run over: encoding
+     * under this lock must not block a thread that is merely recording.
+     */
+    private final Object commitLock = new Object();
+
+    /**
+     * Whether a commit is already queued, so a run of recordings past the threshold submits one task rather
+     * than one per event.
+     */
+    private final AtomicBoolean commitScheduled = new AtomicBoolean(false);
+
+    /**
+     * How many events the SDK will hold in total, across {@link #pending} and the store.
+     */
+    private final int capacity;
+
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
             EventStore store,
@@ -74,6 +136,7 @@ final class DirectEventProcessor implements EventProcessor {
             AnalyticsEventSender analyticsEventSender,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
+            int capacity,
             long flushIntervalMillis,
             long diagnosticRecordingIntervalMillis,
             boolean initiallyInBackground,
@@ -83,6 +146,7 @@ final class DirectEventProcessor implements EventProcessor {
     ) {
         this.eventBuffer = eventBuffer;
         this.store = store;
+        this.capacity = capacity >= 0 ? capacity : 1;
         this.eventSender = eventSender;
         this.analyticsEventSender = analyticsEventSender;
         this.eventsUri = eventsUri;
@@ -163,37 +227,82 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Serializes an event and stages it, counting it as dropped if the store is full.
+     * Holds an event for the next commit to encode, counting it as dropped if the SDK is already full.
+     * <p>
+     * Capacity is consulted before anything else, so an event that will not be kept is never encoded. That
+     * ordering is what bounds an application re-evaluating a tracked flag in a render loop: once the limit is
+     * reached the cost of an evaluation falls back to its summary counter, however fast the loop runs.
      */
     private void record(Event event) {
-        byte[] serialized = eventBuffer.serialize(event);
-        if (serialized == null) {
-            return; // sampled out, or unserializable, and already logged
-        }
-        if (!store.stage(serialized)) {
-            if (capacityExceeded.compareAndSet(false, true)) {
-                logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+        boolean needsCommit;
+        synchronized (pendingLock) {
+            if (pending.size() + store.getPendingEventCount() >= capacity) {
+                if (capacityExceeded.compareAndSet(false, true)) {
+                    logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+                }
+                droppedEvents.incrementAndGet();
+                return;
             }
-            droppedEvents.incrementAndGet();
-            return;
+            capacityExceeded.set(false);
+            pending.add(event);
+            needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
         }
-        capacityExceeded.set(false);
+        if (needsCommit && commitScheduled.compareAndSet(false, true)) {
+            if (submit(this::runScheduledCommit) == null) {
+                commitScheduled.set(false);
+            }
+        }
     }
 
     /**
-     * Makes everything recorded so far survive the process, on the caller's thread.
+     * Clears the scheduling flag before committing, not after, so events recorded while this runs can queue
+     * a commit of their own rather than waiting for the next one to be triggered.
+     */
+    private void runScheduledCommit() {
+        commitScheduled.set(false);
+        commitDurably();
+    }
+
+    /**
+     * Encodes everything recorded since the last commit and makes it survive the process.
      * <p>
-     * This is the point of the whole arrangement, so it is worth being precise about which callers get
-     * it: those recording an event the application asked for by name. An application that calls
-     * {@code track} to report an error is telling the SDK that this event matters more than the
-     * microseconds it costs to write it, and the crash it is reporting may be moments away.
+     * This is the only place events are serialized. It runs on the commit executor when the pending run
+     * reaches {@link #PENDING_COMMIT_THRESHOLD}, and on the caller's thread for {@code flush}, where the
+     * caller has asked to wait for exactly this.
      * <p>
-     * The evaluations counted since the last commit point are written too, because a summary is only worth
-     * having if it covers the evaluations that led up to whatever is about to happen.
+     * The evaluations counted since the last commit are written too, because a summary is only worth having
+     * if it covers the evaluations that led up to whatever is about to happen.
      */
     private void commitDurably() {
-        stageSummaries();
-        store.commit();
+        synchronized (commitLock) {
+            stagePendingEvents();
+            stageSummaries();
+            store.commit();
+        }
+    }
+
+    /**
+     * Encodes the held events as one run and stages the bytes.
+     * <p>
+     * The run is taken under {@link #pendingLock} and encoded outside it, so recording does not wait on the
+     * encoder. Staging bypasses capacity because the decision to keep these events was already made in
+     * {@link #record}, and refusing them here would drop events the SDK has counted as accepted.
+     * <p>
+     * Requires {@link #commitLock}: two threads draining separate runs would stage them in whichever order
+     * they finished encoding, which is not the order they were recorded in.
+     */
+    private void stagePendingEvents() {
+        List<Event> run;
+        synchronized (pendingLock) {
+            if (pending.isEmpty()) {
+                return;
+            }
+            run = new ArrayList<>(pending);
+            pending.clear();
+        }
+        for (byte[] serialized : eventBuffer.serializeAll(run)) {
+            store.stage(serialized, true);
+        }
     }
 
     /**
@@ -316,7 +425,10 @@ final class DirectEventProcessor implements EventProcessor {
         }
         scheduler.shutdown();
         // Last: whatever could not be delivered is written down instead, so a caller who closed the
-        // client and then let the process end still has those events on the next run.
+        // client and then let the process end still has those events on the next run. Encoding happens
+        // here too, because a delivery that was refused for being offline returned before staging
+        // anything and the held events are still only objects.
+        commitDurably();
         store.close();
         eventSender.close();
         analyticsEventSender.close();
@@ -342,7 +454,7 @@ final class DirectEventProcessor implements EventProcessor {
             return false;
         }
 
-        stageSummaries();
+        commitDurably();
         store.closeBatch();
 
         // Every batch, not just the one just closed: the others are deliveries an earlier attempt did not

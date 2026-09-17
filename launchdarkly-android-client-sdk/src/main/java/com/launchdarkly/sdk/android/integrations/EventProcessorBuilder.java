@@ -29,7 +29,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     /**
      * The default value for {@link #capacity(int)}.
      */
-    public static final int DEFAULT_CAPACITY = 100;
+    public static final int DEFAULT_CAPACITY = 1000;
 
     /**
      * The default value for {@link #diagnosticRecordingIntervalMillis(int)}: 15 minutes.

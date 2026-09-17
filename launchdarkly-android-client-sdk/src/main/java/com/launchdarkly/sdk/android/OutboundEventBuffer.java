@@ -163,6 +163,40 @@ final class OutboundEventBuffer {
     }
 
     /**
+     * Serializes a run of events with one encoder instead of one per event.
+     * <p>
+     * Each event still becomes its own JSON object, because the store frames them individually and a
+     * frame holding several objects could not be spliced into a payload. What the run shares is the
+     * output stream, the writer and the UTF-8 lookup, which {@link #writeSingleObject} otherwise
+     * allocates on every call.
+     *
+     * @param pending the events, in the order they were recorded
+     * @return one JSON object per event that survived sampling and serialized
+     */
+    synchronized List<byte[]> serializeAll(List<Event> pending) {
+        if (pending.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<byte[]> serialized = new ArrayList<>(pending.size());
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        Writer writer = new BufferedWriter(
+                new OutputStreamWriter(outputStream, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
+        Event[] one = new Event[1];
+        for (Event event : pending) {
+            if (!Sampler.shouldSample(event.getSamplingRatio())) {
+                continue;
+            }
+            one[0] = event;
+            byte[] bytes = writeSingleObject(one, Collections.<EventSummarizer.EventSummary>emptyList(),
+                    outputStream, writer);
+            if (bytes != null) {
+                serialized.add(bytes);
+            }
+        }
+        return serialized;
+    }
+
+    /**
      * Serializes exactly one output event and returns the JSON object on its own.
      * <p>
      * {@link EventOutputFormatter} only offers to write a whole request body, which is a JSON array,
@@ -176,12 +210,30 @@ final class OutboundEventBuffer {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
                 new OutputStreamWriter(outputStream, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
+        return writeSingleObject(events, summaries, outputStream, writer);
+    }
+
+    /**
+     * @param outputStream reset before the write, so it may be shared across a run
+     * @param writer must wrap {@code outputStream}, and holds nothing buffered on entry
+     */
+    private byte[] writeSingleObject(Event[] events, List<EventSummarizer.EventSummary> summaries,
+                                     ByteArrayOutputStream outputStream, Writer writer) {
+        outputStream.reset();
         int written;
         try {
             written = formatter.writeOutputEvents(events, summaries, writer);
             writer.flush();
         } catch (Exception e) {
             logger.warn("Failed to serialize an event: {}", LogValues.exceptionSummary(e));
+            // Whatever the writer buffered is pushed out and thrown away with the stream, so a failed
+            // event cannot bleed into the next one sharing this writer.
+            try {
+                writer.flush();
+            } catch (Exception ignored) {
+                // The stream is reset by the next call either way.
+            }
+            outputStream.reset();
             return null;
         }
         if (written != 1) {

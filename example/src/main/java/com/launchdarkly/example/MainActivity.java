@@ -49,13 +49,13 @@ public class MainActivity extends AppCompatActivity {
      * The default of {@code LDConfig.Builder#events} capacity. Past this the event store is full until a
      * flush empties it, so every further full event is dropped.
      */
-    private static final int EVENT_CAPACITY = 100;
+    private static final int EVENT_CAPACITY = 1000;
 
     /**
      * Enough evaluations past capacity for the average to settle, and few enough that even a slow device
      * finishes the tap well inside the ANR window.
      */
-    private static final int OVER_CAPACITY_EVALUATIONS = 900;
+    private static final int OVER_CAPACITY_EVALUATIONS = 2000;
 
     private LDClient ldClient;
     private LDStatusListener ldStatusListener;
@@ -341,7 +341,7 @@ public class MainActivity extends AppCompatActivity {
             if (ldClient == null) {
                 return;
             }
-            final String flagKey = "over-refresh";
+            final String flagKey = "trackevents-test";
             Timber.w("over-refresh eval flag=%s", flagKey);
 
             double filling = averageMicroseconds(flagKey, EVENT_CAPACITY);

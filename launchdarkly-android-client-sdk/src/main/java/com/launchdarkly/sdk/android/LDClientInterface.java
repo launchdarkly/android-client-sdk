@@ -143,7 +143,19 @@ public interface LDClientInterface extends Closeable {
     Future<Void> identify(LDContext context);
 
     /**
-     * Sends all pending events to LaunchDarkly.
+     * Writes down all pending events and sends them to LaunchDarkly.
+     * <p>
+     * Recording an event does not on its own make it outlive the process. Events are written in runs, so one
+     * recorded shortly before the process ends may never have been written at all. This call writes
+     * everything recorded so far before it returns, and the events then survive whether or not the delivery
+     * does.
+     * <p>
+     * That is what makes it worth calling where the process is about to end. An application that reports
+     * errors to LaunchDarkly and then crashes should flush from its uncaught exception handler, which runs
+     * while the process is still alive -- {@link #flushAndWait(long, TimeUnit)} is the better choice there,
+     * since it also waits for delivery. Terminations that run no application code, such as {@code SIGKILL},
+     * a native crash, an ANR, or the system reclaiming a backgrounded process, cannot be covered this way,
+     * and they take whatever was recorded since the last write.
      */
     void flush();
 

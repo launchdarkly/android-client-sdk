@@ -118,6 +118,7 @@ abstract class ComponentsImpl {
                             clientContext.getBaseLogger()),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
+                    capacity,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     clientContext.isInBackground(),
