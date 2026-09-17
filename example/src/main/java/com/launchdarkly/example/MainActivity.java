@@ -45,6 +45,18 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String DEFAULT_USER_KEY = "user key";
 
+    /**
+     * The default of {@code LDConfig.Builder#events} capacity. Past this the event store is full until a
+     * flush empties it, so every further full event is dropped.
+     */
+    private static final int EVENT_CAPACITY = 100;
+
+    /**
+     * Enough evaluations past capacity for the average to settle, and few enough that even a slow device
+     * finishes the tap well inside the ANR window.
+     */
+    private static final int OVER_CAPACITY_EVALUATIONS = 900;
+
     private LDClient ldClient;
     private LDStatusListener ldStatusListener;
     private LDAllFlagsListener allFlagsListener;
@@ -105,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
         setupKillUnsentButton();
         setupKillNowButton();
         setupCrashNowButton();
+        setupOverRefreshButton();
         setupOfflineSwitch();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
         // makes the pair worth pressing.
@@ -308,6 +321,51 @@ public class MainActivity extends AppCompatActivity {
             throw new RuntimeException(
                     "Eval+Crash: deliberate uncaught exception immediately after track, to test event persistence");
         });
+    }
+
+    /**
+     * Reproduces the over-refresh pathology: a UI that re-evaluates one flag far more often than anything
+     * about it changed -- a recomposition or layout loop -- against a flag whose events LaunchDarkly is
+     * tracking. Runs on the main thread, because that is where the loop it stands in for runs.
+     *
+     * <p>The comparison between the two phases is the point rather than either number on its own. The first
+     * {@link #EVENT_CAPACITY} evaluations have room in the event store; every one after that is dropped,
+     * because nothing empties it until a flush. So the two phases costing the same per evaluation means the
+     * SDK is serializing events it then discards, which is the whole of the waste. A cost of a couple of
+     * microseconds instead means the flag has event tracking off, and this measured the summary counters
+     * rather than the thing in question.
+     */
+    private void setupOverRefreshButton() {
+        Button overRefreshButton = findViewById(R.id.over_refresh_button);
+        overRefreshButton.setOnClickListener(v -> {
+            if (ldClient == null) {
+                return;
+            }
+            final String flagKey = "over-refresh";
+            Timber.w("over-refresh eval flag=%s", flagKey);
+
+            double filling = averageMicroseconds(flagKey, EVENT_CAPACITY);
+            double overCapacity = averageMicroseconds(flagKey, OVER_CAPACITY_EVALUATIONS);
+
+            String result = String.format(Locale.US,
+                    "Over-refresh %s\n%d filling: %.0f \u00b5s/eval\n%d over capacity: %.0f \u00b5s/eval",
+                    flagKey,
+                    EVENT_CAPACITY, filling,
+                    OVER_CAPACITY_EVALUATIONS, overCapacity);
+            Timber.w(result);
+            ((TextView) findViewById(R.id.result_textView)).setText(result);
+        });
+    }
+
+    /**
+     * @return the mean wall time, in microseconds, of {@code count} evaluations of the flag
+     */
+    private double averageMicroseconds(String flagKey, int count) {
+        long start = System.nanoTime();
+        for (int i = 0; i < count; i++) {
+            ldClient.boolVariation(flagKey, false);
+        }
+        return (System.nanoTime() - start) / 1_000.0 / count;
     }
 
     private void setupIdentifyButton() {

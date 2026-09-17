@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * and the configured capacity limits only the events that genuinely have to be sent one by one.
  */
 final class DirectEventProcessor implements EventProcessor {
-    private final OutboundEventBuffer buffer;
+    private final OutboundEventBuffer eventBuffer;
     private final EventStore store;
     private final EventSender eventSender;
     private final AnalyticsEventSender analyticsEventSender;
@@ -68,7 +68,7 @@ final class DirectEventProcessor implements EventProcessor {
     private ScheduledFuture<?> diagnosticTask;
 
     DirectEventProcessor(
-            OutboundEventBuffer buffer,
+            OutboundEventBuffer eventBuffer,
             EventStore store,
             EventSender eventSender,
             AnalyticsEventSender analyticsEventSender,
@@ -81,7 +81,7 @@ final class DirectEventProcessor implements EventProcessor {
             ScheduledExecutorService scheduler,
             LDLogger logger
     ) {
-        this.buffer = buffer;
+        this.eventBuffer = eventBuffer;
         this.store = store;
         this.eventSender = eventSender;
         this.analyticsEventSender = analyticsEventSender;
@@ -132,7 +132,7 @@ final class DirectEventProcessor implements EventProcessor {
         Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
                 context, flagVersion, variation, value, defaultValue, reason, null,
                 requireFullEvent, debugEventsUntilDate, false);
-        buffer.summarize(event);
+        eventBuffer.summarize(event);
         if (requireFullEvent) {
             record(event);
         }
@@ -166,7 +166,7 @@ final class DirectEventProcessor implements EventProcessor {
      * Serializes an event and stages it, counting it as dropped if the store is full.
      */
     private void record(Event event) {
-        byte[] serialized = buffer.serialize(event);
+        byte[] serialized = eventBuffer.serialize(event);
         if (serialized == null) {
             return; // sampled out, or unserializable, and already logged
         }
@@ -200,7 +200,7 @@ final class DirectEventProcessor implements EventProcessor {
      * Turns the evaluation counters into summary events in the store.
      */
     private void stageSummaries() {
-        for (byte[] summary : buffer.serializeSummariesAndReset()) {
+        for (byte[] summary : eventBuffer.serializeSummariesAndReset()) {
             // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
             // counted, and dropping it would lose all of them at once.
             store.stage(summary, true);

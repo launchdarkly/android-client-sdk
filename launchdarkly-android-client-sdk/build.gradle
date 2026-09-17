@@ -27,10 +27,19 @@ android {
         // that the app's state is completely cleared between tests.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
+        if (System.getenv("LD_EVENT_BENCH") == "1") {
+            // The device benchmark writes one results file for the class. Orchestrator's
+            // "pm clear" between methods would wipe it, and the runner does not inherit the
+            // shell environment, so the gate is passed as an instrumentation argument.
+            testInstrumentationRunnerArguments["clearPackageData"] = "false"
+            testInstrumentationRunnerArguments["LD_EVENT_BENCH"] = "1"
+        }
     }
 
     testOptions {
-        execution = "ANDROIDX_TEST_ORCHESTRATOR"
+        // EventPersistenceBenchmark on a device keeps one process for the class so its results
+        // file survives; orchestrator would "pm clear" between methods and wipe it.
+        execution = (System.getenv("LD_EVENT_BENCH") == "1") ? "HOST" : "ANDROIDX_TEST_ORCHESTRATOR"
 
         // EventPersistenceBenchmark reports its measurements on stdout, which Gradle otherwise
         // swallows, and it is worth re-running even when nothing has changed. Both only apply when

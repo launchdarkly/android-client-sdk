@@ -173,9 +173,9 @@ final class OutboundEventBuffer {
      * @return the object's bytes, or null if the formatter did not write exactly one event
      */
     private byte[] writeSingleObject(Event[] events, List<EventSummarizer.EventSummary> summaries) {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
-                new OutputStreamWriter(buffer, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
+                new OutputStreamWriter(outputStream, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
         int written;
         try {
             written = formatter.writeOutputEvents(events, summaries, writer);
@@ -187,7 +187,7 @@ final class OutboundEventBuffer {
         if (written != 1) {
             return null;
         }
-        byte[] all = buffer.toByteArray();
+        byte[] all = outputStream.toByteArray();
         if (all.length < 3 || all[0] != '[' || all[all.length - 1] != ']') {
             // Not the shape this depends on. Refusing the event is the safe reading: a frame that is
             // not one JSON object would corrupt every payload it was later spliced into.
