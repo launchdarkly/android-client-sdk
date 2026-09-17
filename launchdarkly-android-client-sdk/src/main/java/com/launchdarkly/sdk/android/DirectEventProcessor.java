@@ -13,7 +13,7 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -237,7 +237,7 @@ final class DirectEventProcessor implements EventProcessor {
         }
         try {
             byte[] data = diagnosticEvent.getJsonValue().toJsonString()
-                    .getBytes(Charset.forName("UTF-8"));
+                    .getBytes(StandardCharsets.UTF_8);
             handleResponse(eventSender.sendDiagnosticEvent(data, eventsUri));
             if (isInit) {
                 diagnosticInitSent.set(true);
@@ -259,9 +259,10 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * Unlike analytics events, diagnostics are not sent while offline or in the background.
-     * {@link #updateScheduledTasks} cancels the periodic task when either becomes true, but
-     * cancelling does not stop a run that has already begun, and the init event is submitted before
-     * it reaches the executor, so both paths can still arrive here after the state has changed.
+     * <p>
+     * {@link #updateScheduledTasks} cancels the periodic task when either becomes true, but that is
+     * not enough on its own. Cancelling does not stop a run already underway, and the init event is
+     * submitted before it reaches the executor. Either can arrive here after the state changed.
      */
     private boolean diagnosticsSuspended() {
         return isStopped() || offline.get() || inBackground.get();
@@ -331,7 +332,10 @@ final class DirectEventProcessor implements EventProcessor {
             return currentTask;
         }
         try {
-            return scheduler.scheduleAtFixedRate(guarded(task), intervalMillis, intervalMillis,
+            // Fixed delay rather than fixed rate: a cached process stops running its tasks without
+            // stopping the clock, so at a fixed rate it would come back owing every run it missed and
+            // fire them one after another.
+            return scheduler.scheduleWithFixedDelay(guarded(task), intervalMillis, intervalMillis,
                     TimeUnit.MILLISECONDS);
         } catch (RuntimeException e) { // the executor was shut down under us
             return null;
