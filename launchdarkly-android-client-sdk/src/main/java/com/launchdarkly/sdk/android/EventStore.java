@@ -10,7 +10,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -180,7 +180,7 @@ final class EventStore implements Closeable {
     private static String hexDigest(String input, int bytes) {
         try {
             byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(input.getBytes(Charset.forName("UTF-8")));
+                    .digest(input.getBytes(StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder(bytes * 2);
             for (int i = 0; i < bytes; i++) {
                 hex.append(Character.forDigit((hash[i] >> 4) & 0xf, 16));
@@ -669,7 +669,7 @@ final class EventStore implements Closeable {
     static final class Format {
         /** Bump this whenever the framing or the meaning of a frame changes. */
         static final int VERSION = 1;
-        static final byte[] MAGIC = "LDEV".getBytes(Charset.forName("US-ASCII"));
+        static final byte[] MAGIC = "LDEV".getBytes(StandardCharsets.US_ASCII);
         static final int FILE_HEADER_SIZE = 6;
         static final int FRAME_HEADER_SIZE = 6;
         /** The only frame type written today; a reader skips a frame whose type it does not know. */

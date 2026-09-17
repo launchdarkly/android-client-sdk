@@ -17,7 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -180,7 +180,7 @@ final class OutboundEventBuffer {
         List<byte[]> serialized = new ArrayList<>(pending.size());
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
-                new OutputStreamWriter(outputStream, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
+                new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
         Event[] one = new Event[1];
         for (Event event : pending) {
             if (!Sampler.shouldSample(event.getSamplingRatio())) {
@@ -209,7 +209,7 @@ final class OutboundEventBuffer {
     private byte[] writeSingleObject(Event[] events, List<EventSummarizer.EventSummary> summaries) {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
-                new OutputStreamWriter(outputStream, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
+                new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
         return writeSingleObject(events, summaries, outputStream, writer);
     }
 
@@ -250,13 +250,6 @@ final class OutboundEventBuffer {
     }
 
     /**
-     * @return true if there is nothing buffered and no summary counters
-     */
-    synchronized boolean isEmpty() {
-        return events.isEmpty() && summarizer.isEmpty();
-    }
-
-    /**
      * @return the number of full events dropped for capacity since this was last called
      */
     synchronized long getAndClearDroppedCount() {
@@ -280,7 +273,7 @@ final class OutboundEventBuffer {
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
-                new OutputStreamWriter(buffer, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
+                new OutputStreamWriter(buffer, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
         int outputEventCount;
         try {
             outputEventCount = formatter.writeOutputEvents(eventsOut, summaries, writer);
