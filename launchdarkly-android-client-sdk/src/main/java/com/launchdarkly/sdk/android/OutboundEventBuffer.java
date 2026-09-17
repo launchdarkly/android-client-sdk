@@ -16,7 +16,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -112,13 +112,6 @@ final class OutboundEventBuffer {
     }
 
     /**
-     * @return true if there is nothing buffered and no summary counters
-     */
-    synchronized boolean isEmpty() {
-        return events.isEmpty() && summarizer.isEmpty();
-    }
-
-    /**
      * @return the number of full events dropped for capacity since this was last called
      */
     synchronized long getAndClearDroppedCount() {
@@ -142,7 +135,7 @@ final class OutboundEventBuffer {
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
-                new OutputStreamWriter(buffer, Charset.forName("UTF-8")), INITIAL_OUTPUT_BUFFER_SIZE);
+                new OutputStreamWriter(buffer, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
         int outputEventCount;
         try {
             outputEventCount = formatter.writeOutputEvents(eventsOut, summaries, writer);
