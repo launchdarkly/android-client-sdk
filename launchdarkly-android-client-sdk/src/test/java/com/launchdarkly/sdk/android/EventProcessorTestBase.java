@@ -8,6 +8,7 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -74,11 +75,12 @@ public abstract class EventProcessorTestBase {
      *   tests that need to configure something else on top such as private attributes
      */
     protected EventProcessorBuilder eventsBuilder(int capacity) {
-        // Persistence is off by default for applications, so the tests that exercise the store have to
-        // ask for it. A test covering the default is in DirectEventProcessorTest.
+        // Persistence is off by default for applications, so the tests that exercise it have to ask.
+        // IMMEDIATE is also what lets a test assert on the store straight after a track. Tests covering the
+        // default are in DirectEventProcessorTest.
         return Components.sendEvents()
                 .capacity(capacity)
-                .persistEvents(true)
+                .eventPersistence(EventPersistence.IMMEDIATE)
                 .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS);
     }
 

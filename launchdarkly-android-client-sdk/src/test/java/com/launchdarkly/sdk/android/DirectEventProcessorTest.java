@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
@@ -96,6 +97,56 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.close();
             }
         }
+    }
+
+    @Test
+    public void immediatePersistencePutsATrackOnDiskBeforeItReturns() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilder(DEFAULT_CAPACITY).eventPersistence(EventPersistence.IMMEDIATE), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+
+                // No waiting and no flush: the guarantee is that the call did the work before returning, which
+                // is the whole of what this setting buys and the only way a SIGKILL here still reports it.
+                assertEquals(1, kindsOnDisk("custom"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void deferredPersistenceStillPutsATrackOnDisk() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilder(DEFAULT_CAPACITY).eventPersistence(EventPersistence.DEFERRED), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+
+                // Durable a moment later rather than immediately: the commit was queued, not skipped.
+                long deadline = System.currentTimeMillis() + 5_000;
+                while (kindsOnDisk("custom") == 0 && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(10);
+                }
+                assertEquals(1, kindsOnDisk("custom"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    /** @return how many events of this kind the store holds, read as another process would read it */
+    private int kindsOnDisk(String kind) throws Exception {
+        EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                DEFAULT_CAPACITY, true, logging.logger);
+        int found = 0;
+        for (byte[] payload : reader.pendingEventPayloads()) {
+            if (kind.equals(LDValue.parse(new String(payload, "UTF-8")).get("kind").stringValue())) {
+                found++;
+            }
+        }
+        return found;
     }
 
     @Test

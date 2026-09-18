@@ -47,9 +47,9 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000;
 
     /**
-     * The default value for {@link #persistEvents(boolean)}: off.
+     * The default value for {@link #eventPersistence(EventPersistence)}: {@link EventPersistence#DISABLED}.
      */
-    public static final boolean DEFAULT_PERSIST_EVENTS = false;
+    public static final EventPersistence DEFAULT_EVENT_PERSISTENCE = EventPersistence.DISABLED;
 
     /**
      * All attributes should be treated as private
@@ -72,9 +72,9 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
 
     /**
-     * Whether events are written to disk so they outlive the process
+     * How far the SDK goes to make a recorded event outlive the process
      */
-    protected boolean persistEvents = DEFAULT_PERSIST_EVENTS;
+    protected EventPersistence eventPersistence = DEFAULT_EVENT_PERSISTENCE;
 
     /**
      * Set of attributes by reference that will be treated as private
@@ -145,24 +145,21 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     }
 
     /**
-     * Sets whether recorded events are written to disk, so that they survive the process ending.
+     * Sets how far the SDK goes to make a recorded event outlive the process that recorded it.
      * <p>
-     * Without this, an event lives in memory until it is delivered, and a process that dies before the
-     * next flush takes everything recorded since the last one. That includes the crash an application
-     * was reporting when it died, which is the case this exists for. With it on, events are appended to
-     * a log under the application's no-backup files directory and delivered on a later run, and a
-     * {@code track} or {@code identify} is on disk before the call returns.
+     * Anything other than {@link EventPersistence#DISABLED} appends events to a log under the
+     * application's no-backup files directory and delivers them on a later run, which is what lets the
+     * crash an application was reporting when it died reach LaunchDarkly at all.
+     * {@link EventPersistence#IMMEDIATE} additionally puts the write on the thread that called
+     * {@code track} or {@code identify}, so there is no window in which the event exists only in memory.
      * <p>
-     * The cost is a write on the thread that called {@code track} or {@code identify}, measured in tens
-     * to hundreds of microseconds depending on the device. Evaluating a flag stays in memory either way.
-     * <p>
-     * The default value is {@link #DEFAULT_PERSIST_EVENTS}.
+     * The default value is {@link #DEFAULT_EVENT_PERSISTENCE}.
      *
-     * @param persistEvents true to write events to disk
+     * @param eventPersistence how far to go to make events outlive the process
      * @return the builder
      */
-    public EventProcessorBuilder persistEvents(boolean persistEvents) {
-        this.persistEvents = persistEvents;
+    public EventProcessorBuilder eventPersistence(EventPersistence eventPersistence) {
+        this.eventPersistence = eventPersistence == null ? DEFAULT_EVENT_PERSISTENCE : eventPersistence;
         return this;
     }
 

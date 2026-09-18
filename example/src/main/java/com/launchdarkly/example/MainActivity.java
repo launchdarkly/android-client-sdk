@@ -23,6 +23,7 @@ import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 
 import java.util.Date;
 import java.util.Locale;
@@ -136,6 +137,9 @@ public class MainActivity extends AppCompatActivity {
                 .http(
                         Components.httpConfiguration().useReport(false)
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
+                )
+                .events(
+                        Components.sendEvents().eventPersistence(EventPersistence.IMMEDIATE)
                 )
                 .hooks(
                         // Same shape a customer uses for any hook: wrap it at registration. Each

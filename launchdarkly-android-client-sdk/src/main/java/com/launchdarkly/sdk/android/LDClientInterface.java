@@ -146,7 +146,8 @@ public interface LDClientInterface extends Closeable {
      * Writes down all pending events and sends them to LaunchDarkly.
      * <p>
      * Recording an event does not on its own make it outlive the process. Where
-     * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#persistEvents(boolean)} is on,
+     * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence(
+     * com.launchdarkly.sdk.android.integrations.EventPersistence)} is on,
      * events are written in runs, so one recorded shortly before the process ends may never have been
      * written at all; this call writes everything recorded so far before it returns, and the events then
      * survive whether or not the delivery does. Where it is off, events live in memory only and nothing

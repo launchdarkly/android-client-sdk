@@ -4,6 +4,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
@@ -119,6 +120,7 @@ abstract class ComponentsImpl {
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
                     capacity,
+                    eventPersistence == EventPersistence.IMMEDIATE,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     clientContext.isInBackground(),
@@ -142,7 +144,7 @@ abstract class ComponentsImpl {
                     clientContext.getMobileKey(),
                     platformState.getProcessName(),
                     capacity,
-                    persistEvents,
+                    eventPersistence != EventPersistence.DISABLED,
                     clientContext.getBaseLogger());
         }
 

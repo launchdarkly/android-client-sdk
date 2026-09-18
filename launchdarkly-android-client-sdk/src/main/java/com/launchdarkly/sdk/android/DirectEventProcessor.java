@@ -35,12 +35,17 @@ import java.util.concurrent.atomic.AtomicLong;
  * list append. Nothing is encoded on the thread that evaluated.
  * <p>
  * Where the line falls is the subject of O12 in the event-encoding research, and it falls between the events
- * an application asked for by name and the ones it did not. {@code track} and {@code identify} commit on the
- * caller's thread before returning, because an application reporting an error is saying this matters more
- * than the microseconds it costs and the crash it describes may be moments away; that commit encodes the
- * whole held run, so the exposures leading up to the error go down with it. Evaluations get no such promise
- * and are committed once {@link #PENDING_COMMIT_THRESHOLD} of them have accumulated, on {@code flush}, or
- * when the application flushes from its own crash handler.
+ * an application asked for by name and the ones it did not. {@code track} and {@code identify} are commit
+ * points, because an application reporting an error is saying this matters more than the microseconds it
+ * costs and the crash it describes may be moments away; a commit encodes the whole held run, so the
+ * exposures leading up to the error go down with it. Evaluations get no such promise and are committed once
+ * {@link #PENDING_COMMIT_THRESHOLD} of them have accumulated, on {@code flush}, or when the application
+ * flushes from its own crash handler.
+ * <p>
+ * Whether a commit point runs on the caller's thread is the application's choice, through
+ * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence(
+ * com.launchdarkly.sdk.android.integrations.EventPersistence)}. Only at
+ * {@code IMMEDIATE} can {@code track} promise the event is on disk by the time it returns.
  */
 final class DirectEventProcessor implements EventProcessor {
     /**
@@ -129,6 +134,11 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private final int capacity;
 
+    /**
+     * Whether a commit point encodes and writes before returning, rather than queueing that work.
+     */
+    private final boolean commitOnCallerThread;
+
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
             EventStore store,
@@ -137,6 +147,7 @@ final class DirectEventProcessor implements EventProcessor {
             URI eventsUri,
             DiagnosticStore diagnosticStore,
             int capacity,
+            boolean commitOnCallerThread,
             long flushIntervalMillis,
             long diagnosticRecordingIntervalMillis,
             boolean initiallyInBackground,
@@ -147,6 +158,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.eventBuffer = eventBuffer;
         this.store = store;
         this.capacity = capacity >= 0 ? capacity : 1;
+        this.commitOnCallerThread = commitOnCallerThread;
         this.eventSender = eventSender;
         this.analyticsEventSender = analyticsEventSender;
         this.eventsUri = eventsUri;
@@ -214,7 +226,7 @@ final class DirectEventProcessor implements EventProcessor {
             return;
         }
         record(new Event.Identify(System.currentTimeMillis(), context));
-        commitDurably();
+        commitAtCommitPoint();
     }
 
     @Override
@@ -223,7 +235,7 @@ final class DirectEventProcessor implements EventProcessor {
             return;
         }
         record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
-        commitDurably();
+        commitAtCommitPoint();
     }
 
     /**
@@ -247,7 +259,30 @@ final class DirectEventProcessor implements EventProcessor {
             pending.add(event);
             needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
         }
-        if (needsCommit && commitScheduled.compareAndSet(false, true)) {
+        if (needsCommit) {
+            scheduleCommit();
+        }
+    }
+
+    /**
+     * Commits at a commit point, on the caller's thread or off it as the application asked.
+     * <p>
+     * Committing on the caller's thread is what lets {@code track} promise its event is on disk by the time
+     * it returns. Scheduling it instead keeps the encode and the write off that thread, and the event is
+     * durable a moment later rather than immediately -- which is nothing at all when persistence is off,
+     * since there is no disk for an early commit to reach.
+     */
+    private void commitAtCommitPoint() {
+        if (commitOnCallerThread) {
+            commitDurably();
+        } else {
+            scheduleCommit();
+        }
+    }
+
+    /** Queues a commit unless one is already queued, so a run of recordings asks for one rather than many. */
+    private void scheduleCommit() {
+        if (commitScheduled.compareAndSet(false, true)) {
             if (submit(this::runScheduledCommit) == null) {
                 commitScheduled.set(false);
             }
