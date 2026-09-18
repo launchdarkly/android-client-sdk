@@ -147,6 +147,13 @@ final class DirectEventProcessor implements EventProcessor {
                 return;
             }
             updateScheduledTasks(inBackground.get(), offline);
+            if (!offline) {
+                // The periodic task was cancelled for the outage and starts a fresh interval above,
+                // so anything the outage buffered would otherwise wait the whole of it. Worse, each
+                // loss of connectivity re-anchors that interval, so a run of brief ones can hold
+                // events back for far longer than a single interval.
+                submit(this::deliverPayload);
+            }
         }
     }
 
