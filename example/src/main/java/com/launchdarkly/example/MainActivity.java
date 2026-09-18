@@ -26,10 +26,6 @@ import com.launchdarkly.sdk.android.integrations.DedupingHook;
 
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import timber.log.Timber;
@@ -44,6 +40,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String STAGING_DOMAIN = "ld-stg.launchdarkly.com";
 
     private static final String DEFAULT_USER_KEY = "user key";
+
+    /** How long startup blocks waiting for the first flags to arrive. */
+    private static final int INIT_WAIT_SECONDS = 10;
 
     private LDClient ldClient;
     private LDStatusListener ldStatusListener;
@@ -143,15 +142,12 @@ public class MainActivity extends AppCompatActivity {
                 .set("email", "fake@example.com")
                 .build();
 
-        Future<LDClient> initFuture = LDClient.init(this.getApplication(), ldConfig, context);
-        try {
-            ldClient = initFuture.get(10, TimeUnit.SECONDS);
-            updateStatusString(ldClient.getConnectionInformation());
-            ldClient.registerStatusListener(ldStatusListener);
-            ldClient.registerAllFlagsListener(allFlagsListener);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Timber.e(e, "Exception when awaiting LaunchDarkly Client initialization");
-        }
+        // Returns the client either way: if the flags have not arrived within the wait, it is usable
+        // with whatever it has cached.
+        ldClient = LDClient.init(this.getApplication(), ldConfig, context, INIT_WAIT_SECONDS);
+        updateStatusString(ldClient.getConnectionInformation());
+        ldClient.registerStatusListener(ldStatusListener);
+        ldClient.registerAllFlagsListener(allFlagsListener);
     }
 
     private void setupListeners() {
