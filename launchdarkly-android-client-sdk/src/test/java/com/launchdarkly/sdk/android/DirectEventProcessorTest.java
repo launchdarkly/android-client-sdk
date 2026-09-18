@@ -105,6 +105,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             EventProcessor eventProcessor = makeEventProcessor(server,
                     eventsBuilder(DEFAULT_CAPACITY).eventPersistence(EventPersistence.IMMEDIATE), true);
             try {
+                // Offline so a delivery cannot drain the store out from under the assertion. The commit
+                // this is about runs either way; only the sending is held back.
+                eventProcessor.setOffline(true);
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
 
                 // No waiting and no flush: the guarantee is that the call did the work before returning, which
@@ -122,6 +125,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             EventProcessor eventProcessor = makeEventProcessor(server,
                     eventsBuilder(DEFAULT_CAPACITY).eventPersistence(EventPersistence.DEFERRED), true);
             try {
+                // Offline for the same reason as the immediate case: delivery would race the read.
+                eventProcessor.setOffline(true);
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
 
                 // Durable a moment later rather than immediately: the commit was queued, not skipped.
