@@ -374,6 +374,13 @@ final class DirectEventProcessor implements EventProcessor {
                 return;
             }
             updateScheduledTasks(inBackground.get(), offline);
+            if (!offline) {
+                // The periodic task was cancelled for the outage and starts a fresh interval above,
+                // so anything the outage buffered would otherwise wait the whole of it. Worse, each
+                // loss of connectivity re-anchors that interval, so a run of brief ones can hold
+                // events back for far longer than a single interval.
+                submit(this::deliverPayload);
+            }
         }
     }
 
@@ -546,6 +553,11 @@ final class DirectEventProcessor implements EventProcessor {
                     .getBytes(StandardCharsets.UTF_8);
             handleResponse(eventSender.sendDiagnosticEvent(data, eventsUri));
             if (isInit) {
+                // Attempted, not delivered. A failed post gives back an unsuccessful Result rather
+                // than throwing, so this marks the init event done either way and the process never
+                // retries it. That matches DefaultEventProcessor, which is the behaviour to keep:
+                // diagnostics are best-effort telemetry about the SDK, and a retry that outlived
+                // its own init would describe a configuration the application has moved on from.
                 diagnosticInitSent.set(true);
             }
         } catch (Exception e) {

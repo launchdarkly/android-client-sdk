@@ -268,6 +268,29 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void comingBackOnlineDeliversWithoutWaitingForTheNextInterval() throws Exception {
+        // A connectivity blip cancels the periodic flush and then restarts it from zero, so waiting
+        // for it would hold these events back by a full interval — and by several of them if the
+        // network keeps dropping.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(true);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                eventProcessor.setOffline(false);
+
+                // Periodic flushing is effectively off in this fixture, so a payload arriving
+                // without an explicit flush can only have come from the transition.
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(1, countEventsOfKind(events, "custom"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void debugEventIsSentWhileDebuggingIsActive() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
