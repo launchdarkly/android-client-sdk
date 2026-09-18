@@ -47,6 +47,11 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000;
 
     /**
+     * The default value for {@link #persistEvents(boolean)}: off.
+     */
+    public static final boolean DEFAULT_PERSIST_EVENTS = false;
+
+    /**
      * All attributes should be treated as private
      */
     protected boolean allAttributesPrivate = false;
@@ -65,6 +70,11 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * The flush interval in millis
      */
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
+
+    /**
+     * Whether events are written to disk so they outlive the process
+     */
+    protected boolean persistEvents = DEFAULT_PERSIST_EVENTS;
 
     /**
      * Set of attributes by reference that will be treated as private
@@ -131,6 +141,28 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      */
     public EventProcessorBuilder flushIntervalMillis(int flushIntervalMillis) {
         this.flushIntervalMillis = flushIntervalMillis <= 0 ? DEFAULT_FLUSH_INTERVAL_MILLIS : flushIntervalMillis;
+        return this;
+    }
+
+    /**
+     * Sets whether recorded events are written to disk, so that they survive the process ending.
+     * <p>
+     * Without this, an event lives in memory until it is delivered, and a process that dies before the
+     * next flush takes everything recorded since the last one. That includes the crash an application
+     * was reporting when it died, which is the case this exists for. With it on, events are appended to
+     * a log under the application's no-backup files directory and delivered on a later run, and a
+     * {@code track} or {@code identify} is on disk before the call returns.
+     * <p>
+     * The cost is a write on the thread that called {@code track} or {@code identify}, measured in tens
+     * to hundreds of microseconds depending on the device. Evaluating a flag stays in memory either way.
+     * <p>
+     * The default value is {@link #DEFAULT_PERSIST_EVENTS}.
+     *
+     * @param persistEvents true to write events to disk
+     * @return the builder
+     */
+    public EventProcessorBuilder persistEvents(boolean persistEvents) {
+        this.persistEvents = persistEvents;
         return this;
     }
 

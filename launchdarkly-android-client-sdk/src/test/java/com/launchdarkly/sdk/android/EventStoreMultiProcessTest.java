@@ -62,7 +62,7 @@ public class EventStoreMultiProcessTest {
     }
 
     private EventStore storeFor(String processName, int capacity) {
-        return new EventStore(sharedDirectory(), processName, capacity, logger, inline);
+        return new EventStore(sharedDirectory(), processName, capacity, true, logger, inline);
     }
 
     private byte[] event(String key) {

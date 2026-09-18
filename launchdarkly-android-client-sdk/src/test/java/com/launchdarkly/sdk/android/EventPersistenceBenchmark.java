@@ -179,7 +179,7 @@ public class EventPersistenceBenchmark {
     public void recordingCostPerCall() throws IOException {
         final OutboundEventBuffer buffer = makeBuffer(noRedaction());
         final EventStore store = EventStore.create(eventsDirectory.getRoot(), "benchmark-key",
-                "benchmark", Integer.MAX_VALUE, logger);
+                "benchmark", Integer.MAX_VALUE, true, logger);
         final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
 
         try {
@@ -252,7 +252,7 @@ public class EventPersistenceBenchmark {
                 toClose.add(store[0]);
             }
             store[0] = new EventStore(new File(eventsDirectory.getRoot(), UUID.randomUUID().toString()),
-                    "benchmark", Integer.MAX_VALUE, logger, commits);
+                    "benchmark", Integer.MAX_VALUE, true, logger, commits);
             // Opens the output stream outside the timed region, so the round's first event does not pay for it.
             store[0].stage(serialized);
             store[0].commit();
@@ -328,9 +328,9 @@ public class EventPersistenceBenchmark {
         // does not charge the next one for the file it had already grown.
         for (int calls : BULK_SIZES) {
             final EventStore committing = EventStore.create(eventsDirectory.newFolder(), "benchmark-key",
-                    "benchmark", Integer.MAX_VALUE, logger);
+                    "benchmark", Integer.MAX_VALUE, true, logger);
             final EventStore staging = EventStore.create(eventsDirectory.newFolder(), "benchmark-key",
-                    "benchmark", Integer.MAX_VALUE, logger);
+                    "benchmark", Integer.MAX_VALUE, true, logger);
             try {
                 List<DistributionMeasurement> results = new ArrayList<>();
 

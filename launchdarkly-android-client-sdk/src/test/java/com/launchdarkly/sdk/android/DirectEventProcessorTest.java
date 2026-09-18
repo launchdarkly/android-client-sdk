@@ -81,7 +81,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.flush();
 
                 EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
-                        DEFAULT_CAPACITY, logging.logger);
+                        DEFAULT_CAPACITY, true, logging.logger);
                 List<byte[]> persisted = reader.pendingEventPayloads();
                 int featureEvents = 0;
                 int summaryEvents = 0;
@@ -92,6 +92,35 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 }
                 assertEquals(1, featureEvents);
                 assertEquals(1, summaryEvents);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void persistenceIsOffUnlessTheApplicationAsksForIt() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            // Deliberately not eventsBuilder(), which turns persistence on: this is what an application
+            // gets without configuring anything.
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    Components.sendEvents()
+                            .capacity(DEFAULT_CAPACITY)
+                            .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS),
+                    true);
+            try {
+                eventProcessor.recordIdentifyEvent(CONTEXT);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+
+                EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                        DEFAULT_CAPACITY, true, logging.logger);
+                assertTrue("an event reached the disk without being asked to",
+                        reader.pendingEventPayloads().isEmpty());
+
+                // Held in memory instead, so turning persistence off costs durability and nothing else.
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+                requireEventOfKind(events, "identify");
+                requireEventOfKind(events, "custom");
             } finally {
                 eventProcessor.close();
             }

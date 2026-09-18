@@ -142,6 +142,7 @@ abstract class ComponentsImpl {
                     clientContext.getMobileKey(),
                     platformState.getProcessName(),
                     capacity,
+                    persistEvents,
                     clientContext.getBaseLogger());
         }
 

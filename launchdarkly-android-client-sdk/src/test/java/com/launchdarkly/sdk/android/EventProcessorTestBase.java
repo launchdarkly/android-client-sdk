@@ -32,7 +32,7 @@ public abstract class EventProcessorTestBase {
     protected static final LDContext CONTEXT = LDContext.create("user-key");
 
     // Long enough that the only payload in a test is the one it asks for explicitly.
-    private static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
+    protected static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
 
     @Rule
     public Timeout globalTimeout = Timeout.seconds(60);
@@ -74,8 +74,11 @@ public abstract class EventProcessorTestBase {
      *   tests that need to configure something else on top such as private attributes
      */
     protected EventProcessorBuilder eventsBuilder(int capacity) {
+        // Persistence is off by default for applications, so the tests that exercise the store have to
+        // ask for it. A test covering the default is in DirectEventProcessorTest.
         return Components.sendEvents()
                 .capacity(capacity)
+                .persistEvents(true)
                 .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS);
     }
 

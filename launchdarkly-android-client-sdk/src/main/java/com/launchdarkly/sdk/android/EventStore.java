@@ -102,7 +102,11 @@ final class EventStore implements Closeable {
     private int bufferedEventCount;
     private int committedEvents;
     private int closedEvents;
-    private boolean persistenceDisabled;
+    /**
+     * Whether events are being written to disk, which is what the application asked for until a write
+     * fails and the store gives up on persistence for the rest of the session.
+     */
+    private boolean persistEvents;
     private boolean commitScheduled;
 
     // Guarded by ioLock.
@@ -127,12 +131,18 @@ final class EventStore implements Closeable {
      */
     private final Map<String, Integer> eventCounts = new HashMap<>();
 
-    EventStore(File directory, String processName, int capacity, LDLogger logger, Executor commitExecutor) {
+    EventStore(File directory, String processName, int capacity, boolean persistEvents, LDLogger logger,
+               Executor commitExecutor) {
         this.directory = directory;
         this.openLog = new File(directory, OPEN_PREFIX + logNameFor(processName));
         this.capacity = capacity >= 0 ? capacity : 1;
         this.logger = logger;
         this.commitExecutor = commitExecutor;
+        // An application that has not asked for persistence gets the same store running the same way it
+        // runs once a write has failed: events are held, delivered, and lost only if the process dies.
+        // Batches a run with persistence turned on left behind are still recovered and delivered, which
+        // is why this sets the runtime flag rather than skipping the store's reads.
+        this.persistEvents = persistEvents;
     }
 
     /**
@@ -141,17 +151,20 @@ final class EventStore implements Closeable {
      * @param noBackupFilesDir where the platform lets the SDK keep files it must not lose
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
      * @param processName identifies the process, so several processes stay out of each other's way
+     * @param persistEvents whether the application asked for events to outlive the process
      */
     static EventStore create(
             File noBackupFilesDir,
             String mobileKey,
             String processName,
             int capacity,
+            boolean persistEvents,
             LDLogger logger
     ) {
         File directory = new File(new File(noBackupFilesDir, DIRECTORY_NAME),
                 environmentDirectoryName(mobileKey));
-        return new EventStore(directory, processName, capacity, logger, defaultCommitExecutor());
+        return new EventStore(directory, processName, capacity, persistEvents, logger,
+                defaultCommitExecutor());
     }
 
     /**
@@ -258,7 +271,7 @@ final class EventStore implements Closeable {
             }
             Format.writeFrame(bufferData, serializedEvent);
             bufferedEventCount++;
-            needsCommit = !persistenceDisabled && bufferData.size() >= STAGING_THRESHOLD && !commitScheduled;
+            needsCommit = persistEvents && bufferData.size() >= STAGING_THRESHOLD && !commitScheduled;
             if (needsCommit) {
                 commitScheduled = true;
             }
@@ -512,7 +525,7 @@ final class EventStore implements Closeable {
         byte[] bytes;
         int events;
         synchronized (bufferLock) {
-            if (persistenceDisabled || bufferedEventCount == 0) {
+            if (!persistEvents || bufferedEventCount == 0) {
                 // Staged bytes are left where they are: with nowhere durable to put them, memory is
                 // better than dropping them.
                 return;
@@ -558,7 +571,7 @@ final class EventStore implements Closeable {
             logger.warn("Giving up on persisting events: {}", LogValues.exceptionSummary(e));
             closeOutputHoldingIoLock();
             synchronized (bufferLock) {
-                persistenceDisabled = true;
+                persistEvents = false;
             }
             return false;
         }
@@ -570,7 +583,7 @@ final class EventStore implements Closeable {
             return output;
         }
         synchronized (bufferLock) {
-            if (persistenceDisabled) {
+            if (!persistEvents) {
                 return null;
             }
         }
