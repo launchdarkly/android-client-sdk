@@ -17,9 +17,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -111,6 +114,18 @@ final class EventStore implements Closeable {
      * SDK did before it existed: hold the events, deliver them, lose them only if the process dies.
      */
     private final Map<String, HeldBatch> inMemoryBatches = new LinkedHashMap<>();
+
+    /**
+     * How many events are in each batch this process closed or recovered, so that listing them does not
+     * have to read them back.
+     * <p>
+     * A batch is never appended to once it is closed, so a count taken at the close holds until the batch
+     * is delivered. Without this, listing reads every batch file in full while holding {@code ioLock}, and
+     * a commit at a commit point can end up waiting behind those reads.
+     * <p>
+     * Only to be used while holding {@code ioLock}.
+     */
+    private final Map<String, Integer> eventCounts = new HashMap<>();
 
     EventStore(File directory, String processName, int capacity, LDLogger logger, Executor commitExecutor) {
         this.directory = directory;
@@ -331,6 +346,8 @@ final class EventStore implements Closeable {
             return null;
         }
 
+        eventCounts.put(payloadId, events);
+
         synchronized (bufferLock) {
             committedEvents = 0;
             closedEvents += events;
@@ -392,16 +409,29 @@ final class EventStore implements Closeable {
                     }
                 });
                 for (File file : ready) {
-                    int events = Format.eventCount(readFile(file));
+                    String payloadId = file.getName().substring(BATCH_PREFIX.length());
+                    // Reading is only for a batch this process has not counted: one a previous run left
+                    // behind, or one belonging to another process sharing the environment.
+                    Integer counted = eventCounts.get(payloadId);
+                    int events = counted != null ? counted : Format.eventCount(readFile(file));
                     if (events < 0) {
                         // Written by a version whose format this one does not read, or damaged beyond
                         // what the torn-tail recovery tolerates. Either way it can never be delivered.
                         deleteQuietly(file);
                         continue;
                     }
-                    batches.add(new Batch(file.getName().substring(BATCH_PREFIX.length()), events));
+                    eventCounts.put(payloadId, events);
+                    batches.add(new Batch(payloadId, events));
                 }
             }
+
+            // A batch that left the directory without going through remove() would otherwise keep its
+            // count for the rest of the session.
+            Set<String> listed = new HashSet<>();
+            for (Batch batch : batches) {
+                listed.add(batch.payloadId);
+            }
+            eventCounts.keySet().retainAll(listed);
             for (Map.Entry<String, HeldBatch> held : inMemoryBatches.entrySet()) {
                 batches.add(new Batch(held.getKey(), held.getValue().eventCount));
             }
@@ -437,6 +467,7 @@ final class EventStore implements Closeable {
         synchronized (ioLock) {
             if (inMemoryBatches.remove(batch.payloadId) == null) {
                 deleteQuietly(batchFile(batch.payloadId));
+                eventCounts.remove(batch.payloadId);
             }
             synchronized (bufferLock) {
                 closedEvents = Math.max(0, closedEvents - batch.eventCount);
@@ -467,6 +498,7 @@ final class EventStore implements Closeable {
             }
             String payloadId = UUID.randomUUID().toString();
             if (openLog.renameTo(batchFile(payloadId))) {
+                eventCounts.put(payloadId, events);
                 logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
                         events);
             }

@@ -16,6 +16,8 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -74,6 +76,12 @@ public class EventStoreMultiProcessTest {
             keys.add(LDValue.parse(new String(payload, Charset.forName("UTF-8"))).get("key").stringValue());
         }
         return keys;
+    }
+
+    private void overwrite(File file, byte[] bytes) throws IOException {
+        try (FileOutputStream out = new FileOutputStream(file, false)) {
+            out.write(bytes);
+        }
     }
 
     private List<File> filesNamed(String prefix) {
@@ -227,6 +235,30 @@ public class EventStoreMultiProcessTest {
         LDValue parsed = LDValue.parse(new String(body, Charset.forName("UTF-8")));
         assertEquals(1, parsed.size());
         assertEquals(LDValue.of("recorded-by-the-service"), parsed.get(0).get("key"));
+    }
+
+    @Test
+    public void aBatchThisProcessClosedIsCountedWithoutReadingItBack() throws IOException {
+        EventStore main = storeFor(MAIN_PROCESS);
+        main.stage(event("first"));
+        main.stage(event("second"));
+        EventStore.Batch batch = main.closeBatch();
+        assertNotNull(batch);
+
+        // Nothing appends to a batch once it is closed, so the count taken at the close still holds and
+        // listing it has no reason to go to the disk. Damaging the file is how the test tells the two
+        // apart: a listing that read would refuse this batch, which is what the other process does.
+        List<File> ready = filesNamed("ready-");
+        assertEquals(1, ready.size());
+        overwrite(ready.get(0), "not an event log".getBytes(Charset.forName("UTF-8")));
+
+        List<EventStore.Batch> pending = main.pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(batch.payloadId, pending.get(0).payloadId);
+        assertEquals(2, pending.get(0).eventCount);
+
+        // A process that did not close it has no count to go on, so it reads, and finds the damage.
+        assertTrue(storeFor(SERVICE_PROCESS).pendingBatches().isEmpty());
     }
 
     @Test
