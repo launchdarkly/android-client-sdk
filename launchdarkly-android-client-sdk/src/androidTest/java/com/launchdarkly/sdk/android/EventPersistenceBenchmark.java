@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assume.assumeTrue;
@@ -84,6 +85,12 @@ public class EventPersistenceBenchmark {
 
     /** How many times each timed loop is repeated; the fastest round is reported. */
     private static final int ROUNDS = 5;
+
+    /**
+     * How many events a commit encodes in one go, matching {@code DirectEventProcessor}'s pending
+     * threshold. A run is what the cache is actually up against, since that is the unit O12 encodes in.
+     */
+    private static final int PENDING_RUN = 32;
 
     /**
      * The bulk sizes the recording figures are swept over.
@@ -190,6 +197,83 @@ public class EventPersistenceBenchmark {
 
         report("building one feature event, no serialization", building);
         report("serializing one feature event", serializing);
+    }
+
+    /**
+     * What reusing an encoded context across a run of events is worth, measured both ways on one CPU.
+     * <p>
+     * Every event carries the whole context, and an application identifies once and then evaluates many
+     * times, so a run of events encodes the same context over and over. The question this answers is how
+     * much of an event's cost that repetition is -- which is also how much of it can be removed without
+     * changing a byte of what goes on the wire.
+     * <p>
+     * Both columns are taken in the same test method on the same device, alternating the two buffers
+     * rather than running one table and then the other, because a benchmark that measures the variants in
+     * separate runs is measuring the thermal state of the device as much as the code.
+     * <p>
+     * Two tables, because the two matter for different reasons. The first is one event at a time, which
+     * is the shape of the cost and shows where the saving comes from: it should grow with the context and
+     * with what redaction has to do, and the cached column should not. The second is a run of
+     * {@link #PENDING_RUN} events through {@code serializeAll}, which is what a commit actually encodes
+     * under O12, and so is the figure a {@code track} pays.
+     */
+    @Test
+    public void contextEncodingCacheCostByContextShape() {
+        List<ComparisonMeasurement> single = new ArrayList<>();
+        List<ComparisonMeasurement> runs = new ArrayList<>();
+
+        for (ContextShape shape : ContextShape.values()) {
+            final LDContext context = makeContext(shape, "benchmark-key");
+
+            for (PrivacyShape privacy : privacyShapes()) {
+                final OutboundEventBuffer uncached = makeBuffer(privacy, false);
+                final OutboundEventBuffer cached = makeBuffer(privacy, true);
+
+                byte[] sample = cached.serialize(featureEvent(context, true));
+                assertNotNull("the corpus produced an event that will not serialize", sample);
+                assertArrayEquals("caching changed the bytes, which it is not allowed to do",
+                        uncached.serialize(featureEvent(context, true)), sample);
+
+                double without = measure(50_000, i -> {
+                    byte[] out = uncached.serialize(featureEvent(context, true));
+                    blackhole += out == null ? 0 : out.length;
+                });
+                double with = measure(50_000, i -> {
+                    byte[] out = cached.serialize(featureEvent(context, true));
+                    blackhole += out == null ? 0 : out.length;
+                });
+
+                String label = shape.label + ", " + privacy.name + ", " + sample.length + " bytes";
+                single.add(new ComparisonMeasurement(label, without, with, cached.contextCacheHitRate()));
+            }
+
+            // Only the unredacted case for the run table. Redaction is the same lever pulled harder, and
+            // the first table already shows how it moves; repeating it here would say nothing new at three
+            // times the running time.
+            final OutboundEventBuffer uncachedRun = makeBuffer(noRedaction(), false);
+            final OutboundEventBuffer cachedRun = makeBuffer(noRedaction(), true);
+            final List<Event> run = new ArrayList<>();
+            for (int i = 0; i < PENDING_RUN; i++) {
+                run.add(featureEvent(context, true));
+            }
+
+            double withoutRun = measure(2_000, i -> {
+                for (byte[] out : uncachedRun.serializeAll(run)) {
+                    blackhole += out.length;
+                }
+            }) / PENDING_RUN;
+            double withRun = measure(2_000, i -> {
+                for (byte[] out : cachedRun.serializeAll(run)) {
+                    blackhole += out.length;
+                }
+            }) / PENDING_RUN;
+
+            runs.add(new ComparisonMeasurement(shape.label, withoutRun, withRun,
+                    cachedRun.contextCacheHitRate()));
+        }
+
+        reportComparison("serializing one feature event", single);
+        reportComparison("serializing a run of " + count(PENDING_RUN) + " events, per event", runs);
     }
 
     /**
@@ -568,8 +652,12 @@ public class EventPersistenceBenchmark {
     }
 
     private OutboundEventBuffer makeBuffer(PrivacyShape privacy) {
+        return makeBuffer(privacy, true);
+    }
+
+    private OutboundEventBuffer makeBuffer(PrivacyShape privacy, boolean cacheContexts) {
         return new OutboundEventBuffer(Integer.MAX_VALUE, privacy.allAttributesPrivate,
-                privacy.privateAttributes, true, logger);
+                privacy.privateAttributes, true, logger, cacheContexts);
     }
 
     private static Event.FeatureRequest featureEvent(LDContext context, boolean requireFullEvent) {
@@ -796,6 +884,47 @@ public class EventPersistenceBenchmark {
             this.name = name;
             this.nanosPerOp = nanosPerOp;
         }
+    }
+
+    private static final class ComparisonMeasurement {
+        final String name;
+        final double without;
+        final double with;
+        final double hitRate;
+
+        ComparisonMeasurement(String name, double without, double with, double hitRate) {
+            this.name = name;
+            this.without = without;
+            this.with = with;
+            this.hitRate = hitRate;
+        }
+    }
+
+    /**
+     * Both variants side by side, with what the second saves. The hit rate is there so a row showing no
+     * saving can be read: a cache that never hits and a cache that hits and buys nothing are different
+     * findings, and the timing alone cannot tell them apart.
+     */
+    private static void reportComparison(String title, List<ComparisonMeasurement> results) {
+        int width = 0;
+        for (ComparisonMeasurement result : results) {
+            width = Math.max(width, result.name.length());
+        }
+        StringBuilder out = new StringBuilder("\n").append(title).append('\n')
+                .append("  ").append(pad("", width))
+                .append("  ").append(column("no cache"))
+                .append("  ").append(column("cached"))
+                .append("  ").append(column("saved"))
+                .append("  ").append(column("hit rate")).append('\n');
+        for (ComparisonMeasurement result : results) {
+            out.append("  ").append(pad(result.name, width))
+                    .append("  ").append(format(result.without))
+                    .append("  ").append(format(result.with))
+                    .append("  ").append(String.format("%10.0f%%",
+                            100 * (result.without - result.with) / result.without))
+                    .append("  ").append(String.format("%10.0f%%", 100 * result.hitRate)).append('\n');
+        }
+        emit(out);
     }
 
     private static void report(String title, List<Measurement> results) {
