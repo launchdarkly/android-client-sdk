@@ -273,6 +273,7 @@ final class DirectEventProcessor implements EventProcessor {
                 droppedEvents.incrementAndGet();
                 return;
             }
+
             capacityExceeded.set(false);
             pending.add(event);
             needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
