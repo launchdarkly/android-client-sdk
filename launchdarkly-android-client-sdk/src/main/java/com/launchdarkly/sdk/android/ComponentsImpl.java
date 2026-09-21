@@ -107,7 +107,6 @@ abstract class ComponentsImpl {
                     clientContext.getBaseLogger());
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
-                            capacity,
                             allAttributesPrivate,
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK
@@ -115,6 +114,7 @@ abstract class ComponentsImpl {
                     eventSender,
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
+                    capacity,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     clientContext.isInBackground(),
