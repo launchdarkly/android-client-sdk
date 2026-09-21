@@ -1,6 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
@@ -47,8 +46,7 @@ final class OutboundEventBuffer {
     OutboundEventBuffer(
             boolean allAttributesPrivate,
             Collection<AttributeRef> privateAttributes,
-            boolean perContextSummarization,
-            LDLogger logger
+            boolean perContextSummarization
     ) {
         // Only the private-attribute settings affect the output; the rest of EventsConfiguration
         // describes the delivery behavior that the processor now handles itself, capacity included.
