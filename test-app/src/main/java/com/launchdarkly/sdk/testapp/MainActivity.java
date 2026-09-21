@@ -1,4 +1,4 @@
-package com.launchdarkly.example;
+package com.launchdarkly.sdk.testapp;
 
 import android.os.Bundle;
 import android.os.Handler;
@@ -23,6 +23,7 @@ import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 
 import java.util.Date;
 import java.util.Locale;
@@ -43,6 +44,18 @@ public class MainActivity extends AppCompatActivity {
 
     /** How long startup blocks waiting for the first flags to arrive. */
     private static final int INIT_WAIT_SECONDS = 10;
+
+    /**
+     * The default of {@code LDConfig.Builder#events} capacity. Past this the event store is full until a
+     * flush empties it, so every further full event is dropped.
+     */
+    private static final int EVENT_CAPACITY = 1000;
+
+    /**
+     * Enough evaluations past capacity for the average to settle, and few enough that even a slow device
+     * finishes the tap well inside the ANR window.
+     */
+    private static final int OVER_CAPACITY_EVALUATIONS = 2000;
 
     private LDClient ldClient;
     private LDStatusListener ldStatusListener;
@@ -101,7 +114,14 @@ public class MainActivity extends AppCompatActivity {
         setupFlushButton();
         setupTrackButton();
         setupIdentifyButton();
+        setupKillUnsentButton();
+        setupKillNowButton();
+        setupCrashNowButton();
+        setupOverRefreshButton();
         setupOfflineSwitch();
+        // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
+        // makes the pair worth pressing.
+        FlushOnCrashHandler.install();
         setupListeners();
         updateDedupeStatus();
 
@@ -117,6 +137,9 @@ public class MainActivity extends AppCompatActivity {
                 .http(
                         Components.httpConfiguration().useReport(false)
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
+                )
+                .events(
+                        Components.sendEvents().eventPersistence(EventPersistence.IMMEDIATE)
                 )
                 .hooks(
                         // Same shape a customer uses for any hook: wrap it at registration. Each
@@ -211,6 +234,140 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * The flag the kill and crash buttons evaluate: whatever is typed in the feature key field, or a
+     * default, so the buttons work without anything being typed first.
+     */
+    private String flagKeyToKillOver() {
+        String typedKey = ((EditText) findViewById(R.id.feature_flag_key)).getText().toString().trim();
+        return typedKey.isEmpty() ? "kill-flag" : typedKey;
+    }
+
+    /**
+     * Records the pair whose survival is in question: an evaluation, which is the exposure, and a
+     * track, standing in for the error an application reports just before it dies.
+     *
+     * <p>Returns false when there is no client, in which case nothing was recorded and ending the
+     * process would demonstrate nothing.
+     */
+    private boolean recordExposureAndError(String flagKey) {
+        if (ldClient == null) {
+            return false;
+        }
+        ldClient.boolVariation(flagKey, false);
+        ldClient.track("$ld:telemetry:error");
+        return true;
+    }
+
+    /**
+     * Reproduces in-memory event loss: evaluate (exposure) and track (stand-in for an error),
+     * wait 5s so both calls are queued, then kill the process before the 30s flush.
+     * {@code finish()} or backgrounding would run the SDK's background flush, so this uses
+     * {@link android.os.Process#killProcess}.
+     */
+    private void setupKillUnsentButton() {
+        Button killUnsentButton = findViewById(R.id.kill_unsent_button);
+        killUnsentButton.setOnClickListener(v -> {
+            final String flagKey = flagKeyToKillOver();
+            Timber.w("eval+track+kill flag=%s", flagKey);
+            if (!recordExposureAndError(flagKey)) {
+                return;
+            }
+            ldClient.flush();
+            new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> android.os.Process.killProcess(android.os.Process.myPid()),
+                    5_000);
+        });
+    }
+
+    /**
+     * The same sequence with nothing at all between the track and the process dying: no flush to
+     * deliver the events, no delay for a timer to fire in, and SIGKILL to itself, which cannot be
+     * caught, so no part of the SDK gets to run on the way out.
+     *
+     * <p>Whether the exposure and the track are reported therefore says exactly one thing: whether
+     * recording them had already put them somewhere that outlives the process. They should arrive on
+     * the next launch of the app, not this one.
+     */
+    private void setupKillNowButton() {
+        Button killNowButton = findViewById(R.id.kill_now_button);
+        killNowButton.setOnClickListener(v -> {
+            final String flagKey = flagKeyToKillOver();
+            Timber.w("eval+track+kill now flag=%s", flagKey);
+            if (!recordExposureAndError(flagKey)) {
+                return;
+            }
+            android.os.Process.killProcess(android.os.Process.myPid());
+        });
+    }
+
+    /**
+     * The same again, ending in an uncaught exception instead of a signal the process never sees.
+     *
+     * <p>This is the shape a customer report takes: app code fails immediately after reporting the
+     * failure. Unlike SIGKILL, an uncaught exception runs the default handler before the process
+     * goes, so this is the one variant an application can rescue on its own, which
+     * {@link FlushOnCrashHandler} does by calling {@link LDClient#flushAndWait} from there. So these
+     * events should arrive and the ones from the button next to it should not.
+     */
+    private void setupCrashNowButton() {
+        Button crashNowButton = findViewById(R.id.crash_now_button);
+        crashNowButton.setOnClickListener(v -> {
+            final String flagKey = flagKeyToKillOver();
+            Timber.w("eval+track+crash now flag=%s", flagKey);
+            if (!recordExposureAndError(flagKey)) {
+                return;
+            }
+            throw new RuntimeException(
+                    "Eval+Crash: deliberate uncaught exception immediately after track, to test event persistence");
+        });
+    }
+
+    /**
+     * Reproduces the over-refresh pathology: a UI that re-evaluates one flag far more often than anything
+     * about it changed -- a recomposition or layout loop -- against a flag whose events LaunchDarkly is
+     * tracking. Runs on the main thread, because that is where the loop it stands in for runs.
+     *
+     * <p>The comparison between the two phases is the point rather than either number on its own. The first
+     * {@link #EVENT_CAPACITY} evaluations have room in the event store; every one after that is dropped,
+     * because nothing empties it until a flush. So the two phases costing the same per evaluation means the
+     * SDK is serializing events it then discards, which is the whole of the waste. A cost of a couple of
+     * microseconds instead means the flag has event tracking off, and this measured the summary counters
+     * rather than the thing in question.
+     */
+    private void setupOverRefreshButton() {
+        Button overRefreshButton = findViewById(R.id.over_refresh_button);
+        overRefreshButton.setOnClickListener(v -> {
+            if (ldClient == null) {
+                return;
+            }
+            final String flagKey = "trackevents-test";
+            Timber.w("over-refresh eval flag=%s", flagKey);
+
+            double filling = averageMicroseconds(flagKey, EVENT_CAPACITY);
+            double overCapacity = averageMicroseconds(flagKey, OVER_CAPACITY_EVALUATIONS);
+
+            String result = String.format(Locale.US,
+                    "Over-refresh %s\n%d filling: %.0f \u00b5s/eval\n%d over capacity: %.0f \u00b5s/eval",
+                    flagKey,
+                    EVENT_CAPACITY, filling,
+                    OVER_CAPACITY_EVALUATIONS, overCapacity);
+            Timber.w(result);
+            ((TextView) findViewById(R.id.result_textView)).setText(result);
+        });
+    }
+
+    /**
+     * @return the mean wall time, in microseconds, of {@code count} evaluations of the flag
+     */
+    private double averageMicroseconds(String flagKey, int count) {
+        long start = System.nanoTime();
+        for (int i = 0; i < count; i++) {
+            ldClient.boolVariation(flagKey, false);
+        }
+        return (System.nanoTime() - start) / 1_000.0 / count;
+    }
+
     private void setupIdentifyButton() {
         Button identify = findViewById(R.id.identify_button);
         identify.setOnClickListener(v -> {
@@ -231,7 +388,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupOfflineSwitch() {
         Switch offlineSwitch = findViewById(R.id.offlineSwitch);
-        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) -> 
+        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) ->
             MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline())
         );
     }

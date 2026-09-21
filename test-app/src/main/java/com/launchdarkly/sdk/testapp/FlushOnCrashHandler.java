@@ -1,4 +1,4 @@
-package com.launchdarkly.example;
+package com.launchdarkly.sdk.testapp;
 
 import com.launchdarkly.sdk.android.LDClient;
 
