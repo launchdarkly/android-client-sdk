@@ -86,8 +86,6 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicBoolean disabled = new AtomicBoolean(false);
     private final AtomicBoolean diagnosticInitSent = new AtomicBoolean(false);
     private final AtomicLong lastKnownPastTime = new AtomicLong(0);
-    private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
-    private final AtomicLong droppedEvents = new AtomicLong(0);
     /**
      * Whether a previous run of the application left events behind.
      * <p>
@@ -145,6 +143,9 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private final int capacity;
 
+    private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
+    private final AtomicLong droppedEvents = new AtomicLong(0);
+
     /**
      * Whether a commit point encodes and writes before returning, rather than queueing that work.
      */
@@ -168,12 +169,12 @@ final class DirectEventProcessor implements EventProcessor {
     ) {
         this.eventBuffer = eventBuffer;
         this.store = store;
-        this.capacity = capacity >= 0 ? capacity : 1;
         this.commitOnCallerThread = commitOnCallerThread;
         this.eventSender = eventSender;
         this.analyticsEventSender = analyticsEventSender;
         this.eventsUri = eventsUri;
         this.diagnosticStore = diagnosticStore;
+        this.capacity = capacity >= 0 ? capacity : 1;
         this.flushIntervalMillis = flushIntervalMillis;
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.scheduler = scheduler;
