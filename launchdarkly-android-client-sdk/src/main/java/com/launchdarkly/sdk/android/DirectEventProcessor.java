@@ -27,8 +27,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>
  * Recording an event summarizes it immediately and, only if it has to be delivered in full,
  * buffers it. There is no queue between the calling thread and the summarizer, so a burst of flag
- * evaluations cannot displace anything: evaluations of untracked flags cost a counter increment,
- * and the configured capacity limits only the events that genuinely have to be sent one by one.
+ * evaluations with trackEvent = false cannot displace anything and costs a counter increment,
+ * The configured capacity limits only the events that have trackEvents = true.
  */
 final class DirectEventProcessor implements EventProcessor {
     private final OutboundEventBuffer buffer;
