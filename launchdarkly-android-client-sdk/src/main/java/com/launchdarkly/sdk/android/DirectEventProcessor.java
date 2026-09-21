@@ -10,10 +10,14 @@ import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -52,11 +56,35 @@ final class DirectEventProcessor implements EventProcessor {
     private ScheduledFuture<?> flushTask;
     private ScheduledFuture<?> diagnosticTask;
 
+    /**
+     * Full events recorded but not yet encoded, guarded by {@link #pendingLock}.
+     */
+    private final List<Event> pending = new ArrayList<>();
+
+    /**
+     * Guards {@link #pending}, and is held for one list append or one handover of the run -- never
+     * across the encode.
+     * <p>
+     * Recording runs on whichever thread evaluated a flag, which on Android is usually the main one.
+     * The worst it may wait for is another thread's memory operation; if the encoder ran under this
+     * lock, an evaluation would instead wait on the dominant cost of the whole path.
+     */
+    private final Object pendingLock = new Object();
+
+    /**
+     * How many events the SDK will hold between flushes.
+     */
+    private final int capacity;
+
+    private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
+    private final AtomicLong droppedEvents = new AtomicLong(0);
+
     DirectEventProcessor(
             OutboundEventBuffer buffer,
             EventSender eventSender,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
+            int capacity,
             long flushIntervalMillis,
             long diagnosticRecordingIntervalMillis,
             boolean initiallyInBackground,
@@ -68,6 +96,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.eventSender = eventSender;
         this.eventsUri = eventsUri;
         this.diagnosticStore = diagnosticStore;
+        this.capacity = capacity >= 0 ? capacity : 1;
         this.flushIntervalMillis = flushIntervalMillis;
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.scheduler = scheduler;
@@ -100,10 +129,10 @@ final class DirectEventProcessor implements EventProcessor {
                 requireFullEvent, debugEventsUntilDate, false);
         buffer.summarize(event);
         if (requireFullEvent) {
-            buffer.addFullEvent(event);
+            record(event);
         }
         if (shouldDebugEvent(debugEventsUntilDate)) {
-            buffer.addFullEvent(event.toDebugEvent());
+            record(event.toDebugEvent());
         }
     }
 
@@ -112,7 +141,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        buffer.addFullEvent(new Event.Identify(System.currentTimeMillis(), context));
+        record(new Event.Identify(System.currentTimeMillis(), context));
     }
 
     @Override
@@ -120,8 +149,42 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        buffer.addFullEvent(new Event.Custom(System.currentTimeMillis(), eventKey, context, data,
-                metricValue));
+        record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
+    }
+
+    /**
+     * Holds an event for the next flush to encode, counting it as dropped if the SDK is already full.
+     * <p>
+     * Capacity is consulted before anything else, so an event that will not be kept is never encoded.
+     * That ordering is what bounds an application re-evaluating a tracked flag in a render loop: once
+     * the limit is reached the cost of an evaluation falls back to its summary counter, however fast
+     * the loop runs.
+     */
+    void record(Event event) {
+        // Ahead of the capacity check, because an event the SDK was never going to send is not a
+        // loss and must not be counted as one. Sampling and capacity are different reasons not to
+        // keep an event, and only the second is one the SDK owes anyone a count of.
+        if (!Sampler.shouldSample(event.getSamplingRatio())) {
+            return;
+        }
+        synchronized (pendingLock) {
+            if (pending.size() >= capacity) {
+                if (capacityExceeded.compareAndSet(false, true)) {
+                    logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+                }
+                droppedEvents.incrementAndGet();
+                return;
+            }
+            capacityExceeded.set(false);
+            pending.add(event);
+        }
+    }
+
+    /**
+     * @return the number of full events dropped for capacity since this was last called
+     */
+    long getAndClearDroppedCount() {
+        return droppedEvents.getAndSet(0);
     }
 
     @Override
@@ -210,16 +273,25 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Serializes and sends everything buffered. Runs on the scheduler thread, so only one payload
-     * is ever in flight and the buffer is drained exactly once per delivery.
+     * Serializes and sends everything buffered. Runs on the scheduler thread, which is
+     * single-threaded, so only one payload is ever in flight and the run is taken exactly once per
+     * delivery.
+     * <p>
+     * The run is taken under {@link #pendingLock} and encoded outside it, so recording does not wait
+     * on the encoder.
      */
     private void deliverPayload() {
         if (disabled.get() || offline.get()) {
             return;
         }
+        List<Event> run;
+        synchronized (pendingLock) {
+            run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
+            pending.clear();
+        }
         OutboundEventBuffer.Payload payload;
         try {
-            payload = buffer.drain();
+            payload = buffer.drain(run);
         } catch (IOException e) {
             logUnexpectedError(e);
             return;
@@ -265,7 +337,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (diagnosticsSuspended() || diagnosticStore == null) {
             return;
         }
-        sendDiagnosticEvent(diagnosticStore.createEventAndReset(buffer.getAndClearDroppedCount(), 0),
+        sendDiagnosticEvent(diagnosticStore.createEventAndReset(getAndClearDroppedCount(), 0),
                 false);
     }
 
