@@ -71,7 +71,8 @@ final class OutboundEventBuffer {
     }
 
     /**
-     * Folds an evaluation into the summary counters.
+     * Folds an evaluation into the summary counters, unless the evaluation asked to be left out of
+     * them.
      * <p>
      * A counter is an aggregate rather than a buffered event, so this never drops anything and is
      * not affected by the configured capacity no matter how many evaluations an application does.
@@ -79,6 +80,14 @@ final class OutboundEventBuffer {
      * @param event the evaluation
      */
     synchronized void summarize(Event.FeatureRequest event) {
+        // Checked here rather than in DirectEventProcessor, for the same reason the sampling ratio
+        // is: this is where an event arrives from outside. The processor builds its own through the
+        // constructor overload that leaves this false, so a guard there could never fire and would
+        // read as dead. java-sdk-internal's DefaultEventProcessor, which this path replaced, honored
+        // the flag, and a counter is the one thing no later stage can reconstruct.
+        if (event.isExcludeFromSummaries()) {
+            return;
+        }
         summarizer.summarizeEvent(
                 event.getCreationDate(),
                 event.getKey(),
