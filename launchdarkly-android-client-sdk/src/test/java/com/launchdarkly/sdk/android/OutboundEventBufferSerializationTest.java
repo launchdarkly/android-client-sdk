@@ -14,6 +14,7 @@ import com.launchdarkly.sdk.internal.events.Event;
 import org.junit.Test;
 
 import java.nio.charset.Charset;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -30,7 +31,7 @@ public class OutboundEventBufferSerializationTest {
     private final LDLogAdapter logAdapter = Logs.none();
 
     private OutboundEventBuffer makeBuffer() {
-        return new OutboundEventBuffer(100, false, Collections.emptyList(), true,
+        return new OutboundEventBuffer(false, Collections.emptyList(), true,
                 LDLogger.withAdapter(logAdapter, ""));
     }
 
@@ -118,9 +119,10 @@ public class OutboundEventBufferSerializationTest {
                 + new String(second, Charset.forName("UTF-8")) + "]";
 
         OutboundEventBuffer drained = makeBuffer();
-        drained.addFullEvent(new Event.Custom(1000, "first", CONTEXT, LDValue.ofNull(), null));
-        drained.addFullEvent(new Event.Custom(1001, "second", CONTEXT, LDValue.ofNull(), null));
-        String expected = new String(drained.drain().getData(), Charset.forName("UTF-8"));
+        String expected = new String(drained.drain(Arrays.asList(
+                new Event.Custom(1000, "first", CONTEXT, LDValue.ofNull(), null),
+                new Event.Custom(1001, "second", CONTEXT, LDValue.ofNull(), null)
+        )).getData(), Charset.forName("UTF-8"));
 
         assertEquals(LDValue.parse(expected), LDValue.parse(body));
     }

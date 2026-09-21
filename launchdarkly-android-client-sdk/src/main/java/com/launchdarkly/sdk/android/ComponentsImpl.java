@@ -108,7 +108,6 @@ abstract class ComponentsImpl {
                     clientContext.getBaseLogger());
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
-                            capacity,
                             allAttributesPrivate,
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK

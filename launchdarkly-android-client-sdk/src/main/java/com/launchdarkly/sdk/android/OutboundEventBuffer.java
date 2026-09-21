@@ -25,9 +25,12 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The buffer behind {@link DirectEventProcessor}: evaluations are folded into summary
- * counters as they are recorded, full-fidelity events are held in a capacity-limited list, and a
- * flush turns whatever has accumulated into a serialized payload.
+ * The counters and the encoder behind {@link DirectEventProcessor}: evaluations are folded into
+ * summary counters as they are recorded, and a flush turns a run of full-fidelity events, together
+ * with the counters accumulated beside them, into the payload they will be sent as.
+ * <p>
+ * The full events are held by the processor rather than here. Capacity is counted once, against
+ * everything the SDK is holding, and the processor is the only place that can see all of it.
  * <p>
  * The summarization and the wire format come from java-sdk-internal rather than being
  * reimplemented here, so there is one definition of what an event looks like on the wire.
@@ -40,36 +43,29 @@ final class OutboundEventBuffer {
 
     private final EventOutputFormatter formatter;
     private final EventSummarizerInterface summarizer;
-    private final List<Event> events = new ArrayList<>();
-    private final int capacity;
     private final LDLogger logger;
-    private boolean capacityExceeded = false;
-    private long droppedEventCount = 0;
 
     /**
-     * @param capacity how many full-fidelity events may be buffered between flushes
      * @param allAttributesPrivate true to redact every context attribute except the key
      * @param privateAttributes the individual context attributes to redact
      * @param perContextSummarization true to emit one summary per context rather than one overall
-     * @param logger the logger to warn on when capacity is exceeded
+     * @param logger the logger to report an event that could not be serialized on
      */
     OutboundEventBuffer(
-            int capacity,
             boolean allAttributesPrivate,
             Collection<AttributeRef> privateAttributes,
             boolean perContextSummarization,
             LDLogger logger
     ) {
         // Only the private-attribute settings affect the output; the rest of EventsConfiguration
-        // describes the delivery behavior that the processor now handles itself.
-        EventsConfiguration outputConfig = new EventsConfiguration(allAttributesPrivate, capacity,
+        // describes the delivery behavior that the processor now handles itself, capacity included.
+        EventsConfiguration outputConfig = new EventsConfiguration(allAttributesPrivate, 0,
                 null, 0, null, null, 1, null, 0, false, false, privateAttributes,
                 perContextSummarization);
         this.formatter = new EventOutputFormatter(outputConfig);
         this.summarizer = perContextSummarization
                 ? new PerContextEventSummarizer()
                 : new AggregatedEventSummarizer();
-        this.capacity = capacity >= 0 ? capacity : 1;
         this.logger = logger;
     }
 
@@ -103,38 +99,21 @@ final class OutboundEventBuffer {
     }
 
     /**
-     * Buffers an event that has to be delivered in full, subject to the configured capacity.
-     *
-     * @param event the event
-     */
-    synchronized void addFullEvent(Event event) {
-        if (!Sampler.shouldSample(event.getSamplingRatio())) {
-            return;
-        }
-        if (events.size() >= capacity) {
-            if (!capacityExceeded) {
-                capacityExceeded = true;
-                logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
-            }
-            droppedEventCount++;
-            return;
-        }
-        capacityExceeded = false;
-        events.add(event);
-    }
-
-    /**
      * Serializes one event into the bytes it will be sent as, for a caller that keeps events
      * somewhere other than this buffer's list.
      * <p>
      * Serializing at record time rather than at flush is what lets an event be written somewhere that
      * outlives the process: bytes can be appended to a log, an {@link Event} cannot.
+     * <p>
+     * Deliberately not synchronized. It reads the formatter and writes only locals, so it shares
+     * nothing with a thread recording an event, and taking the lock would make an encode wait on a
+     * counter increment and the other way round.
      *
      * @param event the event
      * @return the event's JSON object, or null if it was dropped by sampling or could not be
      *   serialized
      */
-    synchronized byte[] serialize(Event event) {
+    byte[] serialize(Event event) {
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
             return null;
         }
@@ -148,6 +127,11 @@ final class OutboundEventBuffer {
      * it. Summarizing at points where the events are about to be made durable is what bounds that
      * loss, and it costs nothing in accuracy: LaunchDarkly sums the counters of every summary it
      * receives, so several summaries covering the same evaluations count the same as one.
+     * <p>
+     * Unlike the other encoders here this one does hold the lock while it works, because the restore
+     * below has to be atomic with the reset above it: {@code restoreTo} replaces the counters rather
+     * than merging into them, so anything counted while this ran outside the lock would be dropped by
+     * a restore that then put back a strictly older set.
      *
      * @return one JSON object per summary, empty if there was nothing counted
      */
@@ -178,11 +162,13 @@ final class OutboundEventBuffer {
      * frame holding several objects could not be spliced into a payload. What the run shares is the
      * output stream, the writer and the UTF-8 lookup, which {@link #writeSingleObject} otherwise
      * allocates on every call.
+     * <p>
+     * Deliberately not synchronized, for the reason {@link #serialize} is not.
      *
      * @param pending the events, in the order they were recorded
      * @return one JSON object per event that survived sampling and serialized
      */
-    synchronized List<byte[]> serializeAll(List<Event> pending) {
+    List<byte[]> serializeAll(List<Event> pending) {
         if (pending.isEmpty()) {
             return Collections.emptyList();
         }
@@ -259,27 +245,33 @@ final class OutboundEventBuffer {
     }
 
     /**
-     * @return the number of full events dropped for capacity since this was last called
-     */
-    synchronized long getAndClearDroppedCount() {
-        long result = droppedEventCount;
-        droppedEventCount = 0;
-        return result;
-    }
-
-    /**
-     * Serializes everything accumulated so far and resets the buffer.
+     * Serializes a run of events, together with the evaluations counted beside it, into the payload
+     * they will be sent as.
+     * <p>
+     * The counters are taken under the lock and the encode happens outside it, so a thread recording
+     * an event waits only for a handful of reference swaps and never for the encoder. Recording
+     * happens on whichever thread evaluated a flag, which on Android is usually the main one, and
+     * the encode is the dominant cost on this path.
+     * <p>
+     * A run that cannot be serialized is lost rather than put back. Everything the encoder can fail
+     * on is a property of the data it was handed -- the output stream is a byte array and cannot fail
+     * transiently -- so a failed run would fail again on every later flush, and nothing would ever
+     * be delivered again.
      *
+     * @param run the full events to send, in the order they were recorded
      * @return the payload to send, or null if there was nothing to send
      * @throws IOException if the events could not be serialized
      */
-    synchronized Payload drain() throws IOException {
-        if (events.isEmpty() && summarizer.isEmpty()) {
-            return null;
+    Payload drain(List<Event> run) throws IOException {
+        List<EventSummarizer.EventSummary> summaries;
+        synchronized (this) {
+            if (run.isEmpty() && summarizer.isEmpty()) {
+                return null;
+            }
+            summaries = summarizer.getSummariesAndReset();
         }
-        Event[] eventsOut = events.toArray(new Event[0]);
-        List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
 
+        Event[] eventsOut = run.toArray(new Event[0]);
         ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
                 new OutputStreamWriter(buffer, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
@@ -288,10 +280,8 @@ final class OutboundEventBuffer {
             outputEventCount = formatter.writeOutputEvents(eventsOut, summaries, writer);
             writer.flush();
         } catch (Exception e) {
-            summarizer.restoreTo(summaries);
             throw e instanceof IOException ? (IOException) e : new IOException(e);
         }
-        events.clear();
         return new Payload(buffer.toByteArray(), outputEventCount);
     }
 

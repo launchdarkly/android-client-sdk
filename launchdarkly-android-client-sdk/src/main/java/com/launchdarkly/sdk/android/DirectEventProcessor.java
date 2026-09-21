@@ -10,11 +10,13 @@ import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -108,6 +110,15 @@ final class DirectEventProcessor implements EventProcessor {
      * lost to a crash, so the encode may as well happen where it is cheapest.
      */
     private final List<Event> pending = new ArrayList<>();
+
+    /**
+     * Guards {@link #pending}, and is held for one list append or one handover of the run -- never
+     * across the encode.
+     * <p>
+     * Recording runs on whichever thread evaluated a flag, which on Android is usually the main one.
+     * The worst it may wait for is another thread's memory operation; if the encoder ran under this
+     * lock, an evaluation would instead wait on the dominant cost of the whole path.
+     */
     private final Object pendingLock = new Object();
 
     /**
@@ -245,7 +256,13 @@ final class DirectEventProcessor implements EventProcessor {
      * ordering is what bounds an application re-evaluating a tracked flag in a render loop: once the limit is
      * reached the cost of an evaluation falls back to its summary counter, however fast the loop runs.
      */
-    private void record(Event event) {
+    void record(Event event) {
+        // Ahead of the capacity check, because an event the SDK was never going to send is not a
+        // loss and must not be counted as one. Sampling and capacity are different reasons not to
+        // keep an event, and only the second is one the SDK owes anyone a count of.
+        if (!Sampler.shouldSample(event.getSamplingRatio())) {
+            return;
+        }
         boolean needsCommit;
         synchronized (pendingLock) {
             if (pending.size() + store.getPendingEventCount() >= capacity) {
@@ -349,6 +366,13 @@ final class DirectEventProcessor implements EventProcessor {
             // counted, and dropping it would lose all of them at once.
             store.stage(summary, true);
         }
+    }
+
+    /**
+     * @return the number of full events dropped for capacity since this was last called
+     */
+    long getAndClearDroppedCount() {
+        return droppedEvents.getAndSet(0);
     }
 
     @Override
@@ -477,8 +501,8 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Serializes and sends everything buffered. Runs on the scheduler thread, so only one payload
-     * is ever in flight and the buffer is drained exactly once per delivery.
+     * Serializes and sends everything buffered, for a caller that is not waiting to find out how it
+     * went.
      */
     private void deliverPayload() {
         deliverPayloadReportingOutcome();
@@ -487,6 +511,10 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Delivers as {@link #deliverPayload()} does, and says whether it worked, for a caller that is
      * waiting to find out.
+     * <p>
+     * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
+     * and the run is taken exactly once per delivery. The run is taken under {@link #pendingLock}
+     * and encoded outside it, so recording does not wait on the encoder.
      *
      * @return true if the events reached the service, or if there were none to send; false if they
      *   could not be sent or the service did not accept them
@@ -571,7 +599,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (diagnosticsSuspended() || diagnosticStore == null) {
             return;
         }
-        sendDiagnosticEvent(diagnosticStore.createEventAndReset(droppedEvents.getAndSet(0), 0),
+        sendDiagnosticEvent(diagnosticStore.createEventAndReset(getAndClearDroppedCount(), 0),
                 false);
     }
 
