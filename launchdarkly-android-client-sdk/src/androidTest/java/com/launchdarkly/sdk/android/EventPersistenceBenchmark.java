@@ -59,6 +59,11 @@ import java.util.function.IntConsumer;
  *       -Pandroid.testInstrumentationRunnerArguments.LD_EVENT_BENCH=1 \\
  *       -Pandroid.testInstrumentationRunnerArguments.class=com.launchdarkly.sdk.android.EventPersistenceBenchmark
  * </pre>
+ * At full width this is around half an hour on a mid-range tablet, most of it in the encoder matrix.
+ * {@code LD_EVENT_BENCH_DIVISOR=N} narrows the measured rounds by {@code N} for exploring on such hardware;
+ * the divisor is recorded in the results header, and figures taken under one should not be quoted beside
+ * figures taken without.
+ * <p>
  * Results are written to {@code event-bench.txt} in the target app's files directory (pulled after
  * the run) as well as to logcat, because Gradle's instrumented-test logger does not reliably keep
  * {@code System.out}.
@@ -111,6 +116,20 @@ public class EventPersistenceBenchmark {
     private static final int JIT_WARMUP = 10_000;
 
     /**
+     * Divides the measured rounds, so hardware too slow to sweep at full width can still produce the table.
+     * <p>
+     * Set through the instrumentation argument {@code LD_EVENT_BENCH_DIVISOR}. It defaults to 1, which is
+     * what every figure quoted in the research notes was taken at, and it is recorded in the results header
+     * so that a narrowed run cannot be mistaken for one.
+     * <p>
+     * <b>Only the measured rounds shrink; warmup does not.</b> A loop that is not compiled reports the
+     * interpreter rather than the encoder, so warmup is a correctness floor rather than a cost to trade
+     * away. What raising this does trade is precision: fewer iterations per round means more of the round
+     * is whatever else the device was doing, and fastest-of-{@link #ROUNDS} has less to choose from.
+     */
+    private static int divisor = 1;
+
+    /**
      * Consumes results so that the JIT cannot prove the work is unused and delete it. Never read for
      * its value.
      */
@@ -136,6 +155,7 @@ public class EventPersistenceBenchmark {
         File file = new File(
                 InstrumentationRegistry.getInstrumentation().getTargetContext().getFilesDir(),
                 "event-bench.txt");
+        divisor = readDivisor();
         logFile = new PrintWriter(new FileWriter(file, true), true);
         logFile.println("device=" + android.os.Build.MODEL
                 + " manufacturer=" + android.os.Build.MANUFACTURER
@@ -143,7 +163,21 @@ public class EventPersistenceBenchmark {
                 + " abi=" + android.os.Build.SUPPORTED_ABIS[0]
                 + " sdk=" + android.os.Build.VERSION.SDK_INT
                 + " release=" + android.os.Build.VERSION.RELEASE
-                + " hardware=" + android.os.Build.HARDWARE);
+                + " hardware=" + android.os.Build.HARDWARE
+                + " divisor=" + divisor);
+    }
+
+    /** Anything unparseable is treated as absent, because a silently narrowed run is the worse failure. */
+    private static int readDivisor() {
+        String argument = InstrumentationRegistry.getArguments().getString("LD_EVENT_BENCH_DIVISOR");
+        if (argument == null) {
+            return 1;
+        }
+        try {
+            return Math.max(1, Integer.parseInt(argument.trim()));
+        } catch (NumberFormatException e) {
+            return 1;
+        }
     }
 
     @AfterClass
@@ -257,12 +291,12 @@ public class EventPersistenceBenchmark {
                 run.add(featureEvent(context, true));
             }
 
-            double withoutRun = measure(2_000, i -> {
+            double withoutRun = measure(2_000, PENDING_RUN, i -> {
                 for (byte[] out : uncachedRun.serializeAll(run)) {
                     blackhole += out.length;
                 }
             }) / PENDING_RUN;
-            double withRun = measure(2_000, i -> {
+            double withRun = measure(2_000, PENDING_RUN, i -> {
                 for (byte[] out : cachedRun.serializeAll(run)) {
                     blackhole += out.length;
                 }
@@ -528,7 +562,7 @@ public class EventPersistenceBenchmark {
         for (final int flagCount : new int[] {1, 10, 50}) {
             final OutboundEventBuffer buffer = makeBuffer(noRedaction());
 
-            double countingOnly = measure(20_000, i -> {
+            double countingOnly = measure(20_000, flagCount, i -> {
                 for (int flag = 0; flag < flagCount; flag++) {
                     buffer.summarize(summaryEvent(context, flag));
                 }
@@ -536,7 +570,7 @@ public class EventPersistenceBenchmark {
             // Drained, so the counters left behind above do not inflate the first serialized round.
             buffer.serializeSummariesAndReset();
 
-            double countingAndSerializing = measure(20_000, i -> {
+            double countingAndSerializing = measure(20_000, flagCount, i -> {
                 for (int flag = 0; flag < flagCount; flag++) {
                     buffer.summarize(summaryEvent(context, flag));
                 }
@@ -553,6 +587,45 @@ public class EventPersistenceBenchmark {
         }
 
         report("turning counters into a summary event", results);
+    }
+
+    /**
+     * What O2 removes from a summary event. Both columns include counting, because counters have to be
+     * populated before every serialization; that work is identical and therefore makes this a conservative
+     * statement of the cache's value rather than one obtained by subtracting two noisy measurements.
+     */
+    @Test
+    public void summaryContextEncodingCacheCost() {
+        final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
+        List<ComparisonMeasurement> results = new ArrayList<>();
+
+        for (final int flagCount : new int[] {1, 10, 50}) {
+            final OutboundEventBuffer uncached = makeBuffer(noRedaction(), false);
+            final OutboundEventBuffer cached = makeBuffer(noRedaction(), true);
+
+            double without = measure(20_000, flagCount, i -> {
+                for (int flag = 0; flag < flagCount; flag++) {
+                    uncached.summarize(summaryEvent(context, flag));
+                }
+                for (byte[] summary : uncached.serializeSummariesAndReset()) {
+                    blackhole += summary.length;
+                }
+            });
+            double with = measure(20_000, flagCount, i -> {
+                for (int flag = 0; flag < flagCount; flag++) {
+                    cached.summarize(summaryEvent(context, flag));
+                }
+                for (byte[] summary : cached.serializeSummariesAndReset()) {
+                    blackhole += summary.length;
+                }
+            });
+
+            results.add(new ComparisonMeasurement(
+                    flagCount + " flags: counting + serializing",
+                    without, with, cached.contextCacheHitRate()));
+        }
+
+        reportComparison("turning counters into a summary event", results);
     }
 
     // MARK: Corpus
@@ -682,7 +755,22 @@ public class EventPersistenceBenchmark {
      * itself. That is also why these numbers should not be read as what a busy device would see.
      */
     private double measure(int iterations, IntConsumer body) {
-        int warmup = Math.max(10_000, iterations / 4);
+        return measure(iterations, 1, body);
+    }
+
+    /**
+     * As {@link #measure(int, IntConsumer)}, for a body that performs {@code workPerIteration} of the thing
+     * being timed rather than one.
+     * <p>
+     * Warmup exists to get the work compiled, so it is counted in units of that work rather than in calls to
+     * {@code body}. A body that encodes {@link #PENDING_RUN} events reaches {@link #JIT_WARMUP} invocations
+     * of the encoder in a thirty-second of the calls a body that encodes one does, and warming it as though
+     * it were the latter costs thirty-two times more than being compiled requires. The returned figure is
+     * still per call to {@code body}; callers divide.
+     */
+    private double measure(int iterations, int workPerIteration, IntConsumer body) {
+        int rounds = Math.max(1, iterations / divisor);
+        int warmup = Math.max(JIT_WARMUP / Math.max(1, workPerIteration), rounds / 4);
         for (int i = 0; i < warmup; i++) {
             body.accept(i);
         }
@@ -690,11 +778,11 @@ public class EventPersistenceBenchmark {
         double best = Double.MAX_VALUE;
         for (int round = 0; round < ROUNDS; round++) {
             long start = System.nanoTime();
-            for (int i = 0; i < iterations; i++) {
+            for (int i = 0; i < rounds; i++) {
                 body.accept(i);
             }
             long elapsed = System.nanoTime() - start;
-            best = Math.min(best, (double) elapsed / iterations);
+            best = Math.min(best, (double) elapsed / rounds);
         }
         return best;
     }

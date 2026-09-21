@@ -3,14 +3,10 @@ package com.launchdarkly.sdk.android;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.AttributeRef;
-import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.google.gson.stream.JsonWriter;
 import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
-import com.launchdarkly.sdk.internal.events.EventSummarizer;
-import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
-import com.launchdarkly.sdk.internal.events.PerContextEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.BufferedWriter;
@@ -30,18 +26,18 @@ import java.util.List;
  * counters as they are recorded, full-fidelity events are held in a capacity-limited list, and a
  * flush turns whatever has accumulated into a serialized payload.
  * <p>
- * The summarization and the wire format come from java-sdk-internal rather than being
- * reimplemented here, so there is one definition of what an event looks like on the wire.
- * {@code DefaultEventProcessor} is not reused along with them because it only accepts individual
- * events and summarizes them itself, on the far side of the bounded queue this is meant to get in
- * front of.
+ * The event model comes from java-sdk-internal, but Android owns the wire writer and summary accumulator
+ * so repeated contexts can be encoded once. Byte-identical differential tests against
+ * {@link EventOutputFormatter} are the definition of compatibility. {@code DefaultEventProcessor} is not
+ * reused because it only accepts individual events and summarizes them itself, on the far side of the
+ * bounded queue this is meant to get in front of.
  */
 final class OutboundEventBuffer {
     private static final int INITIAL_OUTPUT_BUFFER_SIZE = 2000;
 
     private final EventOutputFormatter formatter;
     private final FullEventWriter fullEventWriter;
-    private final EventSummarizerInterface summarizer;
+    private final SummaryEventAccumulator summarizer;
     private final List<Event> events = new ArrayList<>();
     private final int capacity;
     private final LDLogger logger;
@@ -85,9 +81,7 @@ final class OutboundEventBuffer {
                 perContextSummarization);
         this.formatter = new EventOutputFormatter(outputConfig);
         this.fullEventWriter = new FullEventWriter(allAttributesPrivate, privateAttributes, cacheContexts);
-        this.summarizer = perContextSummarization
-                ? new PerContextEventSummarizer()
-                : new AggregatedEventSummarizer();
+        this.summarizer = new SummaryEventAccumulator(perContextSummarization);
         this.capacity = capacity >= 0 ? capacity : 1;
         this.logger = logger;
     }
@@ -101,15 +95,7 @@ final class OutboundEventBuffer {
      * @param event the evaluation
      */
     synchronized void summarize(Event.FeatureRequest event) {
-        summarizer.summarizeEvent(
-                event.getCreationDate(),
-                event.getKey(),
-                event.getVersion(),
-                event.getVariation(),
-                event.getValue(),
-                event.getDefaultVal(),
-                event.getContext()
-        );
+        summarizer.summarize(event);
     }
 
     /**
@@ -168,18 +154,18 @@ final class OutboundEventBuffer {
         if (summarizer.isEmpty()) {
             return Collections.emptyList();
         }
-        List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
+        List<SummaryEventAccumulator.Summary> summaries = summarizer.getSummariesAndReset();
         List<byte[]> serialized = new ArrayList<>(summaries.size());
-        for (EventSummarizer.EventSummary summary : summaries) {
-            byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
-            if (bytes != null) {
-                serialized.add(bytes);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        Writer writer = new BufferedWriter(
+                new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
+        for (SummaryEventAccumulator.Summary summary : summaries) {
+            byte[] bytes = writeSummary(summary, outputStream, writer);
+            if (bytes == null) {
+                summarizer.restoreTo(summaries);
+                return Collections.emptyList();
             }
-        }
-        if (serialized.isEmpty()) {
-            // The counters are put back rather than dropped: they are an aggregate of evaluations the
-            // SDK already promised to report, and nothing else is holding them now.
-            summarizer.restoreTo(summaries);
+            serialized.add(bytes);
         }
         return serialized;
     }
@@ -247,8 +233,7 @@ final class OutboundEventBuffer {
             if (!fullEventWriter.write(event, jsonWriter)) {
                 writer.flush();
                 outputStream.reset();
-                return writeSingleObject(new Event[]{ event },
-                        Collections.<EventSummarizer.EventSummary>emptyList(), outputStream, writer);
+                return writeSingleObject(new Event[]{ event }, outputStream, writer);
             }
             jsonWriter.flush();
             writer.flush();
@@ -256,6 +241,27 @@ final class OutboundEventBuffer {
             logger.warn("Failed to serialize an event: {}", LogValues.exceptionSummary(e));
             // Whatever the writer buffered is pushed out and thrown away with the stream, so a failed
             // event cannot bleed into the next one sharing this writer.
+            try {
+                writer.flush();
+            } catch (Exception ignored) {
+                // The stream is reset by the next call either way.
+            }
+            outputStream.reset();
+            return null;
+        }
+        return outputStream.toByteArray();
+    }
+
+    private byte[] writeSummary(SummaryEventAccumulator.Summary summary,
+                                ByteArrayOutputStream outputStream, Writer writer) {
+        outputStream.reset();
+        try {
+            JsonWriter jsonWriter = new JsonWriter(writer);
+            fullEventWriter.writeSummary(summary, jsonWriter);
+            jsonWriter.flush();
+            writer.flush();
+        } catch (Exception e) {
+            logger.warn("Failed to serialize an event summary: {}", LogValues.exceptionSummary(e));
             try {
                 writer.flush();
             } catch (Exception ignored) {
@@ -277,23 +283,22 @@ final class OutboundEventBuffer {
      *
      * @return the object's bytes, or null if the formatter did not write exactly one event
      */
-    private byte[] writeSingleObject(Event[] events, List<EventSummarizer.EventSummary> summaries) {
+    private byte[] writeSingleObject(Event[] events) {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
                 new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
-        return writeSingleObject(events, summaries, outputStream, writer);
+        return writeSingleObject(events, outputStream, writer);
     }
 
     /**
      * @param outputStream reset before the write, so it may be shared across a run
      * @param writer must wrap {@code outputStream}, and holds nothing buffered on entry
      */
-    private byte[] writeSingleObject(Event[] events, List<EventSummarizer.EventSummary> summaries,
-                                     ByteArrayOutputStream outputStream, Writer writer) {
+    private byte[] writeSingleObject(Event[] events, ByteArrayOutputStream outputStream, Writer writer) {
         outputStream.reset();
         int written;
         try {
-            written = formatter.writeOutputEvents(events, summaries, writer);
+            written = formatter.writeOutputEvents(events, Collections.emptyList(), writer);
             writer.flush();
         } catch (Exception e) {
             logger.warn("Failed to serialize an event: {}", LogValues.exceptionSummary(e));
@@ -340,21 +345,41 @@ final class OutboundEventBuffer {
             return null;
         }
         Event[] eventsOut = events.toArray(new Event[0]);
-        List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
+        List<SummaryEventAccumulator.Summary> summaries = summarizer.getSummariesAndReset();
 
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        ByteArrayOutputStream objectStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
-                new OutputStreamWriter(buffer, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
-        int outputEventCount;
-        try {
-            outputEventCount = formatter.writeOutputEvents(eventsOut, summaries, writer);
-            writer.flush();
-        } catch (Exception e) {
-            summarizer.restoreTo(summaries);
-            throw e instanceof IOException ? (IOException) e : new IOException(e);
+                new OutputStreamWriter(objectStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
+        ByteArrayOutputStream payload = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        payload.write('[');
+        int outputEventCount = 0;
+
+        for (Event event : eventsOut) {
+            byte[] serialized = writeFullEvent(event, objectStream, writer);
+            if (serialized == null) {
+                continue;
+            }
+            if (outputEventCount != 0) {
+                payload.write(',');
+            }
+            payload.write(serialized);
+            outputEventCount++;
         }
+        for (SummaryEventAccumulator.Summary summary : summaries) {
+            byte[] serialized = writeSummary(summary, objectStream, writer);
+            if (serialized == null) {
+                summarizer.restoreTo(summaries);
+                throw new IOException("Failed to serialize an event summary");
+            }
+            if (outputEventCount != 0) {
+                payload.write(',');
+            }
+            payload.write(serialized);
+            outputEventCount++;
+        }
+        payload.write(']');
         events.clear();
-        return new Payload(buffer.toByteArray(), outputEventCount);
+        return new Payload(payload.toByteArray(), outputEventCount);
     }
 
     /**

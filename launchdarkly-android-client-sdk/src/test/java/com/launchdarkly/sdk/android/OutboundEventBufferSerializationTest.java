@@ -12,10 +12,17 @@ import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
+import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
+import com.launchdarkly.sdk.internal.events.EventSummarizer;
+import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
+import com.launchdarkly.sdk.internal.events.EventsConfiguration;
+import com.launchdarkly.sdk.internal.events.PerContextEventSummarizer;
 
 import org.junit.Test;
 
+import java.io.StringWriter;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -41,7 +48,13 @@ public class OutboundEventBufferSerializationTest {
     }
 
     private OutboundEventBuffer makeBuffer(boolean allAttributesPrivate, Collection<AttributeRef> privateAttributes) {
-        return new OutboundEventBuffer(100, allAttributesPrivate, privateAttributes, true,
+        return makeBuffer(allAttributesPrivate, privateAttributes, true);
+    }
+
+    private OutboundEventBuffer makeBuffer(boolean allAttributesPrivate,
+                                           Collection<AttributeRef> privateAttributes,
+                                           boolean perContextSummarization) {
+        return new OutboundEventBuffer(100, allAttributesPrivate, privateAttributes, perContextSummarization,
                 LDLogger.withAdapter(logAdapter, ""));
     }
 
@@ -116,6 +129,67 @@ public class OutboundEventBufferSerializationTest {
     @Test
     public void serializingSummariesWithNothingCountedReturnsNothing() {
         assertTrue(makeBuffer().serializeSummariesAndReset().isEmpty());
+    }
+
+    @Test
+    public void summariesAgreeWithFormatterAcrossContextsPrivacyAndModes() throws Exception {
+        for (LDContext context : contextShapes()) {
+            Event.FeatureRequest[] events = new Event.FeatureRequest[] {
+                    summaryEvent(1000, "flag-a", context, 10, 1, LDValue.of(true), LDValue.of(false)),
+                    summaryEvent(1001, "flag-a", context, 10, 1, LDValue.of(true), LDValue.of(false)),
+                    summaryEvent(999, "flag-a", context, -1, -1, LDValue.of("fallback"), LDValue.of(false)),
+                    summaryEvent(1002, "flag-b", context, 7, 0,
+                            LDValue.buildObject().put("answer", 42).build(), LDValue.ofNull())
+            };
+            for (PrivacyShape privacy : privacyShapes()) {
+                assertSummaryMatchesFormatter("per-context summary", privacy, true, events);
+                assertSummaryMatchesFormatter("aggregated summary", privacy, false, events);
+            }
+        }
+    }
+
+    @Test
+    public void summariesForSeveralContextsAgreeWithFormatter() throws Exception {
+        List<LDContext> contexts = contextShapes();
+        List<Event.FeatureRequest> events = new ArrayList<>();
+        for (int i = 0; i < contexts.size(); i++) {
+            events.add(summaryEvent(1000 + i, "flag-" + (i % 2), contexts.get(i), 10 + i, i % 3,
+                    LDValue.of(i), LDValue.of(-1)));
+        }
+        for (PrivacyShape privacy : privacyShapes()) {
+            assertSummaryMatchesFormatter("several per-context summaries", privacy, true,
+                    events.toArray(new Event.FeatureRequest[0]));
+            assertSummaryMatchesFormatter("one aggregated summary", privacy, false,
+                    events.toArray(new Event.FeatureRequest[0]));
+        }
+    }
+
+    @Test
+    public void drainingFullEventsAndSummariesTogetherAgreesWithFormatter() throws Exception {
+        PrivacyShape privacy = privacyShapes().get(1);
+        Event.Custom custom = new Event.Custom(1003, "custom", CONTEXT, LDValue.of("data"), 1.5);
+        Event.FeatureRequest evaluation = summaryEvent(
+                1000, FLAG_KEY, CONTEXT, 10, 1, LDValue.of(true), LDValue.of(false));
+
+        OutboundEventBuffer actualBuffer = makeBuffer(
+                privacy.allAttributesPrivate, privacy.privateAttributes, true);
+        actualBuffer.addFullEvent(custom);
+        actualBuffer.summarize(evaluation);
+        String actual = new String(actualBuffer.drain().getData(), StandardCharsets.UTF_8);
+
+        PerContextEventSummarizer canonicalSummarizer = new PerContextEventSummarizer();
+        canonicalSummarizer.summarizeEvent(
+                evaluation.getCreationDate(), evaluation.getKey(), evaluation.getVersion(),
+                evaluation.getVariation(), evaluation.getValue(), evaluation.getDefaultVal(),
+                evaluation.getContext());
+        EventsConfiguration config = new EventsConfiguration(
+                privacy.allAttributesPrivate, 100, null, 0, null, null, 1, null, 0,
+                false, false, privacy.privateAttributes, true);
+        StringWriter expected = new StringWriter();
+        new EventOutputFormatter(config).writeOutputEvents(
+                new Event[] {custom}, canonicalSummarizer.getSummariesAndReset(), expected);
+
+        assertEquals(expected.toString(), actual);
     }
 
     @Test
@@ -267,13 +341,48 @@ public class OutboundEventBufferSerializationTest {
         }
         body.append(']');
 
-        OutboundEventBuffer drained = makeBuffer(allAttributesPrivate, privateAttributes);
-        for (Event event : events) {
-            drained.addFullEvent(event);
-        }
-        String expected = new String(drained.drain().getData(), StandardCharsets.UTF_8);
+        EventsConfiguration config = new EventsConfiguration(
+                allAttributesPrivate, 100, null, 0, null, null, 1, null, 0,
+                false, false, privateAttributes, true);
+        StringWriter expected = new StringWriter();
+        new EventOutputFormatter(config).writeOutputEvents(
+                events, Collections.<EventSummarizer.EventSummary>emptyList(), expected);
 
-        assertEquals(what, expected, body.toString());
+        assertEquals(what, expected.toString(), body.toString());
+    }
+
+    private void assertSummaryMatchesFormatter(String what, PrivacyShape privacy,
+                                               boolean perContextSummarization,
+                                               Event.FeatureRequest... events) throws Exception {
+        OutboundEventBuffer actualBuffer = makeBuffer(
+                privacy.allAttributesPrivate, privacy.privateAttributes, perContextSummarization);
+        EventSummarizerInterface canonicalSummarizer = perContextSummarization
+                ? new PerContextEventSummarizer()
+                : new AggregatedEventSummarizer();
+
+        for (Event.FeatureRequest event : events) {
+            actualBuffer.summarize(event);
+            canonicalSummarizer.summarizeEvent(
+                    event.getCreationDate(), event.getKey(), event.getVersion(), event.getVariation(),
+                    event.getValue(), event.getDefaultVal(), event.getContext());
+        }
+
+        StringBuilder actual = new StringBuilder("[");
+        List<byte[]> frames = actualBuffer.serializeSummariesAndReset();
+        for (int i = 0; i < frames.size(); i++) {
+            actual.append(i == 0 ? "" : ",").append(new String(frames.get(i), StandardCharsets.UTF_8));
+        }
+        actual.append(']');
+
+        EventsConfiguration config = new EventsConfiguration(
+                privacy.allAttributesPrivate, 100, null, 0, null, null, 1, null, 0,
+                false, false, privacy.privateAttributes, perContextSummarization);
+        EventOutputFormatter formatter = new EventOutputFormatter(config);
+        List<EventSummarizer.EventSummary> summaries = canonicalSummarizer.getSummariesAndReset();
+        StringWriter expected = new StringWriter();
+        formatter.writeOutputEvents(new Event[0], summaries, expected);
+
+        assertEquals(what, expected.toString(), actual.toString());
     }
 
     /**
@@ -311,6 +420,13 @@ public class OutboundEventBufferSerializationTest {
         Event.FeatureRequest event = new Event.FeatureRequest(1000, FLAG_KEY, context, 10, 1,
                 LDValue.of(true), LDValue.of(false), null, null, true, debug ? Long.MAX_VALUE : null, false);
         return debug ? event.toDebugEvent() : event;
+    }
+
+    private static Event.FeatureRequest summaryEvent(long timestamp, String key, LDContext context,
+                                                     int version, int variation, LDValue value,
+                                                     LDValue defaultValue) {
+        return new Event.FeatureRequest(timestamp, key, context, version, variation, value, defaultValue,
+                null, null, false, null, false);
     }
 
     private static List<LDContext> contextShapes() {
