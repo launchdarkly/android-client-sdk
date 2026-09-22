@@ -2,20 +2,31 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
 import org.junit.Test;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Behavior of the SDK's own event processor, covering the parts that are not about buffering under
@@ -29,6 +40,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final LDValue DEFAULT_VALUE = LDValue.of(false);
 
     private static final int DEFAULT_CAPACITY = 100;
+
+    // Long enough that the only delivery in a test is the one it asks for.
+    private static final long NO_PERIODIC_FLUSH_MILLIS = 600_000;
+    // Short enough to keep the close tests quick; the production value is chosen for a real network.
+    private static final long CLOSE_BUDGET_MILLIS = 200;
 
     @Test
     public void untrackedEvaluationProducesOnlyASummary() throws Exception {
@@ -110,7 +126,28 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 assertEquals(1, events.size());
                 assertEquals(LDValue.of("after-poison"), requireEventOfKind(events, "custom").get("key"));
-                logging.assertErrorLogged("Unexpected error in event processor");
+                logging.assertErrorLogged("Dropping unserializable");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void unserializableMetricDoesNotDropSiblingEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "kept", LDValue.ofNull(), 1.0);
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, events.size());
+                assertEquals(LDValue.of("kept"), requireEventOfKind(events, "custom").get("key"));
+                logging.assertErrorLogged("Dropping unserializable");
             } finally {
                 eventProcessor.close();
             }
@@ -134,7 +171,27 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 assertEquals(1, events.size());
                 assertEquals(1, summaryCountFor(events, FLAG_KEY));
-                logging.assertErrorLogged("Unexpected error in event processor");
+                logging.assertErrorLogged("Dropping unserializable");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void unserializableSummaryDoesNotDropSiblingEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordEvaluationEvent(CONTEXT, null, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                eventProcessor.recordIdentifyEvent(CONTEXT);
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, countEventsOfKind(events, "identify"));
+                assertEquals(0, countEventsOfKind(events, "summary"));
+                logging.assertErrorLogged("Dropping unserializable");
             } finally {
                 eventProcessor.close();
             }
@@ -338,6 +395,52 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void periodicFlushSurvivesErrorFromSender() throws Exception {
+        // An Error (not Exception) from a scheduled run used to cancel the repeating future with
+        // nothing logged, after which enableOrDisableTask kept returning that dead future forever.
+        CountDownLatch firstAttempt = new CountDownLatch(1);
+        BlockingQueue<byte[]> delivered = new LinkedBlockingQueue<>();
+        EventSender sender = new StubEventSender() {
+            private final AtomicInteger attempts = new AtomicInteger();
+
+            @Override
+            public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+                if (attempts.getAndIncrement() == 0) {
+                    firstAttempt.countDown();
+                    throw new Error("periodic flush");
+                }
+                delivered.add(data);
+                return new Result(true, false, null);
+            }
+        };
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, 40, scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            eventProcessor.blockingFlush();
+
+            eventProcessor.recordCustomEvent(CONTEXT, "before-error", LDValue.ofNull(), null);
+            assertTrue("sender never saw the first periodic flush",
+                    firstAttempt.await(2, TimeUnit.SECONDS));
+
+            // A background toggle stays online, so nothing here reschedules on the processor's
+            // behalf. The periodic series has to still be alive on its own.
+            eventProcessor.setInBackground(true);
+            eventProcessor.setInBackground(false);
+
+            eventProcessor.recordCustomEvent(CONTEXT, "after-error", LDValue.ofNull(), null);
+            byte[] payload = delivered.poll(2, TimeUnit.SECONDS);
+            assertNotNull("periodic flush did not run again after Error", payload);
+            assertTrue(new String(payload, StandardCharsets.UTF_8).contains("after-error"));
+            logging.assertErrorLogged("Unexpected error in event processor");
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void flushWithTimeoutReportsSuccessWhenThereIsNothingToSend() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
@@ -349,6 +452,45 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             } finally {
                 eventProcessor.close();
             }
+        }
+    }
+
+    @Test
+    public void closeGivesUpWaitingOnAStalledDelivery() throws Exception {
+        // close() runs on the caller's thread, usually the main one, so a send that never comes back
+        // used to park the application there for as long as the HTTP timeouts allowed.
+        CountDownLatch sendStarted = new CountDownLatch(1);
+        CountDownLatch releaseSend = new CountDownLatch(1);
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+                sendStarted.countDown();
+                // Bounded so that a regression fails on the elapsed time rather than hanging until
+                // the suite's global timeout.
+                awaitQuietly(releaseSend, 5, TimeUnit.SECONDS);
+                return new Result(true, false, null);
+            }
+        };
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, NO_PERIODIC_FLUSH_MILLIS,
+                CLOSE_BUDGET_MILLIS, scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            eventProcessor.recordCustomEvent(CONTEXT, "stalled", LDValue.ofNull(), null);
+
+            long startedAtNanos = System.nanoTime();
+            eventProcessor.close();
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+
+            assertTrue("the sender was never asked to send anything",
+                    sendStarted.await(2, TimeUnit.SECONDS));
+            assertTrue("close() waited " + elapsedMillis + "ms on a budget of " + CLOSE_BUDGET_MILLIS
+                    + "ms", elapsedMillis < CLOSE_BUDGET_MILLIS * 5);
+            logging.assertWarnLogged("Gave up waiting for the final event delivery");
+        } finally {
+            releaseSend.countDown();
+            scheduler.shutdownNow();
         }
     }
 
@@ -388,6 +530,102 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.close();
             }
         }
+    }
+
+    @Test
+    public void closeReleasesTheSenderOnlyAfterTheLastDeliveryFinishes() throws Exception {
+        // Giving up on the wait must not turn into pulling the HTTP client out from under the
+        // delivery we just decided not to wait for.
+        CountDownLatch releaseSend = new CountDownLatch(1);
+        CountDownLatch senderClosed = new CountDownLatch(1);
+        AtomicBoolean posting = new AtomicBoolean(false);
+        AtomicBoolean closedMidPost = new AtomicBoolean(false);
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+                posting.set(true);
+                awaitQuietly(releaseSend, 5, TimeUnit.SECONDS);
+                posting.set(false);
+                return new Result(true, false, null);
+            }
+
+            @Override
+            public void close() {
+                if (posting.get()) {
+                    closedMidPost.set(true);
+                }
+                senderClosed.countDown();
+            }
+        };
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, NO_PERIODIC_FLUSH_MILLIS,
+                CLOSE_BUDGET_MILLIS, scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            eventProcessor.recordCustomEvent(CONTEXT, "stalled", LDValue.ofNull(), null);
+
+            eventProcessor.close();
+            assertEquals("the sender was closed while a delivery was still in flight",
+                    1, senderClosed.getCount());
+
+            releaseSend.countDown();
+            assertTrue("the sender was never closed once the delivery finished",
+                    senderClosed.await(2, TimeUnit.SECONDS));
+            assertFalse("the sender was closed while a delivery was posting through it",
+                    closedMidPost.get());
+        } finally {
+            releaseSend.countDown();
+            scheduler.shutdownNow();
+        }
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender, long flushIntervalMillis,
+                                                    ScheduledExecutorService scheduler) {
+        return makeEventProcessor(sender, flushIntervalMillis,
+                DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender, long flushIntervalMillis,
+                                                    long closeBudgetMillis,
+                                                    ScheduledExecutorService scheduler) {
+        return new DirectEventProcessor(
+                new OutboundEventBuffer(false, Collections.emptyList(), true, logging.logger),
+                sender,
+                URI.create("https://events.example"),
+                null,
+                DEFAULT_CAPACITY,
+                flushIntervalMillis,
+                60_000,
+                closeBudgetMillis,
+                false,
+                true, // initiallyOffline, as the SDK builds it
+                scheduler,
+                logging.logger);
+    }
+
+    private static void awaitQuietly(CountDownLatch latch, long timeout, TimeUnit unit) {
+        try {
+            latch.await(timeout, unit);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Accepts everything, so that a test overrides only the one method it is about. */
+    private static class StubEventSender implements EventSender {
+        @Override
+        public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+            return new Result(true, false, null);
+        }
+
+        @Override
+        public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+            return new Result(true, false, null);
+        }
+
+        @Override
+        public void close() {}
     }
 
     private void recordEvaluation(EventProcessor eventProcessor, boolean requireFullEvent,

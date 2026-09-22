@@ -37,12 +37,29 @@ import java.util.concurrent.atomic.AtomicLong;
  * The configured capacity limits only the events that have trackEvents = true.
  */
 final class DirectEventProcessor implements EventProcessor {
+    /**
+     * How long {@link #close()} spends waiting for the final delivery before it gives up and returns.
+     * <p>
+     * {@code close()} runs on the caller's thread, which for an application shutting down is usually the
+     * main one, so this has to stay well inside the five seconds Android allows before an unanswered
+     * input event becomes an ANR. Two seconds is where the return on waiting longer falls off: the
+     * events client keeps pooled connections for only five seconds against a thirty second flush
+     * interval, so this post nearly always pays a full DNS, TCP and TLS handshake -- about three round
+     * trips, which two seconds covers up to roughly a 600ms RTT. A network slower than that is one the
+     * post is likely to fail on anyway.
+     * <p>
+     * Overshooting the budget is cheaper than it looks, because the delivery is not cancelled when the
+     * budget expires; see {@link #close()}.
+     */
+    static final long DEFAULT_CLOSE_BUDGET_MILLIS = 2_000;
+
     private final OutboundEventBuffer buffer;
     private final EventSender eventSender;
     private final URI eventsUri;
     private final DiagnosticStore diagnosticStore;
     private final long flushIntervalMillis;
     private final long diagnosticRecordingIntervalMillis;
+    private final long closeBudgetMillis;
     private final ScheduledExecutorService scheduler;
     private final LDLogger logger;
 
@@ -89,6 +106,7 @@ final class DirectEventProcessor implements EventProcessor {
             int capacity,
             long flushIntervalMillis,
             long diagnosticRecordingIntervalMillis,
+            long closeBudgetMillis,
             boolean initiallyInBackground,
             boolean initiallyOffline,
             ScheduledExecutorService scheduler,
@@ -101,6 +119,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.capacity = capacity >= 0 ? capacity : 1;
         this.flushIntervalMillis = flushIntervalMillis;
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
+        this.closeBudgetMillis = closeBudgetMillis;
         this.scheduler = scheduler;
         this.logger = logger;
         this.inBackground = new AtomicBoolean(initiallyInBackground);
@@ -212,7 +231,10 @@ final class DirectEventProcessor implements EventProcessor {
                 return;
             }
             updateScheduledTasks(inBackground.get(), offline);
-            if (!offline) {
+            // Re-checked rather than relying on the test at the top of the method: close() sets the
+            // flag before it takes this lock, so a caller that got past that test and then waited
+            // here would otherwise enqueue a delivery for a processor that is already shutting down.
+            if (!offline && !closed.get()) {
                 // The periodic task was cancelled for the outage and starts a fresh interval above,
                 // so anything the outage buffered would otherwise wait the whole of it. Worse, each
                 // loss of connectivity re-anchors that interval, so a run of brief ones can hold
@@ -291,15 +313,37 @@ final class DirectEventProcessor implements EventProcessor {
         Future<?> delivery = submit(this::deliverPayload);
         if (delivery != null) {
             try {
-                delivery.get();
+                delivery.get(closeBudgetMillis, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                // Deliberately not cancelled. The run has already been drained into a payload, so
+                // interrupting now would make the loss certain, while leaving it to run costs
+                // nothing: the scheduler thread is a daemon, and returning from close() does not
+                // end an Android process. The budget bounds the caller, not the delivery.
+                logger.warn("Gave up waiting for the final event delivery after {}ms;" +
+                        " it continues in the background", closeBudgetMillis);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (ExecutionException e) {
                 logUnexpectedError(e.getCause() == null ? e : e.getCause());
             }
         }
+        // Queued rather than closed here, so that the sender is released on the one thread that
+        // posts through it, after whatever is still in flight. Doing it inline would pull the HTTP
+        // client out from under a delivery we just decided not to wait for. shutdown() then refuses
+        // new work while letting what is already queued finish -- unlike shutdownNow(), which would
+        // interrupt that delivery and strand the futures of anything it discarded.
+        if (submit(this::closeSenderQuietly) == null) {
+            closeSenderQuietly(); // the executor is already gone, so nothing can still be posting
+        }
         scheduler.shutdown();
-        eventSender.close();
+    }
+
+    private void closeSenderQuietly() {
+        try {
+            eventSender.close();
+        } catch (IOException e) {
+            logUnexpectedError(e);
+        }
     }
 
     /**
@@ -456,8 +500,14 @@ final class DirectEventProcessor implements EventProcessor {
             }
             return null;
         }
-        if (currentTask != null) {
+        if (currentTask != null && !currentTask.isDone()) {
             return currentTask;
+        }
+        if (currentTask != null) {
+            // Backstop for a throwable that escaped guarded() anyway, such as one thrown while
+            // logging the first: the executor marks the repeating future done and never fires it
+            // again, and holding that future here would make every later enable a no-op.
+            currentTask.cancel(false);
         }
         try {
             // Fixed delay rather than fixed rate: a cached process stops running its tasks without
@@ -480,13 +530,18 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * Keeps an unexpected failure from killing a repeating task or bubbling out of the executor.
+     * Anything that escapes a run suppresses the rest of a {@code scheduleWithFixedDelay} series,
+     * so this catches {@code Throwable} and not just {@code Exception}: a
+     * {@code StackOverflowError} from nested {@code LDValue} data or an {@code OutOfMemoryError}
+     * growing the payload stream would otherwise stop flushing for the life of the process with
+     * nothing logged.
      */
     private Runnable guarded(Runnable task) {
         return () -> {
             try {
                 task.run();
-            } catch (Exception e) {
-                logUnexpectedError(e);
+            } catch (Throwable t) {
+                logUnexpectedError(t);
             }
         };
     }

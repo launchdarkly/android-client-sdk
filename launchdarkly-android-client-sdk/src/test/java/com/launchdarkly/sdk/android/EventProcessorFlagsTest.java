@@ -141,7 +141,7 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
     }
 
     private OutboundEventBuffer makeBuffer() {
-        return new OutboundEventBuffer(false, Collections.emptyList(), false);
+        return new OutboundEventBuffer(false, Collections.emptyList(), false, logging.logger);
     }
 
     private Event.FeatureRequest evaluation(boolean excludeFromSummaries) {
