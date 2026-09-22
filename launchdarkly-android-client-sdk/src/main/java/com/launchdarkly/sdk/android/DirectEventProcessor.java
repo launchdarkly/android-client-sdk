@@ -218,7 +218,7 @@ final class DirectEventProcessor implements EventProcessor {
         });
 
         synchronized (stateLock) {
-            updateScheduledTasks(initiallyInBackground, initiallyOffline);
+            updateScheduledTasks(initiallyInBackground, initiallyOffline, false);
         }
     }
 
@@ -406,7 +406,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (this.inBackground.getAndSet(inBackground) == inBackground) {
                 return;
             }
-            updateScheduledTasks(inBackground, offline.get());
+            updateScheduledTasks(inBackground, offline.get(), false);
         }
     }
 
@@ -419,17 +419,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (this.offline.getAndSet(offline) == offline) {
                 return;
             }
-            updateScheduledTasks(inBackground.get(), offline);
-            // Re-checked rather than relying on the test at the top of the method: close() sets the
-            // flag before it takes this lock, so a caller that got past that test and then waited
-            // here would otherwise enqueue a delivery for a processor that is already shutting down.
-            if (!offline && !closed.get()) {
-                // The periodic task was cancelled for the outage and starts a fresh interval above,
-                // so anything the outage buffered would otherwise wait the whole of it. Worse, each
-                // loss of connectivity re-anchors that interval, so a run of brief ones can hold
-                // events back for far longer than a single interval.
-                submit(this::deliverPayload);
-            }
+            updateScheduledTasks(inBackground.get(), offline, !offline);
         }
     }
 
@@ -692,7 +682,14 @@ final class DirectEventProcessor implements EventProcessor {
                 && debugEventsUntilDate > System.currentTimeMillis();
     }
 
-    private void updateScheduledTasks(boolean inBackground, boolean offline) {
+    /**
+     * @param cameOnline true if this call is the SDK going from offline to online, the one transition
+     *   that owes the events buffered during the outage a delivery rather than only a schedule
+     */
+    private void updateScheduledTasks(boolean inBackground, boolean offline, boolean cameOnline) {
+        // The single gate on everything this method starts, which is why the catch-up delivery below
+        // lives here rather than at the call site: close() sets the flag before it takes stateLock, so
+        // a caller already inside that lock would otherwise have to re-test it on its own.
         if (closed.get()) {
             return;
         }
@@ -700,7 +697,16 @@ final class DirectEventProcessor implements EventProcessor {
         // events recorded before the app was backgrounded still get delivered.
         flushTask = enableOrDisableTask(!offline, flushTask, flushIntervalMillis,
                 this::deliverPayload);
-        if (!offline && hasEventsFromPreviousRun.compareAndSet(true, false)) {
+        // Claimed outside the test below, so that coming online does not leave the flag set for the
+        // next caller to act on a second time.
+        boolean recoveredEventsAreWaiting =
+                !offline && hasEventsFromPreviousRun.compareAndSet(true, false);
+        // Two reasons not to wait out an interval. Coming back online is one: the periodic task was
+        // cancelled for the outage and starts a fresh interval above, so anything the outage buffered
+        // would otherwise wait the whole of it, and each loss of connectivity re-anchors that
+        // interval, so a run of brief ones can hold events back for far longer than one. Finding
+        // events a previous run left on disk is the other; they have already waited out a process.
+        if (cameOnline || recoveredEventsAreWaiting) {
             submit(this::deliverPayload);
         }
         boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;
