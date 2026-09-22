@@ -51,7 +51,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final int RACE_RECORDERS = 4;
     private static final int EVALUATIONS_PER_RACE_RECORDER = 2_000;
     private static final int EVALUATIONS_BEFORE_CLOSE = 200;
-    private static final int RACE_CAPACITY = 150;
+    private static final int RACE_CAPACITY = 30;
 
     // Long enough that the only delivery in a test is the one it asks for.
     private static final long NO_PERIODIC_FLUSH_MILLIS = 600_000;
@@ -300,8 +300,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         for (int trial = 0; trial < RACE_TRIALS; trial++) {
             try (HttpServer server = startEventsServer()) {
                 // Deliberately small. The recorders outrun the buffer, so capacity is the only thing
-                // bounding the payload; left unbounded the body grows with however long close() takes
-                // and runs past what the test server reads back.
+                // bounding the payload, and the test server records the body with a single unlooped
+                // read -- so anything past one socket read's worth comes back truncated, at a point
+                // that moves from run to run. A few kilobytes stays well clear of that.
                 DirectEventProcessor eventProcessor =
                         (DirectEventProcessor) makeEventProcessor(server, RACE_CAPACITY);
                 // Guarantees the final delivery has something in it, so collectDelivered always has

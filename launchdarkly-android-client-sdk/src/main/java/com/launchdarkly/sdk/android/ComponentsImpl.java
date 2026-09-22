@@ -105,10 +105,7 @@ abstract class ComponentsImpl {
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
-            // The buffer and the processor both bound themselves by this, so it is normalized once
-            // here rather than in each of them; a zero or negative capacity would otherwise leave the
-            // processor holding one event while the buffer refused to summarize anything at all.
-            int effectiveCapacity = capacity > 0 ? capacity : 1;
+            int effectiveCapacity = effectiveCapacity();
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
@@ -131,12 +128,23 @@ abstract class ComponentsImpl {
             );
         }
 
+        /**
+         * The buffer, the processor and the diagnostic description all bound themselves by this, so
+         * it is normalized in one place rather than in each of them; a zero or negative capacity
+         * would otherwise leave the processor holding one event while the buffer refused to
+         * summarize anything at all.
+         */
+        private int effectiveCapacity() {
+            return capacity > 0 ? capacity : 1;
+        }
+
         @Override
         public LDValue describeConfiguration(ClientContext clientContext) {
             return LDValue.buildObject()
                     .put("allAttributesPrivate", allAttributesPrivate)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
-                    .put("eventsCapacity", capacity)
+                    // What the SDK will actually do, not what was asked for.
+                    .put("eventsCapacity", effectiveCapacity())
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .build();
