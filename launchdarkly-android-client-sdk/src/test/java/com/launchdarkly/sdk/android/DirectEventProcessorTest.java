@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
@@ -22,7 +23,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -52,6 +55,10 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final int EVALUATIONS_PER_RACE_RECORDER = 2_000;
     private static final int EVALUATIONS_BEFORE_CLOSE = 200;
     private static final int RACE_CAPACITY = 30;
+    // Past anything the recorders can produce, so that a payload short of a feature event is short
+    // because the evaluation was split rather than because the buffer was full.
+    private static final int NO_DROP_CAPACITY = RACE_RECORDERS * EVALUATIONS_PER_RACE_RECORDER * 2;
+    private static final int SPLIT_TRIALS = 8;
 
     // Long enough that the only delivery in a test is the one it asks for.
     private static final long NO_PERIODIC_FLUSH_MILLIS = 600_000;
@@ -479,8 +486,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 LDValue body = LDValue.parse(request.getBody());
                 assertEquals(LDValue.of("diagnostic-init"), body.get("kind"));
                 // Only one, even though going online and coming to the foreground both ask for it.
-                eventProcessor.setInBackground(false);
-                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+                returnToTheForegroundWithTheDiagnosticsThreadFree(eventProcessor);
+                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
             }
@@ -489,18 +496,132 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void diagnosticInitEventIsNotSentWhileOffline() throws Exception {
-        try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY, false);
-            try {
-                server.getRecorder().requireRequest(10, TimeUnit.SECONDS); // the init event
-                eventProcessor.setOffline(true);
-                eventProcessor.setInBackground(true);
+        // Built offline and left that way. Waiting for the init first, as this used to, means the
+        // only thing stopping a second one is that the first already went -- so the test passes just
+        // as happily against a processor that sends init events while offline.
+        BlockingQueue<LDValue> posted = new LinkedBlockingQueue<>();
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+                posted.add(LDValue.parse(new String(data, StandardCharsets.UTF_8)));
+                return new Result(true, false, null);
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, makeDiagnosticStore(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            assertNull("a diagnostic event was sent while offline",
+                    posted.poll(500, TimeUnit.MILLISECONDS));
 
-                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            // Proof that the silence above was the offline state and not a fixture that could never
+            // have sent anything.
+            eventProcessor.setOffline(false);
+            assertEquals(LDValue.of("diagnostic-init"), requirePosted(posted).get("kind"));
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void beingToldToShutDownStopsRecordingAndDelivery() throws Exception {
+        // A 401 means the mobile key will not start working again, so the SDK is supposed to stop
+        // for the life of the process rather than keep posting events nobody will accept.
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "before", LDValue.ofNull(), null);
+                eventProcessor.blockingFlush();
+                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                eventProcessor.blockingFlush();
+
+                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
             }
         }
+    }
+
+    @Test
+    public void aFlushNeverSplitsAnEvaluationAcrossTwoPayloads() throws Exception {
+        // The other half of the atomicity invariant. close() only ever delivers once, so it can show
+        // an evaluation being stranded but not one being split: a counter going out in payload N with
+        // its feature event following in N+1. That leaves the totals correct and each payload wrong,
+        // so this checks payloads one at a time, against a flush running while recording continues.
+        //
+        // Every evaluation is tracked and the capacity is far beyond what the run produces, so within
+        // a payload the counter for the flag and the number of feature events are the same number.
+        //
+        // Repeated because the window is narrow -- the two writes are adjacent, and a flush has to
+        // land between them. A single run catches a split lock about two times in three.
+        int payloadsWithCounters = 0;
+        for (int trial = 0; trial < SPLIT_TRIALS; trial++) {
+            Queue<LDValue> payloads = new ConcurrentLinkedQueue<>();
+            EventSender sender = new StubEventSender() {
+                @Override
+                public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+                    payloads.add(LDValue.parse(new String(data, StandardCharsets.UTF_8)));
+                    return new Result(true, false, null);
+                }
+            };
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor =
+                    makeEventProcessorWithCapacity(sender, NO_DROP_CAPACITY, scheduler);
+            try {
+                eventProcessor.setOffline(false);
+                AtomicInteger recorded = new AtomicInteger();
+                List<Thread> recorders = new ArrayList<>();
+                for (int i = 0; i < RACE_RECORDERS; i++) {
+                    Thread recorder = new Thread(() -> {
+                        for (int n = 0; n < EVALUATIONS_PER_RACE_RECORDER; n++) {
+                            recordEvaluation(eventProcessor, true, null);
+                            recorded.incrementAndGet();
+                        }
+                    });
+                    recorders.add(recorder);
+                    recorder.start();
+                }
+                int target = RACE_RECORDERS * EVALUATIONS_PER_RACE_RECORDER;
+                while (recorded.get() < target) {
+                    eventProcessor.blockingFlush();
+                }
+                for (Thread recorder : recorders) {
+                    recorder.join();
+                }
+                eventProcessor.blockingFlush();
+
+                assertEquals("trial " + trial + ": events were dropped, so a payload may be short"
+                                + " for that reason instead",
+                        0, eventProcessor.getAndClearDroppedCount());
+                int counted = 0;
+                for (LDValue payload : payloads) {
+                    List<LDValue> events = new ArrayList<>();
+                    for (LDValue event : payload.values()) {
+                        events.add(event);
+                    }
+                    int counters = summaryCounters(events, FLAG_KEY);
+                    assertEquals("trial " + trial + ": a payload counted evaluations whose feature"
+                                    + " events went out separately",
+                            countEventsOfKind(events, "feature"), counters);
+                    counted += counters;
+                    if (counters > 0) {
+                        payloadsWithCounters++;
+                    }
+                }
+                assertEquals("trial " + trial + ": some evaluations never reached a payload",
+                        target, counted);
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+        // Otherwise a single delivery per trial would satisfy everything above without a flush ever
+        // having overlapped a recording.
+        assertTrue("every evaluation went out in one payload, so nothing was interleaved",
+                payloadsWithCounters > SPLIT_TRIALS);
     }
 
     @Test
@@ -836,6 +957,33 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         return event;
     }
 
+    /**
+     * Goes to the background and back, leaving the processor at the point where it decides whether
+     * to send a second init event.
+     * <p>
+     * Two things have to be true for that decision to be reached, and only one of them is under the
+     * test's control. Going to the foreground has to be a real transition, because setInBackground
+     * returns immediately when the value is unchanged. And the diagnostics thread has to be free:
+     * the first init event holds a claim on it until its post returns, which is after the request
+     * reaches the server, so a transition right after the request arrives is turned away before it
+     * gets anywhere near the decision. Being turned away is logged, which is what this waits out.
+     */
+    private void returnToTheForegroundWithTheDiagnosticsThreadFree(EventProcessor eventProcessor)
+            throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            long skipsBefore = countLogged("Skipped a diagnostic event");
+            eventProcessor.setInBackground(true);
+            eventProcessor.setInBackground(false);
+            // Logged by the claim itself, on this thread, so it is already there if it happened.
+            if (countLogged("Skipped a diagnostic event") == skipsBefore) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("the diagnostics thread never came free");
+    }
+
     private void awaitLogged(String messageSubstring) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
@@ -858,6 +1006,20 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     ScheduledExecutorService scheduler) {
         return makeEventProcessor(sender, null, flushIntervalMillis, 60_000, closeBudgetMillis,
                 scheduler);
+    }
+
+    /**
+     * For the one test whose subject is what a payload contains rather than how much fits. Named
+     * rather than overloaded: an int alongside the flush-interval long would quietly take over the
+     * calls that pass an interval as a literal.
+     */
+    private DirectEventProcessor makeEventProcessorWithCapacity(EventSender sender, int capacity,
+                                                    ScheduledExecutorService scheduler) {
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        return makeEventProcessor(sender, null, NO_PERIODIC_FLUSH_MILLIS, 60_000,
+                DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler, diagnosticExecutor,
+                capacity);
     }
 
     private DirectEventProcessor makeEventProcessor(EventSender sender,
@@ -897,13 +1059,26 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     long closeBudgetMillis,
                                                     ScheduledExecutorService scheduler,
                                                     ExecutorService diagnosticExecutor) {
+        return makeEventProcessor(sender, diagnosticStore, flushIntervalMillis,
+                diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor,
+                DEFAULT_CAPACITY);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    long diagnosticIntervalMillis,
+                                                    long closeBudgetMillis,
+                                                    ScheduledExecutorService scheduler,
+                                                    ExecutorService diagnosticExecutor,
+                                                    int capacity) {
         return new DirectEventProcessor(
-                new OutboundEventBuffer(false, Collections.emptyList(), true, DEFAULT_CAPACITY,
+                new OutboundEventBuffer(false, Collections.emptyList(), true, capacity,
                         logging.logger),
                 sender,
                 URI.create("https://events.example"),
                 diagnosticStore,
-                DEFAULT_CAPACITY,
+                capacity,
                 flushIntervalMillis,
                 diagnosticIntervalMillis,
                 closeBudgetMillis,
