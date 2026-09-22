@@ -117,6 +117,7 @@ abstract class ComponentsImpl {
                     capacity,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
+                    DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),
