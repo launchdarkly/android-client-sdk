@@ -21,12 +21,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -95,6 +97,7 @@ final class DirectEventProcessor implements EventProcessor {
     private final long diagnosticRecordingIntervalMillis;
     private final long closeBudgetMillis;
     private final ScheduledExecutorService scheduler;
+    private final ExecutorService diagnosticExecutor;
     private final LDLogger logger;
 
     private final AtomicBoolean inBackground;
@@ -169,6 +172,12 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private final boolean commitOnCallerThread;
 
+    /**
+     * True while a diagnostic event is on its way to the service, so that a later one is dropped
+     * rather than queued behind it.
+     */
+    private final AtomicBoolean diagnosticPostInFlight = new AtomicBoolean(false);
+
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
             EventStore store,
@@ -184,6 +193,7 @@ final class DirectEventProcessor implements EventProcessor {
             boolean initiallyInBackground,
             boolean initiallyOffline,
             ScheduledExecutorService scheduler,
+            ExecutorService diagnosticExecutor,
             LDLogger logger
     ) {
         this.eventBuffer = eventBuffer;
@@ -198,6 +208,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
         this.scheduler = scheduler;
+        this.diagnosticExecutor = diagnosticExecutor;
         this.logger = logger;
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
@@ -518,21 +529,32 @@ final class DirectEventProcessor implements EventProcessor {
         // the wait above is bounded: it is the durability promise close() makes, and a caller has to
         // be able to rely on it having happened by the time close() returns.
         commitDurably();
-        // The store and the senders, by contrast, are released on the one thread that uses them,
-        // after whatever is still in flight. Closing them inline would pull them out from under a
-        // delivery we just decided not to wait for. shutdown() then refuses new work while letting
-        // what is already queued finish -- unlike shutdownNow(), which would interrupt that delivery
-        // and strand the futures of anything it discarded.
-        if (submit(this::releaseResources) == null) {
-            releaseResources(); // the executor is already gone, so nothing can still be using them
+        // The store and the senders, by contrast, are released on whichever thread uses them, after
+        // whatever is still in flight there. Closing them inline would pull them out from under a
+        // delivery, or a diagnostic post, that we just decided not to wait for. shutdown() then
+        // refuses new work while letting what is already queued finish -- unlike shutdownNow(), which
+        // would interrupt those and strand the futures of anything it discarded.
+        if (submit(this::releaseDeliveryResources) == null) {
+            releaseDeliveryResources(); // that executor is gone, so nothing can still be using them
+        }
+        try {
+            diagnosticExecutor.submit(guarded(this::releaseDiagnosticResources));
+        } catch (RuntimeException e) {
+            releaseDiagnosticResources();
         }
         scheduler.shutdown();
+        diagnosticExecutor.shutdown();
     }
 
-    private void releaseResources() {
+    /** What the delivery thread owns: the store it drains and the sender it posts batches through. */
+    private void releaseDeliveryResources() {
         store.close();
-        closeQuietly(eventSender);
         closeQuietly(analyticsEventSender);
+    }
+
+    /** What the diagnostics thread owns. Unlike at tier 1, it has a sender to itself. */
+    private void releaseDiagnosticResources() {
+        closeQuietly(eventSender);
     }
 
     private void closeQuietly(Closeable closeable) {
@@ -637,13 +659,50 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     private void sendDiagnosticStats() {
-        // Checked before createEventAndReset, which clears the counters it hands back: bailing out
-        // after that call would discard a period's worth of statistics instead of deferring them.
-        if (diagnosticsSuspended() || diagnosticStore == null) {
+        // All three tests come before createEventAndReset, which clears the counters it hands back:
+        // bailing out after that call would discard a period's worth of statistics rather than defer
+        // them to the next one.
+        if (diagnosticsSuspended() || diagnosticStore == null || !claimDiagnosticPost()) {
             return;
         }
-        sendDiagnosticEvent(diagnosticStore.createEventAndReset(getAndClearDroppedCount(), 0),
-                false);
+        DiagnosticEvent event = diagnosticStore.createEventAndReset(getAndClearDroppedCount(), 0);
+        postDiagnostic(() -> sendDiagnosticEvent(event, false));
+    }
+
+    /**
+     * Takes the diagnostic posting thread, or reports that the last event is still on it.
+     * <p>
+     * A new event is dropped rather than queued behind the old one. Diagnostics are best-effort
+     * telemetry, a post can take tens of seconds against a network that never answers, and queueing
+     * would let an outage accumulate events describing an SDK state the application has since moved
+     * past -- the same reasoning that makes a failed init event final rather than retried.
+     */
+    private boolean claimDiagnosticPost() {
+        if (diagnosticPostInFlight.compareAndSet(false, true)) {
+            return true;
+        }
+        logger.debug("Skipped a diagnostic event because the previous one is still being posted");
+        return false;
+    }
+
+    /**
+     * Hands a claimed post to the diagnostics thread, releasing the claim once it ends.
+     *
+     * @param post what to run there, which must hold a claim from {@link #claimDiagnosticPost()}
+     */
+    private void postDiagnostic(Runnable post) {
+        Runnable releasing = () -> {
+            try {
+                post.run();
+            } finally {
+                diagnosticPostInFlight.set(false);
+            }
+        };
+        try {
+            diagnosticExecutor.submit(guarded(releasing));
+        } catch (RuntimeException e) { // the executor was shut down under us
+            diagnosticPostInFlight.set(false);
+        }
     }
 
     /**
@@ -712,11 +771,11 @@ final class DirectEventProcessor implements EventProcessor {
         boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
-        if (diagnosticsEnabled && !diagnosticInitSent.get()) {
+        if (diagnosticsEnabled && !diagnosticInitSent.get() && claimDiagnosticPost()) {
             DiagnosticStore store = diagnosticStore;
-            // Re-check on the executor thread: going online and coming to the foreground are two
-            // separate calls, and both want to send the init event we never got to send.
-            submit(() -> {
+            postDiagnostic(() -> {
+                // Re-checked on the posting thread: going online and coming to the foreground are
+                // two separate calls, and both want to send the init event we never got to send.
                 if (!diagnosticInitSent.get()) {
                     sendDiagnosticEvent(store.getInitEvent(), true);
                 }

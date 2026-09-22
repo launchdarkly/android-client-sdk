@@ -126,6 +126,7 @@ abstract class ComponentsImpl {
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),
+                    EventUtil.makeDiagnosticsTaskExecutor(),
                     clientContext.getBaseLogger()
             );
         }

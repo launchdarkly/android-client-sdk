@@ -16,14 +16,17 @@ import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
+import org.junit.After;
 import org.junit.Test;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
@@ -48,6 +51,16 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
     // Short enough to keep the close tests quick; the production value is chosen for a real network.
     private static final long CLOSE_BUDGET_MILLIS = 200;
+
+    /** Created by makeEventProcessor, which the tests call instead of building a processor. */
+    private final List<ExecutorService> diagnosticExecutors = new ArrayList<>();
+
+    @After
+    public void shutDownDiagnosticExecutors() {
+        for (ExecutorService executor : diagnosticExecutors) {
+            executor.shutdownNow();
+        }
+    }
 
     @Test
     public void untrackedEvaluationProducesOnlyASummary() throws Exception {
@@ -691,12 +704,128 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         return false;
     }
 
+    @Test
+    public void stalledDiagnosticPostDoesNotHoldUpAnalyticsDelivery() throws Exception {
+        // Diagnostics used to share the one thread that delivers analytics, so a post against a
+        // network that accepts connections and never answers stalled every flush behind it, and a
+        // buffer that is not being drained fills up and drops what the application asked to send.
+        CountDownLatch diagnosticStarted = new CountDownLatch(1);
+        CountDownLatch releaseDiagnostic = new CountDownLatch(1);
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+                diagnosticStarted.countDown();
+                awaitQuietly(releaseDiagnostic, 5, TimeUnit.SECONDS);
+                return new Result(true, false, null);
+            }
+        };
+
+        // Analytics go out through AnalyticsEventSender rather than the injectable one, so the
+        // delivery has to be watched at the server rather than at the stub.
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(sender, server.getUri(),
+                    makeDiagnosticStore(), NO_PERIODIC_FLUSH_MILLIS, 60_000,
+                    DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
+            try {
+                // Coming online posts the diagnostic init event, which then never comes back.
+                eventProcessor.setOffline(false);
+                assertTrue("the diagnostic event was never posted",
+                        diagnosticStarted.await(2, TimeUnit.SECONDS));
+
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.flush();
+
+                RequestInfo request = null;
+                try {
+                    request = server.getRecorder().requireRequest(2, TimeUnit.SECONDS);
+                } catch (Exception timedOut) {
+                    // Reported by the assertion below, which can say what it means.
+                }
+                assertNotNull("analytics delivery was stuck behind the diagnostic post", request);
+                assertTrue(request.getBody().contains("an-event"));
+            } finally {
+                releaseDiagnostic.countDown();
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void diagnosticEventIsDroppedRatherThanQueuedBehindOneStillPosting() throws Exception {
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger posts = new AtomicInteger();
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+                posts.incrementAndGet();
+                firstStarted.countDown();
+                awaitQuietly(releaseFirst, 5, TimeUnit.SECONDS);
+                return new Result(true, false, null);
+            }
+        };
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        // A diagnostic interval short enough that the periodic task fires repeatedly while the init
+        // event is still stuck on the posting thread.
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, makeDiagnosticStore(),
+                NO_PERIODIC_FLUSH_MILLIS, 20, scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            assertTrue("the diagnostic event was never posted",
+                    firstStarted.await(2, TimeUnit.SECONDS));
+
+            // Long enough for many periodic runs, every one of which has to be turned away rather
+            // than left on the posting thread's queue. Counting posts is not enough on its own: a
+            // queued one would not have started yet either, so the skips are what distinguishes
+            // being dropped from merely waiting.
+            Thread.sleep(300);
+            assertTrue("no diagnostic event was turned away, so they were queueing up instead",
+                    countLogged("Skipped a diagnostic event") > 0);
+            assertEquals("more than one diagnostic event reached the sender", 1, posts.get());
+        } finally {
+            releaseFirst.countDown();
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    private static final URI UNUSED_EVENTS_URI = URI.create("https://events.example");
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender, long flushIntervalMillis,
+                                                    ScheduledExecutorService scheduler) {
+        return makeEventProcessor(sender, UNUSED_EVENTS_URI, null, flushIntervalMillis, 60_000,
+                DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    ScheduledExecutorService scheduler) {
+        return makeEventProcessor(sender, UNUSED_EVENTS_URI, diagnosticStore, flushIntervalMillis,
+                60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    long diagnosticIntervalMillis,
+                                                    ScheduledExecutorService scheduler) {
+        return makeEventProcessor(sender, UNUSED_EVENTS_URI, diagnosticStore, flushIntervalMillis,
+                diagnosticIntervalMillis, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                scheduler);
+    }
+
     private DirectEventProcessor makeEventProcessor(EventSender sender, URI eventsUri,
                                                     DiagnosticStore diagnosticStore,
                                                     long flushIntervalMillis,
                                                     long diagnosticIntervalMillis,
                                                     long closeBudgetMillis,
                                                     ScheduledExecutorService scheduler) {
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
         return new DirectEventProcessor(
                 new OutboundEventBuffer(false, Collections.emptyList(), true, logging.logger),
                 EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test", DEFAULT_CAPACITY,
@@ -715,7 +844,18 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 false,
                 true, // initiallyOffline, as the SDK builds it
                 scheduler,
+                diagnosticExecutor,
                 logging.logger);
+    }
+
+    private long countLogged(String messageSubstring) {
+        long count = 0;
+        for (String message : logging.logCapture.getMessageStrings()) {
+            if (message.contains(messageSubstring)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private DiagnosticStore makeDiagnosticStore() {
