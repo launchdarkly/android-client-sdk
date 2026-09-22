@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.AttributeRef;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
@@ -20,7 +21,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The counters and the encoder behind {@link DirectEventProcessor}: evaluations are folded into
@@ -46,15 +49,28 @@ final class OutboundEventBuffer {
     private final LDLogger logger;
 
     /**
+     * How many distinct contexts may be counted between two drains, and which ones already are.
+     * <p>
+     * The per-context summarizer keeps a counter set per context, keyed on the whole context with
+     * every attribute retained, and offers no way to ask how many it holds. Without this the only
+     * bound on it is how long the SDK goes without a drain -- and it is not drained at all while the
+     * client is offline, which is exactly when an application is free to go on evaluating.
+     */
+    private final int maxContexts;
+    private final Set<LDContext> countedContexts;
+
+    /**
      * @param allAttributesPrivate true to redact every context attribute except the key
      * @param privateAttributes the individual context attributes to redact
      * @param perContextSummarization true to emit one summary per context rather than one overall
+     * @param maxContexts how many distinct contexts may be counted between two drains
      * @param logger where to report an event that cannot be serialized
      */
     OutboundEventBuffer(
             boolean allAttributesPrivate,
             Collection<AttributeRef> privateAttributes,
             boolean perContextSummarization,
+            int maxContexts,
             LDLogger logger
     ) {
         // Only the private-attribute settings affect the output; the rest of EventsConfiguration
@@ -66,6 +82,9 @@ final class OutboundEventBuffer {
         this.summarizer = perContextSummarization
                 ? new PerContextEventSummarizer()
                 : new AggregatedEventSummarizer();
+        // One bucket overall, so there is no cardinality to bound and nothing to track it with.
+        this.maxContexts = perContextSummarization ? maxContexts : Integer.MAX_VALUE;
+        this.countedContexts = perContextSummarization ? new HashSet<>() : null;
         this.logger = logger;
     }
 
@@ -73,19 +92,30 @@ final class OutboundEventBuffer {
      * Folds an evaluation into the summary counters, unless the evaluation asked to be left out of
      * them.
      * <p>
-     * A counter is an aggregate rather than a buffered event, so this never drops anything and is
-     * not affected by the configured capacity no matter how many evaluations an application does.
+     * A counter is an aggregate rather than a buffered event, so no number of evaluations of a context
+     * already being counted can make this drop anything. What capacity does bound is how many distinct
+     * contexts are counted at once, because each one costs a retained context and its own counters.
      *
      * @param event the evaluation
+     * @return false if this evaluation was not counted, because counting it would have meant holding
+     *   a context beyond the configured capacity
      */
-    synchronized void summarize(Event.FeatureRequest event) {
+    synchronized boolean summarize(Event.FeatureRequest event) {
         // Checked here rather than in DirectEventProcessor, for the same reason the sampling ratio
         // is: this is where an event arrives from outside. The processor builds its own through the
         // constructor overload that leaves this false, so a guard there could never fire and would
         // read as dead. java-sdk-internal's DefaultEventProcessor, which this path replaced, honored
         // the flag, and a counter is the one thing no later stage can reconstruct.
         if (event.isExcludeFromSummaries()) {
-            return;
+            return true;
+        }
+        // Only a context that is not being counted yet can be turned away, so reaching the limit costs
+        // an application evaluating against one context nothing, however many evaluations it does.
+        if (countedContexts != null && !countedContexts.contains(event.getContext())) {
+            if (countedContexts.size() >= maxContexts) {
+                return false;
+            }
+            countedContexts.add(event.getContext());
         }
         summarizer.summarizeEvent(
                 event.getCreationDate(),
@@ -96,6 +126,7 @@ final class OutboundEventBuffer {
                 event.getDefaultVal(),
                 event.getContext()
         );
+        return true;
     }
 
     /**
@@ -123,6 +154,9 @@ final class OutboundEventBuffer {
                 return null;
             }
             summaries = summarizer.getSummariesAndReset();
+            if (countedContexts != null) {
+                countedContexts.clear();
+            }
         }
 
         try {

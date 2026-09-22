@@ -761,7 +761,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
         diagnosticExecutors.add(diagnosticExecutor);
         return new DirectEventProcessor(
-                new OutboundEventBuffer(false, Collections.emptyList(), true, logging.logger),
+                new OutboundEventBuffer(false, Collections.emptyList(), true, DEFAULT_CAPACITY,
+                        logging.logger),
                 sender,
                 URI.create("https://events.example"),
                 diagnosticStore,
