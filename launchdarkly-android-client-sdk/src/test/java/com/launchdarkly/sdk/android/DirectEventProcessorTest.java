@@ -206,6 +206,56 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void unserializableMetricDoesNotPoisonLaterDeliveries() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            // One slot makes this cover both recovery and release of the poisoned event's capacity.
+            EventProcessor eventProcessor = makeEventProcessor(server, 1);
+            try {
+                // This is the event produced by LDClient.trackMetric(..., Double.NaN). Gson's
+                // strict writer rejects the non-finite metric.
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.blockingFlush();
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "after-poison", LDValue.ofNull(), 1.0);
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, events.size());
+                assertEquals(LDValue.of("after-poison"), requireEventOfKind(events, "custom").get("key"));
+                logging.assertErrorLogged("Unexpected error in event processor");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void unserializableSummaryDoesNotPoisonLaterDeliveries() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                // Java callers can violate boolVariation's @NonNull contract. A null flag key can
+                // enter the summarizer, but Gson cannot use it as a JSON object member name.
+                eventProcessor.recordEvaluationEvent(CONTEXT, null, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                eventProcessor.blockingFlush();
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+
+                recordEvaluation(eventProcessor, false, null);
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, events.size());
+                assertEquals(1, summaryCountFor(events, FLAG_KEY));
+                logging.assertErrorLogged("Unexpected error in event processor");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void capacityLimitsFullEventsButNotSummaries() throws Exception {
         try (HttpServer server = startEventsServer()) {
             int capacity = 3;
