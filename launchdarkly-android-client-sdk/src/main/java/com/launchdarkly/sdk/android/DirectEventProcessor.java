@@ -113,6 +113,16 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private final AtomicInteger sendersStillDraining = new AtomicInteger(2);
 
+    /**
+     * Guards the handover from running to shut down: held for the length of a submit, and by
+     * {@link #close()} while it queues the release of the sender and stops the executors accepting
+     * work. Nothing blocking happens under it.
+     */
+    private final Object submitLock = new Object();
+
+    /** Set under {@link #submitLock} once close() has queued the release of the sender. */
+    private boolean shuttingDown = false;
+
     DirectEventProcessor(
             OutboundEventBuffer buffer,
             EventSender eventSender,
@@ -193,7 +203,8 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Holds an event for the next flush to encode, counting it as dropped if the SDK is already full.
      * <p>
-     * Capacity is consulted before anything else, so an event that will not be kept is never encoded.
+     * Capacity is consulted before anything is encoded, so an event that will not be kept is never
+     * encoded.
      * That ordering is what bounds an application re-evaluating a tracked flag in a render loop: once
      * the limit is reached the cost of an evaluation falls back to its summary counter, however fast
      * the loop runs.
@@ -206,6 +217,15 @@ final class DirectEventProcessor implements EventProcessor {
             return;
         }
         synchronized (pendingLock) {
+            // The close check that decides the outcome, as against the fast path the public record
+            // methods take before building the event. deliverPayload lifts the run out under this
+            // same lock, so testing the flag here orders a record against close()'s final delivery:
+            // either the event is in the list before that delivery takes it, or it is refused.
+            // Tested outside the lock the two interleave, and an event can be left in a list that
+            // nothing will drain again.
+            if (closed.get()) {
+                return;
+            }
             if (pending.size() >= capacity) {
                 if (capacityExceeded.compareAndSet(false, true)) {
                     logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
@@ -227,9 +247,6 @@ final class DirectEventProcessor implements EventProcessor {
 
     @Override
     public void setInBackground(boolean inBackground) {
-        if (closed.get()) {
-            return;
-        }
         synchronized (stateLock) {
             if (this.inBackground.getAndSet(inBackground) == inBackground) {
                 return;
@@ -240,9 +257,6 @@ final class DirectEventProcessor implements EventProcessor {
 
     @Override
     public void setOffline(boolean offline) {
-        if (closed.get()) {
-            return;
-        }
         synchronized (stateLock) {
             if (this.offline.getAndSet(offline) == offline) {
                 return;
@@ -284,10 +298,8 @@ final class DirectEventProcessor implements EventProcessor {
         }
         // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
         Callable<Boolean> delivery = this::deliverPayloadReportingOutcome;
-        Future<Boolean> pending;
-        try {
-            pending = scheduler.submit(delivery);
-        } catch (RuntimeException e) { // the executor was shut down under us
+        Future<Boolean> pending = submit(delivery);
+        if (pending == null) {
             return false;
         }
         try {
@@ -340,16 +352,25 @@ final class DirectEventProcessor implements EventProcessor {
         // still in flight. shutdown() then refuses new work while letting what is already queued
         // finish -- unlike shutdownNow(), which would interrupt those posts and strand the futures of
         // anything it discarded.
-        if (submit(this::releaseSenderWhenLast) == null) {
-            releaseSenderWhenLast(); // the executor is already gone, so nothing can still be posting
+        //
+        // Queueing and shutting down are one step under submitLock, so that a flush cannot land in
+        // between them and put a delivery behind the release, where it would find the sender closed.
+        synchronized (submitLock) {
+            shuttingDown = true;
+            queueSenderRelease(scheduler);
+            queueSenderRelease(diagnosticExecutor);
+            scheduler.shutdown();
+            diagnosticExecutor.shutdown();
         }
+    }
+
+    /** Queues the release on one of the posting threads, or runs it here if that thread has gone. */
+    private void queueSenderRelease(ExecutorService executor) {
         try {
-            diagnosticExecutor.submit(guarded(this::releaseSenderWhenLast));
-        } catch (RuntimeException e) {
-            releaseSenderWhenLast();
+            executor.submit(guarded(this::releaseSenderWhenLast));
+        } catch (RuntimeException e) { // the executor was shut down under us
+            releaseSenderWhenLast(); // so nothing can still be posting on it
         }
-        scheduler.shutdown();
-        diagnosticExecutor.shutdown();
     }
 
     /** Closes the sender once both of the threads that post through it have got this far. */
@@ -541,9 +562,11 @@ final class DirectEventProcessor implements EventProcessor {
      *   that owes the events buffered during the outage a delivery rather than only a schedule
      */
     private void updateScheduledTasks(boolean inBackground, boolean offline, boolean cameOnline) {
-        // The single gate on everything this method starts, which is why the catch-up delivery below
-        // lives here rather than at the call site: close() sets the flag before it takes stateLock, so
-        // a caller already inside that lock would otherwise have to re-test it on its own.
+        // The only close check the scheduling path needs, and the reason setOffline, setInBackground
+        // and the catch-up delivery below do not carry one of their own. close() sets the flag before
+        // it takes stateLock and cancels the tasks under it, so whichever of the two reaches the lock
+        // second sees what the other did: either this returns here, or it schedules and close() then
+        // cancels what it scheduled. Two threads cannot both get past this and leave a task running.
         if (closed.get()) {
             return;
         }
@@ -605,11 +628,45 @@ final class DirectEventProcessor implements EventProcessor {
         }
     }
 
+    /**
+     * Puts work on the delivery thread, and is the one place that decides whether there is still a
+     * thread willing to take it. The {@code isStopped} tests the callers make first are a fast path
+     * that saves the work of getting here, not a guarantee; this is what a delivery is actually
+     * ordered against close().
+     *
+     * @return the submitted task, or null if the processor is shutting down or already has
+     */
     private Future<?> submit(Runnable task) {
-        try {
-            return scheduler.submit(guarded(task));
-        } catch (RuntimeException e) { // the executor was shut down under us
-            return null;
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                // close() has already queued the release of the sender. Work accepted now would be
+                // behind it in the queue and would run against a sender that had been closed.
+                return null;
+            }
+            try {
+                return scheduler.submit(guarded(task));
+            } catch (RuntimeException e) { // the executor was shut down under us
+                return null;
+            }
+        }
+    }
+
+    /**
+     * As {@link #submit(Runnable)}, for a delivery whose outcome the caller waits for. Not wrapped in
+     * {@link #guarded}, because here the caller is there to receive what escapes.
+     *
+     * @return the submitted task, or null if the processor is shutting down or already has
+     */
+    private <T> Future<T> submit(Callable<T> task) {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                return null;
+            }
+            try {
+                return scheduler.submit(task);
+            } catch (RuntimeException e) { // the executor was shut down under us
+                return null;
+            }
         }
     }
 

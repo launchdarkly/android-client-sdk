@@ -595,6 +595,48 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void flushAfterCloseDoesNotPostThroughTheReleasedSender() throws Exception {
+        AtomicBoolean postedAfterRelease = new AtomicBoolean(false);
+        EventSender sender = releaseTrackingSender(postedAfterRelease);
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, NO_PERIODIC_FLUSH_MILLIS,
+                CLOSE_BUDGET_MILLIS, scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            eventProcessor.close();
+
+            eventProcessor.recordCustomEvent(CONTEXT, "after-close", LDValue.ofNull(), null);
+            eventProcessor.flush();
+            eventProcessor.blockingFlush();
+
+            assertFalse("a flush after close posted through a sender that had been released",
+                    postedAfterRelease.get());
+        } finally {
+            scheduler.shutdownNow();
+        }
+    }
+
+    /** Reports through {@code postedAfterRelease} if it is asked to send once it has been closed. */
+    private static EventSender releaseTrackingSender(AtomicBoolean postedAfterRelease) {
+        AtomicBoolean released = new AtomicBoolean(false);
+        return new StubEventSender() {
+            @Override
+            public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+                if (released.get()) {
+                    postedAfterRelease.set(true);
+                }
+                return new Result(true, false, null);
+            }
+
+            @Override
+            public void close() {
+                released.set(true);
+            }
+        };
+    }
+
+    @Test
     public void stalledDiagnosticPostDoesNotHoldUpAnalyticsDelivery() throws Exception {
         // Diagnostics used to share the one thread that delivers analytics, so a post against a
         // network that accepts connections and never answers stalled every flush behind it, and a
