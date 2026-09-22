@@ -60,7 +60,7 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
 
         buffer.summarize(evaluation(true));
 
-        assertNull("an excluded evaluation should leave nothing to send", buffer.drain(NO_EVENTS));
+        assertNull("an excluded evaluation should leave nothing to send", encodeAll(buffer));
     }
 
     @Test
@@ -154,8 +154,12 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
                 excludeFromSummaries);
     }
 
+    private OutboundEventBuffer.Payload encodeAll(OutboundEventBuffer buffer) throws IOException {
+        return buffer.encode(NO_EVENTS, buffer.takeSummaries());
+    }
+
     private List<LDValue> drainToEvents(OutboundEventBuffer buffer) throws IOException {
-        OutboundEventBuffer.Payload payload = buffer.drain(NO_EVENTS);
+        OutboundEventBuffer.Payload payload = encodeAll(buffer);
         if (payload == null) {
             return Collections.emptyList();
         }

@@ -120,10 +120,10 @@ public class OutboundEventBufferSerializationTest {
                 + new String(second, Charset.forName("UTF-8")) + "]";
 
         OutboundEventBuffer drained = makeBuffer();
-        String expected = new String(drained.drain(Arrays.asList(
+        String expected = new String(drained.encode(Arrays.asList(
                 new Event.Custom(1000, "first", CONTEXT, LDValue.ofNull(), null),
                 new Event.Custom(1001, "second", CONTEXT, LDValue.ofNull(), null)
-        )).getData(), Charset.forName("UTF-8"));
+        ), drained.takeSummaries()).getData(), Charset.forName("UTF-8"));
 
         assertEquals(LDValue.parse(expected), LDValue.parse(body));
     }

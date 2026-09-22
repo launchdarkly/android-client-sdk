@@ -47,6 +47,15 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     private static final int DEFAULT_CAPACITY = 100;
 
+    // Enough concurrent evaluations that close() reliably lands between the two writes one evaluation
+    // makes. Against the unfixed code this failed in the first trial of every run, by two to four
+    // events -- roughly the number of recorders that can sit in the gap at once.
+    private static final int RACE_TRIALS = 20;
+    private static final int RACE_RECORDERS = 4;
+    private static final int EVALUATIONS_PER_RACE_RECORDER = 2_000;
+    private static final int EVALUATIONS_BEFORE_CLOSE = 200;
+    private static final int RACE_CAPACITY = 150;
+
     // Long enough that the only delivery in a test is the one it asks for.
     private static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
     // Short enough to keep the close tests quick; the production value is chosen for a real network.
@@ -369,6 +378,86 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertEquals(1, countEventsOfKind(events, "custom"));
             assertEquals(1, summaryCountFor(events, FLAG_KEY));
         }
+    }
+
+    @Test
+    public void closeNeverDeliversASummaryWithoutTheFeatureEventItCounted() throws Exception {
+        // An evaluation of a tracked flag writes a summary counter and a feature event. close() has
+        // to take both or neither. If it can take the counter and then refuse the event, it reports
+        // an evaluation that no event describes -- for experimentation traffic, a data point that
+        // disappears while the summary insists it happened.
+        //
+        // The window is the gap between those two writes, so this races them rather than asserting
+        // on a single ordering. Nothing here is timing-tolerant: the invariant holds for every
+        // interleaving, so any trial that breaks it is a real defect.
+        int featureEventsSeen = 0;
+        for (int trial = 0; trial < RACE_TRIALS; trial++) {
+            try (HttpServer server = startEventsServer()) {
+                // Deliberately small. The recorders outrun the buffer, so capacity is the only thing
+                // bounding the payload; left unbounded the body grows with however long close() takes
+                // and runs past what the test server reads back.
+                DirectEventProcessor eventProcessor =
+                        (DirectEventProcessor) makeEventProcessor(server, RACE_CAPACITY);
+                // Guarantees the final delivery has something in it, so collectDelivered always has
+                // a request to read even if every recorder loses the race.
+                eventProcessor.recordIdentifyEvent(CONTEXT);
+
+                AtomicInteger recorded = new AtomicInteger();
+                List<Thread> recorders = new ArrayList<>();
+                for (int i = 0; i < RACE_RECORDERS; i++) {
+                    Thread recorder = new Thread(() -> {
+                        for (int n = 0; n < EVALUATIONS_PER_RACE_RECORDER; n++) {
+                            eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION,
+                                    VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, true, null);
+                            recorded.incrementAndGet();
+                        }
+                    });
+                    recorders.add(recorder);
+                    recorder.start();
+                }
+                // Close in the middle of the burst rather than at the edge of it. Closing before the
+                // recorders are going would resolve the race trivially every time.
+                while (recorded.get() < EVALUATIONS_BEFORE_CLOSE) {
+                    Thread.yield();
+                }
+                eventProcessor.close();
+                for (Thread recorder : recorders) {
+                    recorder.join();
+                }
+
+                long dropped = eventProcessor.getAndClearDroppedCount();
+                List<LDValue> events = collectDelivered(server);
+                int featureEvents = countEventsOfKind(events, "feature");
+                // Every evaluation is accounted for one of three ways: delivered in full, dropped
+                // for capacity, or refused outright before anything was written. Only the first two
+                // may leave a counter behind, so a counter that matches neither is one that was
+                // taken from a half-recorded evaluation.
+                assertEquals("trial " + trial + ": a summary counted an evaluation whose feature"
+                                + " event was neither delivered nor dropped",
+                        featureEvents + dropped, summaryCounters(events, FLAG_KEY));
+                featureEventsSeen += featureEvents;
+            }
+        }
+        // Guards against the whole thing passing because nothing ever got as far as being delivered.
+        assertTrue("no evaluation survived to be delivered, so nothing was actually compared",
+                featureEventsSeen > 0);
+    }
+
+    /**
+     * Like {@code summaryCountFor}, but returns zero rather than failing when no summary was
+     * delivered. Here a trial in which close() beat every recorder is a legitimate outcome.
+     */
+    private int summaryCounters(List<LDValue> events, String flagKey) {
+        int total = 0;
+        for (LDValue event : events) {
+            if (!"summary".equals(event.get("kind").stringValue())) {
+                continue;
+            }
+            for (LDValue counter : event.get("features").get(flagKey).get("counters").values()) {
+                total += counter.get("count").intValue();
+            }
+        }
+        return total;
     }
 
     @Test

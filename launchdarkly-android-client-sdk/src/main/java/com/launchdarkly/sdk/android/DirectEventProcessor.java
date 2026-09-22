@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.Closeable;
@@ -121,7 +122,7 @@ final class DirectEventProcessor implements EventProcessor {
     private ScheduledFuture<?> diagnosticTask;
 
     /**
-     * Full events recorded but not yet encoded, guarded by {@link #pendingLock}.
+     * Full events recorded but not yet encoded, guarded by {@link #recordLock}.
      * <p>
      * Held rather than serialized because serializing early would not make them durable: the store stages
      * bytes into memory too, and only {@link EventStore#commit()} reaches the file. Both forms are equally
@@ -130,14 +131,20 @@ final class DirectEventProcessor implements EventProcessor {
     private final List<Event> pending = new ArrayList<>();
 
     /**
-     * Guards {@link #pending}, and is held for one list append or one handover of the run -- never
-     * across the encode.
+     * Guards everything one recording writes: {@link #pending} and the summary counters behind
+     * {@link #buffer}.
      * <p>
-     * Recording runs on whichever thread evaluated a flag, which on Android is usually the main one.
-     * The worst it may wait for is another thread's memory operation; if the encoder ran under this
-     * lock, an evaluation would instead wait on the dominant cost of the whole path.
+     * One evaluation can produce a counter, a full event and a debug event, and the three have to
+     * land together. Taken separately, a flush landing between them splits one evaluation across two
+     * payloads, and a {@link #close()} landing between them delivers the counter and then refuses the
+     * full event -- leaving a summary that says an evaluation happened and no event to go with it.
+     * <p>
+     * Held for the appends and the handover of the run, never across the encode. Recording runs on
+     * whichever thread evaluated a flag, which on Android is usually the main one. The worst it may
+     * wait for is another thread's memory operation; if the encoder ran under this lock, an
+     * evaluation would instead wait on the dominant cost of the whole path.
      */
-    private final Object pendingLock = new Object();
+    private final Object recordLock = new Object();
 
     /**
      * Held for the whole of a commit, so that only one runs at a time.
@@ -147,8 +154,8 @@ final class DirectEventProcessor implements EventProcessor {
      * write and returning while those bytes were still being produced somewhere else. Waiting here instead
      * means that when the call returns the event is on disk, whichever commit put it there.
      * <p>
-     * Distinct from {@link #pendingLock}, which is only held long enough to hand the run over: encoding
-     * under this lock must not block a thread that is merely recording.
+     * Distinct from {@link #recordLock}, which is only held long enough to hand the run and the counters
+     * over: encoding under this lock must not block a thread that is merely recording.
      */
     private final Object commitLock = new Object();
 
@@ -264,18 +271,32 @@ final class DirectEventProcessor implements EventProcessor {
         Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
                 context, flagVersion, variation, value, defaultValue, reason, null,
                 requireFullEvent, debugEventsUntilDate, false);
-        if (!eventBuffer.summarize(event)) {
+        // Built before the lock is taken, so that the critical section is only the writes.
+        Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
+        boolean contextsExceeded;
+        boolean needsCommit;
+        synchronized (recordLock) {
+            if (closed.get()) {
+                return;
+            }
+            contextsExceeded = !eventBuffer.summarize(event);
+            if (requireFullEvent) {
+                addPending(event);
+            }
+            if (debugEvent != null) {
+                addPending(debugEvent);
+            }
+            needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
+        }
+        if (contextsExceeded) {
             reportContextsExceeded();
         }
-        if (requireFullEvent) {
-            record(event);
-        }
-        if (shouldDebugEvent(debugEventsUntilDate)) {
-            record(event.toDebugEvent());
-        }
-        // Deliberately no commit. An evaluation is expected to cost what a map lookup costs, and it is
-        // usually the main thread doing it; the store writes these on its own thread once enough of them
+        // Deliberately no commit point. An evaluation is expected to cost what a map lookup costs, and it
+        // is usually the main thread doing it; the store writes these on its own thread once enough of them
         // have piled up, and the next event recorded at a commit point makes them durable along with itself.
+        if (needsCommit) {
+            scheduleCommit();
+        }
     }
 
     @Override
@@ -304,14 +325,8 @@ final class DirectEventProcessor implements EventProcessor {
      * limit is reached the cost of an evaluation falls back to its summary counter, however fast the loop runs.
      */
     void record(Event event) {
-        // Ahead of the capacity check, because an event the SDK was never going to send is not a
-        // loss and must not be counted as one. Sampling and capacity are different reasons not to
-        // keep an event, and only the second is one the SDK owes anyone a count of.
-        if (!Sampler.shouldSample(event.getSamplingRatio())) {
-            return;
-        }
         boolean needsCommit;
-        synchronized (pendingLock) {
+        synchronized (recordLock) {
             // The close check that decides the outcome, as against the fast path the public record methods
             // take before building the event. The commit lifts the run out under this same lock, so testing
             // the flag here orders a record against close()'s final commit: either the event is in the list
@@ -320,16 +335,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (closed.get()) {
                 return;
             }
-            if (pending.size() + store.getPendingEventCount() >= capacity) {
-                if (capacityExceeded.compareAndSet(false, true)) {
-                    logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
-                }
-                droppedEvents.incrementAndGet();
-                return;
-            }
-
-            capacityExceeded.set(false);
-            pending.add(event);
+            addPending(event);
             needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
         }
         if (needsCommit) {
@@ -383,45 +389,69 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private void commitDurably() {
         synchronized (commitLock) {
-            stagePendingEvents();
-            stageSummaries();
+            List<Event> run;
+            List<EventSummarizer.EventSummary> summaries;
+            // Both taken at once, so that an evaluation's counter and its full event are staged by the
+            // same commit. Taken separately, a commit landing between the two writes one evaluation makes
+            // stages the counter and leaves the event for the next one -- or, at close, for none at all.
+            synchronized (recordLock) {
+                run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
+                pending.clear();
+                summaries = eventBuffer.takeSummaries();
+            }
+            stageRun(run);
+            stageSummaries(summaries);
             store.commit();
         }
     }
 
     /**
-     * Encodes the held events as one run and stages the bytes.
+     * Encodes a run of events as one run and stages the bytes.
      * <p>
-     * The run is taken under {@link #pendingLock} and encoded outside it, so recording does not wait on the
-     * encoder. Staging bypasses capacity because the decision to keep these events was already made in
+     * The run was taken under {@link #recordLock} and is encoded outside it, so recording does not wait on
+     * the encoder. Staging bypasses capacity because the decision to keep these events was already made in
      * {@link #record}, and refusing them here would drop events the SDK has counted as accepted.
      * <p>
-     * Requires {@link #commitLock}: two threads draining separate runs would stage them in whichever order
+     * Requires {@link #commitLock}: two threads staging separate runs would stage them in whichever order
      * they finished encoding, which is not the order they were recorded in.
      */
-    private void stagePendingEvents() {
-        List<Event> run;
-        synchronized (pendingLock) {
-            if (pending.isEmpty()) {
-                return;
-            }
-            run = new ArrayList<>(pending);
-            pending.clear();
-        }
+    private void stageRun(List<Event> run) {
         for (byte[] serialized : eventBuffer.serializeAll(run)) {
             store.stage(serialized, true);
         }
     }
 
     /**
-     * Turns the evaluation counters into summary events in the store.
+     * Turns the evaluation counters already taken into summary events in the store.
      */
-    private void stageSummaries() {
-        for (byte[] summary : eventBuffer.serializeSummariesAndReset()) {
+    private void stageSummaries(List<EventSummarizer.EventSummary> summaries) {
+        for (byte[] summary : eventBuffer.serializeSummaries(summaries)) {
             // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
             // counted, and dropping it would lose all of them at once.
             store.stage(summary, true);
         }
+    }
+
+    /**
+     * Holds one event for the next flush, unless it was sampled out or there is no room. Requires
+     * {@link #recordLock}.
+     */
+    private void addPending(Event event) {
+        // Ahead of the capacity check, because an event the SDK was never going to send is not a
+        // loss and must not be counted as one. Sampling and capacity are different reasons not to
+        // keep an event, and only the second is one the SDK owes anyone a count of.
+        if (!Sampler.shouldSample(event.getSamplingRatio())) {
+            return;
+        }
+        if (pending.size() + store.getPendingEventCount() >= capacity) {
+            if (capacityExceeded.compareAndSet(false, true)) {
+                logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+            }
+            droppedEvents.incrementAndGet();
+            return;
+        }
+        capacityExceeded.set(false);
+        pending.add(event);
     }
 
     /**
@@ -618,8 +648,9 @@ final class DirectEventProcessor implements EventProcessor {
      * waiting to find out.
      * <p>
      * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
-     * and the run is taken exactly once per delivery. The run is taken under {@link #pendingLock}
-     * and encoded outside it, so recording does not wait on the encoder.
+     * and the run is taken exactly once per delivery. The run and the counters are taken together
+     * under {@link #recordLock}, so an evaluation is never split across two payloads, and encoded
+     * outside it, so recording does not wait on the encoder.
      *
      * @return true if the events reached the service, or if there were none to send; false if they
      *   could not be sent or the service did not accept them
