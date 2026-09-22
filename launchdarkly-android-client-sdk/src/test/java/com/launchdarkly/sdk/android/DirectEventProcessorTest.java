@@ -1,17 +1,28 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
 import org.junit.Test;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Behavior of the SDK's own event processor, covering the parts that are not about buffering under
@@ -355,6 +366,72 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             } finally {
                 eventProcessor.close();
             }
+        }
+    }
+
+    @Test
+    public void periodicFlushSurvivesErrorFromSender() throws Exception {
+        // An Error (not Exception) from a scheduled run used to cancel the repeating future with
+        // nothing logged, after which enableOrDisableTask kept returning that dead future forever.
+        CountDownLatch firstAttempt = new CountDownLatch(1);
+        BlockingQueue<byte[]> delivered = new LinkedBlockingQueue<>();
+        EventSender sender = new EventSender() {
+            private final AtomicInteger attempts = new AtomicInteger();
+
+            @Override
+            public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+                if (attempts.getAndIncrement() == 0) {
+                    firstAttempt.countDown();
+                    throw new Error("periodic flush");
+                }
+                delivered.add(data);
+                return new Result(true, false, null);
+            }
+
+            @Override
+            public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+                return new Result(true, false, null);
+            }
+
+            @Override
+            public void close() {}
+        };
+
+        long flushIntervalMillis = 40;
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = new DirectEventProcessor(
+                new OutboundEventBuffer(false, Collections.emptyList(), true, logging.logger),
+                sender,
+                URI.create("https://events.example"),
+                null,
+                DEFAULT_CAPACITY,
+                flushIntervalMillis,
+                60_000,
+                false,
+                true,
+                scheduler,
+                logging.logger);
+        try {
+            eventProcessor.setOffline(false);
+            eventProcessor.blockingFlush();
+
+            eventProcessor.recordCustomEvent(CONTEXT, "before-error", LDValue.ofNull(), null);
+            assertTrue("sender never saw the first periodic flush",
+                    firstAttempt.await(2, TimeUnit.SECONDS));
+
+            // A background toggle stays online, so nothing here reschedules on the processor's
+            // behalf. The periodic series has to still be alive on its own.
+            eventProcessor.setInBackground(true);
+            eventProcessor.setInBackground(false);
+
+            eventProcessor.recordCustomEvent(CONTEXT, "after-error", LDValue.ofNull(), null);
+            byte[] payload = delivered.poll(2, TimeUnit.SECONDS);
+            assertNotNull("periodic flush did not run again after Error", payload);
+            assertTrue(new String(payload, StandardCharsets.UTF_8).contains("after-error"));
+            logging.assertErrorLogged("Unexpected error in event processor");
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
         }
     }
 

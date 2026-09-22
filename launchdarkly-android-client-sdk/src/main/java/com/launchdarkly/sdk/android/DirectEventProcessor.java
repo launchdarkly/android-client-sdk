@@ -412,8 +412,14 @@ final class DirectEventProcessor implements EventProcessor {
             }
             return null;
         }
-        if (currentTask != null) {
+        if (currentTask != null && !currentTask.isDone()) {
             return currentTask;
+        }
+        if (currentTask != null) {
+            // Backstop for a throwable that escaped guarded() anyway, such as one thrown while
+            // logging the first: the executor marks the repeating future done and never fires it
+            // again, and holding that future here would make every later enable a no-op.
+            currentTask.cancel(false);
         }
         try {
             // Fixed delay rather than fixed rate: a cached process stops running its tasks without
@@ -436,13 +442,18 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * Keeps an unexpected failure from killing a repeating task or bubbling out of the executor.
+     * Anything that escapes a run suppresses the rest of a {@code scheduleWithFixedDelay} series,
+     * so this catches {@code Throwable} and not just {@code Exception}: a
+     * {@code StackOverflowError} from nested {@code LDValue} data or an {@code OutOfMemoryError}
+     * growing the payload stream would otherwise stop flushing for the life of the process with
+     * nothing logged.
      */
     private Runnable guarded(Runnable task) {
         return () -> {
             try {
                 task.run();
-            } catch (Exception e) {
-                logUnexpectedError(e);
+            } catch (Throwable t) {
+                logUnexpectedError(t);
             }
         };
     }
