@@ -486,10 +486,12 @@ final class DirectEventProcessor implements EventProcessor {
         }
     }
 
+    /**
+     * Posts an event that has already been built. Requires the caller to have checked
+     * {@link #diagnosticsSuspended()}, because for the periodic event building it is what consumes
+     * the period.
+     */
     private void sendDiagnosticEvent(DiagnosticEvent diagnosticEvent, boolean isInit) {
-        if (diagnosticsSuspended()) {
-            return;
-        }
         try {
             byte[] data = diagnosticEvent.getJsonValue().toJsonString()
                     .getBytes(StandardCharsets.UTF_8);
@@ -508,14 +510,24 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     private void sendDiagnosticStats() {
-        // All three tests come before createEventAndReset, which clears the counters it hands back:
-        // bailing out after that call would discard a period's worth of statistics rather than defer
-        // them to the next one.
         if (diagnosticsSuspended() || diagnosticStore == null || !claimDiagnosticPost()) {
             return;
         }
-        DiagnosticEvent event = diagnosticStore.createEventAndReset(getAndClearDroppedCount(), 0);
-        postDiagnostic(() -> sendDiagnosticEvent(event, false));
+        DiagnosticStore store = diagnosticStore;
+        postDiagnostic(() -> {
+            // The check that decides the outcome, and it has to come before the event is built rather
+            // than after. createEventAndReset hands back the period and clears it -- the stream inits,
+            // the events-in-batch count and the period start all move -- and getAndClearDroppedCount
+            // does the same for the dropped count. This runs on the diagnostics thread, which may have
+            // been busy with an earlier post for as long as that post took, so the state can easily
+            // have changed since the checks above. Bailing out after the event was built would discard
+            // a period outright and leave the next event describing a window that begins after the
+            // reset; bailing out here leaves everything where it is, for the next period to carry.
+            if (diagnosticsSuspended()) {
+                return;
+            }
+            sendDiagnosticEvent(store.createEventAndReset(getAndClearDroppedCount(), 0), false);
+        });
     }
 
     /**
@@ -638,7 +650,10 @@ final class DirectEventProcessor implements EventProcessor {
             postDiagnostic(() -> {
                 // Re-checked on the posting thread: going online and coming to the foreground are
                 // two separate calls, and both want to send the init event we never got to send.
-                if (!diagnosticInitSent) {
+                // Suspension is re-checked for the same reason it is for the periodic event, and
+                // costs nothing here: getInitEvent consumes nothing, so a skipped init is simply
+                // built again the next time diagnostics are enabled.
+                if (!diagnosticInitSent && !diagnosticsSuspended()) {
                     sendDiagnosticEvent(store.getInitEvent(), true);
                 }
             });

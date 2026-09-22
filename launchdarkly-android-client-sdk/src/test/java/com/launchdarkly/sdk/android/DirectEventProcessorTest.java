@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.EvaluationReason;
@@ -810,6 +811,90 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void goingToTheBackgroundDefersADiagnosticPeriodRatherThanDestroyingIt() throws Exception {
+        // createEventAndReset hands the period's statistics back and clears them in the same call, so
+        // whoever consumes it owns it. The post reaches the diagnostics thread through a queue it may
+        // have to wait in, and the SDK can go offline or to the background in the meantime. If that is
+        // noticed after the event was built, the period is gone: nothing retries it, and the next
+        // event reports a window starting after the reset, so the statistics are not merely late but
+        // absent.
+        BlockingQueue<LDValue> posted = new LinkedBlockingQueue<>();
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+                posted.add(LDValue.parse(new String(data, StandardCharsets.UTF_8)));
+                return new Result(true, false, null);
+            }
+        };
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        // Short enough that the periodic task fires while the diagnostics thread is held.
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, makeDiagnosticStore(),
+                NO_PERIODIC_FLUSH_MILLIS, 20, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor);
+        try {
+            eventProcessor.setOffline(false);
+            assertEquals(LDValue.of("diagnostic-init"),
+                    requirePosted(posted).get("kind"));
+
+            // Something for the period to have in it. Capacity is what makes these countable, and the
+            // dropped count is carried by the periodic event and nothing else. Far past capacity so
+            // that drops happen whatever else is draining the buffer.
+            for (int i = 0; i < DEFAULT_CAPACITY * 10; i++) {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            }
+            logging.assertWarnLogged("Exceeded event queue capacity");
+
+            // Holds the diagnostics thread so the next periodic post has to queue behind it, which is
+            // the window the state can change in.
+            CountDownLatch releaseThread = new CountDownLatch(1);
+            diagnosticExecutor.submit(() -> awaitQuietly(releaseThread, 5, TimeUnit.SECONDS));
+            // A later run being turned away is proof that an earlier one took the claim and is sitting
+            // on the queue, which is what we need before changing the state underneath it.
+            awaitLogged("Skipped a diagnostic event");
+
+            eventProcessor.setInBackground(true);
+            releaseThread.countDown();
+            // The queued post now runs suspended. Nothing should reach the sender.
+            assertNull("a diagnostic event was posted from the background",
+                    posted.poll(300, TimeUnit.MILLISECONDS));
+
+            eventProcessor.setInBackground(false);
+            LDValue statistics = requirePosted(posted);
+
+            assertEquals(LDValue.of("diagnostic"), statistics.get("kind"));
+            // Nothing is recorded after the suspension, so every drop this could report happened
+            // before it. A destroyed period therefore reports exactly zero, which is what separates
+            // the two outcomes. The exact figure is not asserted because it is not the same on every
+            // tier: where events are staged to a store, reaching it frees capacity as we go.
+            assertTrue("the suspended period was destroyed rather than carried forward",
+                    statistics.get("droppedEvents").longValue() > 0);
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    private LDValue requirePosted(BlockingQueue<LDValue> posted) throws InterruptedException {
+        LDValue event = posted.poll(5, TimeUnit.SECONDS);
+        assertNotNull("no diagnostic event was posted", event);
+        return event;
+    }
+
+    private void awaitLogged(String messageSubstring) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            if (countLogged(messageSubstring) > 0) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("never logged: " + messageSubstring);
+    }
+
     private DirectEventProcessor makeEventProcessor(EventSender sender, long flushIntervalMillis,
                                                     ScheduledExecutorService scheduler) {
         return makeEventProcessor(sender, flushIntervalMillis,
@@ -849,6 +934,17 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     ScheduledExecutorService scheduler) {
         ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
         diagnosticExecutors.add(diagnosticExecutor);
+        return makeEventProcessor(sender, diagnosticStore, flushIntervalMillis,
+                diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    long diagnosticIntervalMillis,
+                                                    long closeBudgetMillis,
+                                                    ScheduledExecutorService scheduler,
+                                                    ExecutorService diagnosticExecutor) {
         return new DirectEventProcessor(
                 new OutboundEventBuffer(false, Collections.emptyList(), true, DEFAULT_CAPACITY,
                         logging.logger),
