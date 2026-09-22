@@ -53,7 +53,7 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
  * <p>
  */
 final class FDv2StreamingSynchronizer implements Synchronizer {
-    private static final String METHOD_REPORT = "REPORT";
+    private static final String METHOD_POST = "POST";
     private static final String PING = "ping";
     private static final long READ_TIMEOUT_MS = 300_000; // 5 minutes
     private static final long MAX_RECONNECT_TIME_MS = 300_000; // 5 minutes
@@ -61,7 +61,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private final HttpProperties httpProperties;
     private final URI streamBaseUri;
     private final String streamRequestPath;
-    private final boolean useReport;
+    private final boolean usePost;
     private final LDContext evaluationContext;
     private final SelectorSource selectorSource;
     @Nullable
@@ -92,7 +92,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
      * @param requestor                    optional requestor for handling ping events via poll; may be null
      * @param initialReconnectDelayMillis  delay before reconnecting after an error, in milliseconds
      * @param evaluationReasons           true to request evaluation reasons in the stream
-     * @param useReport                    true to use HTTP REPORT for the request body
+     * @param usePost                      true to send the context in the request body with POST
      * @param httpProperties               HTTP configuration for the stream request
      * @param executor                     executor used to run the streaming loop on a background
      *                                     thread; should use background-priority threads
@@ -107,7 +107,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             @Nullable FDv2Requestor requestor,
             int initialReconnectDelayMillis,
             boolean evaluationReasons,
-            boolean useReport,
+            boolean usePost,
             @NonNull HttpProperties httpProperties,
             @NonNull Executor executor,
             @NonNull LDLogger logger,
@@ -120,7 +120,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         this.requestor = requestor;
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
         this.evaluationReasons = evaluationReasons;
-        this.useReport = useReport;
+        this.usePost = usePost;
         this.httpProperties = httpProperties;
         this.executor = executor;
         this.logger = logger;
@@ -188,9 +188,9 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                     return reqBuilder.build();
                 });
 
-        if (useReport) {
+        if (usePost) {
             connectStrategy = connectStrategy.methodAndBody(
-                    METHOD_REPORT,
+                    METHOD_POST,
                     RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON));
         }
 
@@ -244,7 +244,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
     private URI getStreamUri() {
         URI uri = HttpHelpers.concatenateUriPath(streamBaseUri, streamRequestPath);
-        if (!useReport) {
+        if (!usePost) {
             uri = HttpHelpers.concatenateUriPath(uri, LDUtil.urlSafeBase64(evaluationContext));
         }
         if (evaluationReasons) {

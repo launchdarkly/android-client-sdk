@@ -15,6 +15,7 @@ import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
 import com.launchdarkly.sdk.android.subsystems.DataSourceBuilder;
+import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
@@ -25,7 +26,9 @@ import org.junit.Test;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class FDv2DataSourceBuilderTest {
 
@@ -36,9 +39,13 @@ public class FDv2DataSourceBuilderTest {
     public LogCaptureRule logging = new LogCaptureRule();
 
     private ClientContext makeClientContext() {
+        return makeClientContext(false);
+    }
+
+    private ClientContext makeClientContext(boolean useReport) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled).build();
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        HttpConfiguration http = new HttpConfiguration(10_000, Collections.emptyMap(), null, false);
+        HttpConfiguration http = new HttpConfiguration(10_000, Collections.emptyMap(), null, useReport);
         ClientContext base = new ClientContext(
                 "mobile-key",
                 ENV_REPORTER,
@@ -63,6 +70,92 @@ public class FDv2DataSourceBuilderTest {
         DataSource ds = builder.build(makeClientContext());
         assertNotNull(ds);
         assertTrue(ds instanceof FDv2DataSource);
+    }
+
+    @Test
+    public void usePost_isPassedToDataSourceBuilders() throws Exception {
+        AtomicReference<Boolean> seenUsePost = new AtomicReference<>();
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.POLLING, new ModeDefinition(
+                Collections.<DataSourceBuilder<Initializer>>singletonList(inputs -> {
+                    seenUsePost.set(inputs.isUsePost());
+                    return new Initializer() {
+                        @Override
+                        public Future<FDv2SourceResult> run() {
+                            LDAwaitFuture<FDv2SourceResult> future = new LDAwaitFuture<>();
+                            future.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
+                            return future;
+                        }
+
+                        @Override
+                        public void close() {
+                        }
+                    };
+                }),
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
+                null
+        ));
+
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder(
+                customTable, ConnectionMode.POLLING, ModeResolutionTable.MOBILE, true);
+        assertTrue(builder.isUsePost());
+        DataSource ds = builder.build(makeClientContext());
+
+        // Factories are lazy: start the source so the initializer builder receives the inputs.
+        AwaitableCallback<Boolean> startCallback = new AwaitableCallback<>();
+        ds.start(startCallback);
+        try {
+            startCallback.await(5000);
+        } catch (Exception ignored) {
+            // The start outcome is not under test; only the inputs the builder received.
+        }
+        AwaitableCallback<Void> stopCallback = new AwaitableCallback<>();
+        ds.stop(stopCallback);
+        stopCallback.await(2000);
+        builder.close();
+
+        assertEquals(Boolean.TRUE, seenUsePost.get());
+    }
+
+    @Test
+    public void usePost_defaultsToFalse() {
+        assertFalse(new FDv2DataSourceBuilder().isUsePost());
+        Map<ConnectionMode, ModeDefinition> customTable = new LinkedHashMap<>();
+        customTable.put(ConnectionMode.POLLING, new ModeDefinition(
+                Collections.<DataSourceBuilder<Initializer>>emptyList(),
+                Collections.<DataSourceBuilder<Synchronizer>>emptyList(),
+                null
+        ));
+        assertFalse(new FDv2DataSourceBuilder(customTable, ConnectionMode.POLLING).isUsePost());
+    }
+
+    @Test
+    public void useReport_logsWarningOnceAcrossBuilds() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        ClientContext ctx = makeClientContext(true);
+        builder.build(ctx);
+        builder.build(ctx);
+        builder.close();
+
+        int warnings = 0;
+        for (String message : logging.logCapture.getMessageStrings()) {
+            if (message.contains("WARN:") && message.contains("useReport")) {
+                warnings++;
+            }
+        }
+        assertEquals(1, warnings);
+        logging.assertWarnLogged("DataSystemBuilder.usePost");
+    }
+
+    @Test
+    public void useReportDisabled_logsNoUseReportWarning() {
+        FDv2DataSourceBuilder builder = new FDv2DataSourceBuilder();
+        builder.build(makeClientContext(false));
+        builder.close();
+
+        for (String message : logging.logCapture.getMessageStrings()) {
+            assertFalse(message, message.contains("useReport"));
+        }
     }
 
     @Test

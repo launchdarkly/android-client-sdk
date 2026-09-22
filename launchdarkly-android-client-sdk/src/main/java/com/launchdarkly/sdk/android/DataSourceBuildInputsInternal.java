@@ -35,13 +35,14 @@ final class DataSourceBuildInputsInternal extends DataSourceBuildInputs {
             ServiceEndpoints serviceEndpoints,
             HttpConfiguration http,
             boolean evaluationReasons,
+            boolean usePost,
             SelectorSource selectorSource,
             ScheduledExecutorService sharedExecutor,
             @NonNull File cacheDir,
             LDLogger baseLogger,
             @Nullable PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData perEnvironmentData
     ) {
-        super(evaluationContext, serviceEndpoints, http, evaluationReasons,
+        super(evaluationContext, serviceEndpoints, http, evaluationReasons, usePost,
                 selectorSource, sharedExecutor, cacheDir, baseLogger);
         this.perEnvironmentData = perEnvironmentData;
     }
@@ -60,6 +61,7 @@ final class DataSourceBuildInputsInternal extends DataSourceBuildInputs {
                 inputs.getServiceEndpoints(),
                 inputs.getHttp(),
                 inputs.isEvaluationReasons(),
+                inputs.isUsePost(),
                 inputs.getSelectorSource(),
                 inputs.getSharedExecutor(),
                 inputs.getCacheDir(),

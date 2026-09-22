@@ -32,7 +32,7 @@ public class DataSourceBuildInputsInternalTest {
             PersistentDataStoreWrapper.ReadOnlyPerEnvironmentData envData
     ) {
         return new DataSourceBuildInputsInternal(
-                CONTEXT, null, null, false,
+                CONTEXT, null, null, false, false,
                 () -> Selector.EMPTY, null, CACHE_DIR,
                 LDLogger.none(), envData
         );
@@ -40,7 +40,7 @@ public class DataSourceBuildInputsInternalTest {
 
     private static DataSourceBuildInputs makePlainInputs() {
         return new DataSourceBuildInputs(
-                CONTEXT, null, null, false,
+                CONTEXT, null, null, false, false,
                 () -> Selector.EMPTY, null, CACHE_DIR,
                 LDLogger.none()
         );
@@ -72,10 +72,23 @@ public class DataSourceBuildInputsInternalTest {
         assertEquals(plain.getServiceEndpoints(), result.getServiceEndpoints());
         assertEquals(plain.getHttp(), result.getHttp());
         assertEquals(plain.isEvaluationReasons(), result.isEvaluationReasons());
+        assertEquals(plain.isUsePost(), result.isUsePost());
         assertEquals(plain.getSelectorSource(), result.getSelectorSource());
         assertEquals(plain.getSharedExecutor(), result.getSharedExecutor());
         assertEquals(plain.getCacheDir(), result.getCacheDir());
         assertEquals(plain.getBaseLogger(), result.getBaseLogger());
+    }
+
+    @Test
+    public void get_withPlainInputs_preservesUsePost() {
+        DataSourceBuildInputs plain = new DataSourceBuildInputs(
+                CONTEXT, null, null, false, true,
+                () -> Selector.EMPTY, null, CACHE_DIR,
+                LDLogger.none()
+        );
+        DataSourceBuildInputsInternal result = DataSourceBuildInputsInternal.get(plain);
+
+        assertTrue(result.isUsePost());
     }
 
     // ---- getPerEnvironmentDataIfAvailable() ----

@@ -37,7 +37,7 @@ public class FDv2EntryConverterTest {
 
     private static DataSourceBuildInputs plainInputs() {
         return new DataSourceBuildInputs(
-                CONTEXT, null, null, false,
+                CONTEXT, null, null, false, false,
                 () -> Selector.EMPTY, null, CACHE_DIR,
                 LDLogger.none());
     }

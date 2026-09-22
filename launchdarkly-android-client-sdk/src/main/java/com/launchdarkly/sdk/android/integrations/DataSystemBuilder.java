@@ -89,6 +89,7 @@ public class DataSystemBuilder {
     private ConnectionMode foregroundConnectionMode = ConnectionMode.STREAMING;
     private ConnectionMode backgroundConnectionMode = ConnectionMode.BACKGROUND;
     private AutomaticModeSwitchingConfig automaticModeSwitchingConfig = AutomaticModeSwitchingConfig.enabled();
+    private boolean usePost = false;
     private final Map<ConnectionMode, ConnectionModeBuilder> connectionModeOverrides = new LinkedHashMap<>();
 
     /**
@@ -161,6 +162,30 @@ public class DataSystemBuilder {
     }
 
     /**
+     * Sets whether polling and streaming flag requests send the evaluation context in the
+     * request body with the HTTP POST method.
+     * <p>
+     * By default the SDK uses GET and encodes the context into the request path. POST keeps
+     * the context out of the URL, so it does not appear in request logs, and it avoids URL
+     * length limits for large contexts.
+     * <p>
+     * When the SDK falls back to the FDv1 endpoints, the context is sent in the request body
+     * with the REPORT method, which is the body-carrying method those endpoints accept.
+     * <p>
+     * This option replaces {@link HttpConfigurationBuilder#useReport(boolean)} for the data
+     * system. The {@code useReport} option has no effect when a data system is configured.
+     * <p>
+     * The default is {@code false}.
+     *
+     * @param usePost true to send flag requests with POST
+     * @return this builder
+     */
+    public DataSystemBuilder usePost(boolean usePost) {
+        this.usePost = usePost;
+        return this;
+    }
+
+    /**
      * Overrides the data pipeline for a specific connection mode.
      * <p>
      * This only affects the specified mode. All other connection modes that are not
@@ -219,6 +244,15 @@ public class DataSystemBuilder {
     @NonNull
     public AutomaticModeSwitchingConfig getAutomaticModeSwitchingConfig() {
         return automaticModeSwitchingConfig;
+    }
+
+    /**
+     * Returns whether flag requests send the evaluation context in the request body with POST.
+     *
+     * @return true if flag requests use POST
+     */
+    public boolean isUsePost() {
+        return usePost;
     }
 
     /**

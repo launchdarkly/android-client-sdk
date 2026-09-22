@@ -141,7 +141,7 @@ public abstract class DataSystemComponents {
                     StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
                     requestor,
                     initialReconnectDelayMillis,
-                    inputs.isEvaluationReasons(), inputs.getHttp().isUseReport(),
+                    inputs.isEvaluationReasons(), inputs.isUsePost(),
                     httpProps, inputs.getSharedExecutor(),
                     inputs.getBaseLogger(), null);
         }
@@ -159,10 +159,12 @@ public abstract class DataSystemComponents {
 
         @Override
         public Synchronizer build(DataSourceBuildInputs inputs) {
+            // The FDv1 endpoints do not accept POST. REPORT is their method that carries the
+            // context in the request body, so usePost selects REPORT here.
             FeatureFetcher fetcher = new HttpFeatureFlagFetcher(
                 inputs.getServiceEndpoints().getPollingBaseUri(),
                 inputs.isEvaluationReasons(),
-                inputs.getHttp().isUseReport(),
+                inputs.isUsePost(),
                 LDUtil.makeHttpProperties(inputs.getHttp()),
                 inputs.getCacheDir(),
                 inputs.getBaseLogger()
@@ -360,9 +362,8 @@ public abstract class DataSystemComponents {
                 "polling", inputs.getBaseLogger());
         return new DefaultFDv2Requestor(
                 inputs.getEvaluationContext(), pollingBase,
-                StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
-                StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
-                httpProps, inputs.getHttp().isUseReport(),
+                StandardEndpoints.FDV2_POLLING_REQUEST_BASE_PATH,
+                httpProps, inputs.isUsePost(),
                 inputs.isEvaluationReasons(), null, inputs.getBaseLogger());
     }
 }

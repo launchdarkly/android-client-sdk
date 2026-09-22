@@ -55,6 +55,21 @@ public class LDConfigDataSystemTest {
     }
 
     @Test
+    public void dataSystem_propagatesUsePostToFDv2DataSourceBuilder() {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey("k")
+                .dataSystem(Components.dataSystem().usePost(true))
+                .build();
+        assertTrue(((FDv2DataSourceBuilder) config.dataSource).isUsePost());
+
+        LDConfig defaultConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .mobileKey("k")
+                .dataSystem(Components.dataSystem())
+                .build();
+        assertFalse(((FDv2DataSourceBuilder) defaultConfig.dataSource).isUsePost());
+    }
+
+    @Test
     public void dataSystem_propagatesAutomaticModeSwitchingFromDataSystemBuilder() {
         AutomaticModeSwitchingConfig granular = DataSystemComponents.automaticModeSwitching()
                 .lifecycle(false)

@@ -28,6 +28,7 @@ public class DataSourceBuildInputs {
     private final ServiceEndpoints serviceEndpoints;
     private final HttpConfiguration http;
     private final boolean evaluationReasons;
+    private final boolean usePost;
     private final SelectorSource selectorSource;
     private final ScheduledExecutorService sharedExecutor;
     private final File cacheDir;
@@ -40,6 +41,7 @@ public class DataSourceBuildInputs {
      * @param serviceEndpoints  the service endpoint URIs
      * @param http              the HTTP configuration
      * @param evaluationReasons whether evaluation reasons are enabled
+     * @param usePost           whether flag requests send the context in the request body with POST
      * @param selectorSource    the source for obtaining the current selector
      * @param sharedExecutor    shared executor for scheduling tasks; owned and shut down by
      *                          the calling data source, so components must not shut it down
@@ -51,6 +53,7 @@ public class DataSourceBuildInputs {
             ServiceEndpoints serviceEndpoints,
             HttpConfiguration http,
             boolean evaluationReasons,
+            boolean usePost,
             SelectorSource selectorSource,
             ScheduledExecutorService sharedExecutor,
             @NonNull File cacheDir,
@@ -60,6 +63,7 @@ public class DataSourceBuildInputs {
         this.serviceEndpoints = serviceEndpoints;
         this.http = http;
         this.evaluationReasons = evaluationReasons;
+        this.usePost = usePost;
         this.selectorSource = selectorSource;
         this.sharedExecutor = sharedExecutor;
         this.cacheDir = cacheDir;
@@ -100,6 +104,17 @@ public class DataSourceBuildInputs {
      */
     public boolean isEvaluationReasons() {
         return evaluationReasons;
+    }
+
+    /**
+     * Returns whether polling and streaming flag requests send the evaluation context in the
+     * request body with the POST method. When false, the context is base64url-encoded into the
+     * request path and the GET method is used.
+     *
+     * @return true if flag requests use POST
+     */
+    public boolean isUsePost() {
+        return usePost;
     }
 
     /**
