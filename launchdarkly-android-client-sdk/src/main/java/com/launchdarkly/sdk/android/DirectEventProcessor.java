@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.IOException;
@@ -79,19 +80,25 @@ final class DirectEventProcessor implements EventProcessor {
     private ScheduledFuture<?> diagnosticTask;
 
     /**
-     * Full events recorded but not yet encoded, guarded by {@link #pendingLock}.
+     * Full events recorded but not yet encoded, guarded by {@link #recordLock}.
      */
     private final List<Event> pending = new ArrayList<>();
 
     /**
-     * Guards {@link #pending}, and is held for one list append or one handover of the run -- never
-     * across the encode.
+     * Guards everything one recording writes: {@link #pending} and the summary counters behind
+     * {@link #buffer}.
      * <p>
-     * Recording runs on whichever thread evaluated a flag, which on Android is usually the main one.
-     * The worst it may wait for is another thread's memory operation; if the encoder ran under this
-     * lock, an evaluation would instead wait on the dominant cost of the whole path.
+     * One evaluation can produce a counter, a full event and a debug event, and the three have to
+     * land together. Taken separately, a flush landing between them splits one evaluation across two
+     * payloads, and a {@link #close()} landing between them delivers the counter and then refuses the
+     * full event -- leaving a summary that says an evaluation happened and no event to go with it.
+     * <p>
+     * Held for the appends and the handover of the run, never across the encode. Recording runs on
+     * whichever thread evaluated a flag, which on Android is usually the main one. The worst it may
+     * wait for is another thread's memory operation; if the encoder ran under this lock, an
+     * evaluation would instead wait on the dominant cost of the whole path.
      */
-    private final Object pendingLock = new Object();
+    private final Object recordLock = new Object();
 
     /**
      * How many events the SDK will hold between flushes.
@@ -179,14 +186,23 @@ final class DirectEventProcessor implements EventProcessor {
         Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
                 context, flagVersion, variation, value, defaultValue, reason, null,
                 requireFullEvent, debugEventsUntilDate, false);
-        if (!buffer.summarize(event)) {
+        // Built before the lock is taken, so that the critical section is only the writes.
+        Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
+        boolean contextsExceeded;
+        synchronized (recordLock) {
+            if (closed.get()) {
+                return;
+            }
+            contextsExceeded = !buffer.summarize(event);
+            if (requireFullEvent) {
+                addPending(event);
+            }
+            if (debugEvent != null) {
+                addPending(debugEvent);
+            }
+        }
+        if (contextsExceeded) {
             reportContextsExceeded();
-        }
-        if (requireFullEvent) {
-            record(event);
-        }
-        if (shouldDebugEvent(debugEventsUntilDate)) {
-            record(event.toDebugEvent());
         }
     }
 
@@ -216,13 +232,7 @@ final class DirectEventProcessor implements EventProcessor {
      * the loop runs.
      */
     void record(Event event) {
-        // Ahead of the capacity check, because an event the SDK was never going to send is not a
-        // loss and must not be counted as one. Sampling and capacity are different reasons not to
-        // keep an event, and only the second is one the SDK owes anyone a count of.
-        if (!Sampler.shouldSample(event.getSamplingRatio())) {
-            return;
-        }
-        synchronized (pendingLock) {
+        synchronized (recordLock) {
             // The close check that decides the outcome, as against the fast path the public record
             // methods take before building the event. deliverPayload lifts the run out under this
             // same lock, so testing the flag here orders a record against close()'s final delivery:
@@ -232,16 +242,30 @@ final class DirectEventProcessor implements EventProcessor {
             if (closed.get()) {
                 return;
             }
-            if (pending.size() >= capacity) {
-                if (capacityExceeded.compareAndSet(false, true)) {
-                    logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
-                }
-                droppedEvents.incrementAndGet();
-                return;
-            }
-            capacityExceeded.set(false);
-            pending.add(event);
+            addPending(event);
         }
+    }
+
+    /**
+     * Holds one event for the next flush, unless it was sampled out or there is no room. Requires
+     * {@link #recordLock}.
+     */
+    private void addPending(Event event) {
+        // Ahead of the capacity check, because an event the SDK was never going to send is not a
+        // loss and must not be counted as one. Sampling and capacity are different reasons not to
+        // keep an event, and only the second is one the SDK owes anyone a count of.
+        if (!Sampler.shouldSample(event.getSamplingRatio())) {
+            return;
+        }
+        if (pending.size() >= capacity) {
+            if (capacityExceeded.compareAndSet(false, true)) {
+                logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
+            }
+            droppedEvents.incrementAndGet();
+            return;
+        }
+        capacityExceeded.set(false);
+        pending.add(event);
     }
 
     /**
@@ -420,8 +444,9 @@ final class DirectEventProcessor implements EventProcessor {
      * waiting to find out.
      * <p>
      * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
-     * and the run is taken exactly once per delivery. The run is taken under {@link #pendingLock}
-     * and encoded outside it, so recording does not wait on the encoder.
+     * and the run is taken exactly once per delivery. The run and the counters are taken together
+     * under {@link #recordLock}, so an evaluation is never split across two payloads, and encoded
+     * outside it, so recording does not wait on the encoder.
      *
      * @return true if the events reached the service, or if there were none to send; false if they
      *   could not be sent or the service did not accept them
@@ -431,13 +456,15 @@ final class DirectEventProcessor implements EventProcessor {
             return false;
         }
         List<Event> run;
-        synchronized (pendingLock) {
+        List<EventSummarizer.EventSummary> summaries;
+        synchronized (recordLock) {
             run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
             pending.clear();
+            summaries = buffer.takeSummaries();
         }
         OutboundEventBuffer.Payload payload;
         try {
-            payload = buffer.drain(run);
+            payload = buffer.encode(run, summaries);
         } catch (IOException e) {
             logUnexpectedError(e);
             return false;
