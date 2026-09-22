@@ -31,7 +31,8 @@ public class OutboundEventBufferSerializationTest {
     private final LDLogAdapter logAdapter = Logs.none();
 
     private OutboundEventBuffer makeBuffer() {
-        return new OutboundEventBuffer(false, Collections.emptyList(), true,
+        // Unbounded cardinality, so these stay about serialization and nothing else.
+        return new OutboundEventBuffer(false, Collections.emptyList(), true, Integer.MAX_VALUE,
                 LDLogger.withAdapter(logAdapter, ""));
     }
 

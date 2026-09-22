@@ -1,7 +1,9 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
@@ -115,6 +117,146 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
                 eventProcessor.close();
             }
         }
+    }
+
+    @Test
+    public void distinctSummarizedContextsAreBoundedByCapacity() throws Exception {
+        // A summary counter costs a retained context and a set of counters per distinct context, and
+        // nothing drains it while the client is offline. Capacity has to bound that, or an application
+        // that goes on identifying through an outage grows the summarizer for as long as it lasts.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            try {
+                for (int i = 0; i < CAPACITY * 3; i++) {
+                    eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
+                            VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                // One summary event per context that was counted, so this is the cardinality the
+                // summarizer was holding.
+                assertEquals(CAPACITY, countEventsOfKind(events, "summary"));
+                logging.assertWarnLogged("Exceeded the number of contexts");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aContextAlreadyBeingCountedKeepsCountingOnceTheLimitIsReached() throws Exception {
+        // The limit is on how many contexts are held, not on how many evaluations are counted. An
+        // application evaluating against one context must not start losing counts because some other
+        // part of it churned through contexts.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            try {
+                eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                for (int i = 0; i < CAPACITY * 3; i++) {
+                    eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
+                            VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+                int evaluationsAfterTheLimit = 500;
+                for (int i = 0; i < evaluationsAfterTheLimit; i++) {
+                    eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                            FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(evaluationsAfterTheLimit + 1, summaryCountForContext(events, CONTEXT));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void theLimitLiftsOnceTheSummariesHaveBeenDelivered() throws Exception {
+        // The bound is on how many contexts are held at once, not on how many an application may ever
+        // use, so a delivery has to make room for the next set.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            try {
+                for (int i = 0; i < CAPACITY * 3; i++) {
+                    eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
+                            VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+                flushAndCollect(eventProcessor, server);
+
+                for (int i = CAPACITY * 3; i < CAPACITY * 4; i++) {
+                    eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
+                            VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(CAPACITY, countEventsOfKind(events, "summary"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aCommitPointMakesRoomInTheSummarizer() throws Exception {
+        // Counters are materialized into summary events and reset at every commit point, so the
+        // summarizer only ever holds the contexts seen since the last one. That reset is what keeps
+        // the cardinality limit from binding: without it an application identifying its way through
+        // more contexts than capacity would start losing counts partway through.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            try {
+                int contexts = CAPACITY * 3;
+                for (int i = 0; i < contexts; i++) {
+                    LDContext context = contextNumber(i);
+                    eventProcessor.recordEvaluationEvent(context, FLAG_KEY, FLAG_VERSION, VARIATION,
+                            FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                    eventProcessor.recordIdentifyEvent(context); // a commit point
+                }
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(contexts, countEventsOfKind(events, "summary"));
+                assertFalse("evaluations were turned away even though every one of them followed a"
+                                + " commit point that should have made room",
+                        logged("Exceeded the number of contexts"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    private boolean logged(String messageSubstring) {
+        for (String message : logging.logCapture.getMessageStrings()) {
+            if (message.contains(messageSubstring)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static LDContext contextNumber(int i) {
+        return LDContext.builder("burst-user-" + i).set("email", "user" + i + "@example.com").build();
+    }
+
+    /** @return how many evaluations the summary for this context counted, across every flag in it */
+    private static int summaryCountForContext(List<LDValue> events, LDContext context) {
+        int total = 0;
+        for (LDValue event : events) {
+            if (!"summary".equals(event.get("kind").stringValue())
+                    || !context.getKey().equals(event.get("context").get("key").stringValue())) {
+                continue;
+            }
+            LDValue features = event.get("features");
+            for (String flagKey : features.keys()) {
+                for (LDValue counter : features.get(flagKey).get("counters").values()) {
+                    total += counter.get("count").intValue();
+                }
+            }
+        }
+        return total;
     }
 
     /**

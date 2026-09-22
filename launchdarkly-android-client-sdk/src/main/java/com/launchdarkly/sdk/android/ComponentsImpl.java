@@ -111,6 +111,7 @@ abstract class ComponentsImpl {
                             allAttributesPrivate,
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK
+                            capacity,
                             clientContext.getBaseLogger()),
                     makeEventStore(clientContext, clientContextImpl),
                     diagnosticEventSender,

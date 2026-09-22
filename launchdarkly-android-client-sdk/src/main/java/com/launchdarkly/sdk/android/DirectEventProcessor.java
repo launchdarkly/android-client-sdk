@@ -164,6 +164,10 @@ final class DirectEventProcessor implements EventProcessor {
     private final int capacity;
 
     private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
+
+    /** Whether the summarizer being full has already been reported, so it is logged once per run. */
+    private final AtomicBoolean summaryContextsExceeded = new AtomicBoolean(false);
+
     private final AtomicLong droppedEvents = new AtomicLong(0);
 
     /**
@@ -260,7 +264,9 @@ final class DirectEventProcessor implements EventProcessor {
         Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
                 context, flagVersion, variation, value, defaultValue, reason, null,
                 requireFullEvent, debugEventsUntilDate, false);
-        eventBuffer.summarize(event);
+        if (!eventBuffer.summarize(event)) {
+            reportContextsExceeded();
+        }
         if (requireFullEvent) {
             record(event);
         }
@@ -419,7 +425,23 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * @return the number of full events dropped for capacity since this was last called
+     * Counts an evaluation the summarizer turned away, which it does when counting it would have meant
+     * holding a context beyond the configured capacity.
+     * <p>
+     * A refused evaluation is a loss in the same sense a refused event is -- nothing later reconstructs
+     * a counter -- so it is reported the same way, through the dropped count diagnostics carry.
+     */
+    private void reportContextsExceeded() {
+        if (summaryContextsExceeded.compareAndSet(false, true)) {
+            logger.warn("Exceeded the number of contexts that can be summarized at once." +
+                    " Increase capacity to avoid dropping evaluations.");
+        }
+        droppedEvents.incrementAndGet();
+    }
+
+    /**
+     * @return the number of events dropped for capacity since this was last called, counting
+     *   evaluations the summarizer turned away
      */
     long getAndClearDroppedCount() {
         return droppedEvents.getAndSet(0);
