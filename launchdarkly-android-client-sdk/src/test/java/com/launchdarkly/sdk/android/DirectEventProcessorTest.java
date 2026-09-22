@@ -2,21 +2,34 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
+import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
+import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
 import org.junit.Test;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Behavior of the SDK's own event processor, covering the parts that are not about buffering under
@@ -30,6 +43,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final LDValue DEFAULT_VALUE = LDValue.of(false);
 
     private static final int DEFAULT_CAPACITY = 100;
+
+    // Long enough that the only delivery in a test is the one it asks for.
+    private static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
+    // Short enough to keep the close tests quick; the production value is chosen for a real network.
+    private static final long CLOSE_BUDGET_MILLIS = 200;
 
     @Test
     public void untrackedEvaluationProducesOnlyASummary() throws Exception {
@@ -224,7 +242,28 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 assertEquals(1, events.size());
                 assertEquals(LDValue.of("after-poison"), requireEventOfKind(events, "custom").get("key"));
-                logging.assertErrorLogged("Unexpected error in event processor");
+                logging.assertErrorLogged("Dropping unserializable");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void unserializableMetricDoesNotDropSiblingEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "kept", LDValue.ofNull(), 1.0);
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, events.size());
+                assertEquals(LDValue.of("kept"), requireEventOfKind(events, "custom").get("key"));
+                logging.assertErrorLogged("Dropping unserializable");
             } finally {
                 eventProcessor.close();
             }
@@ -248,7 +287,27 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 assertEquals(1, events.size());
                 assertEquals(1, summaryCountFor(events, FLAG_KEY));
-                logging.assertErrorLogged("Unexpected error in event processor");
+                logging.assertErrorLogged("Dropping unserializable");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void unserializableSummaryDoesNotDropSiblingEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordEvaluationEvent(CONTEXT, null, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                eventProcessor.recordIdentifyEvent(CONTEXT);
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, countEventsOfKind(events, "identify"));
+                assertEquals(0, countEventsOfKind(events, "summary"));
+                logging.assertErrorLogged("Dropping unserializable");
             } finally {
                 eventProcessor.close();
             }
@@ -452,6 +511,54 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void periodicTaskSurvivesErrorFromSender() throws Exception {
+        // An Error (not Exception) from a scheduled run used to cancel the repeating future with
+        // nothing logged, after which enableOrDisableTask kept returning that dead future forever.
+        // Driven through diagnostics, because that is the periodic task the injectable EventSender
+        // still carries once analytics go out through the store and AnalyticsEventSender.
+        CountDownLatch firstPeriodicAttempt = new CountDownLatch(1);
+        BlockingQueue<byte[]> delivered = new LinkedBlockingQueue<>();
+        EventSender sender = new StubEventSender() {
+            private final AtomicInteger periodicAttempts = new AtomicInteger();
+
+            @Override
+            public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+                String kind = LDValue.parse(new String(data, StandardCharsets.UTF_8))
+                        .get("kind").stringValue();
+                if ("diagnostic-init".equals(kind)) {
+                    return new Result(true, false, null); // one-shot, not the series under test
+                }
+                if (periodicAttempts.getAndIncrement() == 0) {
+                    firstPeriodicAttempt.countDown();
+                    throw new Error("periodic diagnostics");
+                }
+                delivered.add(data);
+                return new Result(true, false, null);
+            }
+        };
+
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender,
+                URI.create("https://events.example"), makeDiagnosticStore(),
+                NO_PERIODIC_FLUSH_MILLIS, 40, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                scheduler);
+        try {
+            // Coming online is the only thing that schedules the series. Nothing after this point
+            // touches the processor's state, so it has to stay alive on its own.
+            eventProcessor.setOffline(false);
+            assertTrue("sender never saw the first periodic diagnostic",
+                    firstPeriodicAttempt.await(2, TimeUnit.SECONDS));
+
+            assertNotNull("periodic diagnostics did not run again after Error",
+                    delivered.poll(2, TimeUnit.SECONDS));
+            logging.assertErrorLogged("Unexpected error in event processor");
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void flushWithTimeoutReportsSuccessWhenThereIsNothingToSend() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
@@ -462,6 +569,37 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void closeGivesUpWaitingOnAStalledDelivery() throws Exception {
+        // close() runs on the caller's thread, usually the main one, so a send that never comes back
+        // used to park the application there for as long as the HTTP timeouts allowed.
+        Semaphore letResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.all(Handlers.waitFor(letResponseFinish),
+                Handlers.status(202)))) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "stalled", LDValue.ofNull(), null);
+
+                long startedAtNanos = System.nanoTime();
+                eventProcessor.close();
+                long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+
+                assertNotNull("the sender was never asked to send anything",
+                        server.getRecorder().requireRequest(2, TimeUnit.SECONDS));
+                assertTrue("close() waited " + elapsedMillis + "ms on a budget of "
+                        + CLOSE_BUDGET_MILLIS + "ms", elapsedMillis < CLOSE_BUDGET_MILLIS * 5);
+                logging.assertWarnLogged("Gave up waiting for the final event delivery");
+            } finally {
+                letResponseFinish.release(Integer.MAX_VALUE);
+                scheduler.shutdownNow();
             }
         }
     }
@@ -502,6 +640,111 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.close();
             }
         }
+    }
+
+    @Test
+    public void closeReleasesTheStoreAndSenderOnlyAfterTheLastDeliveryFinishes() throws Exception {
+        // Giving up on the wait must not turn into pulling the store or the HTTP client out from
+        // under the delivery we just decided not to wait for. Neither can be observed being closed
+        // from here, but the consequence can: a delivery that lost either would fail once released
+        // and leave its batch on disk instead of deleting it.
+        Semaphore letResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.all(Handlers.waitFor(letResponseFinish),
+                Handlers.status(202)))) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "stalled", LDValue.ofNull(), null);
+
+                eventProcessor.close(); // returns on its budget with the post still stalled
+                letResponseFinish.release(Integer.MAX_VALUE);
+
+                assertTrue("the stalled delivery never completed, so its batch is still on disk",
+                        awaitNoPendingEvents(5, TimeUnit.SECONDS));
+            } finally {
+                // Drained first, because the release above may already have happened and topping a
+                // semaphore up twice from Integer.MAX_VALUE overflows its permit count.
+                letResponseFinish.drainPermits();
+                letResponseFinish.release(Integer.MAX_VALUE);
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    private boolean awaitNoPendingEvents(long timeout, TimeUnit unit) throws Exception {
+        long deadlineNanos = System.nanoTime() + unit.toNanos(timeout);
+        do {
+            EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                    DEFAULT_CAPACITY, true, logging.logger);
+            try {
+                if (reader.pendingEventPayloads().isEmpty()) {
+                    return true;
+                }
+            } finally {
+                reader.close();
+            }
+            Thread.sleep(25);
+        } while (System.nanoTime() < deadlineNanos);
+        return false;
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender sender, URI eventsUri,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    long diagnosticIntervalMillis,
+                                                    long closeBudgetMillis,
+                                                    ScheduledExecutorService scheduler) {
+        return new DirectEventProcessor(
+                new OutboundEventBuffer(false, Collections.emptyList(), true, logging.logger),
+                EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test", DEFAULT_CAPACITY,
+                        true, logging.logger),
+                sender,
+                new AnalyticsEventSender(LDUtil.makeHttpProperties(
+                        new HttpConfiguration(2000, Collections.emptyMap(), null, false)),
+                        logging.logger),
+                eventsUri,
+                diagnosticStore,
+                DEFAULT_CAPACITY,
+                false, // commitOnCallerThread
+                flushIntervalMillis,
+                diagnosticIntervalMillis,
+                closeBudgetMillis,
+                false,
+                true, // initiallyOffline, as the SDK builds it
+                scheduler,
+                logging.logger);
+    }
+
+    private DiagnosticStore makeDiagnosticStore() {
+        return new DiagnosticStore(new DiagnosticStore.SdkDiagnosticParams(MOBILE_KEY,
+                "android-client-sdk", "0.0.0", "Android", null, Collections.emptyMap(), null));
+    }
+
+    private static void awaitQuietly(CountDownLatch latch, long timeout, TimeUnit unit) {
+        try {
+            latch.await(timeout, unit);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Accepts everything, so that a test overrides only the one method it is about. */
+    private static class StubEventSender implements EventSender {
+        @Override
+        public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+            return new Result(true, false, null);
+        }
+
+        @Override
+        public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+            return new Result(true, false, null);
+        }
+
+        @Override
+        public void close() {}
     }
 
     private void recordEvaluation(EventProcessor eventProcessor, boolean requireFullEvent,

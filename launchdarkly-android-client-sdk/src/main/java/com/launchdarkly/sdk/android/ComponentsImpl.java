@@ -122,6 +122,7 @@ abstract class ComponentsImpl {
                     eventPersistence == EventPersistence.IMMEDIATE,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
+                    DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),
