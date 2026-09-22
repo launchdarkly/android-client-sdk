@@ -130,13 +130,17 @@ final class OutboundEventBuffer {
     }
 
     /**
-     * Takes the counters and forgets which contexts they were counted for. Requires this monitor.
+     * Takes the counters and forgets which contexts they were counted for.
      * <p>
      * The two have to move together. Every path that resets the summarizer has to come through here,
      * because one that reset the counters alone would spend the cardinality limit on contexts whose
      * counters had already gone out, and the limit would never lift.
+     * <p>
+     * Separate from {@link #encode} so that the caller can take the counters in the same critical
+     * section it lifts the full events in. An evaluation writes a counter and a full event, and a
+     * flush that took the two at different moments could split one evaluation across two payloads.
      */
-    private List<EventSummarizer.EventSummary> takeSummaries() {
+    synchronized List<EventSummarizer.EventSummary> takeSummaries() {
         List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
         if (countedContexts != null) {
             countedContexts.clear();
@@ -148,10 +152,10 @@ final class OutboundEventBuffer {
      * Serializes a run of events, together with the evaluations counted beside it, into the payload
      * they will be sent as.
      * <p>
-     * The counters are taken under the lock and the encode happens outside it, so a thread recording
-     * an event waits only for a handful of reference swaps and never for the encoder. Recording
-     * happens on whichever thread evaluated a flag, which on Android is usually the main one, and
-     * the encode is the dominant cost on this path.
+     * Deliberately takes no lock. The caller has already taken both the run and the counters, so
+     * there is nothing left here to protect, and the encode is the dominant cost on this path --
+     * holding a lock across it would make a thread recording an event wait for it. Recording happens
+     * on whichever thread evaluated a flag, which on Android is usually the main one.
      * <p>
      * A run that cannot be serialized as a whole is retried per event and per summary. Anything that
      * still fails is dropped and logged; the rest is sent. Everything the encoder can fail on is a
@@ -159,18 +163,14 @@ final class OutboundEventBuffer {
      * transiently -- so putting a failed item back would only make every later flush fail too.
      *
      * @param run the full events to send, in the order they were recorded
+     * @param summaries the counters taken alongside that run
      * @return the payload to send, or null if there was nothing to send
      * @throws IOException if the events could not be serialized
      */
-    Payload drain(List<Event> run) throws IOException {
-        List<EventSummarizer.EventSummary> summaries;
-        synchronized (this) {
-            if (run.isEmpty() && summarizer.isEmpty()) {
-                return null;
-            }
-            summaries = takeSummaries();
+    Payload encode(List<Event> run, List<EventSummarizer.EventSummary> summaries) throws IOException {
+        if (run.isEmpty() && summaries.isEmpty()) {
+            return null;
         }
-
         try {
             return encodeAll(run, summaries);
         } catch (Exception e) {
