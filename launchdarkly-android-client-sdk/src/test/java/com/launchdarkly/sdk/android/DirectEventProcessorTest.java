@@ -596,8 +596,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 LDValue body = LDValue.parse(request.getBody());
                 assertEquals(LDValue.of("diagnostic-init"), body.get("kind"));
                 // Only one, even though going online and coming to the foreground both ask for it.
-                eventProcessor.setInBackground(false);
-                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+                returnToTheForegroundWithTheDiagnosticsThreadFree(eventProcessor);
+                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
             }
@@ -606,14 +606,49 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void diagnosticInitEventIsNotSentWhileOffline() throws Exception {
-        try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY, false);
-            try {
-                server.getRecorder().requireRequest(10, TimeUnit.SECONDS); // the init event
-                eventProcessor.setOffline(true);
-                eventProcessor.setInBackground(true);
+        // Built offline and left that way. Waiting for the init first, as this used to, means the
+        // only thing stopping a second one is that the first already went -- so the test passes just
+        // as happily against a processor that sends init events while offline.
+        BlockingQueue<LDValue> posted = new LinkedBlockingQueue<>();
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendDiagnosticEvent(byte[] data, URI eventsBaseUri) {
+                posted.add(LDValue.parse(new String(data, StandardCharsets.UTF_8)));
+                return new Result(true, false, null);
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, makeDiagnosticStore(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            assertNull("a diagnostic event was sent while offline",
+                    posted.poll(500, TimeUnit.MILLISECONDS));
 
-                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            // Proof that the silence above was the offline state and not a fixture that could never
+            // have sent anything.
+            eventProcessor.setOffline(false);
+            assertEquals(LDValue.of("diagnostic-init"), requirePosted(posted).get("kind"));
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void beingToldToShutDownStopsRecordingAndDelivery() throws Exception {
+        // A 401 means the mobile key will not start working again, so the SDK is supposed to stop
+        // for the life of the process rather than keep posting events nobody will accept.
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "before", LDValue.ofNull(), null);
+                eventProcessor.blockingFlush();
+                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                eventProcessor.blockingFlush();
+
+                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
             }
@@ -635,6 +670,13 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             }
         }
     }
+
+    // aFlushNeverSplitsAnEvaluationAcrossTwoPayloads lives on the tiers below this one. It reads
+    // each payload as it went out, which only says something where a payload is the run taken
+    // straight from the pending list. Here a delivery reads the store, so an evaluation's counter
+    // and its event can sit in one payload or two for reasons that have nothing to do with the
+    // lock. What the lock guarantees at this tier is that a commit takes both or neither, and that
+    // is what closeNeverDeliversASummaryWithoutTheFeatureEventItCounted holds it to.
 
     @Test
     public void periodicTaskSurvivesErrorFromSender() throws Exception {
@@ -998,6 +1040,33 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         LDValue event = posted.poll(5, TimeUnit.SECONDS);
         assertNotNull("no diagnostic event was posted", event);
         return event;
+    }
+
+    /**
+     * Goes to the background and back, leaving the processor at the point where it decides whether
+     * to send a second init event.
+     * <p>
+     * Two things have to be true for that decision to be reached, and only one of them is under the
+     * test's control. Going to the foreground has to be a real transition, because setInBackground
+     * returns immediately when the value is unchanged. And the diagnostics thread has to be free:
+     * the first init event holds a claim on it until its post returns, which is after the request
+     * reaches the server, so a transition right after the request arrives is turned away before it
+     * gets anywhere near the decision. Being turned away is logged, which is what this waits out.
+     */
+    private void returnToTheForegroundWithTheDiagnosticsThreadFree(EventProcessor eventProcessor)
+            throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            long skipsBefore = countLogged("Skipped a diagnostic event");
+            eventProcessor.setInBackground(true);
+            eventProcessor.setInBackground(false);
+            // Logged by the claim itself, on this thread, so it is already there if it happened.
+            if (countLogged("Skipped a diagnostic event") == skipsBefore) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("the diagnostics thread never came free");
     }
 
     private void awaitLogged(String messageSubstring) throws InterruptedException {
