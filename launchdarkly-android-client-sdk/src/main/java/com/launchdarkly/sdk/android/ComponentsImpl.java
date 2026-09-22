@@ -99,7 +99,7 @@ abstract class ComponentsImpl {
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
-            EventSender eventSender = new DefaultEventSender(
+            EventSender diagnosticEventSender = new DefaultEventSender(
                     LDUtil.makeHttpProperties(clientContext),
                     StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
                     StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
@@ -113,7 +113,7 @@ abstract class ComponentsImpl {
                             true, // perContextSummarization - enable for client SDK
                             clientContext.getBaseLogger()),
                     makeEventStore(clientContext, clientContextImpl),
-                    eventSender,
+                    diagnosticEventSender,
                     new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
                             clientContext.getBaseLogger()),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),

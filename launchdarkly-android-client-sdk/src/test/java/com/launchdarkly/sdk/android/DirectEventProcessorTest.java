@@ -794,31 +794,33 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     private static final URI UNUSED_EVENTS_URI = URI.create("https://events.example");
 
-    private DirectEventProcessor makeEventProcessor(EventSender sender, long flushIntervalMillis,
-                                                    ScheduledExecutorService scheduler) {
-        return makeEventProcessor(sender, UNUSED_EVENTS_URI, null, flushIntervalMillis, 60_000,
-                DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
-    }
-
-    private DirectEventProcessor makeEventProcessor(EventSender sender,
-                                                    DiagnosticStore diagnosticStore,
+    private DirectEventProcessor makeEventProcessor(EventSender diagnosticSender,
                                                     long flushIntervalMillis,
                                                     ScheduledExecutorService scheduler) {
-        return makeEventProcessor(sender, UNUSED_EVENTS_URI, diagnosticStore, flushIntervalMillis,
+        return makeEventProcessor(diagnosticSender, UNUSED_EVENTS_URI, null, flushIntervalMillis,
                 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
     }
 
-    private DirectEventProcessor makeEventProcessor(EventSender sender,
+    private DirectEventProcessor makeEventProcessor(EventSender diagnosticSender,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    ScheduledExecutorService scheduler) {
+        return makeEventProcessor(diagnosticSender, UNUSED_EVENTS_URI, diagnosticStore, flushIntervalMillis,
+                60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender diagnosticSender,
                                                     DiagnosticStore diagnosticStore,
                                                     long flushIntervalMillis,
                                                     long diagnosticIntervalMillis,
                                                     ScheduledExecutorService scheduler) {
-        return makeEventProcessor(sender, UNUSED_EVENTS_URI, diagnosticStore, flushIntervalMillis,
+        return makeEventProcessor(diagnosticSender, UNUSED_EVENTS_URI, diagnosticStore, flushIntervalMillis,
                 diagnosticIntervalMillis, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
                 scheduler);
     }
 
-    private DirectEventProcessor makeEventProcessor(EventSender sender, URI eventsUri,
+    private DirectEventProcessor makeEventProcessor(EventSender diagnosticSender,
+                                                    URI eventsUri,
                                                     DiagnosticStore diagnosticStore,
                                                     long flushIntervalMillis,
                                                     long diagnosticIntervalMillis,
@@ -830,7 +832,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 new OutboundEventBuffer(false, Collections.emptyList(), true, logging.logger),
                 EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test", DEFAULT_CAPACITY,
                         true, logging.logger),
-                sender,
+                diagnosticSender,
                 new AnalyticsEventSender(LDUtil.makeHttpProperties(
                         new HttpConfiguration(2000, Collections.emptyMap(), null, false)),
                         logging.logger),

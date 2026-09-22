@@ -89,7 +89,7 @@ final class DirectEventProcessor implements EventProcessor {
 
     private final OutboundEventBuffer eventBuffer;
     private final EventStore store;
-    private final EventSender eventSender;
+    private final EventSender diagnosticEventSender;
     private final AnalyticsEventSender analyticsEventSender;
     private final URI eventsUri;
     private final DiagnosticStore diagnosticStore;
@@ -181,7 +181,7 @@ final class DirectEventProcessor implements EventProcessor {
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
             EventStore store,
-            EventSender eventSender,
+            EventSender diagnosticEventSender,
             AnalyticsEventSender analyticsEventSender,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
@@ -199,7 +199,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.eventBuffer = eventBuffer;
         this.store = store;
         this.commitOnCallerThread = commitOnCallerThread;
-        this.eventSender = eventSender;
+        this.diagnosticEventSender = diagnosticEventSender;
         this.analyticsEventSender = analyticsEventSender;
         this.eventsUri = eventsUri;
         this.diagnosticStore = diagnosticStore;
@@ -552,9 +552,9 @@ final class DirectEventProcessor implements EventProcessor {
         closeQuietly(analyticsEventSender);
     }
 
-    /** What the diagnostics thread owns. Unlike at tier 1, it has a sender to itself. */
+    /** What the diagnostics thread owns: the sender nothing else posts through. */
     private void releaseDiagnosticResources() {
-        closeQuietly(eventSender);
+        closeQuietly(diagnosticEventSender);
     }
 
     private void closeQuietly(Closeable closeable) {
@@ -644,7 +644,7 @@ final class DirectEventProcessor implements EventProcessor {
         try {
             byte[] data = diagnosticEvent.getJsonValue().toJsonString()
                     .getBytes(StandardCharsets.UTF_8);
-            handleResponse(eventSender.sendDiagnosticEvent(data, eventsUri));
+            handleResponse(diagnosticEventSender.sendDiagnosticEvent(data, eventsUri));
             if (isInit) {
                 // Attempted, not delivered. A failed post gives back an unsuccessful Result rather
                 // than throwing, so this marks the init event done either way and the process never
