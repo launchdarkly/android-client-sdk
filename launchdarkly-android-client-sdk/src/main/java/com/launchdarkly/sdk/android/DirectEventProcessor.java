@@ -104,8 +104,8 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicBoolean offline;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     // Set when the service tells us to stop, e.g. because the mobile key is invalid.
-    private final AtomicBoolean disabled = new AtomicBoolean(false);
-    private final AtomicBoolean diagnosticInitSent = new AtomicBoolean(false);
+    private volatile boolean disabled = false;
+    private volatile boolean diagnosticInitSent = false;
     private final AtomicLong lastKnownPastTime = new AtomicLong(0);
     /**
      * Whether a previous run of the application left events behind.
@@ -585,7 +585,7 @@ final class DirectEventProcessor implements EventProcessor {
      *   could not be sent or the service did not accept them
      */
     private boolean deliverPayloadReportingOutcome() {
-        if (disabled.get() || offline.get()) {
+        if (disabled || offline.get()) {
             return false;
         }
 
@@ -596,7 +596,7 @@ final class DirectEventProcessor implements EventProcessor {
         // finish, or that a previous run of the application never got to start.
         boolean allDelivered = true;
         for (EventStore.Batch batch : store.pendingBatches()) {
-            if (disabled.get() || offline.get()) {
+            if (disabled || offline.get()) {
                 return false;
             }
             allDelivered &= deliver(batch);
@@ -651,7 +651,7 @@ final class DirectEventProcessor implements EventProcessor {
                 // retries it. That matches DefaultEventProcessor, which is the behaviour to keep:
                 // diagnostics are best-effort telemetry about the SDK, and a retry that outlived
                 // its own init would describe a configuration the application has moved on from.
-                diagnosticInitSent.set(true);
+                diagnosticInitSent = true;
             }
         } catch (Exception e) {
             logUnexpectedError(e);
@@ -721,11 +721,27 @@ final class DirectEventProcessor implements EventProcessor {
             return;
         }
         if (result.getTimeFromServer() != null) {
-            lastKnownPastTime.set(result.getTimeFromServer().getTime());
+            recordPastTime(result.getTimeFromServer().getTime());
         }
         if (result.isMustShutDown()) {
-            disabled.set(true);
+            disabled = true;
         }
+    }
+
+    /**
+     * Moves the threshold forwards only. Analytics and diagnostic responses are handled on separate
+     * threads, so a plain assignment would let an older reading of the service clock overwrite a
+     * newer one and keep debug events alive past the date the service set. A loop rather than
+     * {@code accumulateAndGet}, which needs API 24.
+     */
+    private void recordPastTime(long timeFromServer) {
+        long known;
+        do {
+            known = lastKnownPastTime.get();
+            if (timeFromServer <= known) {
+                return;
+            }
+        } while (!lastKnownPastTime.compareAndSet(known, timeFromServer));
     }
 
     /**
@@ -771,12 +787,12 @@ final class DirectEventProcessor implements EventProcessor {
         boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
-        if (diagnosticsEnabled && !diagnosticInitSent.get() && claimDiagnosticPost()) {
+        if (diagnosticsEnabled && !diagnosticInitSent && claimDiagnosticPost()) {
             DiagnosticStore store = diagnosticStore;
             postDiagnostic(() -> {
                 // Re-checked on the posting thread: going online and coming to the foreground are
                 // two separate calls, and both want to send the init event we never got to send.
-                if (!diagnosticInitSent.get()) {
+                if (!diagnosticInitSent) {
                     sendDiagnosticEvent(store.getInitEvent(), true);
                 }
             });
@@ -842,7 +858,7 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     private boolean isStopped() {
-        return closed.get() || disabled.get();
+        return closed.get() || disabled;
     }
 
     private void logUnexpectedError(Throwable e) {
