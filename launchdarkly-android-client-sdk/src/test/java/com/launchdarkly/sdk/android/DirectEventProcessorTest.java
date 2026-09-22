@@ -248,6 +248,28 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aNonPositiveCapacityStillReportsRatherThanGoingSilent() throws Exception {
+        // Nought and negatives both mean one, and the processor and the buffer have to agree on
+        // that: disagreeing leaves the SDK holding an event it will never summarize, or summarizing
+        // for a buffer that will never send. Disabling events entirely is what noEvents() is for.
+        for (int capacity : new int[] { 0, -5 }) {
+            try (HttpServer server = startEventsServer()) {
+                EventProcessor eventProcessor = makeEventProcessor(server, capacity);
+                try {
+                    recordEvaluation(eventProcessor, false, null);
+
+                    List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                    assertEquals("capacity " + capacity + " summarized nothing",
+                            1, summaryCountFor(events, FLAG_KEY));
+                } finally {
+                    eventProcessor.close();
+                }
+            }
+        }
+    }
+
+    @Test
     public void closeDeliversBufferedEventsWithoutAnExplicitFlush() throws Exception {
         // This is the case the SDK previously lost: a short session that records something and
         // then shuts down before the periodic flush comes around.

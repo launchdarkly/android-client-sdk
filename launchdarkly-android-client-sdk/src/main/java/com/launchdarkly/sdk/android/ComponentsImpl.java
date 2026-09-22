@@ -105,17 +105,21 @@ abstract class ComponentsImpl {
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
+            // The buffer and the processor both bound themselves by this, so it is normalized once
+            // here rather than in each of them; a zero or negative capacity would otherwise leave the
+            // processor holding one event while the buffer refused to summarize anything at all.
+            int effectiveCapacity = capacity > 0 ? capacity : 1;
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK
-                            capacity,
+                            effectiveCapacity,
                             clientContext.getBaseLogger()),
                     eventSender,
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
-                    capacity,
+                    effectiveCapacity,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
