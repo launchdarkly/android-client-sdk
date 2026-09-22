@@ -130,29 +130,31 @@ final class OutboundEventBuffer {
      * loss, and it costs nothing in accuracy: LaunchDarkly sums the counters of every summary it
      * receives, so several summaries covering the same evaluations count the same as one.
      * <p>
-     * Unlike the other encoders here this one does hold the lock while it works, because the restore
-     * below has to be atomic with the reset above it: {@code restoreTo} replaces the counters rather
-     * than merging into them, so anything counted while this ran outside the lock would be dropped by
-     * a restore that then put back a strictly older set.
+     * A summary that cannot be serialized is dropped and logged rather than counted back in. Losing
+     * an aggregate of evaluations the SDK promised to report is bad, but everything the encoder can
+     * fail on is a property of the data it was handed -- the output stream is a byte array and cannot
+     * fail transiently -- so putting the counters back would make every later flush fail on the same
+     * summary while the counters behind it grew without bound.
+     * <p>
+     * The counters are taken under the lock and encoded outside it, as in {@link #drain}, so a thread
+     * recording an evaluation waits only for a reference swap and never for the encoder.
      *
-     * @return one JSON object per summary, empty if there was nothing counted
+     * @return one JSON object per summary, empty if there was nothing counted or nothing serialized
      */
-    synchronized List<byte[]> serializeSummariesAndReset() {
-        if (summarizer.isEmpty()) {
-            return Collections.emptyList();
+    List<byte[]> serializeSummariesAndReset() {
+        List<EventSummarizer.EventSummary> summaries;
+        synchronized (this) {
+            if (summarizer.isEmpty()) {
+                return Collections.emptyList();
+            }
+            summaries = summarizer.getSummariesAndReset();
         }
-        List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
         List<byte[]> serialized = new ArrayList<>(summaries.size());
         for (EventSummarizer.EventSummary summary : summaries) {
             byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
             if (bytes != null) {
                 serialized.add(bytes);
             }
-        }
-        if (serialized.isEmpty()) {
-            // The counters are put back rather than dropped: they are an aggregate of evaluations the
-            // SDK already promised to report, and nothing else is holding them now.
-            summarizer.restoreTo(summaries);
         }
         return serialized;
     }
@@ -222,7 +224,9 @@ final class OutboundEventBuffer {
             written = formatter.writeOutputEvents(events, summaries, writer);
             writer.flush();
         } catch (Exception e) {
-            logger.warn("Failed to serialize an event: {}", LogValues.exceptionSummary(e));
+            logger.error("Dropping unserializable {}: {}", describe(events),
+                    LogValues.exceptionSummary(e));
+            logger.debug("{}", LogValues.exceptionTrace(e));
             // Whatever the writer buffered is pushed out and thrown away with the stream, so a failed
             // event cannot bleed into the next one sharing this writer.
             try {
@@ -240,10 +244,17 @@ final class OutboundEventBuffer {
         if (all.length < 3 || all[0] != '[' || all[all.length - 1] != ']') {
             // Not the shape this depends on. Refusing the event is the safe reading: a frame that is
             // not one JSON object would corrupt every payload it was later spliced into.
-            logger.warn("Serialized event was not the expected shape and will not be sent");
+            logger.error("Dropping unserializable {}: the encoder did not produce a single JSON"
+                    + " object", describe(events));
             return null;
         }
         return Arrays.copyOfRange(all, 1, all.length - 1);
+    }
+
+    /** Names what is being dropped, since this encoder is handed one event or one summary. */
+    private static String describe(Event[] events) {
+        return events.length == 0 ? "summary event"
+                : "event of type " + events[0].getClass().getSimpleName();
     }
 
     /**
