@@ -106,13 +106,12 @@ abstract class ComponentsImpl {
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
-            int effectiveCapacity = effectiveCapacity();
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK
-                            effectiveCapacity,
+                            capacity,
                             clientContext.getBaseLogger()),
                     makeEventStore(clientContext, clientContextImpl),
                     diagnosticEventSender,
@@ -120,7 +119,7 @@ abstract class ComponentsImpl {
                             clientContext.getBaseLogger()),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
-                    effectiveCapacity,
+                    capacity,
                     eventPersistence == EventPersistence.IMMEDIATE,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
@@ -146,19 +145,9 @@ abstract class ComponentsImpl {
                     platformState.getNoBackupFilesDir(),
                     clientContext.getMobileKey(),
                     platformState.getProcessName(),
-                    effectiveCapacity(),
+                    capacity,
                     eventPersistence != EventPersistence.DISABLED,
                     clientContext.getBaseLogger());
-        }
-
-        /**
-         * The buffer, the store, the processor and the diagnostic description all bound themselves
-         * by this, so it is normalized in one place rather than in each of them; a zero or negative
-         * capacity would otherwise leave the processor holding one event while the buffer refused to
-         * summarize anything at all.
-         */
-        private int effectiveCapacity() {
-            return capacity > 0 ? capacity : 1;
         }
 
         @Override
@@ -166,8 +155,7 @@ abstract class ComponentsImpl {
             return LDValue.buildObject()
                     .put("allAttributesPrivate", allAttributesPrivate)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
-                    // What the SDK will actually do, not what was asked for.
-                    .put("eventsCapacity", effectiveCapacity())
+                    .put("eventsCapacity", capacity)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .build();
