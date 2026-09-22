@@ -223,7 +223,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.analyticsEventSender = analyticsEventSender;
         this.eventsUri = eventsUri;
         this.diagnosticStore = diagnosticStore;
-        this.capacity = capacity >= 0 ? capacity : 1;
+        this.capacity = capacity > 0 ? capacity : 1;
         this.flushIntervalMillis = flushIntervalMillis;
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
