@@ -130,6 +130,21 @@ final class OutboundEventBuffer {
     }
 
     /**
+     * Takes the counters and forgets which contexts they were counted for. Requires this monitor.
+     * <p>
+     * The two have to move together. Every path that resets the summarizer has to come through here,
+     * because one that reset the counters alone would spend the cardinality limit on contexts whose
+     * counters had already gone out, and the limit would never lift.
+     */
+    private List<EventSummarizer.EventSummary> takeSummaries() {
+        List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
+        if (countedContexts != null) {
+            countedContexts.clear();
+        }
+        return summaries;
+    }
+
+    /**
      * Serializes a run of events, together with the evaluations counted beside it, into the payload
      * they will be sent as.
      * <p>
@@ -153,10 +168,7 @@ final class OutboundEventBuffer {
             if (run.isEmpty() && summarizer.isEmpty()) {
                 return null;
             }
-            summaries = summarizer.getSummariesAndReset();
-            if (countedContexts != null) {
-                countedContexts.clear();
-            }
+            summaries = takeSummaries();
         }
 
         try {
