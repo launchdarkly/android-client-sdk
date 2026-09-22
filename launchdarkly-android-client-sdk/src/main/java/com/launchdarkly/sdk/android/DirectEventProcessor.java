@@ -19,12 +19,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -60,6 +62,7 @@ final class DirectEventProcessor implements EventProcessor {
     private final long diagnosticRecordingIntervalMillis;
     private final long closeBudgetMillis;
     private final ScheduledExecutorService scheduler;
+    private final ExecutorService diagnosticExecutor;
     private final LDLogger logger;
 
     private final AtomicBoolean inBackground;
@@ -97,6 +100,18 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
     private final AtomicLong droppedEvents = new AtomicLong(0);
 
+    /**
+     * True while a diagnostic event is on its way to the service, so that a later one is dropped
+     * rather than queued behind it.
+     */
+    private final AtomicBoolean diagnosticPostInFlight = new AtomicBoolean(false);
+
+    /**
+     * The two threads that post through {@link #eventSender}, counted down at shutdown so that
+     * whichever finishes last is the one that closes it.
+     */
+    private final AtomicInteger sendersStillDraining = new AtomicInteger(2);
+
     DirectEventProcessor(
             OutboundEventBuffer buffer,
             EventSender eventSender,
@@ -109,6 +124,7 @@ final class DirectEventProcessor implements EventProcessor {
             boolean initiallyInBackground,
             boolean initiallyOffline,
             ScheduledExecutorService scheduler,
+            ExecutorService diagnosticExecutor,
             LDLogger logger
     ) {
         this.buffer = buffer;
@@ -120,6 +136,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
         this.scheduler = scheduler;
+        this.diagnosticExecutor = diagnosticExecutor;
         this.logger = logger;
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
@@ -288,18 +305,29 @@ final class DirectEventProcessor implements EventProcessor {
                 logUnexpectedError(e.getCause() == null ? e : e.getCause());
             }
         }
-        // Queued rather than closed here, so that the sender is released on the one thread that
-        // posts through it, after whatever is still in flight. Doing it inline would pull the HTTP
-        // client out from under a delivery we just decided not to wait for. shutdown() then refuses
-        // new work while letting what is already queued finish -- unlike shutdownNow(), which would
-        // interrupt that delivery and strand the futures of anything it discarded.
-        if (submit(this::closeSenderQuietly) == null) {
-            closeSenderQuietly(); // the executor is already gone, so nothing can still be posting
+        // Queued on both of the threads that post through the sender, so that it is released by
+        // whichever of them finishes last. Closing it here instead would pull the HTTP client out
+        // from under a delivery we just decided not to wait for, or out from under a diagnostic post
+        // still in flight. shutdown() then refuses new work while letting what is already queued
+        // finish -- unlike shutdownNow(), which would interrupt those posts and strand the futures of
+        // anything it discarded.
+        if (submit(this::releaseSenderWhenLast) == null) {
+            releaseSenderWhenLast(); // the executor is already gone, so nothing can still be posting
+        }
+        try {
+            diagnosticExecutor.submit(guarded(this::releaseSenderWhenLast));
+        } catch (RuntimeException e) {
+            releaseSenderWhenLast();
         }
         scheduler.shutdown();
+        diagnosticExecutor.shutdown();
     }
 
-    private void closeSenderQuietly() {
+    /** Closes the sender once both of the threads that post through it have got this far. */
+    private void releaseSenderWhenLast() {
+        if (sendersStillDraining.decrementAndGet() > 0) {
+            return;
+        }
         try {
             eventSender.close();
         } catch (IOException e) {
@@ -367,13 +395,50 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     private void sendDiagnosticStats() {
-        // Checked before createEventAndReset, which clears the counters it hands back: bailing out
-        // after that call would discard a period's worth of statistics instead of deferring them.
-        if (diagnosticsSuspended() || diagnosticStore == null) {
+        // All three tests come before createEventAndReset, which clears the counters it hands back:
+        // bailing out after that call would discard a period's worth of statistics rather than defer
+        // them to the next one.
+        if (diagnosticsSuspended() || diagnosticStore == null || !claimDiagnosticPost()) {
             return;
         }
-        sendDiagnosticEvent(diagnosticStore.createEventAndReset(getAndClearDroppedCount(), 0),
-                false);
+        DiagnosticEvent event = diagnosticStore.createEventAndReset(getAndClearDroppedCount(), 0);
+        postDiagnostic(() -> sendDiagnosticEvent(event, false));
+    }
+
+    /**
+     * Takes the diagnostic posting thread, or reports that the last event is still on it.
+     * <p>
+     * A new event is dropped rather than queued behind the old one. Diagnostics are best-effort
+     * telemetry, a post can take tens of seconds against a network that never answers, and queueing
+     * would let an outage accumulate events describing an SDK state the application has since moved
+     * past -- the same reasoning that makes a failed init event final rather than retried.
+     */
+    private boolean claimDiagnosticPost() {
+        if (diagnosticPostInFlight.compareAndSet(false, true)) {
+            return true;
+        }
+        logger.debug("Skipped a diagnostic event because the previous one is still being posted");
+        return false;
+    }
+
+    /**
+     * Hands a claimed post to the diagnostics thread, releasing the claim once it ends.
+     *
+     * @param post what to run there, which must hold a claim from {@link #claimDiagnosticPost()}
+     */
+    private void postDiagnostic(Runnable post) {
+        Runnable releasing = () -> {
+            try {
+                post.run();
+            } finally {
+                diagnosticPostInFlight.set(false);
+            }
+        };
+        try {
+            diagnosticExecutor.submit(guarded(releasing));
+        } catch (RuntimeException e) { // the executor was shut down under us
+            diagnosticPostInFlight.set(false);
+        }
     }
 
     /**
@@ -437,11 +502,11 @@ final class DirectEventProcessor implements EventProcessor {
         boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
-        if (diagnosticsEnabled && !diagnosticInitSent.get()) {
+        if (diagnosticsEnabled && !diagnosticInitSent.get() && claimDiagnosticPost()) {
             DiagnosticStore store = diagnosticStore;
-            // Re-check on the executor thread: going online and coming to the foreground are two
-            // separate calls, and both want to send the init event we never got to send.
-            submit(() -> {
+            postDiagnostic(() -> {
+                // Re-checked on the posting thread: going online and coming to the foreground are
+                // two separate calls, and both want to send the init event we never got to send.
                 if (!diagnosticInitSent.get()) {
                     sendDiagnosticEvent(store.getInitEvent(), true);
                 }
