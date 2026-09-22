@@ -105,18 +105,17 @@ abstract class ComponentsImpl {
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
-            int effectiveCapacity = effectiveCapacity();
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK
-                            effectiveCapacity,
+                            capacity,
                             clientContext.getBaseLogger()),
                     eventSender,
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
-                    effectiveCapacity,
+                    capacity,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
@@ -128,23 +127,12 @@ abstract class ComponentsImpl {
             );
         }
 
-        /**
-         * The buffer, the processor and the diagnostic description all bound themselves by this, so
-         * it is normalized in one place rather than in each of them; a zero or negative capacity
-         * would otherwise leave the processor holding one event while the buffer refused to
-         * summarize anything at all.
-         */
-        private int effectiveCapacity() {
-            return capacity > 0 ? capacity : 1;
-        }
-
         @Override
         public LDValue describeConfiguration(ClientContext clientContext) {
             return LDValue.buildObject()
                     .put("allAttributesPrivate", allAttributesPrivate)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
-                    // What the SDK will actually do, not what was asked for.
-                    .put("eventsCapacity", effectiveCapacity())
+                    .put("eventsCapacity", capacity)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .build();
