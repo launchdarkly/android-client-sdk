@@ -106,7 +106,28 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 assertEquals(1, events.size());
                 assertEquals(LDValue.of("after-poison"), requireEventOfKind(events, "custom").get("key"));
-                logging.assertErrorLogged("Unexpected error in event processor");
+                logging.assertErrorLogged("Dropping unserializable");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void unserializableMetricDoesNotDropSiblingEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(
+                        CONTEXT, "kept", LDValue.ofNull(), 1.0);
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, events.size());
+                assertEquals(LDValue.of("kept"), requireEventOfKind(events, "custom").get("key"));
+                logging.assertErrorLogged("Dropping unserializable");
             } finally {
                 eventProcessor.close();
             }
@@ -130,7 +151,27 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 assertEquals(1, events.size());
                 assertEquals(1, summaryCountFor(events, FLAG_KEY));
-                logging.assertErrorLogged("Unexpected error in event processor");
+                logging.assertErrorLogged("Dropping unserializable");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void unserializableSummaryDoesNotDropSiblingEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordEvaluationEvent(CONTEXT, null, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                eventProcessor.recordIdentifyEvent(CONTEXT);
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, countEventsOfKind(events, "identify"));
+                assertEquals(0, countEventsOfKind(events, "summary"));
+                logging.assertErrorLogged("Dropping unserializable");
             } finally {
                 eventProcessor.close();
             }

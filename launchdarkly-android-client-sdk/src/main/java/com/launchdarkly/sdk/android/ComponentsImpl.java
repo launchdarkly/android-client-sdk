@@ -109,7 +109,8 @@ abstract class ComponentsImpl {
                     new OutboundEventBuffer(
                             allAttributesPrivate,
                             privateAttributes,
-                            true), // perContextSummarization - enable for client SDK
+                            true, // perContextSummarization - enable for client SDK
+                            clientContext.getBaseLogger()),
                     eventSender,
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
