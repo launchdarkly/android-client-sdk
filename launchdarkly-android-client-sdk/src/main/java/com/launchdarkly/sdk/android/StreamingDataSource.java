@@ -12,6 +12,7 @@ import com.launchdarkly.eventsource.RetryDelayStrategy;
 import com.launchdarkly.eventsource.StreamHttpErrorException;
 import com.launchdarkly.eventsource.background.BackgroundEventHandler;
 import com.launchdarkly.eventsource.background.BackgroundEventSource;
+import com.launchdarkly.eventsource.background.ConnectionErrorHandler;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.subsystems.Callback;
@@ -177,7 +178,19 @@ final class StreamingDataSource implements DataSource {
                             .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS));
 
             eventSourceStarted = System.currentTimeMillis();
-            es = new BackgroundEventSource.Builder(handler, esBuilder).build();
+            es = new BackgroundEventSource.Builder(handler, esBuilder)
+                    // The stream thread asks this handler, before it reconnects, whether an
+                    // error ends the stream. The onError callback above runs on a different
+                    // thread, so a stop() from there can arrive after a fast reconnect has
+                    // already opened a new connection. A decision made here cannot lose that race.
+                    .connectionErrorHandler(t -> {
+                        if (t instanceof StreamHttpErrorException &&
+                                !LDUtil.isHttpErrorRecoverable(((StreamHttpErrorException) t).getCode())) {
+                            return ConnectionErrorHandler.Action.SHUTDOWN;
+                        }
+                        return ConnectionErrorHandler.Action.PROCEED;
+                    })
+                    .build();
             es.start();
 
             running = true;

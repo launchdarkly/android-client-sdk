@@ -116,6 +116,14 @@ public class StreamingDataSourceTest {
             URI streamBaseUri,
             MockComponents.MockDataSourceUpdateSink sink,
             boolean evaluationReasons, boolean useReport) {
+        return makeStreamingDataSource(streamBaseUri, sink, evaluationReasons, useReport, 100);
+    }
+
+    private StreamingDataSource makeStreamingDataSource(
+            URI streamBaseUri,
+            MockComponents.MockDataSourceUpdateSink sink,
+            boolean evaluationReasons, boolean useReport,
+            int initialReconnectDelayMillis) {
         LDConfig.Builder configBuilder = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .serviceEndpoints(Components.serviceEndpoints().streaming(streamBaseUri))
                 .evaluationReasons(evaluationReasons);
@@ -129,7 +137,7 @@ public class StreamingDataSourceTest {
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext, sink, CONTEXT, false, false);
         return (StreamingDataSource) Components.streamingDataSource()
-                .initialReconnectDelayMillis(100)
+                .initialReconnectDelayMillis(initialReconnectDelayMillis)
                 .build(clientContext);
     }
 
@@ -755,6 +763,74 @@ public class StreamingDataSourceTest {
             assertNull("Second start should not produce a callback",
                     callback2.errors.poll(500, TimeUnit.MILLISECONDS));
             assertNull(callback2.successes.poll(200, TimeUnit.MILLISECONDS));
+        }
+    }
+
+    // --- start(): no reconnect after an unrecoverable HTTP error ---
+
+    @Test
+    public void unrecoverableErrorOnInitialConnectDoesNotReconnect() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        // A second request would get a working stream. The SDK must not make it.
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(401),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(putEvent),
+                        Handlers.SSE.leaveOpen())))) {
+
+            StreamingDataSource sds = makeStreamingDataSource(
+                    server.getUri(), dataSourceUpdateSink, false, false, 1);
+            TrackingCallback callback = new TrackingCallback();
+            sds.start(callback);
+
+            Throwable error = callback.awaitError();
+            assertNotNull(error);
+            assertFalse(((LDInvalidResponseCodeFailure) error).isRetryable());
+
+            server.getRecorder().requireRequest();
+            server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
+            assertNull("no stream data expected after the error",
+                    callback.successes.poll(100, TimeUnit.MILLISECONDS));
+        }
+    }
+
+    @Test
+    public void unrecoverableErrorOnReconnectDoesNotReconnectAgain() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                // The first connection delivers data, then the server ends the stream.
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(putEvent)),
+                // The reconnect gets an unrecoverable status.
+                Handlers.status(403),
+                // A third request would get a working stream. The SDK must not make it.
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(putEvent),
+                        Handlers.SSE.leaveOpen())))) {
+
+            StreamingDataSource sds = makeStreamingDataSource(
+                    server.getUri(), dataSourceUpdateSink, false, false, 1);
+            TrackingCallback callback = new TrackingCallback();
+            sds.start(callback);
+
+            assertNotNull(callback.awaitSuccess());
+
+            // The dropped stream reports a network failure first; the 403 follows.
+            Throwable error = callback.awaitError();
+            while (error != null && !(error instanceof LDInvalidResponseCodeFailure)) {
+                error = callback.awaitError();
+            }
+            assertNotNull(error);
+            assertEquals(403, ((LDInvalidResponseCodeFailure) error).getResponseCode());
+
+            server.getRecorder().requireRequest();
+            server.getRecorder().requireRequest();
+            server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
         }
     }
 
