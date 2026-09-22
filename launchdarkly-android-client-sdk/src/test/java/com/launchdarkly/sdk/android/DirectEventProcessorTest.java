@@ -705,6 +705,26 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void flushAfterCloseDoesNotDeliverThroughReleasedResources() throws Exception {
+        // close() hands the store and the analytics sender back on the delivery thread and then stops
+        // that thread taking work, so nothing it accepts afterwards can find them already released.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            eventProcessor.recordCustomEvent(CONTEXT, "before-close", LDValue.ofNull(), null);
+            // Leaves the buffer empty, so any request after this is one close should not have made.
+            flushAndCollect(eventProcessor, server);
+
+            eventProcessor.close();
+
+            eventProcessor.recordCustomEvent(CONTEXT, "after-close", LDValue.ofNull(), null);
+            eventProcessor.flush();
+            eventProcessor.blockingFlush();
+
+            server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    @Test
     public void stalledDiagnosticPostDoesNotHoldUpAnalyticsDelivery() throws Exception {
         // Diagnostics used to share the one thread that delivers analytics, so a post against a
         // network that accepts connections and never answers stalled every flush behind it, and a
