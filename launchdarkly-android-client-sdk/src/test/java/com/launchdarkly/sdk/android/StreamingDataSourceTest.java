@@ -18,6 +18,7 @@ import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -25,6 +26,8 @@ import org.junit.rules.Timeout;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -35,6 +38,7 @@ public class StreamingDataSourceTest {
     private static final LDContext CONTEXT = LDContext.create("context-key");
     private static final String MOBILE_KEY = "test-mobile-key";
     private static final String VALID_PUT_JSON = "{\"flag1\":{\"key\":\"flag1\",\"version\":1,\"value\":true}}";
+    private static final long STOP_TIMEOUT_MILLIS = 5000;
 
     @Rule
     public Timeout globalTimeout = Timeout.seconds(10);
@@ -45,11 +49,31 @@ public class StreamingDataSourceTest {
     private final MockPlatformState platformState = new MockPlatformState();
     private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
     private final SimpleTestTaskExecutor taskExecutor = new SimpleTestTaskExecutor();
+    private final List<DataSource> startedDataSources = new ArrayList<>();
     private PersistentDataStoreWrapper.PerEnvironmentData perEnvironmentData;
 
     @Before
     public void before() {
         perEnvironmentData = TestUtil.makeSimplePersistentDataStoreWrapper().perEnvironmentData(MOBILE_KEY);
+    }
+
+    @After
+    public void stopDataSources() throws Exception {
+        for (DataSource dataSource : startedDataSources) {
+            AwaitableCallback<Void> stopped = new AwaitableCallback<>();
+            dataSource.stop(stopped);
+            stopped.await(STOP_TIMEOUT_MILLIS);
+        }
+        startedDataSources.clear();
+    }
+
+    // Each started data source owns an EventSource with its own threads and an open connection to
+    // the test server, so anything we start has to be stopped again in stopDataSources().
+    private void startDataSource(StreamingDataSource dataSource, Callback<Boolean> callback) {
+        if (!startedDataSources.contains(dataSource)) {
+            startedDataSources.add(dataSource);
+        }
+        dataSource.start(callback);
     }
 
     private ClientContext makeClientContext(boolean inBackground, Boolean previouslyInBackground) {
@@ -492,7 +516,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             assertNotNull(callback.awaitSuccess());
 
@@ -516,7 +540,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, true);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             assertNotNull(callback.awaitSuccess());
 
@@ -543,7 +567,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), true, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             assertNotNull(callback.awaitSuccess());
 
@@ -565,7 +589,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             assertNotNull(callback.awaitSuccess());
 
@@ -587,7 +611,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), true, true);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             assertNotNull(callback.awaitSuccess());
 
@@ -609,7 +633,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             Throwable error = callback.awaitError();
             assertNotNull(error);
@@ -633,7 +657,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             Throwable error = callback.awaitError();
             assertNotNull(error);
@@ -651,7 +675,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             Throwable error = callback.awaitError();
             assertNotNull(error);
@@ -683,7 +707,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             Throwable error = callback.awaitError();
             assertNotNull(error);
@@ -709,7 +733,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             Throwable error = callback.awaitError();
             assertNotNull(error);
@@ -728,7 +752,7 @@ public class StreamingDataSourceTest {
         StreamingDataSource sds = makeStreamingDataSource(
                 URI.create("http://localhost:1"), false, false);
         TrackingCallback callback = new TrackingCallback();
-        sds.start(callback);
+        startDataSource(sds, callback);
 
         Throwable error = callback.awaitError();
         assertNotNull(error);
@@ -744,13 +768,13 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback1 = new TrackingCallback();
-            sds.start(callback1);
+            startDataSource(sds, callback1);
 
             assertNotNull(callback1.awaitError());
 
             // Second start should be a no-op due to connection401Error flag
             TrackingCallback callback2 = new TrackingCallback();
-            sds.start(callback2);
+            startDataSource(sds, callback2);
 
             assertNull("Second start should not produce a callback",
                     callback2.errors.poll(500, TimeUnit.MILLISECONDS));
@@ -772,7 +796,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             Boolean success = callback.awaitSuccess();
             assertNotNull(success);
@@ -798,7 +822,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             assertNotNull(callback.awaitSuccess());
             dataSourceUpdateSink.expectInit();
@@ -823,7 +847,7 @@ public class StreamingDataSourceTest {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
             assertNotNull(callback.awaitSuccess());
             dataSourceUpdateSink.expectInit();
