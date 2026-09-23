@@ -61,6 +61,10 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final int EVALUATIONS_PER_RACE_RECORDER = 2_000;
     private static final int EVALUATIONS_BEFORE_CLOSE = 200;
     private static final int RACE_CAPACITY = 30;
+    // Past anything the recorders can produce, so that a commit short of a feature event is short
+    // because the evaluation was split rather than because the buffer was full.
+    private static final int NO_DROP_CAPACITY = RACE_RECORDERS * EVALUATIONS_PER_RACE_RECORDER * 2;
+    private static final int SPLIT_TRIALS = 8;
 
     // Long enough that the only delivery in a test is the one it asks for.
     private static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
@@ -907,12 +911,94 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
-    // aFlushNeverSplitsAnEvaluationAcrossTwoPayloads lives on the tiers below this one. It reads
-    // each payload as it went out, which only says something where a payload is the run taken
-    // straight from the pending list. Here a delivery reads the store, so an evaluation's counter
-    // and its event can sit in one payload or two for reasons that have nothing to do with the
-    // lock. What the lock guarantees at this tier is that a commit takes both or neither, and that
-    // is what closeNeverDeliversASummaryWithoutTheFeatureEventItCounted holds it to.
+    @Test
+    public void aCommitNeverSplitsAnEvaluationAcrossTwoCommits() throws Exception {
+        // The other half of the atomicity invariant. close() only ever commits once, so it can show
+        // an evaluation being stranded but not one being split: a counter staged by commit N with its
+        // feature event following in N+1. Payloads cannot show it here, because a delivery reads the
+        // store and may cut or join commits for its own reasons, so this looks at what each commit
+        // stages instead, while recording continues.
+        //
+        // Every evaluation is tracked and the capacity is far beyond what the run produces, so within
+        // a commit the counter for the flag and the number of feature events are the same number.
+        //
+        // Persistence is off so that the store never commits on its own; every commit() is one of the
+        // processor's. The processor stays offline, so each flush commits and delivers nothing.
+        //
+        // Repeated because the window is narrow -- the two writes are adjacent, and a commit has to
+        // land between them.
+        int commitsWithCounters = 0;
+        for (int trial = 0; trial < SPLIT_TRIALS; trial++) {
+            List<List<LDValue>> commits = new ArrayList<>();
+            EventStore store = new EventStore(eventsDirectory.newFolder(), "test", NO_DROP_CAPACITY,
+                    false, logging.logger, Runnable::run) {
+                private List<LDValue> staged = new ArrayList<>();
+
+                @Override
+                synchronized boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
+                    staged.add(LDValue.parse(new String(serializedEvent, StandardCharsets.UTF_8)));
+                    return super.stage(serializedEvent, bypassingCapacity);
+                }
+
+                @Override
+                synchronized void commit() {
+                    commits.add(staged);
+                    staged = new ArrayList<>();
+                    super.commit();
+                }
+            };
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(store, NO_DROP_CAPACITY, scheduler);
+            try {
+                AtomicInteger recorded = new AtomicInteger();
+                List<Thread> recorders = new ArrayList<>();
+                for (int i = 0; i < RACE_RECORDERS; i++) {
+                    Thread recorder = new Thread(() -> {
+                        for (int n = 0; n < EVALUATIONS_PER_RACE_RECORDER; n++) {
+                            recordEvaluation(eventProcessor, true, null);
+                            recorded.incrementAndGet();
+                        }
+                    });
+                    recorders.add(recorder);
+                    recorder.start();
+                }
+                int target = RACE_RECORDERS * EVALUATIONS_PER_RACE_RECORDER;
+                while (recorded.get() < target) {
+                    eventProcessor.blockingFlush();
+                }
+                for (Thread recorder : recorders) {
+                    recorder.join();
+                }
+                eventProcessor.blockingFlush();
+
+                assertEquals("trial " + trial + ": events were dropped, so a commit may be short"
+                                + " for that reason instead",
+                        0, eventProcessor.getAndClearDroppedCount());
+                int counted = 0;
+                synchronized (store) {
+                    for (List<LDValue> commit : commits) {
+                        int counters = summaryCounters(commit, FLAG_KEY);
+                        assertEquals("trial " + trial + ": a commit counted evaluations whose feature"
+                                        + " events were staged separately",
+                                countEventsOfKind(commit, "feature"), counters);
+                        counted += counters;
+                        if (counters > 0) {
+                            commitsWithCounters++;
+                        }
+                    }
+                }
+                assertEquals("trial " + trial + ": some evaluations were never committed",
+                        target, counted);
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+        // Otherwise a single commit per trial would satisfy everything above without a commit ever
+        // having overlapped a recording.
+        assertTrue("every evaluation went out in one commit, so nothing was interleaved",
+                commitsWithCounters > SPLIT_TRIALS);
+    }
 
     @Test
     public void periodicTaskSurvivesErrorFromSender() throws Exception {
