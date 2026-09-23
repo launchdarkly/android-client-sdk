@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
@@ -789,6 +790,29 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 }
             });
             logging.assertErrorLogged("Unexpected error in event processor: java.lang.RuntimeException: simulated record crash");
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void anErrorWhileRecordingStillReachesTheCaller() throws Exception {
+        // Only exceptions are the SDK's to absorb. An Error such as OutOfMemoryError belongs to the
+        // application's crash reporting, and swallowing it on the caller's thread would hide it.
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            eventProcessor.record(new Event(System.currentTimeMillis(), CONTEXT) {
+                @Override
+                public long getSamplingRatio() {
+                    throw new StackOverflowError("simulated");
+                }
+            });
+            fail("the Error was swallowed");
+        } catch (StackOverflowError expected) {
+            // what the application's handler would see
         } finally {
             eventProcessor.close();
             scheduler.shutdownNow();

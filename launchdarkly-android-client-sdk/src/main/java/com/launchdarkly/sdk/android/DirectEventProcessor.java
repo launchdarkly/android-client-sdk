@@ -189,11 +189,16 @@ final class DirectEventProcessor implements EventProcessor {
             // Built before the lock is taken, so that the critical section is only the writes.
             Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
             boolean contextsExceeded;
+            boolean warnContextsExceeded;
             synchronized (recordLock) {
                 if (closed.get()) {
                     return;
                 }
                 contextsExceeded = !buffer.summarize(event);
+                // Claimed under the lock that the delivery resets it under, so the warning belongs to
+                // the run whose summarizer turned this evaluation away rather than to the next one.
+                warnContextsExceeded = contextsExceeded
+                        && summaryContextsExceeded.compareAndSet(false, true);
                 if (requireFullEvent) {
                     addPending(event);
                 }
@@ -202,35 +207,30 @@ final class DirectEventProcessor implements EventProcessor {
                 }
             }
             if (contextsExceeded) {
-                reportContextsExceeded();
+                reportContextsExceeded(warnContextsExceeded);
             }
-        } catch (Throwable t) {
-            logUnexpectedError(t);
+        } catch (RuntimeException e) {
+            // This runs on the application's thread, usually inside a flag evaluation, and an
+            // analytics failure must not become the application's failure. Errors such as
+            // OutOfMemoryError are left to propagate, so the application's crash reporting sees them.
+            logUnexpectedError(e);
         }
     }
 
     @Override
     public void recordIdentifyEvent(LDContext context) {
-        try {
-            if (isStopped() || context == null) {
-                return;
-            }
-            record(new Event.Identify(System.currentTimeMillis(), context));
-        } catch (Throwable t) {
-            logUnexpectedError(t);
+        if (isStopped() || context == null) {
+            return;
         }
+        record(new Event.Identify(System.currentTimeMillis(), context));
     }
 
     @Override
     public void recordCustomEvent(LDContext context, String eventKey, LDValue data, Double metricValue) {
-        try {
-            if (isStopped() || context == null) {
-                return;
-            }
-            record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
-        } catch (Throwable t) {
-            logUnexpectedError(t);
+        if (isStopped() || context == null) {
+            return;
         }
+        record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
     }
 
     /**
@@ -256,8 +256,9 @@ final class DirectEventProcessor implements EventProcessor {
                 }
                 addPending(event);
             }
-        } catch (Throwable t) {
-            logUnexpectedError(t);
+        } catch (RuntimeException e) {
+            // As in recordEvaluationEvent: on the caller's thread, so a failure is logged, not thrown.
+            logUnexpectedError(e);
         }
     }
 
@@ -290,8 +291,10 @@ final class DirectEventProcessor implements EventProcessor {
      * A refused evaluation is a loss in the same sense a refused event is -- nothing later reconstructs
      * a counter -- so it is reported the same way, through the dropped count diagnostics carry.
      */
-    private void reportContextsExceeded() {
-        if (summaryContextsExceeded.compareAndSet(false, true)) {
+    private void reportContextsExceeded(boolean warn) {
+        // Warned once per delivery run rather than once per process: the summarizer's contexts are
+        // cleared with each run, so a later overflow is a new one worth hearing about.
+        if (warn) {
             logger.warn("Exceeded the number of contexts that can be summarized at once." +
                     " Increase capacity to avoid dropping evaluations.");
         }
