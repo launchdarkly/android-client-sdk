@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
@@ -768,6 +769,26 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertNotNull("periodic flush did not run again after Error", payload);
             assertTrue(new String(payload, StandardCharsets.UTF_8).contains("after-error"));
             logging.assertErrorLogged("Unexpected error in event processor");
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void unexpectedRecordingErrorDoesNotBubbleToCallerAndLogs() throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            // Must not throw if record throws:
+            eventProcessor.record(new Event(System.currentTimeMillis(), CONTEXT) {
+                @Override
+                public long getSamplingRatio() {
+                    throw new RuntimeException("simulated record crash");
+                }
+            });
+            logging.assertErrorLogged("Unexpected error in event processor: java.lang.RuntimeException: simulated record crash");
         } finally {
             eventProcessor.close();
             scheduler.shutdownNow();

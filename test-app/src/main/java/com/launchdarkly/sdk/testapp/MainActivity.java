@@ -255,7 +255,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupOfflineSwitch() {
         Switch offlineSwitch = findViewById(R.id.offlineSwitch);
-        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) -> 
+        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) ->
             MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline())
         );
     }

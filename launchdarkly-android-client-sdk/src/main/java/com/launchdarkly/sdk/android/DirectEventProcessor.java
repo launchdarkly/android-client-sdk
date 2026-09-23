@@ -179,46 +179,58 @@ final class DirectEventProcessor implements EventProcessor {
             boolean requireFullEvent,
             Long debugEventsUntilDate
     ) {
-        if (isStopped() || context == null) {
-            return;
-        }
-        Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
-                context, flagVersion, variation, value, defaultValue, reason, null,
-                requireFullEvent, debugEventsUntilDate, false);
-        // Built before the lock is taken, so that the critical section is only the writes.
-        Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
-        boolean contextsExceeded;
-        synchronized (recordLock) {
-            if (closed.get()) {
+        try {
+            if (isStopped() || context == null) {
                 return;
             }
-            contextsExceeded = !buffer.summarize(event);
-            if (requireFullEvent) {
-                addPending(event);
+            Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
+                    context, flagVersion, variation, value, defaultValue, reason, null,
+                    requireFullEvent, debugEventsUntilDate, false);
+            // Built before the lock is taken, so that the critical section is only the writes.
+            Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
+            boolean contextsExceeded;
+            synchronized (recordLock) {
+                if (closed.get()) {
+                    return;
+                }
+                contextsExceeded = !buffer.summarize(event);
+                if (requireFullEvent) {
+                    addPending(event);
+                }
+                if (debugEvent != null) {
+                    addPending(debugEvent);
+                }
             }
-            if (debugEvent != null) {
-                addPending(debugEvent);
+            if (contextsExceeded) {
+                reportContextsExceeded();
             }
-        }
-        if (contextsExceeded) {
-            reportContextsExceeded();
+        } catch (Throwable t) {
+            logUnexpectedError(t);
         }
     }
 
     @Override
     public void recordIdentifyEvent(LDContext context) {
-        if (isStopped() || context == null) {
-            return;
+        try {
+            if (isStopped() || context == null) {
+                return;
+            }
+            record(new Event.Identify(System.currentTimeMillis(), context));
+        } catch (Throwable t) {
+            logUnexpectedError(t);
         }
-        record(new Event.Identify(System.currentTimeMillis(), context));
     }
 
     @Override
     public void recordCustomEvent(LDContext context, String eventKey, LDValue data, Double metricValue) {
-        if (isStopped() || context == null) {
-            return;
+        try {
+            if (isStopped() || context == null) {
+                return;
+            }
+            record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
+        } catch (Throwable t) {
+            logUnexpectedError(t);
         }
-        record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
     }
 
     /**
@@ -231,17 +243,21 @@ final class DirectEventProcessor implements EventProcessor {
      * the loop runs.
      */
     void record(Event event) {
-        synchronized (recordLock) {
-            // The close check that decides the outcome, as against the fast path the public record
-            // methods take before building the event. deliverPayload lifts the run out under this
-            // same lock, so testing the flag here orders a record against close()'s final delivery:
-            // either the event is in the list before that delivery takes it, or it is refused.
-            // Tested outside the lock the two interleave, and an event can be left in a list that
-            // nothing will drain again.
-            if (closed.get()) {
-                return;
+        try {
+            synchronized (recordLock) {
+                // The close check that decides the outcome, as against the fast path the public record
+                // methods take before building the event. deliverPayload lifts the run out under this
+                // same lock, so testing the flag here orders a record against close()'s final delivery:
+                // either the event is in the list before that delivery takes it, or it is refused.
+                // Tested outside the lock the two interleave, and an event can be left in a list that
+                // nothing will drain again.
+                if (closed.get()) {
+                    return;
+                }
+                addPending(event);
             }
-            addPending(event);
+        } catch (Throwable t) {
+            logUnexpectedError(t);
         }
     }
 
@@ -424,6 +440,7 @@ final class DirectEventProcessor implements EventProcessor {
             run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
             pending.clear();
             summaries = buffer.takeSummaries();
+            summaryContextsExceeded.set(false);
         }
         OutboundEventBuffer.Payload payload;
         try {
