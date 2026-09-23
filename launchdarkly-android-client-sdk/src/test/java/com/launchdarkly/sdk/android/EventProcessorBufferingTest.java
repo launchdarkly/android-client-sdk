@@ -41,6 +41,11 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
     // capacity-limited queue in the evaluation path would be guaranteed to overflow.
     private static final int CAPACITY = 100;
 
+    // For the tests that fill the summarizer to its context limit. Each counted context becomes its
+    // own summary event, so the flush is roughly this many summaries; at CAPACITY that came to about
+    // 28 KB, past what the test server reliably records with its single unlooped read of the body.
+    private static final int CONTEXT_LIMIT = 10;
+
     private static final int BURST_THREADS = 4;
     private static final int EVALUATIONS_PER_THREAD = 25_000;
     private static final int TOTAL_EVALUATIONS = BURST_THREADS * EVALUATIONS_PER_THREAD;
@@ -124,9 +129,9 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
         // nothing drains it while the client is offline. Capacity has to bound that, or an application
         // that goes on identifying through an outage grows the summarizer for as long as it lasts.
         try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            EventProcessor eventProcessor = makeEventProcessor(server, CONTEXT_LIMIT);
             try {
-                for (int i = 0; i < CAPACITY * 3; i++) {
+                for (int i = 0; i < CONTEXT_LIMIT * 3; i++) {
                     eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
                             VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
                 }
@@ -135,7 +140,7 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
 
                 // One summary event per context that was counted, so this is the cardinality the
                 // summarizer was holding.
-                assertEquals(CAPACITY, countEventsOfKind(events, "summary"));
+                assertEquals(CONTEXT_LIMIT, countEventsOfKind(events, "summary"));
                 logging.assertWarnLogged("Exceeded the number of contexts");
             } finally {
                 eventProcessor.close();
@@ -149,11 +154,11 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
         // application evaluating against one context must not start losing counts because some other
         // part of it churned through contexts.
         try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            EventProcessor eventProcessor = makeEventProcessor(server, CONTEXT_LIMIT);
             try {
                 eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
                         FLAG_VALUE, null, DEFAULT_VALUE, false, null);
-                for (int i = 0; i < CAPACITY * 3; i++) {
+                for (int i = 0; i < CONTEXT_LIMIT * 3; i++) {
                     eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
                             VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
                 }
@@ -177,21 +182,21 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
         // The bound is on how many contexts are held at once, not on how many an application may ever
         // use, so a delivery has to make room for the next set.
         try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = makeEventProcessor(server, CAPACITY);
+            EventProcessor eventProcessor = makeEventProcessor(server, CONTEXT_LIMIT);
             try {
-                for (int i = 0; i < CAPACITY * 3; i++) {
+                for (int i = 0; i < CONTEXT_LIMIT * 3; i++) {
                     eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
                             VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
                 }
                 flushAndCollect(eventProcessor, server);
 
-                for (int i = CAPACITY * 3; i < CAPACITY * 4; i++) {
+                for (int i = CONTEXT_LIMIT * 3; i < CONTEXT_LIMIT * 4; i++) {
                     eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
                             VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
                 }
                 List<LDValue> events = flushAndCollect(eventProcessor, server);
 
-                assertEquals(CAPACITY, countEventsOfKind(events, "summary"));
+                assertEquals(CONTEXT_LIMIT, countEventsOfKind(events, "summary"));
             } finally {
                 eventProcessor.close();
             }
