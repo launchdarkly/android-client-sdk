@@ -508,6 +508,20 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void closingWhileOfflineStaysOffTheNetwork() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            eventProcessor.setOffline(true);
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            recordEvaluation(eventProcessor, false, null);
+
+            eventProcessor.close();
+
+            server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    @Test
     public void comingBackOnlineDeliversWithoutWaitingForTheNextInterval() throws Exception {
         // A connectivity blip cancels the periodic flush and then restarts it from zero, so waiting
         // for it would hold these events back by a full interval — and by several of them if the
