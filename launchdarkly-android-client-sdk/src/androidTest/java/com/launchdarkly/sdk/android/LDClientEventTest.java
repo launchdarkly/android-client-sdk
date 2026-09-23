@@ -26,6 +26,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.HttpUrl;
 import okhttp3.mockwebserver.MockResponse;
@@ -92,6 +93,36 @@ public class LDClientEventTest {
                 assertEquals(testData, customEvent.get("data"));
                 assertEquals(LDValue.ofNull(), customEvent.get("metricValue"));
             }
+        }
+    }
+
+    @Test
+    public void flushAndWaitReportsDelivery() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                client.track("test-event");
+
+                assertTrue(client.flushAndWait(5, TimeUnit.SECONDS));
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertCustomEvent(events[1], ldContext, "test-event");
+            }
+        }
+    }
+
+    @Test
+    public void flushAndWaitReportsFailureOnceClosed() throws IOException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            LDClient client = LDClient.init(application, ldConfig, ldContext, 0);
+            client.close();
+
+            assertFalse(client.flushAndWait(5, TimeUnit.SECONDS));
         }
     }
 
