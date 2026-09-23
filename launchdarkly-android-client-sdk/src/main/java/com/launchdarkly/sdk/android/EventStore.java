@@ -116,6 +116,12 @@ class EventStore implements Closeable {
      * fails and the store gives up on persistence for the rest of the session.
      */
     private boolean persistEvents;
+    /**
+     * Whether the application asked for persistence at all. Unlike {@link #persistEvents} this does not
+     * change when a write fails, because batches written before the failure still have to be read back.
+     * Without it the store never touches the filesystem, not even to look for a previous run's events.
+     */
+    private final boolean usesDisk;
     private boolean commitScheduled;
 
     // Guarded by ioLock.
@@ -170,9 +176,10 @@ class EventStore implements Closeable {
         this.commitExecutor = commitExecutor;
         // An application that has not asked for persistence gets the same store running the same way it
         // runs once a write has failed: events are held, delivered, and lost only if the process dies.
-        // Batches a run with persistence turned on left behind are still recovered and delivered, which
-        // is why this sets the runtime flag rather than skipping the store's reads.
+        // It also skips every read, so batches a run with persistence turned on left behind stay on disk
+        // until persistence is turned back on.
         this.persistEvents = persistEvents;
+        this.usesDisk = persistEvents;
     }
 
     /**
@@ -475,7 +482,7 @@ class EventStore implements Closeable {
     List<Batch> pendingBatches() {
         synchronized (ioLock) {
             List<Batch> batches = new ArrayList<>();
-            File[] files = directory().listFiles();
+            File[] files = usesDisk ? directory().listFiles() : null;
             if (files != null) {
                 List<File> ready = new ArrayList<>();
                 for (File file : files) {
@@ -563,6 +570,9 @@ class EventStore implements Closeable {
      * this process's own log is touched: another process's may still be open in a process that is alive.
      */
     void recoverInterruptedLog() {
+        if (!usesDisk) {
+            return;
+        }
         synchronized (ioLock) {
             if (!openLog().exists()) {
                 return;
@@ -939,7 +949,7 @@ class EventStore implements Closeable {
         commit();
         synchronized (ioLock) {
             List<byte[]> logs = new ArrayList<>();
-            File[] files = directory().listFiles();
+            File[] files = usesDisk ? directory().listFiles() : null;
             if (files != null) {
                 List<File> sorted = new ArrayList<>();
                 for (File file : files) {
@@ -957,7 +967,7 @@ class EventStore implements Closeable {
                     logs.add(readFile(file));
                 }
             }
-            if (openLog().exists()) {
+            if (usesDisk && openLog().exists()) {
                 logs.add(readFile(openLog()));
             }
             synchronized (bufferLock) {

@@ -12,6 +12,9 @@ package com.launchdarkly.sdk.android.integrations;
 public enum EventPersistence {
     /**
      * Events are kept in memory only, and nothing survives the process ending.
+     * <p>
+     * The SDK does not touch the filesystem for events at all. Events that an earlier run with persistence
+     * turned on left on disk are not delivered, and stay there until persistence is turned back on.
      */
     DISABLED,
 

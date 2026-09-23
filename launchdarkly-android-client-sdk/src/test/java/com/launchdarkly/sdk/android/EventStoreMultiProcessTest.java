@@ -191,6 +191,35 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
+    public void aStoreWithoutPersistenceLeavesWhatAPersistentRunLeftBehindAlone() {
+        EventStore persistentRun = storeFor(SERVICE_PROCESS);
+        persistentRun.stage(event("closed-batch"));
+        assertNotNull(persistentRun.closeBatch());
+        persistentRun.stage(event("open-log"));
+        persistentRun.commit();
+
+        EventStore withoutPersistence =
+                new EventStore(sharedDirectory(), SERVICE_PROCESS, CAPACITY, false, logger, inline);
+        withoutPersistence.recoverInterruptedLog();
+        assertTrue("a store without persistence picked up a previous run's events",
+                withoutPersistence.pendingBatches().isEmpty());
+        assertTrue(visibleKeys(withoutPersistence).isEmpty());
+
+        withoutPersistence.stage(event("in-memory"));
+        EventStore.Batch own = withoutPersistence.closeBatch();
+        assertNotNull(own);
+        assertEquals(Arrays.asList(own), withoutPersistence.pendingBatches());
+
+        assertEquals(1, filesNamed("ready-").size());
+        assertEquals(1, filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).size());
+
+        // Still there for the next run that has persistence turned on.
+        EventStore persistentAgain = storeFor(SERVICE_PROCESS);
+        persistentAgain.recoverInterruptedLog();
+        assertEquals(2, persistentAgain.pendingBatches().size());
+    }
+
+    @Test
     public void oneProcessRecoveringDoesNotDisturbWhatAnotherHasAlreadyClosed() {
         EventStore service = storeFor(SERVICE_PROCESS);
         service.stage(event("service-1"));

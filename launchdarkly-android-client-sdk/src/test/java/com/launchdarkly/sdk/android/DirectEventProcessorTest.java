@@ -682,6 +682,41 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void withoutPersistenceTheStoreNeverAsksThePlatformWhereItLives() throws Exception {
+        // Asking is itself a filesystem operation, so a store that never asks never touches the disk:
+        // not for a previous run's events at startup, and not on every delivery after.
+        AtomicInteger asked = new AtomicInteger();
+        MockPlatformState platformState = new MockPlatformState() {
+            @Override
+            public File getNoBackupFilesDir() {
+                asked.incrementAndGet();
+                return eventsDirectory.getRoot();
+            }
+
+            @Override
+            public String getProcessName() {
+                asked.incrementAndGet();
+                return "test";
+            }
+        };
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = buildOfflineEventProcessor(server,
+                    Components.sendEvents().eventPersistence(EventPersistence.DISABLED)
+                            .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS),
+                    true, platformState);
+            eventProcessor.setOffline(false);
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            eventProcessor.flush();
+            eventProcessor.blockingFlush();
+            eventProcessor.close();
+
+            assertEquals("the event was never delivered, so this proves nothing",
+                    1, countEventsOfKind(collectDelivered(server), "custom"));
+            assertEquals("a store without persistence looked for its directory", 0, asked.get());
+        }
+    }
+
+    @Test
     public void deferredPersistenceNeverWritesOnTheCallersThread() throws Exception {
         Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
