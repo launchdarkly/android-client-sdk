@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -356,6 +357,32 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     @Override
+    public boolean blockingFlush(long timeout, TimeUnit unit) {
+        if (isStopped()) {
+            return false;
+        }
+        // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
+        Callable<Boolean> delivery = this::deliverPayloadReportingOutcome;
+        Future<Boolean> pending = submit(delivery);
+        if (pending == null) {
+            return false;
+        }
+        try {
+            return Boolean.TRUE.equals(pending.get(timeout, unit));
+        } catch (TimeoutException e) {
+            // Left running rather than cancelled: the buffer has already been drained into the
+            // payload, so interrupting the delivery now would only make the loss certain.
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            logUnexpectedError(e.getCause() == null ? e : e.getCause());
+            return false;
+        }
+    }
+
+    @Override
     public void close() throws IOException {
         if (!closed.compareAndSet(false, true)) {
             return;
@@ -425,17 +452,28 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Serializes and sends everything buffered. Runs on the scheduler thread, which is
-     * single-threaded, so only one payload is ever in flight and the run is taken exactly once per
-     * delivery.
-     * <p>
-     * The run and the counters are taken together under {@link #recordLock}, so an evaluation is
-     * never split across two payloads, and encoded outside it, so recording does not wait on the
-     * encoder.
+     * Serializes and sends everything buffered, for a caller that is not waiting to find out how it
+     * went.
      */
     private void deliverPayload() {
+        deliverPayloadReportingOutcome();
+    }
+
+    /**
+     * Delivers as {@link #deliverPayload()} does, and says whether it worked, for a caller that is
+     * waiting to find out.
+     * <p>
+     * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
+     * and the run is taken exactly once per delivery. The run and the counters are taken together
+     * under {@link #recordLock}, so an evaluation is never split across two payloads, and encoded
+     * outside it, so recording does not wait on the encoder.
+     *
+     * @return true if the events reached the service, or if there were none to send; false if they
+     *   could not be sent or the service did not accept them
+     */
+    private boolean deliverPayloadReportingOutcome() {
         if (disabled || offline.get()) {
-            return;
+            return false;
         }
         List<Event> run;
         List<EventSummarizer.EventSummary> summaries;
@@ -450,19 +488,22 @@ final class DirectEventProcessor implements EventProcessor {
             payload = buffer.encode(run, summaries);
         } catch (IOException e) {
             logUnexpectedError(e);
-            return;
+            return false;
         }
         if (payload == null) {
-            return;
+            return true;
         }
         if (diagnosticStore != null) {
             diagnosticStore.recordEventsInBatch(payload.getEventCount());
         }
         try {
-            handleResponse(eventSender.sendAnalyticsEvents(payload.getData(),
-                    payload.getEventCount(), eventsUri));
+            EventSender.Result result = eventSender.sendAnalyticsEvents(payload.getData(),
+                    payload.getEventCount(), eventsUri);
+            handleResponse(result);
+            return result != null && result.isSuccess();
         } catch (Exception e) {
             logUnexpectedError(e);
+            return false;
         }
     }
 
@@ -679,6 +720,25 @@ final class DirectEventProcessor implements EventProcessor {
             }
             try {
                 return scheduler.submit(guarded(task));
+            } catch (RuntimeException e) { // the executor was shut down under us
+                return null;
+            }
+        }
+    }
+
+    /**
+     * As {@link #submit(Runnable)}, for a delivery whose outcome the caller waits for. Not wrapped in
+     * {@link #guarded}, because here the caller is there to receive what escapes.
+     *
+     * @return the submitted task, or null if the processor is shutting down or already has
+     */
+    private <T> Future<T> submit(Callable<T> task) {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                return null;
+            }
+            try {
+                return scheduler.submit(task);
             } catch (RuntimeException e) { // the executor was shut down under us
                 return null;
             }

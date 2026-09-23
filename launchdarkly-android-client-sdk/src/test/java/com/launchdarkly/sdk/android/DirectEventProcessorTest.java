@@ -34,6 +34,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -652,6 +653,22 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void flushWithTimeoutReportsDeliveredEvents() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                assertEquals(1, countEventsOfKind(collectDelivered(server), "custom"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aFlushNeverSplitsAnEvaluationAcrossTwoPayloads() throws Exception {
         // The other half of the atomicity invariant. close() only ever delivers once, so it can show
         // an evaluation being stranded but not one being split: a counter going out in payload N with
@@ -777,6 +794,21 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void flushWithTimeoutReportsSuccessWhenThereIsNothingToSend() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                // Nothing was recorded, so the caller's events are not waiting anywhere.
+                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void unexpectedRecordingErrorDoesNotBubbleToCallerAndLogs() throws Exception {
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
@@ -855,6 +887,44 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         } finally {
             releaseSend.countDown();
             scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void flushWithTimeoutReportsFailureWhileOffline() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(true);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                // The events are still buffered rather than delivered, and no amount of waiting
+                // changes that, so the caller is told so instead of being told they are safe.
+                assertFalse(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushWithTimeoutReportsFailureWhenTheTimeoutExpiresFirst() throws Exception {
+        Semaphore letResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.all(Handlers.waitFor(letResponseFinish),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                assertFalse(eventProcessor.blockingFlush(100, TimeUnit.MILLISECONDS));
+            } finally {
+                // Released before closing, so that the delivery still in flight can finish rather
+                // than hold up the shutdown that close() waits on.
+                letResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
         }
     }
 
