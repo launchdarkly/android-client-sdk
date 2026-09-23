@@ -86,6 +86,21 @@ public abstract class EventProcessorTestBase {
 
     protected EventProcessor makeEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                 boolean diagnosticOptOut) {
+        EventProcessor eventProcessor = buildOfflineEventProcessor(server, events, diagnosticOptOut);
+        // LDClient turns the processor on once initialization decides the SDK is not in offline mode.
+        eventProcessor.setOffline(false);
+        return eventProcessor;
+    }
+
+    /** @return the processor as the SDK builds it, before initialization has turned it on */
+    protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut) {
+        return buildOfflineEventProcessor(server, events, diagnosticOptOut, platformState());
+    }
+
+    protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .diagnosticOptOut(diagnosticOptOut)
@@ -93,12 +108,8 @@ public abstract class EventProcessorTestBase {
                 .serviceEndpoints(Components.serviceEndpoints().events(server.getUri()))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
-                null, null, CONTEXT, logging.logger, platformState(), environmentReporter, null);
-        EventProcessor eventProcessor = config.events.build(clientContext);
-        // The processor is built offline; LDClient turns it on once initialization decides the SDK
-        // is not in offline mode.
-        eventProcessor.setOffline(false);
-        return eventProcessor;
+                null, null, CONTEXT, logging.logger, platformState, environmentReporter, null);
+        return config.events.build(clientContext);
     }
 
     /**

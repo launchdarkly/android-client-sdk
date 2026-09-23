@@ -729,8 +729,8 @@ public class EventPersistenceBenchmark {
     }
 
     private OutboundEventBuffer makeBuffer(PrivacyShape privacy, boolean cacheContexts) {
-        return new OutboundEventBuffer(Integer.MAX_VALUE, privacy.allAttributesPrivate,
-                privacy.privateAttributes, true, logger, cacheContexts);
+        return new OutboundEventBuffer(privacy.allAttributesPrivate, privacy.privateAttributes,
+                true, Integer.MAX_VALUE, logger, cacheContexts);
     }
 
     private static Event.FeatureRequest featureEvent(LDContext context, boolean requireFullEvent) {

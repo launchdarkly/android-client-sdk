@@ -99,7 +99,7 @@ abstract class ComponentsImpl {
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
-            EventSender eventSender = new DefaultEventSender(
+            EventSender diagnosticEventSender = new DefaultEventSender(
                     LDUtil.makeHttpProperties(clientContext),
                     StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
                     StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
@@ -108,13 +108,13 @@ abstract class ComponentsImpl {
                     clientContext.getBaseLogger());
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
-                            capacity,
                             allAttributesPrivate,
                             privateAttributes,
                             true, // perContextSummarization - enable for client SDK
+                            capacity,
                             clientContext.getBaseLogger()),
                     makeEventStore(clientContext, clientContextImpl),
-                    eventSender,
+                    diagnosticEventSender,
                     new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
                             clientContext.getBaseLogger()),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
@@ -123,9 +123,11 @@ abstract class ComponentsImpl {
                     eventPersistence == EventPersistence.IMMEDIATE,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
+                    DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),
+                    EventUtil.makeDiagnosticsTaskExecutor(),
                     clientContext.getBaseLogger()
             );
         }
@@ -138,11 +140,9 @@ abstract class ComponentsImpl {
          * combination and they never touch each other's events.
          */
         private EventStore makeEventStore(ClientContext clientContext, ClientContextImpl impl) {
-            PlatformState platformState = impl.getPlatformState();
             return EventStore.create(
-                    platformState.getNoBackupFilesDir(),
+                    impl.getPlatformState(),
                     clientContext.getMobileKey(),
-                    platformState.getProcessName(),
                     capacity,
                     eventPersistence != EventPersistence.DISABLED,
                     clientContext.getBaseLogger());

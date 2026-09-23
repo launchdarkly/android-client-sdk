@@ -2,10 +2,12 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    // Method counts are an internal quality signal rather than customer setup.
+    id("com.getkeepsafe.dexcount")
 }
 
-// local.properties is not checked in, so it is where machine-specific settings such as your mobile
-// key belong. See example/README.md for the keys this app reads.
+// local.properties is not checked in, so it is where machine-specific settings such as the mobile
+// key belong. See test-app/README.md for the keys this app reads.
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
@@ -13,11 +15,11 @@ if (localPropertiesFile.exists()) {
 }
 
 android {
-    namespace "com.launchdarkly.example"
+    namespace "com.launchdarkly.sdk.testapp"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.launchdarkly.example"
+        applicationId = "com.launchdarkly.sdk.testapp"
         minSdk = 21
         targetSdk = 34
         versionCode = 1
@@ -44,8 +46,5 @@ android {
 dependencies {
     implementation("androidx.appcompat:appcompat:1.2.0")
     implementation("com.jakewharton.timber:timber:5.0.1")
-
     implementation(project(":launchdarkly-android-client-sdk"))
-    // Comment the previous line and uncomment this one to depend on the published artifact:
-    //implementation("com.launchdarkly:launchdarkly-android-client-sdk:3.1.5")
 }

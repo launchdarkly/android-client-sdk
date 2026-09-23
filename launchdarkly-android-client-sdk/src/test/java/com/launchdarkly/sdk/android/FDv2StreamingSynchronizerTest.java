@@ -202,18 +202,14 @@ public class FDv2StreamingSynchronizerTest {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
 
-            Future<FDv2SourceResult> result1Future = sync.next();
-            FDv2SourceResult result1 = result1Future.get(5, TimeUnit.SECONDS);
-
-            assertNotNull(result1);
-            assertEquals(SourceResultType.CHANGE_SET, result1.getResultType());
+            // Both changesets are read through the transient-STATUS drain rather than directly,
+            // because either one of them can be preceded by a reconnect. What this test is about is
+            // that two changesets arrive in sequence, not which result happens to be first in the
+            // queue.
+            FDv2SourceResult result1 = nextChangeSet(sync, "first changeset");
             assertNotNull(result1.getChangeSet());
 
-            Future<FDv2SourceResult> result2Future = sync.next();
-            FDv2SourceResult result2 = result2Future.get(5, TimeUnit.SECONDS);
-
-            assertNotNull(result2);
-            assertEquals(SourceResultType.CHANGE_SET, result2.getResultType());
+            FDv2SourceResult result2 = nextChangeSet(sync, "second changeset");
             assertNotNull(result2.getChangeSet());
 
             sync.close();
@@ -1316,6 +1312,39 @@ public class FDv2StreamingSynchronizerTest {
 
             sync.close();
         }
+    }
+
+    /**
+     * Reads results until a changeset arrives, tolerating transient status results on the way.
+     * <p>
+     * The synchronizer's queue carries connection status alongside data. Under resource contention
+     * the {@code EventSource} backing it can suffer a reconnect before or between the SSE events a
+     * test feeds it, and the resulting {@code STATUS(INTERRUPTED)} reaches the queue ahead of the
+     * changeset the test is waiting for. That is not a failure: the real {@code SourceManager}
+     * consumes the same queue and is expected to ride out transient interruptions, so a test that
+     * insists on a changeset being literally first is asserting something the contract does not
+     * promise.
+     * <p>
+     * The bound exists so that a synchronizer that only ever produces status results fails the test
+     * rather than hanging until the suite timeout. Each individual wait keeps the same five-second
+     * budget the direct calls used.
+     *
+     * @param sync the synchronizer to read from
+     * @param what what the caller was waiting for, for the failure message
+     * @return the first changeset result
+     */
+    private static FDv2SourceResult nextChangeSet(FDv2StreamingSynchronizer sync, String what)
+            throws Exception {
+        for (int i = 0; i < 10; i++) {
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+            assertNotNull(result);
+            if (result.getResultType() == SourceResultType.CHANGE_SET) {
+                return result;
+            }
+            assertEquals("expected only transient status results while awaiting " + what,
+                    SourceResultType.STATUS, result.getResultType());
+        }
+        throw new AssertionError("no CHANGE_SET arrived while awaiting " + what);
     }
 
     private static String makeEvent(String type, String data) {

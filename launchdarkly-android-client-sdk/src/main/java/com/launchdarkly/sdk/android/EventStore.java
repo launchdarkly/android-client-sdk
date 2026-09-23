@@ -58,7 +58,7 @@ import java.util.concurrent.ThreadFactory;
  * The format is byte-for-byte the one the iOS SDK writes, so the two can be reasoned about, and
  * debugged, as one thing.
  */
-final class EventStore implements Closeable {
+class EventStore implements Closeable {
     /** Names a log closed off for delivery; the rest of the name is the batch's payload ID. */
     private static final String BATCH_PREFIX = "ready-";
     /** Names the log a single process appends to; the rest of the name is that process. */
@@ -73,8 +73,17 @@ final class EventStore implements Closeable {
      */
     private static final int STAGING_THRESHOLD = 16 * 1024;
 
-    private final File directory;
-    private final File openLog;
+    /**
+     * Where the store keeps its files, asked for on first use rather than at construction.
+     * <p>
+     * The store is built on the thread that called {@code LDClient.init}, usually the main one, and
+     * answering touches the disk: the platform creates the no-backup directory the first time it is asked
+     * for it, and before API 28 the process name is read from {@code /proc}.
+     */
+    private final Location location;
+    // Guarded by ioLock, and null until resolveLocationHoldingIoLock has run.
+    private File directory;
+    private File openLog;
     private final int capacity;
     private final LDLogger logger;
     /**
@@ -107,10 +116,18 @@ final class EventStore implements Closeable {
      * fails and the store gives up on persistence for the rest of the session.
      */
     private boolean persistEvents;
+    /**
+     * Whether the application asked for persistence at all. Unlike {@link #persistEvents} this does not
+     * change when a write fails, because batches written before the failure still have to be read back.
+     * Without it the store never touches the filesystem, not even to look for a previous run's events.
+     */
+    private final boolean usesDisk;
     private boolean commitScheduled;
 
     // Guarded by ioLock.
     private FileOutputStream output;
+    // Guarded by ioLock.
+    private boolean recoveryDone;
     /**
      * Batches held in memory because the filesystem would not take them.
      * <p>
@@ -131,18 +148,40 @@ final class EventStore implements Closeable {
      */
     private final Map<String, Integer> eventCounts = new HashMap<>();
 
-    EventStore(File directory, String processName, int capacity, boolean persistEvents, LDLogger logger,
-               Executor commitExecutor) {
-        this.directory = directory;
-        this.openLog = new File(directory, OPEN_PREFIX + logNameFor(processName));
+    /** Where one store keeps its files. */
+    interface Location {
+        File directory();
+
+        String processName();
+    }
+
+    EventStore(final File directory, final String processName, int capacity, boolean persistEvents,
+               LDLogger logger, Executor commitExecutor) {
+        this(new Location() {
+            @Override
+            public File directory() {
+                return directory;
+            }
+
+            @Override
+            public String processName() {
+                return processName;
+            }
+        }, capacity, persistEvents, logger, commitExecutor);
+    }
+
+    private EventStore(Location location, int capacity, boolean persistEvents, LDLogger logger,
+                       Executor commitExecutor) {
+        this.location = location;
         this.capacity = capacity >= 0 ? capacity : 1;
         this.logger = logger;
         this.commitExecutor = commitExecutor;
         // An application that has not asked for persistence gets the same store running the same way it
         // runs once a write has failed: events are held, delivered, and lost only if the process dies.
-        // Batches a run with persistence turned on left behind are still recovered and delivered, which
-        // is why this sets the runtime flag rather than skipping the store's reads.
+        // It also skips every read, so batches a run with persistence turned on left behind stay on disk
+        // until persistence is turned back on.
         this.persistEvents = persistEvents;
+        this.usesDisk = persistEvents;
     }
 
     /**
@@ -165,6 +204,37 @@ final class EventStore implements Closeable {
                 environmentDirectoryName(mobileKey));
         return new EventStore(directory, processName, capacity, persistEvents, logger,
                 defaultCommitExecutor());
+    }
+
+    /**
+     * Creates the store for one environment of one process, leaving the platform to be asked where on
+     * first use, from one of the store's own threads.
+     *
+     * @param platformState where the no-backup directory and the process name come from
+     * @param mobileKey identifies the environment, so several clients stay out of each other's way
+     * @param persistEvents whether the application asked for events to outlive the process
+     */
+    static EventStore create(
+            final PlatformState platformState,
+            String mobileKey,
+            int capacity,
+            boolean persistEvents,
+            LDLogger logger
+    ) {
+        final String environmentDirectory = environmentDirectoryName(mobileKey);
+        Location location = new Location() {
+            @Override
+            public File directory() {
+                return new File(new File(platformState.getNoBackupFilesDir(), DIRECTORY_NAME),
+                        environmentDirectory);
+            }
+
+            @Override
+            public String processName() {
+                return platformState.getProcessName();
+            }
+        };
+        return new EventStore(location, capacity, persistEvents, logger, defaultCommitExecutor());
     }
 
     /**
@@ -307,6 +377,13 @@ final class EventStore implements Closeable {
      * Hands every staged byte to the kernel, so the events recorded so far survive the process dying.
      */
     void commit() {
+        // Answered before ioLock, which a delivery can hold for as long as it takes to read a batch
+        // back: with persistence off there is nothing to write, so nothing worth waiting for.
+        synchronized (bufferLock) {
+            if (!persistEvents) {
+                return;
+            }
+        }
         synchronized (ioLock) {
             commitHoldingIoLock();
         }
@@ -347,9 +424,9 @@ final class EventStore implements Closeable {
         closeOutputHoldingIoLock();
 
         String payloadId = UUID.randomUUID().toString();
-        if (!openLog.renameTo(batchFile(payloadId))) {
+        if (!openLog().renameTo(batchFile(payloadId))) {
             logger.warn("Could not close the event log for delivery");
-            if (!openLog.exists()) {
+            if (!openLog().exists()) {
                 // The log itself is gone, so its events are too. They have to stop counting against
                 // capacity or the store would refuse events for the rest of the session.
                 synchronized (bufferLock) {
@@ -407,7 +484,7 @@ final class EventStore implements Closeable {
     List<Batch> pendingBatches() {
         synchronized (ioLock) {
             List<Batch> batches = new ArrayList<>();
-            File[] files = directory.listFiles();
+            File[] files = usesDisk ? directory().listFiles() : null;
             if (files != null) {
                 List<File> ready = new ArrayList<>();
                 for (File file : files) {
@@ -495,26 +572,42 @@ final class EventStore implements Closeable {
      * this process's own log is touched: another process's may still be open in a process that is alive.
      */
     void recoverInterruptedLog() {
+        if (!usesDisk) {
+            return;
+        }
         synchronized (ioLock) {
-            if (!openLog.exists()) {
-                return;
-            }
-            int events = Format.eventCount(readFile(openLog));
-            if (events < 0) {
-                // Unreadable, and a log that cannot be read cannot be appended to either.
-                deleteQuietly(openLog);
-                return;
-            }
-            if (events == 0) {
-                deleteQuietly(openLog);
-                return;
-            }
-            String payloadId = UUID.randomUUID().toString();
-            if (openLog.renameTo(batchFile(payloadId))) {
-                eventCounts.put(payloadId, events);
-                logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
-                        events);
-            }
+            recoverInterruptedLogHoldingIoLock();
+        }
+    }
+
+    /**
+     * Requires {@code ioLock}. Runs at most once, and always before this process first opens its log:
+     * after that, the log under this name holds this run's events, and closing it as a previous run's
+     * would send them early and report them as recovered.
+     */
+    private void recoverInterruptedLogHoldingIoLock() {
+        if (recoveryDone) {
+            return;
+        }
+        recoveryDone = true;
+        if (!openLog().exists()) {
+            return;
+        }
+        int events = Format.eventCount(readFile(openLog()));
+        if (events < 0) {
+            // Unreadable, and a log that cannot be read cannot be appended to either.
+            deleteQuietly(openLog());
+            return;
+        }
+        if (events == 0) {
+            deleteQuietly(openLog());
+            return;
+        }
+        String payloadId = UUID.randomUUID().toString();
+        if (openLog().renameTo(batchFile(payloadId))) {
+            eventCounts.put(payloadId, events);
+            logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
+                    events);
         }
     }
 
@@ -587,13 +680,16 @@ final class EventStore implements Closeable {
                 return null;
             }
         }
-        if (!directory.exists() && !directory.mkdirs() && !directory.isDirectory()) {
-            throw new IOException("could not create " + directory);
+        if (!directory().exists() && !directory().mkdirs() && !directory().isDirectory()) {
+            throw new IOException("could not create " + directory());
         }
-        boolean isNew = !openLog.exists() || openLog.length() == 0;
+        // A commit on the caller's thread can get here before the processor's queued startup task has
+        // recovered what a previous run left open.
+        recoverInterruptedLogHoldingIoLock();
+        boolean isNew = !openLog().exists() || openLog().length() == 0;
         // Append mode is what makes each write land at the end of the file as one step, so that a
         // process cannot splice its bytes into the middle of what another wrote.
-        FileOutputStream stream = new FileOutputStream(openLog, true);
+        FileOutputStream stream = new FileOutputStream(openLog(), true);
         if (isNew) {
             stream.write(Format.fileHeader());
         }
@@ -622,12 +718,36 @@ final class EventStore implements Closeable {
         }
     }
 
+    /** Requires {@code ioLock}. */
+    private void resolveLocationHoldingIoLock() {
+        if (directory == null) {
+            File resolved = location.directory();
+            openLog = new File(resolved, OPEN_PREFIX + logNameFor(location.processName()));
+            directory = resolved;
+        }
+    }
+
+    /** Requires {@code ioLock}. */
+    private File directory() {
+        resolveLocationHoldingIoLock();
+        return directory;
+    }
+
+    /** Requires {@code ioLock}. */
+    private File openLog() {
+        resolveLocationHoldingIoLock();
+        return openLog;
+    }
+
+    /** Requires {@code ioLock}. */
     private File batchFile(String payloadId) {
-        return new File(directory, BATCH_PREFIX + payloadId);
+        return new File(directory(), BATCH_PREFIX + payloadId);
     }
 
     File getDirectory() {
-        return directory;
+        synchronized (ioLock) {
+            return directory();
+        }
     }
 
     private void deleteQuietly(File file) {
@@ -847,7 +967,7 @@ final class EventStore implements Closeable {
         commit();
         synchronized (ioLock) {
             List<byte[]> logs = new ArrayList<>();
-            File[] files = directory.listFiles();
+            File[] files = usesDisk ? directory().listFiles() : null;
             if (files != null) {
                 List<File> sorted = new ArrayList<>();
                 for (File file : files) {
@@ -865,8 +985,8 @@ final class EventStore implements Closeable {
                     logs.add(readFile(file));
                 }
             }
-            if (openLog.exists()) {
-                logs.add(readFile(openLog));
+            if (usesDisk && openLog().exists()) {
+                logs.add(readFile(openLog()));
             }
             synchronized (bufferLock) {
                 if (bufferedEventCount > 0) {

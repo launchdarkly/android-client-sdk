@@ -54,7 +54,9 @@ public class OutboundEventBufferSerializationTest {
     private OutboundEventBuffer makeBuffer(boolean allAttributesPrivate,
                                            Collection<AttributeRef> privateAttributes,
                                            boolean perContextSummarization) {
-        return new OutboundEventBuffer(100, allAttributesPrivate, privateAttributes, perContextSummarization,
+        // Unbounded cardinality, so these stay about serialization and nothing else.
+        return new OutboundEventBuffer(allAttributesPrivate, privateAttributes, perContextSummarization,
+                Integer.MAX_VALUE,
                 LDLogger.withAdapter(logAdapter, ""));
     }
 
@@ -165,7 +167,7 @@ public class OutboundEventBufferSerializationTest {
     }
 
     @Test
-    public void drainingFullEventsAndSummariesTogetherAgreesWithFormatter() throws Exception {
+    public void encodingFullEventsAndSummariesTogetherAgreesWithFormatter() throws Exception {
         PrivacyShape privacy = privacyShapes().get(1);
         Event.Custom custom = new Event.Custom(1003, "custom", CONTEXT, LDValue.of("data"), 1.5);
         Event.FeatureRequest evaluation = summaryEvent(
@@ -173,9 +175,9 @@ public class OutboundEventBufferSerializationTest {
 
         OutboundEventBuffer actualBuffer = makeBuffer(
                 privacy.allAttributesPrivate, privacy.privateAttributes, true);
-        actualBuffer.addFullEvent(custom);
         actualBuffer.summarize(evaluation);
-        String actual = new String(actualBuffer.drain().getData(), StandardCharsets.UTF_8);
+        String actual = new String(actualBuffer.encode(Collections.<Event>singletonList(custom),
+                actualBuffer.takeSummaries()).getData(), StandardCharsets.UTF_8);
 
         PerContextEventSummarizer canonicalSummarizer = new PerContextEventSummarizer();
         canonicalSummarizer.summarizeEvent(
@@ -206,7 +208,7 @@ public class OutboundEventBufferSerializationTest {
     // only faster: every event kind, crossed with the context shapes and privacy settings that change what
     // redaction does, has to come out byte for byte as the formatter writes it.
     //
-    // The comparison runs against the formatter itself, through drain(), rather than against a recorded
+    // The comparison runs against the formatter itself, rather than against a recorded
     // expectation. A change upstream therefore breaks these rather than going unnoticed until the events
     // reaching LaunchDarkly disagree with every other SDK's.
 

@@ -782,8 +782,14 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public boolean flushAndWait(long timeout, TimeUnit unit) {
         long deadline = System.nanoTime() + unit.toNanos(timeout);
+        Map<String, LDClient> clients = getInstancesIfTheyIncludeThisClient();
+        if (clients.isEmpty()) {
+            // This client has been closed, or replaced by a later init; either way it can deliver
+            // nothing, and saying otherwise would tell the caller its events were safe.
+            return false;
+        }
         boolean delivered = true;
-        for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
+        for (LDClient client : clients.values()) {
             // Each environment gets what is left of the one budget rather than a fresh copy of it,
             // so that the timeout the caller asked for is the time this call can take.
             long remaining = Math.max(0, deadline - System.nanoTime());

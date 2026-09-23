@@ -539,8 +539,10 @@ public class EventPersistenceBenchmark {
     }
 
     private OutboundEventBuffer makeBuffer(PrivacyShape privacy) {
-        return new OutboundEventBuffer(Integer.MAX_VALUE, privacy.allAttributesPrivate,
-                privacy.privateAttributes, true, logger);
+        // Unbounded cardinality, so a benchmark that sweeps context counts measures the encoder
+        // rather than the point at which the summarizer starts turning contexts away.
+        return new OutboundEventBuffer(privacy.allAttributesPrivate, privacy.privateAttributes,
+                true, Integer.MAX_VALUE, logger);
     }
 
     private static Event.FeatureRequest featureEvent(LDContext context, boolean requireFullEvent) {

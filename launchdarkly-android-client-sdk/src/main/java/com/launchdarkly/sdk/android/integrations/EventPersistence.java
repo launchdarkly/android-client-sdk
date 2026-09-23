@@ -12,6 +12,9 @@ package com.launchdarkly.sdk.android.integrations;
 public enum EventPersistence {
     /**
      * Events are kept in memory only, and nothing survives the process ending.
+     * <p>
+     * The SDK does not touch the filesystem for events at all. Events that an earlier run with persistence
+     * turned on left on disk are not delivered, and stay there until persistence is turned back on.
      */
     DISABLED,
 
@@ -30,6 +33,11 @@ public enum EventPersistence {
      * device and on how many evaluations are waiting to be encoded alongside it. In exchange there is no
      * window: a process that dies the instant after {@code track} returns still reports that event on the
      * next run. Evaluating a flag stays in memory regardless.
+     * <p>
+     * Because this is disk I/O on the calling thread, an application that calls {@code track} or
+     * {@code identify} on the main thread with {@link android.os.StrictMode} detecting disk writes will see
+     * a violation for each call. Choose {@link #DEFERRED} for those callers, which keeps these writes off
+     * the calling thread.
      */
     IMMEDIATE
 }
