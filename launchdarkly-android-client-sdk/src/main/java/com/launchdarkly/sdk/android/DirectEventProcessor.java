@@ -369,8 +369,7 @@ final class DirectEventProcessor implements EventProcessor {
             return;
         }
         synchronized (stateLock) {
-            flushTask = enableOrDisableTask(false, flushTask, 0, null);
-            diagnosticTask = enableOrDisableTask(false, diagnosticTask, 0, null);
+            updateScheduledTasks(inBackground.get(), offline.get());
         }
         // Deliver what is still buffered before we let go of the sender. This waits rather than
         // firing and forgetting because it is the last chance these events get: nothing is kept
@@ -620,23 +619,21 @@ final class DirectEventProcessor implements EventProcessor {
                 && debugEventsUntilDate > System.currentTimeMillis();
     }
 
+    /**
+     * Must be called holding {@code stateLock}. Once closed, this only ever cancels: close() sets the
+     * flag and then calls this under the same lock, so a call that got here first has its tasks
+     * cancelled by close(), and any call after it finds the flag set.
+     */
     private void updateScheduledTasks(boolean inBackground, boolean offline) {
-        // The only close check the scheduling path needs, and the reason setOffline and
-        // setInBackground do not carry one of their own. close() sets the flag before
-        // it takes stateLock and cancels the tasks under it, so whichever of the two reaches the lock
-        // second sees what the other did: either this returns here, or it schedules and close() then
-        // cancels what it scheduled. Two threads cannot both get past this and leave a task running.
-        if (closed.get()) {
-            return;
-        }
+        boolean stopped = closed.get();
         // Flushing stays scheduled whether or not we are offline or in the background; a run while
         // offline returns without doing anything. Cancelling it for an outage would restart the
         // interval on every reconnect, and a run of brief outages would then hold events back for
         // far longer than one interval. Left running, what an outage buffered goes out at the first
         // run after it ends.
-        flushTask = enableOrDisableTask(true, flushTask, flushIntervalMillis,
+        flushTask = enableOrDisableTask(!stopped, flushTask, flushIntervalMillis,
                 this::deliverPayload);
-        boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;
+        boolean diagnosticsEnabled = !stopped && diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
         if (diagnosticsEnabled && !diagnosticInitSent && claimDiagnosticPost()) {

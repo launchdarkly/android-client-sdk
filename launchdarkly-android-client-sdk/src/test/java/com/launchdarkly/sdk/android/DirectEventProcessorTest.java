@@ -437,6 +437,38 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void closeCancelsThePeriodicFlushAndNothingAfterItSchedulesAnother() throws Exception {
+        List<ScheduledFuture<?>> scheduled = Collections.synchronizedList(new ArrayList<>());
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1) {
+            @Override
+            public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay,
+                                                             long delay, TimeUnit unit) {
+                ScheduledFuture<?> future = super.scheduleWithFixedDelay(command, initialDelay, delay, unit);
+                scheduled.add(future);
+                return future;
+            }
+        };
+        // Otherwise shutting the executor down would cancel the task for close(), and this could not
+        // tell whether close() did.
+        scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(true);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            eventProcessor.close();
+            eventProcessor.setOffline(true);
+            eventProcessor.setOffline(false);
+            eventProcessor.setInBackground(true);
+            eventProcessor.setInBackground(false);
+
+            assertEquals(1, scheduled.size());
+            assertTrue("close() left the periodic flush running", scheduled.get(0).isCancelled());
+        } finally {
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void anOutageDoesNotRestartTheFlushInterval() throws Exception {
         // Restarting it on every reconnect would let a run of brief outages hold events back for
         // far longer than one interval.
