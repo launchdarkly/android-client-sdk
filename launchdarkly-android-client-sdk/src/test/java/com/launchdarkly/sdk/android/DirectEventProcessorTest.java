@@ -20,12 +20,15 @@ import com.launchdarkly.testhelpers.httptest.RequestInfo;
 import org.junit.After;
 import org.junit.Test;
 
+import java.io.File;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -602,6 +605,106 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         } finally {
             releaseStaging.countDown();
             eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void theStoreAsksThePlatformWhereItLivesOffTheCallersThread() throws Exception {
+        // LDClient.init builds the processor, usually on the main thread, and answering touches the disk:
+        // the platform creates the no-backup directory when asked for it, and before API 28 the process
+        // name is read from /proc.
+        Queue<Thread> askedOn = new ConcurrentLinkedQueue<>();
+        MockPlatformState platformState = new MockPlatformState() {
+            @Override
+            public File getNoBackupFilesDir() {
+                askedOn.add(Thread.currentThread());
+                return eventsDirectory.getRoot();
+            }
+
+            @Override
+            public String getProcessName() {
+                askedOn.add(Thread.currentThread());
+                return "test";
+            }
+        };
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = buildOfflineEventProcessor(server,
+                    Components.sendEvents().eventPersistence(EventPersistence.DEFERRED)
+                            .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS),
+                    true, platformState);
+            eventProcessor.setOffline(false);
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            eventProcessor.flush();
+            eventProcessor.blockingFlush();
+            eventProcessor.close();
+
+            assertFalse("the platform was never asked, so this proves nothing", askedOn.isEmpty());
+            assertFalse("the platform was asked on the caller's thread",
+                    askedOn.contains(Thread.currentThread()));
+        }
+    }
+
+    @Test
+    public void deferredPersistenceNeverWritesOnTheCallersThread() throws Exception {
+        Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            void commit() {
+                committedOn.add(Thread.currentThread());
+                super.commit();
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        try {
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            eventProcessor.flush();
+            eventProcessor.recordCustomEvent(CONTEXT, "another", LDValue.ofNull(), null);
+            eventProcessor.blockingFlush();
+            eventProcessor.blockingFlush(2, TimeUnit.SECONDS);
+            eventProcessor.close();
+
+            assertFalse("nothing was ever committed, so this proves nothing", committedOn.isEmpty());
+            assertFalse("a commit ran on the caller's thread",
+                    committedOn.contains(Thread.currentThread()));
+        } finally {
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void closeStillWritesWhenTheEventsThreadNeverGetsToIt() throws Exception {
+        // The events thread is single-threaded, so a delivery that hangs holds the final commit behind it
+        // for longer than close() waits. The write is close()'s promise, so it falls to the caller.
+        Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            void commit() {
+                committedOn.add(Thread.currentThread());
+                super.commit();
+            }
+        };
+        CountDownLatch releaseEventsThread = new CountDownLatch(1);
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+        try {
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            scheduler.submit(() -> awaitQuietly(releaseEventsThread, 5, TimeUnit.SECONDS));
+
+            eventProcessor.close();
+
+            assertTrue("close() returned without writing the event down",
+                    committedOn.contains(Thread.currentThread()));
+            assertEquals(1, store.getPendingEventCount());
+        } finally {
+            releaseEventsThread.countDown();
             scheduler.shutdownNow();
         }
     }

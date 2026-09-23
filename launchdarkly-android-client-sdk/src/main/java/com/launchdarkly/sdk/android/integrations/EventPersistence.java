@@ -30,6 +30,11 @@ public enum EventPersistence {
      * device and on how many evaluations are waiting to be encoded alongside it. In exchange there is no
      * window: a process that dies the instant after {@code track} returns still reports that event on the
      * next run. Evaluating a flag stays in memory regardless.
+     * <p>
+     * Because this is disk I/O on the calling thread, an application that calls {@code track} or
+     * {@code identify} on the main thread with {@link android.os.StrictMode} detecting disk writes will see
+     * a violation for each call. Choose {@link #DEFERRED} for those callers, which keeps these writes off
+     * the calling thread.
      */
     IMMEDIATE
 }

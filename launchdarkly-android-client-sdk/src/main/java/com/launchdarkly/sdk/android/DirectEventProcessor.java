@@ -516,9 +516,10 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return;
         }
-        // Flush is a commit point: persist everything accepted before this call before returning,
-        // even when the queued delivery cannot run because the client is offline.
-        commitDurably();
+        // A commit point, written on the caller's thread only where the application asked for that.
+        // Otherwise the write is queued ahead of the delivery, so it still happens when the delivery
+        // cannot run because the client is offline.
+        commitAtCommitPoint();
         submit(this::deliverPayload);
     }
 
@@ -527,8 +528,9 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return;
         }
-        commitDurably();
-        Future<?> delivery = submit(this::deliverPayload);
+        // The write is part of the task waited on rather than done first: the caller waits either way,
+        // and this way the disk is touched on the events thread instead of the caller's.
+        Future<?> delivery = submit(this::commitAndDeliver);
         if (delivery == null) {
             return;
         }
@@ -546,9 +548,8 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return false;
         }
-        commitDurably();
         // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
-        Callable<Boolean> delivery = this::deliverPayloadReportingOutcome;
+        Callable<Boolean> delivery = this::commitAndDeliverReportingOutcome;
         Future<Boolean> pending = submit(delivery);
         if (pending == null) {
             return false;
@@ -580,10 +581,15 @@ final class DirectEventProcessor implements EventProcessor {
         // Deliver what is still buffered before we let go of the sender. This waits rather than
         // firing and forgetting because it is this run's last chance to send them. While offline
         // that chance is not taken: offline is the application telling the SDK to stay off the
-        // network, and shutting down does not revoke that. The commit below still writes those
+        // network, and shutting down does not revoke that. The commit ahead of it still writes those
         // events down where persistence is on, so they go out on a later run; where it is off they
         // are discarded.
-        Future<?> delivery = submit(this::deliverPayload);
+        final AtomicBoolean finalCommitDone = new AtomicBoolean(false);
+        Future<?> delivery = submit(() -> {
+            commitDurably();
+            finalCommitDone.set(true);
+            deliverPayload();
+        });
         if (delivery != null) {
             try {
                 delivery.get(closeBudgetMillis, TimeUnit.MILLISECONDS);
@@ -600,13 +606,13 @@ final class DirectEventProcessor implements EventProcessor {
                 logUnexpectedError(e.getCause() == null ? e : e.getCause());
             }
         }
-        // Whatever could not be delivered is written down instead, so a caller who closed the client
-        // and then let the process end still has those events on the next run. Encoding happens here
-        // too, because a delivery that was refused for being offline returned before staging anything
-        // and the held events are still only objects. This stays on the caller's thread even though
-        // the wait above is bounded: it is the durability promise close() makes, and a caller has to
-        // be able to rely on it having happened by the time close() returns.
-        commitDurably();
+        // A caller who closed the client and then let the process end has to find those events on the
+        // next run, so the write must have happened by the time close() returns. It normally has, on
+        // the events thread; this writes on the caller's only when that thread never got to it, such
+        // as when it is still stuck on an earlier delivery.
+        if (!finalCommitDone.get()) {
+            commitDurably();
+        }
         // The store and the senders, by contrast, are released on whichever thread uses them, after
         // whatever is still in flight there. Closing them inline would pull them out from under a
         // delivery, or a diagnostic post, that we just decided not to wait for. shutdown() then
@@ -658,6 +664,19 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private void deliverPayload() {
         deliverPayloadReportingOutcome();
+    }
+
+    /**
+     * Writes everything accepted so far, then delivers. The write comes first because a delivery
+     * refused for being offline returns before writing anything.
+     */
+    private void commitAndDeliver() {
+        commitAndDeliverReportingOutcome();
+    }
+
+    private boolean commitAndDeliverReportingOutcome() {
+        commitDurably();
+        return deliverPayloadReportingOutcome();
     }
 
     /**

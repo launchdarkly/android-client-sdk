@@ -140,11 +140,9 @@ abstract class ComponentsImpl {
          * combination and they never touch each other's events.
          */
         private EventStore makeEventStore(ClientContext clientContext, ClientContextImpl impl) {
-            PlatformState platformState = impl.getPlatformState();
             return EventStore.create(
-                    platformState.getNoBackupFilesDir(),
+                    impl.getPlatformState(),
                     clientContext.getMobileKey(),
-                    platformState.getProcessName(),
                     capacity,
                     eventPersistence != EventPersistence.DISABLED,
                     clientContext.getBaseLogger());

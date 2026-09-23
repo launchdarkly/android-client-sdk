@@ -95,6 +95,12 @@ public abstract class EventProcessorTestBase {
     /** @return the processor as the SDK builds it, before initialization has turned it on */
     protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                         boolean diagnosticOptOut) {
+        return buildOfflineEventProcessor(server, events, diagnosticOptOut, platformState());
+    }
+
+    protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .diagnosticOptOut(diagnosticOptOut)
@@ -102,7 +108,7 @@ public abstract class EventProcessorTestBase {
                 .serviceEndpoints(Components.serviceEndpoints().events(server.getUri()))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
-                null, null, CONTEXT, logging.logger, platformState(), environmentReporter, null);
+                null, null, CONTEXT, logging.logger, platformState, environmentReporter, null);
         return config.events.build(clientContext);
     }
 
