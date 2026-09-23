@@ -126,6 +126,8 @@ class EventStore implements Closeable {
 
     // Guarded by ioLock.
     private FileOutputStream output;
+    // Guarded by ioLock.
+    private boolean recoveryDone;
     /**
      * Batches held in memory because the filesystem would not take them.
      * <p>
@@ -574,25 +576,38 @@ class EventStore implements Closeable {
             return;
         }
         synchronized (ioLock) {
-            if (!openLog().exists()) {
-                return;
-            }
-            int events = Format.eventCount(readFile(openLog()));
-            if (events < 0) {
-                // Unreadable, and a log that cannot be read cannot be appended to either.
-                deleteQuietly(openLog());
-                return;
-            }
-            if (events == 0) {
-                deleteQuietly(openLog());
-                return;
-            }
-            String payloadId = UUID.randomUUID().toString();
-            if (openLog().renameTo(batchFile(payloadId))) {
-                eventCounts.put(payloadId, events);
-                logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
-                        events);
-            }
+            recoverInterruptedLogHoldingIoLock();
+        }
+    }
+
+    /**
+     * Requires {@code ioLock}. Runs at most once, and always before this process first opens its log:
+     * after that, the log under this name holds this run's events, and closing it as a previous run's
+     * would send them early and report them as recovered.
+     */
+    private void recoverInterruptedLogHoldingIoLock() {
+        if (recoveryDone) {
+            return;
+        }
+        recoveryDone = true;
+        if (!openLog().exists()) {
+            return;
+        }
+        int events = Format.eventCount(readFile(openLog()));
+        if (events < 0) {
+            // Unreadable, and a log that cannot be read cannot be appended to either.
+            deleteQuietly(openLog());
+            return;
+        }
+        if (events == 0) {
+            deleteQuietly(openLog());
+            return;
+        }
+        String payloadId = UUID.randomUUID().toString();
+        if (openLog().renameTo(batchFile(payloadId))) {
+            eventCounts.put(payloadId, events);
+            logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
+                    events);
         }
     }
 
@@ -668,6 +683,9 @@ class EventStore implements Closeable {
         if (!directory().exists() && !directory().mkdirs() && !directory().isDirectory()) {
             throw new IOException("could not create " + directory());
         }
+        // A commit on the caller's thread can get here before the processor's queued startup task has
+        // recovered what a previous run left open.
+        recoverInterruptedLogHoldingIoLock();
         boolean isNew = !openLog().exists() || openLog().length() == 0;
         // Append mode is what makes each write land at the end of the file as one step, so that a
         // process cannot splice its bytes into the middle of what another wrote.

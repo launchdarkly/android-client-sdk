@@ -191,6 +191,26 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
+    public void aCommitBeforeStartupRecoveryDoesNotPassThisRunsEventsOffAsRecovered() {
+        // With IMMEDIATE the first commit happens on the caller's thread, and can beat the recovery the
+        // processor queues on its own thread at startup. The log has the same name in both runs.
+        EventStore firstRun = storeFor(SERVICE_PROCESS);
+        firstRun.stage(event("previous-run"));
+        firstRun.commit();
+
+        EventStore secondRun = storeFor(SERVICE_PROCESS);
+        secondRun.stage(event("this-run"));
+        secondRun.commit();
+        secondRun.recoverInterruptedLog();
+
+        List<EventStore.Batch> recovered = secondRun.pendingBatches();
+        assertEquals(1, recovered.size());
+        assertEquals("this run's event was counted as a previous run's", 1, recovered.get(0).eventCount);
+        assertEquals(1, filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).size());
+        assertEquals(Arrays.asList("previous-run", "this-run"), visibleKeys(secondRun));
+    }
+
+    @Test
     public void aStoreWithoutPersistenceLeavesWhatAPersistentRunLeftBehindAlone() {
         EventStore persistentRun = storeFor(SERVICE_PROCESS);
         persistentRun.stage(event("closed-batch"));
