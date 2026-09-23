@@ -131,6 +131,13 @@ final class DirectEventProcessor implements EventProcessor {
     private final List<Event> pending = new ArrayList<>();
 
     /**
+     * How many events a commit has taken from {@link #pending} and not yet staged, guarded by
+     * {@link #recordLock}. The encode between the two happens outside that lock, and capacity has to
+     * count these events for as long as they are in neither place.
+     */
+    private int eventsBeingStaged;
+
+    /**
      * Guards everything one recording writes: {@link #pending} and the summary counters behind
      * {@link #buffer}.
      * <p>
@@ -398,9 +405,16 @@ final class DirectEventProcessor implements EventProcessor {
                 run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
                 pending.clear();
                 summaries = eventBuffer.takeSummaries();
+                eventsBeingStaged = run.size();
             }
-            stageRun(run);
-            stageSummaries(summaries);
+            try {
+                stageRun(run);
+                stageSummaries(summaries);
+            } finally {
+                synchronized (recordLock) {
+                    eventsBeingStaged = 0;
+                }
+            }
             store.commit();
         }
     }
@@ -443,7 +457,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
             return;
         }
-        if (pending.size() + store.getPendingEventCount() >= capacity) {
+        if (pending.size() + eventsBeingStaged + store.getPendingEventCount() >= capacity) {
             if (capacityExceeded.compareAndSet(false, true)) {
                 logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
             }

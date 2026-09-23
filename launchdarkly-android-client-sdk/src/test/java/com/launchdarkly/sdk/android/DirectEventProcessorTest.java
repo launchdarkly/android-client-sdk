@@ -575,6 +575,38 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void eventsOnTheirWayIntoTheStoreStillCountAgainstCapacity() throws Exception {
+        // A commit takes the pending events and encodes them before staging, and for that long they
+        // are in neither place. Counting only the two would let an event recorded then past capacity.
+        CountDownLatch staging = new CountDownLatch(1);
+        CountDownLatch releaseStaging = new CountDownLatch(1);
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, false,
+                logging.logger, Runnable::run) {
+            @Override
+            boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
+                staging.countDown();
+                awaitQuietly(releaseStaging, 5, TimeUnit.SECONDS);
+                return super.stage(serializedEvent, bypassingCapacity);
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, 1, scheduler);
+        try {
+            eventProcessor.recordIdentifyEvent(CONTEXT);
+            assertTrue("the commit never started staging", staging.await(2, TimeUnit.SECONDS));
+
+            eventProcessor.recordIdentifyEvent(CONTEXT);
+            releaseStaging.countDown();
+
+            assertEquals(1, eventProcessor.getAndClearDroppedCount());
+        } finally {
+            releaseStaging.countDown();
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void eventsHeldDuringAnOutageGoOutWithTheNextPeriodicFlush() throws Exception {
         // Analytics go out through AnalyticsEventSender rather than the injectable one, so the
         // delivery has to be watched at the server rather than at the stub.
@@ -1195,18 +1227,43 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     long closeBudgetMillis,
                                                     ScheduledExecutorService scheduler,
                                                     ExecutorService diagnosticExecutor) {
-        return new DirectEventProcessor(
-                new OutboundEventBuffer(false, Collections.emptyList(), true, DEFAULT_CAPACITY,
-                        logging.logger),
+        return makeEventProcessor(diagnosticSender, eventsUri, diagnosticStore, flushIntervalMillis,
+                diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor,
                 EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test", DEFAULT_CAPACITY,
                         true, logging.logger),
+                DEFAULT_CAPACITY);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventStore store, int capacity,
+                                                    ScheduledExecutorService scheduler) {
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        return makeEventProcessor(new StubEventSender(), UNUSED_EVENTS_URI, null,
+                NO_PERIODIC_FLUSH_MILLIS, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor, store, capacity);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender diagnosticSender,
+                                                    URI eventsUri,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    long diagnosticIntervalMillis,
+                                                    long closeBudgetMillis,
+                                                    ScheduledExecutorService scheduler,
+                                                    ExecutorService diagnosticExecutor,
+                                                    EventStore store,
+                                                    int capacity) {
+        return new DirectEventProcessor(
+                new OutboundEventBuffer(false, Collections.emptyList(), true, capacity,
+                        logging.logger),
+                store,
                 diagnosticSender,
                 new AnalyticsEventSender(LDUtil.makeHttpProperties(
                         new HttpConfiguration(2000, Collections.emptyMap(), null, false)),
                         logging.logger),
                 eventsUri,
                 diagnosticStore,
-                DEFAULT_CAPACITY,
+                capacity,
                 false, // commitOnCallerThread
                 flushIntervalMillis,
                 diagnosticIntervalMillis,

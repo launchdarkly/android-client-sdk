@@ -58,7 +58,7 @@ import java.util.concurrent.ThreadFactory;
  * The format is byte-for-byte the one the iOS SDK writes, so the two can be reasoned about, and
  * debugged, as one thing.
  */
-final class EventStore implements Closeable {
+class EventStore implements Closeable {
     /** Names a log closed off for delivery; the rest of the name is the batch's payload ID. */
     private static final String BATCH_PREFIX = "ready-";
     /** Names the log a single process appends to; the rest of the name is that process. */
