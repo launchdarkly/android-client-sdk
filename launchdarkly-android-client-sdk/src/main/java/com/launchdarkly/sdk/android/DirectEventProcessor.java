@@ -249,7 +249,7 @@ final class DirectEventProcessor implements EventProcessor {
         });
 
         synchronized (stateLock) {
-            updateScheduledTasks(initiallyInBackground, initiallyOffline, false);
+            updateScheduledTasks(initiallyInBackground, initiallyOffline);
         }
     }
 
@@ -483,7 +483,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (this.inBackground.getAndSet(inBackground) == inBackground) {
                 return;
             }
-            updateScheduledTasks(inBackground, offline.get(), false);
+            updateScheduledTasks(inBackground, offline.get());
         }
     }
 
@@ -493,7 +493,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (this.offline.getAndSet(offline) == offline) {
                 return;
             }
-            updateScheduledTasks(inBackground.get(), offline, !offline);
+            updateScheduledTasks(inBackground.get(), offline);
         }
     }
 
@@ -564,10 +564,11 @@ final class DirectEventProcessor implements EventProcessor {
             diagnosticTask = enableOrDisableTask(false, diagnosticTask, 0, null);
         }
         // Deliver what is still buffered before we let go of the sender. This waits rather than
-        // firing and forgetting because it is the last chance these events get: nothing is kept
-        // once the processor is gone. While offline that chance is not taken, and whatever is held
-        // is discarded. Offline is the application telling the SDK to stay off the network, and
-        // shutting down does not revoke that.
+        // firing and forgetting because it is this run's last chance to send them. While offline
+        // that chance is not taken: offline is the application telling the SDK to stay off the
+        // network, and shutting down does not revoke that. The commit below still writes those
+        // events down where persistence is on, so they go out on a later run; where it is off they
+        // are discarded.
         Future<?> delivery = submit(this::deliverPayload);
         if (delivery != null) {
             try {
@@ -842,33 +843,26 @@ final class DirectEventProcessor implements EventProcessor {
                 && debugEventsUntilDate > System.currentTimeMillis();
     }
 
-    /**
-     * @param cameOnline true if this call is the SDK going from offline to online, the one transition
-     *   that owes the events buffered during the outage a delivery rather than only a schedule
-     */
-    private void updateScheduledTasks(boolean inBackground, boolean offline, boolean cameOnline) {
-        // The only close check the scheduling path needs, and the reason setOffline, setInBackground
-        // and the catch-up delivery below do not carry one of their own. close() sets the flag before
+    private void updateScheduledTasks(boolean inBackground, boolean offline) {
+        // The only close check the scheduling path needs, and the reason setOffline and
+        // setInBackground do not carry one of their own. close() sets the flag before
         // it takes stateLock and cancels the tasks under it, so whichever of the two reaches the lock
         // second sees what the other did: either this returns here, or it schedules and close() then
         // cancels what it scheduled. Two threads cannot both get past this and leave a task running.
         if (closed.get()) {
             return;
         }
-        // Flushing is pointless while we are offline, but it stays on in the background so that
-        // events recorded before the app was backgrounded still get delivered.
-        flushTask = enableOrDisableTask(!offline, flushTask, flushIntervalMillis,
+        // Flushing stays scheduled whether or not we are offline or in the background; a run while
+        // offline returns without doing anything. Cancelling it for an outage would restart the
+        // interval on every reconnect, and a run of brief outages would then hold events back for
+        // far longer than one interval. Left running, what an outage buffered goes out at the first
+        // run after it ends.
+        flushTask = enableOrDisableTask(true, flushTask, flushIntervalMillis,
                 this::deliverPayload);
-        // Claimed outside the test below, so that coming online does not leave the flag set for the
-        // next caller to act on a second time.
-        boolean recoveredEventsAreWaiting =
-                !offline && hasEventsFromPreviousRun.compareAndSet(true, false);
-        // Two reasons not to wait out an interval. Coming back online is one: the periodic task was
-        // cancelled for the outage and starts a fresh interval above, so anything the outage buffered
-        // would otherwise wait the whole of it, and each loss of connectivity re-anchors that
-        // interval, so a run of brief ones can hold events back for far longer than one. Finding
-        // events a previous run left on disk is the other; they have already waited out a process.
-        if (cameOnline || recoveredEventsAreWaiting) {
+        // Events a previous run left on disk have already waited out a whole process, so they do not
+        // wait out an interval as well. An application that dies within one interval of every start
+        // would otherwise never deliver them.
+        if (!offline && hasEventsFromPreviousRun.compareAndSet(true, false)) {
             submit(this::deliverPayload);
         }
         boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;

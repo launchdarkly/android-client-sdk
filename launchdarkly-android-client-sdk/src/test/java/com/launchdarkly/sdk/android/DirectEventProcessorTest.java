@@ -30,6 +30,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -522,24 +524,77 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void comingBackOnlineDeliversWithoutWaitingForTheNextInterval() throws Exception {
-        // A connectivity blip cancels the periodic flush and then restarts it from zero, so waiting
-        // for it would hold these events back by a full interval — and by several of them if the
-        // network keeps dropping.
+    public void goingOnlineForTheFirstTimeDoesNotDeliverOnItsOwn() throws Exception {
+        // What LDClient does at startup: the initial identify is recorded while the processor is
+        // still offline, and initialization then turns it on. The identify waits to be batched with
+        // what follows rather than going out alone.
         try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            EventProcessor eventProcessor = buildOfflineEventProcessor(server,
+                    eventsBuilder(DEFAULT_CAPACITY), true);
             try {
-                eventProcessor.setOffline(true);
-                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.recordIdentifyEvent(CONTEXT);
 
                 eventProcessor.setOffline(false);
 
-                // Periodic flushing is effectively off in this fixture, so a payload arriving
-                // without an explicit flush can only have come from the transition.
+                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+                assertEquals(1, countEventsOfKind(events, "identify"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void anOutageDoesNotRestartTheFlushInterval() throws Exception {
+        // Restarting it on every reconnect would let a run of brief outages hold events back for
+        // far longer than one interval.
+        AtomicInteger scheduled = new AtomicInteger();
+        ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(1) {
+            @Override
+            public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay,
+                                                             long delay, TimeUnit unit) {
+                scheduled.incrementAndGet();
+                return super.scheduleWithFixedDelay(command, initialDelay, delay, unit);
+            }
+        };
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            for (int i = 0; i < 5; i++) {
+                eventProcessor.setOffline(true);
+                eventProcessor.setOffline(false);
+            }
+
+            assertEquals(1, scheduled.get());
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void eventsHeldDuringAnOutageGoOutWithTheNextPeriodicFlush() throws Exception {
+        // Analytics go out through AnalyticsEventSender rather than the injectable one, so the
+        // delivery has to be watched at the server rather than at the stub.
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, 50, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler);
+            try {
+                eventProcessor.setOffline(true);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
+
+                eventProcessor.setOffline(false);
+
                 List<LDValue> events = collectDelivered(server);
                 assertEquals(1, countEventsOfKind(events, "custom"));
             } finally {
                 eventProcessor.close();
+                scheduler.shutdownNow();
             }
         }
     }

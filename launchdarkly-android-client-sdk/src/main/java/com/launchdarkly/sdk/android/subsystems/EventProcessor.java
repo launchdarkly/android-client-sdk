@@ -91,8 +91,9 @@ public interface EventProcessor extends Closeable {
      * Specifies that any buffered events should be sent as soon as possible, rather than waiting
      * for the next flush interval. This method is asynchronous, so events still may not be sent
      * until a later time. However, calling {@link Closeable#close()} will synchronously deliver
-     * any events that were not yet delivered prior to shutting down, unless the SDK is offline, in
-     * which case those events are discarded.
+     * any events that were not yet delivered prior to shutting down, unless the SDK is offline. In
+     * that case nothing is sent; the events are kept for a later run if event persistence is on, and
+     * discarded otherwise.
      */
     void flush();
 
