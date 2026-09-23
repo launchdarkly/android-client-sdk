@@ -180,29 +180,41 @@ final class DirectEventProcessor implements EventProcessor {
             boolean requireFullEvent,
             Long debugEventsUntilDate
     ) {
-        if (isStopped() || context == null) {
-            return;
-        }
-        Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
-                context, flagVersion, variation, value, defaultValue, reason, null,
-                requireFullEvent, debugEventsUntilDate, false);
-        // Built before the lock is taken, so that the critical section is only the writes.
-        Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
-        boolean contextsExceeded;
-        synchronized (recordLock) {
-            if (closed.get()) {
+        try {
+            if (isStopped() || context == null) {
                 return;
             }
-            contextsExceeded = !buffer.summarize(event);
-            if (requireFullEvent) {
-                addPending(event);
+            Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
+                    context, flagVersion, variation, value, defaultValue, reason, null,
+                    requireFullEvent, debugEventsUntilDate, false);
+            // Built before the lock is taken, so that the critical section is only the writes.
+            Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
+            boolean contextsExceeded;
+            boolean warnContextsExceeded;
+            synchronized (recordLock) {
+                if (closed.get()) {
+                    return;
+                }
+                contextsExceeded = !buffer.summarize(event);
+                // Claimed under the lock that the delivery resets it under, so the warning belongs to
+                // the run whose summarizer turned this evaluation away rather than to the next one.
+                warnContextsExceeded = contextsExceeded
+                        && summaryContextsExceeded.compareAndSet(false, true);
+                if (requireFullEvent) {
+                    addPending(event);
+                }
+                if (debugEvent != null) {
+                    addPending(debugEvent);
+                }
             }
-            if (debugEvent != null) {
-                addPending(debugEvent);
+            if (contextsExceeded) {
+                reportContextsExceeded(warnContextsExceeded);
             }
-        }
-        if (contextsExceeded) {
-            reportContextsExceeded();
+        } catch (RuntimeException e) {
+            // This runs on the application's thread, usually inside a flag evaluation, and an
+            // analytics failure must not become the application's failure. Errors such as
+            // OutOfMemoryError are left to propagate, so the application's crash reporting sees them.
+            logUnexpectedError(e);
         }
     }
 
@@ -232,17 +244,22 @@ final class DirectEventProcessor implements EventProcessor {
      * the loop runs.
      */
     void record(Event event) {
-        synchronized (recordLock) {
-            // The close check that decides the outcome, as against the fast path the public record
-            // methods take before building the event. deliverPayload lifts the run out under this
-            // same lock, so testing the flag here orders a record against close()'s final delivery:
-            // either the event is in the list before that delivery takes it, or it is refused.
-            // Tested outside the lock the two interleave, and an event can be left in a list that
-            // nothing will drain again.
-            if (closed.get()) {
-                return;
+        try {
+            synchronized (recordLock) {
+                // The close check that decides the outcome, as against the fast path the public record
+                // methods take before building the event. deliverPayload lifts the run out under this
+                // same lock, so testing the flag here orders a record against close()'s final delivery:
+                // either the event is in the list before that delivery takes it, or it is refused.
+                // Tested outside the lock the two interleave, and an event can be left in a list that
+                // nothing will drain again.
+                if (closed.get()) {
+                    return;
+                }
+                addPending(event);
             }
-            addPending(event);
+        } catch (RuntimeException e) {
+            // As in recordEvaluationEvent: on the caller's thread, so a failure is logged, not thrown.
+            logUnexpectedError(e);
         }
     }
 
@@ -275,8 +292,10 @@ final class DirectEventProcessor implements EventProcessor {
      * A refused evaluation is a loss in the same sense a refused event is -- nothing later reconstructs
      * a counter -- so it is reported the same way, through the dropped count diagnostics carry.
      */
-    private void reportContextsExceeded() {
-        if (summaryContextsExceeded.compareAndSet(false, true)) {
+    private void reportContextsExceeded(boolean warn) {
+        // Warned once per delivery run rather than once per process: the summarizer's contexts are
+        // cleared with each run, so a later overflow is a new one worth hearing about.
+        if (warn) {
             logger.warn("Exceeded the number of contexts that can be summarized at once." +
                     " Increase capacity to avoid dropping evaluations.");
         }
@@ -462,6 +481,7 @@ final class DirectEventProcessor implements EventProcessor {
             run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
             pending.clear();
             summaries = buffer.takeSummaries();
+            summaryContextsExceeded.set(false);
         }
         OutboundEventBuffer.Payload payload;
         try {

@@ -5,11 +5,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
@@ -803,6 +805,49 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             } finally {
                 eventProcessor.close();
             }
+        }
+    }
+
+    @Test
+    public void unexpectedRecordingErrorDoesNotBubbleToCallerAndLogs() throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            // Must not throw if record throws:
+            eventProcessor.record(new Event(System.currentTimeMillis(), CONTEXT) {
+                @Override
+                public long getSamplingRatio() {
+                    throw new RuntimeException("simulated record crash");
+                }
+            });
+            logging.assertErrorLogged("Unexpected error in event processor: java.lang.RuntimeException: simulated record crash");
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void anErrorWhileRecordingStillReachesTheCaller() throws Exception {
+        // Only exceptions are the SDK's to absorb. An Error such as OutOfMemoryError belongs to the
+        // application's crash reporting, and swallowing it on the caller's thread would hide it.
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            eventProcessor.record(new Event(System.currentTimeMillis(), CONTEXT) {
+                @Override
+                public long getSamplingRatio() {
+                    throw new StackOverflowError("simulated");
+                }
+            });
+            fail("the Error was swallowed");
+        } catch (StackOverflowError expected) {
+            // what the application's handler would see
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
         }
     }
 
