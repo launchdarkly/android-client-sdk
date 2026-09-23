@@ -345,9 +345,11 @@ final class DirectEventProcessor implements EventProcessor {
             flushTask = enableOrDisableTask(false, flushTask, 0, null);
             diagnosticTask = enableOrDisableTask(false, diagnosticTask, 0, null);
         }
-        // Deliver what is still buffered before we let go of the sender. The caller is entitled to
-        // assume the events made it out once close() returns, so this waits rather than firing and
-        // forgetting; it is the last chance these events get.
+        // Deliver what is still buffered before we let go of the sender. This waits rather than
+        // firing and forgetting because it is the last chance these events get: nothing is kept
+        // once the processor is gone. While offline that chance is not taken, and whatever is held
+        // is discarded. Offline is the application telling the SDK to stay off the network, and
+        // shutting down does not revoke that.
         Future<?> delivery = submit(this::deliverPayload);
         if (delivery != null) {
             try {
