@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
@@ -12,6 +13,7 @@ import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
+import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
@@ -1099,6 +1101,80 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void unexpectedRecordingErrorDoesNotBubbleToCallerAndLogs() throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            // Must not throw if record throws:
+            eventProcessor.record(new Event(System.currentTimeMillis(), CONTEXT) {
+                @Override
+                public long getSamplingRatio() {
+                    throw new RuntimeException("simulated record crash");
+                }
+            });
+            logging.assertErrorLogged("Unexpected error in event processor: java.lang.RuntimeException: simulated record crash");
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void anErrorWhileRecordingStillReachesTheCaller() throws Exception {
+        // Only exceptions are the SDK's to absorb. An Error such as OutOfMemoryError belongs to the
+        // application's crash reporting, and swallowing it on the caller's thread would hide it.
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                NO_PERIODIC_FLUSH_MILLIS, scheduler);
+        try {
+            eventProcessor.record(new Event(System.currentTimeMillis(), CONTEXT) {
+                @Override
+                public long getSamplingRatio() {
+                    throw new StackOverflowError("simulated");
+                }
+            });
+            fail("the Error was swallowed");
+        } catch (StackOverflowError expected) {
+            // what the application's handler would see
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aFailedCommitOnTheCallersThreadDoesNotReachTheCaller() throws Exception {
+        // With IMMEDIATE the commit runs inside track, identify and flush, after record() has
+        // returned, so it needs its own guard.
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            void commit() {
+                throw new IllegalStateException("simulated commit failure");
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+        try {
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            eventProcessor.recordIdentifyEvent(CONTEXT);
+            eventProcessor.flush();
+            // Its own last-chance commit runs on the caller's thread when the events thread's fails.
+            eventProcessor.close();
+
+            logging.assertErrorLogged(
+                    "Unexpected error in event processor: java.lang.IllegalStateException: simulated commit failure");
+        } finally {
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void closeGivesUpWaitingOnAStalledDelivery() throws Exception {
         // close() runs on the caller's thread, usually the main one, so a send that never comes back
         // used to park the application there for as long as the HTTP timeouts allowed.
@@ -1509,6 +1585,22 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     ExecutorService diagnosticExecutor,
                                                     EventStore store,
                                                     int capacity) {
+        return makeEventProcessor(diagnosticSender, eventsUri, diagnosticStore, flushIntervalMillis,
+                diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor, store,
+                capacity, false);
+    }
+
+    private DirectEventProcessor makeEventProcessor(EventSender diagnosticSender,
+                                                    URI eventsUri,
+                                                    DiagnosticStore diagnosticStore,
+                                                    long flushIntervalMillis,
+                                                    long diagnosticIntervalMillis,
+                                                    long closeBudgetMillis,
+                                                    ScheduledExecutorService scheduler,
+                                                    ExecutorService diagnosticExecutor,
+                                                    EventStore store,
+                                                    int capacity,
+                                                    boolean commitOnCallerThread) {
         return new DirectEventProcessor(
                 new OutboundEventBuffer(false, Collections.emptyList(), true, capacity,
                         logging.logger),
@@ -1520,7 +1612,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventsUri,
                 diagnosticStore,
                 capacity,
-                false, // commitOnCallerThread
+                commitOnCallerThread,
                 flushIntervalMillis,
                 diagnosticIntervalMillis,
                 closeBudgetMillis,

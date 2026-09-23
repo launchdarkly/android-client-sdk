@@ -150,6 +150,36 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void exceedingContextLimitIsWarnedOncePerFlushRun() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, CONTEXT_LIMIT);
+            try {
+                for (int i = 0; i < CONTEXT_LIMIT * 3; i++) {
+                    eventProcessor.recordEvaluationEvent(contextNumber(i), FLAG_KEY, FLAG_VERSION,
+                            VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+                flushAndCollect(eventProcessor, server);
+
+                for (int i = 0; i < CONTEXT_LIMIT * 3; i++) {
+                    eventProcessor.recordEvaluationEvent(contextNumber(100 + i), FLAG_KEY, FLAG_VERSION,
+                            VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+                flushAndCollect(eventProcessor, server);
+
+                int warnCount = 0;
+                for (String msg : logging.logCapture.getMessageStrings()) {
+                    if (msg.contains("Exceeded the number of contexts")) {
+                        warnCount++;
+                    }
+                }
+                assertEquals(2, warnCount);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aContextAlreadyBeingCountedKeepsCountingOnceTheLimitIsReached() throws Exception {
         // The limit is on how many contexts are held, not on how many evaluations are counted. An
         // application evaluating against one context must not start losing counts because some other

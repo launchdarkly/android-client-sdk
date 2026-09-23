@@ -272,37 +272,49 @@ final class DirectEventProcessor implements EventProcessor {
             boolean requireFullEvent,
             Long debugEventsUntilDate
     ) {
-        if (isStopped() || context == null) {
-            return;
-        }
-        Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
-                context, flagVersion, variation, value, defaultValue, reason, null,
-                requireFullEvent, debugEventsUntilDate, false);
-        // Built before the lock is taken, so that the critical section is only the writes.
-        Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
-        boolean contextsExceeded;
-        boolean needsCommit;
-        synchronized (recordLock) {
-            if (closed.get()) {
+        try {
+            if (isStopped() || context == null) {
                 return;
             }
-            contextsExceeded = !eventBuffer.summarize(event);
-            if (requireFullEvent) {
-                addPending(event);
+            Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
+                    context, flagVersion, variation, value, defaultValue, reason, null,
+                    requireFullEvent, debugEventsUntilDate, false);
+            // Built before the lock is taken, so that the critical section is only the writes.
+            Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
+            boolean contextsExceeded;
+            boolean warnContextsExceeded;
+            boolean needsCommit;
+            synchronized (recordLock) {
+                if (closed.get()) {
+                    return;
+                }
+                contextsExceeded = !eventBuffer.summarize(event);
+                // Claimed under the lock that the commit resets it under, so the warning belongs to the
+                // run whose summarizer turned this evaluation away rather than to the next one.
+                warnContextsExceeded = contextsExceeded
+                        && summaryContextsExceeded.compareAndSet(false, true);
+                if (requireFullEvent) {
+                    addPending(event);
+                }
+                if (debugEvent != null) {
+                    addPending(debugEvent);
+                }
+                needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
             }
-            if (debugEvent != null) {
-                addPending(debugEvent);
+            if (contextsExceeded) {
+                reportContextsExceeded(warnContextsExceeded);
             }
-            needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
-        }
-        if (contextsExceeded) {
-            reportContextsExceeded();
-        }
-        // Deliberately no commit point. An evaluation is expected to cost what a map lookup costs, and it
-        // is usually the main thread doing it; the store writes these on its own thread once enough of them
-        // have piled up, and the next event recorded at a commit point makes them durable along with itself.
-        if (needsCommit) {
-            scheduleCommit();
+            // Deliberately no commit point. An evaluation is expected to cost what a map lookup costs, and it
+            // is usually the main thread doing it; the store writes these on its own thread once enough of them
+            // have piled up, and the next event recorded at a commit point makes them durable along with itself.
+            if (needsCommit) {
+                scheduleCommit();
+            }
+        } catch (RuntimeException e) {
+            // This runs on the application's thread, usually inside a flag evaluation, and an
+            // analytics failure must not become the application's failure. Errors such as
+            // OutOfMemoryError are left to propagate, so the application's crash reporting sees them.
+            logUnexpectedError(e);
         }
     }
 
@@ -332,21 +344,26 @@ final class DirectEventProcessor implements EventProcessor {
      * limit is reached the cost of an evaluation falls back to its summary counter, however fast the loop runs.
      */
     void record(Event event) {
-        boolean needsCommit;
-        synchronized (recordLock) {
-            // The close check that decides the outcome, as against the fast path the public record methods
-            // take before building the event. The commit lifts the run out under this same lock, so testing
-            // the flag here orders a record against close()'s final commit: either the event is in the list
-            // before that commit takes it, or it is refused. Tested outside the lock the two interleave, and
-            // an event can be left in a list that nothing will drain again.
-            if (closed.get()) {
-                return;
+        try {
+            boolean needsCommit;
+            synchronized (recordLock) {
+                // The close check that decides the outcome, as against the fast path the public record methods
+                // take before building the event. The commit lifts the run out under this same lock, so testing
+                // the flag here orders a record against close()'s final commit: either the event is in the list
+                // before that commit takes it, or it is refused. Tested outside the lock the two interleave, and
+                // an event can be left in a list that nothing will drain again.
+                if (closed.get()) {
+                    return;
+                }
+                addPending(event);
+                needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
             }
-            addPending(event);
-            needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
-        }
-        if (needsCommit) {
-            scheduleCommit();
+            if (needsCommit) {
+                scheduleCommit();
+            }
+        } catch (RuntimeException e) {
+            // As in recordEvaluationEvent: on the caller's thread, so a failure is logged, not thrown.
+            logUnexpectedError(e);
         }
     }
 
@@ -359,10 +376,15 @@ final class DirectEventProcessor implements EventProcessor {
      * since there is no disk for an early commit to reach.
      */
     private void commitAtCommitPoint() {
-        if (commitOnCallerThread) {
-            commitDurably();
-        } else {
-            scheduleCommit();
+        try {
+            if (commitOnCallerThread) {
+                commitDurably();
+            } else {
+                scheduleCommit();
+            }
+        } catch (RuntimeException e) {
+            // As in recordEvaluationEvent: every commit point is on the caller's thread.
+            logUnexpectedError(e);
         }
     }
 
@@ -405,6 +427,7 @@ final class DirectEventProcessor implements EventProcessor {
                 run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
                 pending.clear();
                 summaries = eventBuffer.takeSummaries();
+                summaryContextsExceeded.set(false);
                 eventsBeingStaged = run.size();
             }
             try {
@@ -475,8 +498,10 @@ final class DirectEventProcessor implements EventProcessor {
      * A refused evaluation is a loss in the same sense a refused event is -- nothing later reconstructs
      * a counter -- so it is reported the same way, through the dropped count diagnostics carry.
      */
-    private void reportContextsExceeded() {
-        if (summaryContextsExceeded.compareAndSet(false, true)) {
+    private void reportContextsExceeded(boolean warn) {
+        // Warned once per delivery run rather than once per process: the summarizer's contexts are
+        // cleared with each run, so a later overflow is a new one worth hearing about.
+        if (warn) {
             logger.warn("Exceeded the number of contexts that can be summarized at once." +
                     " Increase capacity to avoid dropping evaluations.");
         }
@@ -610,7 +635,12 @@ final class DirectEventProcessor implements EventProcessor {
         // the events thread; this writes on the caller's only when that thread never got to it, such
         // as when it is still stuck on an earlier delivery.
         if (!finalCommitDone.get()) {
-            commitDurably();
+            try {
+                commitDurably();
+            } catch (RuntimeException e) {
+                // Shutting down must still release everything below, and must not throw at the caller.
+                logUnexpectedError(e);
+            }
         }
         // The store and the senders, by contrast, are released on whichever thread uses them, after
         // whatever is still in flight there. Closing them inline would pull them out from under a
