@@ -65,6 +65,15 @@ public abstract class EventProcessorTestBase {
 
     protected EventProcessor makeEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                 boolean diagnosticOptOut) {
+        EventProcessor eventProcessor = buildOfflineEventProcessor(server, events, diagnosticOptOut);
+        // LDClient turns the processor on once initialization decides the SDK is not in offline mode.
+        eventProcessor.setOffline(false);
+        return eventProcessor;
+    }
+
+    /** @return the processor as the SDK builds it, before initialization has turned it on */
+    protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .diagnosticOptOut(diagnosticOptOut)
@@ -73,18 +82,7 @@ public abstract class EventProcessorTestBase {
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
                 null, null, CONTEXT, logging.logger, null, environmentReporter, null);
-        EventProcessor eventProcessor = config.events.build(clientContext);
-        // The processor is built offline; LDClient turns it on once initialization decides the SDK
-        // is not in offline mode.
-        eventProcessor.setOffline(false);
-        // Coming online schedules a delivery for whatever the outage buffered, which here is
-        // nothing. It still has to be waited out: the events executor is single-threaded and runs
-        // in order, so a blocking flush returns only once that delivery has been and gone. Left to
-        // run on its own it can land in the middle of a test's recording loop and take a batch the
-        // test had not asked to send yet, which for a test at capacity reads as the limit having
-        // been exceeded.
-        eventProcessor.blockingFlush();
-        return eventProcessor;
+        return config.events.build(clientContext);
     }
 
     /**

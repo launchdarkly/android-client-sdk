@@ -164,7 +164,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.offline = new AtomicBoolean(initiallyOffline);
 
         synchronized (stateLock) {
-            updateScheduledTasks(initiallyInBackground, initiallyOffline, false);
+            updateScheduledTasks(initiallyInBackground, initiallyOffline);
         }
     }
 
@@ -297,7 +297,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (this.inBackground.getAndSet(inBackground) == inBackground) {
                 return;
             }
-            updateScheduledTasks(inBackground, offline.get(), false);
+            updateScheduledTasks(inBackground, offline.get());
         }
     }
 
@@ -307,7 +307,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (this.offline.getAndSet(offline) == offline) {
                 return;
             }
-            updateScheduledTasks(inBackground.get(), offline, !offline);
+            updateScheduledTasks(inBackground.get(), offline);
         }
     }
 
@@ -620,30 +620,22 @@ final class DirectEventProcessor implements EventProcessor {
                 && debugEventsUntilDate > System.currentTimeMillis();
     }
 
-    /**
-     * @param cameOnline true if this call is the SDK going from offline to online, the one transition
-     *   that owes the events buffered during the outage a delivery rather than only a schedule
-     */
-    private void updateScheduledTasks(boolean inBackground, boolean offline, boolean cameOnline) {
-        // The only close check the scheduling path needs, and the reason setOffline, setInBackground
-        // and the catch-up delivery below do not carry one of their own. close() sets the flag before
+    private void updateScheduledTasks(boolean inBackground, boolean offline) {
+        // The only close check the scheduling path needs, and the reason setOffline and
+        // setInBackground do not carry one of their own. close() sets the flag before
         // it takes stateLock and cancels the tasks under it, so whichever of the two reaches the lock
         // second sees what the other did: either this returns here, or it schedules and close() then
         // cancels what it scheduled. Two threads cannot both get past this and leave a task running.
         if (closed.get()) {
             return;
         }
-        // Flushing is pointless while we are offline, but it stays on in the background so that
-        // events recorded before the app was backgrounded still get delivered.
-        flushTask = enableOrDisableTask(!offline, flushTask, flushIntervalMillis,
+        // Flushing stays scheduled whether or not we are offline or in the background; a run while
+        // offline returns without doing anything. Cancelling it for an outage would restart the
+        // interval on every reconnect, and a run of brief outages would then hold events back for
+        // far longer than one interval. Left running, what an outage buffered goes out at the first
+        // run after it ends.
+        flushTask = enableOrDisableTask(true, flushTask, flushIntervalMillis,
                 this::deliverPayload);
-        if (cameOnline) {
-            // The periodic task was cancelled for the outage and starts a fresh interval above, so
-            // anything the outage buffered would otherwise wait the whole of it. Worse, each loss of
-            // connectivity re-anchors that interval, so a run of brief ones can hold events back for
-            // far longer than a single interval.
-            submit(this::deliverPayload);
-        }
         boolean diagnosticsEnabled = diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
