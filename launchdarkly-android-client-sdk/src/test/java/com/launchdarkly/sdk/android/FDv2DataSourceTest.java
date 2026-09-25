@@ -517,13 +517,10 @@ public class FDv2DataSourceTest {
 
     @Test
     public void fallbackAndRecoveryTasksWellBehaved() throws Exception {
-        // First sync: changeset then INTERRUPTED; second sync: changeset; recovery brings back first
-        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                interrupted());
-        MockQueuedSynchronizer secondSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false));
-
+        // First sync: changeset then INTERRUPTED; second sync: changeset; recovery brings back first.
+        // Each factory call builds a new synchronizer, as a real factory does. Recovery closes the
+        // active one and builds the primary again, and a closed mock answers SHUTDOWN at once, so
+        // handing the same instance back would spin the orchestrator between two closed mocks.
         AtomicInteger firstCallCount = new AtomicInteger(0);
         AtomicInteger secondCallCount = new AtomicInteger(0);
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
@@ -531,8 +528,17 @@ public class FDv2DataSourceTest {
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Arrays.asList(
-                        () -> { firstCallCount.incrementAndGet(); return firstSync; },
-                        () -> { secondCallCount.incrementAndGet(); return secondSync; }),
+                        () -> {
+                            firstCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                    interrupted());
+                        },
+                        () -> {
+                            secondCallCount.incrementAndGet();
+                            return new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false));
+                        }),
                 1, 2);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
@@ -541,6 +547,7 @@ public class FDv2DataSourceTest {
         // Wait for fallback + recovery: ~1s fallback + ~2s recovery.
         // Use generous timeouts for Android where thread scheduling can delay timer delivery.
         sink.awaitApplyCount(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertTrue(sink.getApplyCount() >= 3);
 
         List<DataSourceState> statuses = sink.awaitStatuses(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(statuses.size() >= 3);
@@ -2030,16 +2037,15 @@ public class FDv2DataSourceTest {
     @Test
     public void orchestrationLogging_recovery_logsInfo() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        MockQueuedSynchronizer firstSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                interrupted());
-        MockQueuedSynchronizer secondSync = new MockQueuedSynchronizer(
-                FDv2SourceResult.changeSet(makeChangeSet(false), false));
+        // A new synchronizer per build, for the reason fallbackAndRecoveryTasksWellBehaved gives.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Arrays.asList(
-                        () -> firstSync,
-                        () -> secondSync),
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                interrupted()),
+                        () -> new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(false), false))),
                 1, 2);
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         try {
