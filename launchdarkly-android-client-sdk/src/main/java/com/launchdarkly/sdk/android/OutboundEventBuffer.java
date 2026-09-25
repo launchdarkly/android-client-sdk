@@ -4,13 +4,11 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
+import com.google.gson.stream.JsonWriter;
 import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
 import com.launchdarkly.sdk.internal.events.EventSummarizer;
-import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
-import com.launchdarkly.sdk.internal.events.PerContextEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.BufferedWriter;
@@ -35,19 +33,18 @@ import java.util.Set;
  * The full events are held by the processor rather than here. Capacity is counted once, against
  * everything the SDK is holding, and the processor is the only place that can see all of it.
  * <p>
- * The summarization and the wire format come from java-sdk-internal rather than being
- * reimplemented here, so there is one definition of what an event looks like on the wire.
- * {@code DefaultEventProcessor} is not reused along with them because it only accepts individual
- * events and summarizes them itself, on the far side of the bounded queue this is meant to get in
- * front of.
+ * The event model comes from java-sdk-internal, but Android owns the wire writer and summary accumulator
+ * so repeated contexts can be encoded once. Byte-identical differential tests against
+ * {@link EventOutputFormatter} are the definition of compatibility. {@code DefaultEventProcessor} is not
+ * reused because it only accepts individual events and summarizes them itself, on the far side of the
+ * bounded queue this is meant to get in front of.
  */
 final class OutboundEventBuffer {
     private static final int INITIAL_OUTPUT_BUFFER_SIZE = 2000;
-    private static final Event[] NO_EVENTS = new Event[0];
-    private static final List<EventSummarizer.EventSummary> NO_SUMMARIES = Collections.emptyList();
 
     private final EventOutputFormatter formatter;
-    private final EventSummarizerInterface summarizer;
+    private final FullEventWriter fullEventWriter;
+    private final SummaryEventAccumulator summarizer;
     private final LDLogger logger;
 
     /**
@@ -75,15 +72,30 @@ final class OutboundEventBuffer {
             int maxContexts,
             LDLogger logger
     ) {
+        this(allAttributesPrivate, privateAttributes, perContextSummarization, maxContexts, logger, true);
+    }
+
+    /**
+     * @param cacheContexts false to encode a context afresh for every event instead of reusing the
+     *   encoding across a run that shares one. Only a benchmark measuring what the reuse is worth has
+     *   any reason to pass false.
+     */
+    OutboundEventBuffer(
+            boolean allAttributesPrivate,
+            Collection<AttributeRef> privateAttributes,
+            boolean perContextSummarization,
+            int maxContexts,
+            LDLogger logger,
+            boolean cacheContexts
+    ) {
         // Only the private-attribute settings affect the output; the rest of EventsConfiguration
         // describes the delivery behavior that the processor now handles itself, capacity included.
         EventsConfiguration outputConfig = new EventsConfiguration(allAttributesPrivate, 0,
                 null, 0, null, null, 1, null, 0, false, false, privateAttributes,
                 perContextSummarization);
         this.formatter = new EventOutputFormatter(outputConfig);
-        this.summarizer = perContextSummarization
-                ? new PerContextEventSummarizer()
-                : new AggregatedEventSummarizer();
+        this.fullEventWriter = new FullEventWriter(allAttributesPrivate, privateAttributes, cacheContexts);
+        this.summarizer = new SummaryEventAccumulator(perContextSummarization);
         // One bucket overall, so there is no cardinality to bound and nothing to track it with.
         this.maxContexts = perContextSummarization ? maxContexts : Integer.MAX_VALUE;
         this.countedContexts = perContextSummarization ? new HashSet<>() : null;
@@ -119,15 +131,7 @@ final class OutboundEventBuffer {
             }
             countedContexts.add(event.getContext());
         }
-        summarizer.summarizeEvent(
-                event.getCreationDate(),
-                event.getKey(),
-                event.getVersion(),
-                event.getVariation(),
-                event.getValue(),
-                event.getDefaultVal(),
-                event.getContext()
-        );
+        summarizer.summarize(event);
         return true;
     }
 
@@ -138,9 +142,9 @@ final class OutboundEventBuffer {
      * Serializing at record time rather than at flush is what lets an event be written somewhere that
      * outlives the process: bytes can be appended to a log, an {@link Event} cannot.
      * <p>
-     * Deliberately not synchronized. It reads the formatter and writes only locals, so it shares
-     * nothing with a thread recording an event, and taking the lock would make an encode wait on a
-     * counter increment and the other way round.
+     * Deliberately not synchronized. It writes only locals and the context cache, which guards itself,
+     * so it shares nothing with a thread recording an event, and taking the lock would make an encode
+     * wait on a counter increment and the other way round.
      *
      * @param event the event
      * @return the event's JSON object, or null if it was dropped by sampling or could not be
@@ -150,7 +154,10 @@ final class OutboundEventBuffer {
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
             return null;
         }
-        return writeSingleObject(new Event[]{ event }, Collections.<EventSummarizer.EventSummary>emptyList());
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        Writer writer = new BufferedWriter(
+                new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
+        return writeFullEvent(event, outputStream, writer);
     }
 
     /**
@@ -164,12 +171,23 @@ final class OutboundEventBuffer {
      * section it lifts the full events in. An evaluation writes a counter and a full event, and a
      * flush that took the two at different moments could split one evaluation across two payloads.
      */
-    synchronized List<EventSummarizer.EventSummary> takeSummaries() {
-        List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
+    synchronized List<SummaryEventAccumulator.Summary> takeSummaries() {
+        List<SummaryEventAccumulator.Summary> summaries = summarizer.getSummariesAndReset();
         if (countedContexts != null) {
             countedContexts.clear();
         }
         return summaries;
+    }
+
+    /**
+     * Takes the counters and serializes them in one call, for a caller with nothing to coordinate the
+     * take with.
+     * <p>
+     * Not for the commit path. That has to take the counters in the same critical section it takes the
+     * pending events in, or a commit can stage an evaluation's counter and leave its full event behind.
+     */
+    List<byte[]> serializeSummariesAndReset() {
+        return serializeSummaries(takeSummaries());
     }
 
     /**
@@ -193,24 +211,21 @@ final class OutboundEventBuffer {
      * @param summaries the counters taken for this commit
      * @return one JSON object per summary, empty if there was nothing counted or nothing serialized
      */
-    /**
-     * Takes the counters and serializes them in one call, for a caller with nothing to coordinate the
-     * take with.
-     * <p>
-     * Not for the commit path. That has to take the counters in the same critical section it takes the
-     * pending events in, or a commit can stage an evaluation's counter and leave its full event behind.
-     */
-    List<byte[]> serializeSummariesAndReset() {
-        return serializeSummaries(takeSummaries());
-    }
-
-    List<byte[]> serializeSummaries(List<EventSummarizer.EventSummary> summaries) {
+    List<byte[]> serializeSummaries(List<SummaryEventAccumulator.Summary> summaries) {
         if (summaries.isEmpty()) {
             return Collections.emptyList();
         }
         List<byte[]> serialized = new ArrayList<>(summaries.size());
-        for (EventSummarizer.EventSummary summary : summaries) {
-            byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        Writer writer = new BufferedWriter(
+                new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
+        for (SummaryEventAccumulator.Summary summary : summaries) {
+            // The aggregated accumulator hands back its one summary whether or not anything was
+            // counted, and an empty one is not an event.
+            if (summary.isEmpty()) {
+                continue;
+            }
+            byte[] bytes = writeSummary(summary, outputStream, writer);
             if (bytes != null) {
                 serialized.add(bytes);
             }
@@ -223,8 +238,8 @@ final class OutboundEventBuffer {
      * <p>
      * Each event still becomes its own JSON object, because the store frames them individually and a
      * frame holding several objects could not be spliced into a payload. What the run shares is the
-     * output stream, the writer and the UTF-8 lookup, which {@link #writeSingleObject} otherwise
-     * allocates on every call.
+     * output stream, the writer and the UTF-8 lookup, which {@link #serialize} otherwise allocates on
+     * every call -- and, because a run usually shares one context, the encoding of that context too.
      * <p>
      * Deliberately not synchronized, for the reason {@link #serialize} is not.
      *
@@ -239,14 +254,11 @@ final class OutboundEventBuffer {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
         Writer writer = new BufferedWriter(
                 new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
-        Event[] one = new Event[1];
         for (Event event : pending) {
             if (!Sampler.shouldSample(event.getSamplingRatio())) {
                 continue;
             }
-            one[0] = event;
-            byte[] bytes = writeSingleObject(one, Collections.<EventSummarizer.EventSummary>emptyList(),
-                    outputStream, writer);
+            byte[] bytes = writeFullEvent(event, outputStream, writer);
             if (bytes != null) {
                 serialized.add(bytes);
             }
@@ -255,45 +267,87 @@ final class OutboundEventBuffer {
     }
 
     /**
-     * Serializes exactly one output event and returns the JSON object on its own.
-     * <p>
-     * {@link EventOutputFormatter} only offers to write a whole request body, which is a JSON array,
-     * and the single-event method beside it is private. So the array is written and its brackets are
-     * dropped, which is sound precisely because the count it returns says how many objects are in
-     * there: one object means the bytes between the brackets are that object.
+     * How many events reused an already encoded context, against how many had to encode one, as a
+     * fraction. For the benchmark, so it can report the hit rate rather than assume one.
      *
-     * @return the object's bytes, or null if the formatter did not write exactly one event
+     * @return the hit rate, or -1 if this buffer does not cache or has encoded nothing
      */
-    private byte[] writeSingleObject(Event[] events, List<EventSummarizer.EventSummary> summaries) {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
-        Writer writer = new BufferedWriter(
-                new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
-        return writeSingleObject(events, summaries, outputStream, writer);
+    double contextCacheHitRate() {
+        return fullEventWriter.contextCacheHitRate();
     }
 
     /**
+     * Serializes one full event to the JSON object it is sent and stored as.
+     * <p>
+     * Written by {@link FullEventWriter} rather than by {@link EventOutputFormatter}, because that is
+     * what lets a run of events sharing a context encode it once. Anything that writer does not claim --
+     * today, any event kind this SDK does not record -- falls back to the formatter, so adding a kind
+     * upstream cannot silently stop it being sent.
+     *
      * @param outputStream reset before the write, so it may be shared across a run
      * @param writer must wrap {@code outputStream}, and holds nothing buffered on entry
+     * @return the object's bytes, or null if the event could not be serialized
      */
-    private byte[] writeSingleObject(Event[] events, List<EventSummarizer.EventSummary> summaries,
-                                     ByteArrayOutputStream outputStream, Writer writer) {
+    private byte[] writeFullEvent(Event event, ByteArrayOutputStream outputStream, Writer writer) {
+        outputStream.reset();
+        try {
+            // A fresh JsonWriter per event: one refuses a second top-level value, so it cannot be
+            // shared across the run the way the stream beneath it is.
+            JsonWriter jsonWriter = new JsonWriter(writer);
+            if (!fullEventWriter.write(event, jsonWriter)) {
+                writer.flush();
+                outputStream.reset();
+                return writeSingleObject(event, outputStream, writer);
+            }
+            jsonWriter.flush();
+            writer.flush();
+        } catch (Exception e) {
+            logDropped("event of type " + event.getClass().getSimpleName(), e);
+            discardBuffered(outputStream, writer);
+            return null;
+        }
+        return outputStream.toByteArray();
+    }
+
+    private byte[] writeSummary(SummaryEventAccumulator.Summary summary,
+                                ByteArrayOutputStream outputStream, Writer writer) {
+        outputStream.reset();
+        try {
+            JsonWriter jsonWriter = new JsonWriter(writer);
+            fullEventWriter.writeSummary(summary, jsonWriter);
+            jsonWriter.flush();
+            writer.flush();
+        } catch (Exception e) {
+            logDropped("summary event", e);
+            discardBuffered(outputStream, writer);
+            return null;
+        }
+        return outputStream.toByteArray();
+    }
+
+    /**
+     * Serializes exactly one output event with {@link EventOutputFormatter} and returns the JSON object
+     * on its own.
+     * <p>
+     * The formatter only offers to write a whole request body, which is a JSON array, and the
+     * single-event method beside it is private. So the array is written and its brackets are dropped,
+     * which is sound precisely because the count it returns says how many objects are in there: one
+     * object means the bytes between the brackets are that object.
+     *
+     * @param outputStream reset before the write, so it may be shared across a run
+     * @param writer must wrap {@code outputStream}, and holds nothing buffered on entry
+     * @return the object's bytes, or null if the formatter did not write exactly one event
+     */
+    private byte[] writeSingleObject(Event event, ByteArrayOutputStream outputStream, Writer writer) {
         outputStream.reset();
         int written;
         try {
-            written = formatter.writeOutputEvents(events, summaries, writer);
+            written = formatter.writeOutputEvents(new Event[]{ event },
+                    Collections.<EventSummarizer.EventSummary>emptyList(), writer);
             writer.flush();
         } catch (Exception e) {
-            logger.error("Dropping unserializable {}: {}", describe(events),
-                    LogValues.exceptionSummary(e));
-            logger.debug("{}", LogValues.exceptionTrace(e));
-            // Whatever the writer buffered is pushed out and thrown away with the stream, so a failed
-            // event cannot bleed into the next one sharing this writer.
-            try {
-                writer.flush();
-            } catch (Exception ignored) {
-                // The stream is reset by the next call either way.
-            }
-            outputStream.reset();
+            logDropped("event of type " + event.getClass().getSimpleName(), e);
+            discardBuffered(outputStream, writer);
             return null;
         }
         if (written != 1) {
@@ -303,17 +357,29 @@ final class OutboundEventBuffer {
         if (all.length < 3 || all[0] != '[' || all[all.length - 1] != ']') {
             // Not the shape this depends on. Refusing the event is the safe reading: a frame that is
             // not one JSON object would corrupt every payload it was later spliced into.
-            logger.error("Dropping unserializable {}: the encoder did not produce a single JSON"
-                    + " object", describe(events));
+            logger.error("Dropping unserializable event of type {}: the encoder did not produce a"
+                    + " single JSON object", event.getClass().getSimpleName());
             return null;
         }
         return Arrays.copyOfRange(all, 1, all.length - 1);
     }
 
-    /** Names what is being dropped, since this encoder is handed one event or one summary. */
-    private static String describe(Event[] events) {
-        return events.length == 0 ? "summary event"
-                : "event of type " + events[0].getClass().getSimpleName();
+    private void logDropped(String what, Exception e) {
+        logger.error("Dropping unserializable {}: {}", what, LogValues.exceptionSummary(e));
+        logger.debug("{}", LogValues.exceptionTrace(e));
+    }
+
+    /**
+     * Pushes out whatever the writer buffered and throws it away with the stream, so a failed event
+     * cannot bleed into the next one sharing this writer.
+     */
+    private static void discardBuffered(ByteArrayOutputStream outputStream, Writer writer) {
+        try {
+            writer.flush();
+        } catch (Exception ignored) {
+            // The stream is reset by the next call either way.
+        }
+        outputStream.reset();
     }
 
     /**
@@ -325,159 +391,56 @@ final class OutboundEventBuffer {
      * holding a lock across it would make a thread recording an event wait for it. Recording happens
      * on whichever thread evaluated a flag, which on Android is usually the main one.
      * <p>
-     * A run that cannot be serialized as a whole is retried per event and per summary. Anything that
-     * still fails is dropped and logged; the rest is sent. Everything the encoder can fail on is a
-     * property of the data it was handed -- the output stream is a byte array and cannot fail
-     * transiently -- so putting a failed item back would only make every later flush fail too.
+     * Each event and each summary is written as its own object, so one that cannot be serialized is
+     * dropped and logged and the rest are sent. Everything the encoder can fail on is a property of the
+     * data it was handed -- the output stream is a byte array and cannot fail transiently -- so putting
+     * a failed item back would only make every later flush fail too.
      *
      * @param run the full events to send, in the order they were recorded
      * @param summaries the counters taken alongside that run
      * @return the payload to send, or null if there was nothing to send
-     * @throws IOException if the events could not be serialized
+     * @throws IOException if the payload could not be assembled
      */
-    Payload encode(List<Event> run, List<EventSummarizer.EventSummary> summaries) throws IOException {
+    Payload encode(List<Event> run, List<SummaryEventAccumulator.Summary> summaries) throws IOException {
         if (run.isEmpty() && summaries.isEmpty()) {
             return null;
         }
-        try {
-            return encodeAll(run, summaries);
-        } catch (Exception e) {
-            logger.error("Dropping unserializable analytics event(s): {}",
-                    LogValues.exceptionSummary(e));
-            logger.debug("{}", LogValues.exceptionTrace(e));
-            return encodeSkippingFailures(run, summaries);
+        ByteArrayOutputStream objectStream = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        Writer writer = new BufferedWriter(
+                new OutputStreamWriter(objectStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
+        ByteArrayOutputStream payload = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
+        payload.write('[');
+        int outputEventCount = 0;
+        for (Event event : run) {
+            byte[] serialized = writeFullEvent(event, objectStream, writer);
+            if (serialized == null) {
+                continue;
+            }
+            if (outputEventCount != 0) {
+                payload.write(',');
+            }
+            payload.write(serialized);
+            outputEventCount++;
         }
-    }
-
-    private Payload encodeAll(List<Event> run, List<EventSummarizer.EventSummary> summaries)
-            throws IOException {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
-        int outputEventCount = write(run.toArray(NO_EVENTS), summaries, buffer);
+        for (SummaryEventAccumulator.Summary summary : summaries) {
+            if (summary.isEmpty()) {
+                continue;
+            }
+            byte[] serialized = writeSummary(summary, objectStream, writer);
+            if (serialized == null) {
+                continue;
+            }
+            if (outputEventCount != 0) {
+                payload.write(',');
+            }
+            payload.write(serialized);
+            outputEventCount++;
+        }
         if (outputEventCount == 0) {
             return null;
         }
-        return new Payload(buffer.toByteArray(), outputEventCount);
-    }
-
-    private Payload encodeSkippingFailures(List<Event> run,
-                                           List<EventSummarizer.EventSummary> summaries) {
-        List<byte[]> objects = new ArrayList<>();
-        int outputEventCount = 0;
-        for (Event event : run) {
-            EncodedPiece piece = tryEncode(new Event[] { event }, NO_SUMMARIES);
-            if (piece == null) {
-                logger.error("Dropping unserializable event of type {}", event.getClass().getSimpleName());
-                continue;
-            }
-            objects.add(piece.jsonObject);
-            outputEventCount += piece.eventCount;
-        }
-        for (EventSummarizer.EventSummary summary : summaries) {
-            EncodedPiece piece = tryEncode(NO_EVENTS, Collections.singletonList(summary));
-            if (piece == null) {
-                logger.error("Dropping unserializable summary event");
-                continue;
-            }
-            objects.add(piece.jsonObject);
-            outputEventCount += piece.eventCount;
-        }
-        if (objects.isEmpty()) {
-            return null;
-        }
-        return new Payload(joinObjects(objects), outputEventCount);
-    }
-
-    private EncodedPiece tryEncode(Event[] events, List<EventSummarizer.EventSummary> summaries) {
-        try {
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
-            int count = write(events, summaries, buffer);
-            if (count == 0) {
-                return null;
-            }
-            byte[] jsonObject = objectFromArray(buffer.toByteArray());
-            if (jsonObject == null) {
-                return null;
-            }
-            return new EncodedPiece(jsonObject, count);
-        } catch (Exception e) {
-            logger.debug("{}", LogValues.exceptionTrace(e));
-            return null;
-        }
-    }
-
-    private int write(Event[] events, List<EventSummarizer.EventSummary> summaries,
-                      ByteArrayOutputStream buffer) throws IOException {
-        Writer writer = new BufferedWriter(
-                new OutputStreamWriter(buffer, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
-        int outputEventCount = formatter.writeOutputEvents(events, summaries, writer);
-        writer.flush();
-        return outputEventCount;
-    }
-
-    /**
-     * {@code EventOutputFormatter} always writes a JSON array. For a single successful event that
-     * is {@code [{...}]}, and the payload we are assembling needs the object in the middle.
-     */
-    static byte[] objectFromArray(byte[] arrayJson) {
-        int start = 0;
-        int end = arrayJson.length - 1;
-        while (start <= end && arrayJson[start] <= ' ') {
-            start++;
-        }
-        while (end >= start && arrayJson[end] <= ' ') {
-            end--;
-        }
-        if (start > end || arrayJson[start] != '[' || arrayJson[end] != ']') {
-            return null;
-        }
-        start++;
-        end--;
-        while (start <= end && arrayJson[start] <= ' ') {
-            start++;
-        }
-        while (end >= start && arrayJson[end] <= ' ') {
-            end--;
-        }
-        if (start > end || arrayJson[start] != '{') {
-            return null;
-        }
-        int length = end - start + 1;
-        byte[] object = new byte[length];
-        System.arraycopy(arrayJson, start, object, 0, length);
-        return object;
-    }
-
-    private static byte[] joinObjects(List<byte[]> objects) {
-        int size = 2;
-        for (int i = 0; i < objects.size(); i++) {
-            if (i > 0) {
-                size++;
-            }
-            size += objects.get(i).length;
-        }
-        byte[] out = new byte[size];
-        int offset = 0;
-        out[offset++] = '[';
-        for (int i = 0; i < objects.size(); i++) {
-            if (i > 0) {
-                out[offset++] = ',';
-            }
-            byte[] object = objects.get(i);
-            System.arraycopy(object, 0, out, offset, object.length);
-            offset += object.length;
-        }
-        out[offset] = ']';
-        return out;
-    }
-
-    private static final class EncodedPiece {
-        final byte[] jsonObject;
-        final int eventCount;
-
-        EncodedPiece(byte[] jsonObject, int eventCount) {
-            this.jsonObject = jsonObject;
-            this.eventCount = eventCount;
-        }
+        payload.write(']');
+        return new Payload(payload.toByteArray(), outputEventCount);
     }
 
     /**

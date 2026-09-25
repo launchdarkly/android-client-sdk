@@ -10,7 +10,6 @@ import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
-import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.Closeable;
@@ -432,7 +431,7 @@ final class DirectEventProcessor implements EventProcessor {
     private void commitDurably() {
         synchronized (commitLock) {
             List<Event> run;
-            List<EventSummarizer.EventSummary> summaries;
+            List<SummaryEventAccumulator.Summary> summaries;
             // Both taken at once, so that an evaluation's counter and its full event are staged by the
             // same commit. Taken separately, a commit landing between the two writes one evaluation makes
             // stages the counter and leaves the event for the next one -- or, at close, for none at all.
@@ -474,7 +473,7 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Turns the evaluation counters already taken into summary events in the store.
      */
-    private void stageSummaries(List<EventSummarizer.EventSummary> summaries) {
+    private void stageSummaries(List<SummaryEventAccumulator.Summary> summaries) {
         for (byte[] summary : eventBuffer.serializeSummaries(summaries)) {
             // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
             // counted, and dropping it would lose all of them at once.

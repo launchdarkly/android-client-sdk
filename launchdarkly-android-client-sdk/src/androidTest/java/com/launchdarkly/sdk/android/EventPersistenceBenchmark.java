@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assume.assumeTrue;
@@ -58,6 +59,11 @@ import java.util.function.IntConsumer;
  *       -Pandroid.testInstrumentationRunnerArguments.LD_EVENT_BENCH=1 \\
  *       -Pandroid.testInstrumentationRunnerArguments.class=com.launchdarkly.sdk.android.EventPersistenceBenchmark
  * </pre>
+ * At full width this is around half an hour on a mid-range tablet, most of it in the encoder matrix.
+ * {@code LD_EVENT_BENCH_DIVISOR=N} narrows the measured rounds by {@code N} for exploring on such hardware;
+ * the divisor is recorded in the results header, and figures taken under one should not be quoted beside
+ * figures taken without.
+ * <p>
  * Results are written to {@code event-bench.txt} in the target app's files directory (pulled after
  * the run) as well as to logcat, because Gradle's instrumented-test logger does not reliably keep
  * {@code System.out}.
@@ -86,6 +92,12 @@ public class EventPersistenceBenchmark {
     private static final int ROUNDS = 5;
 
     /**
+     * How many events a commit encodes in one go, matching {@code DirectEventProcessor}'s pending
+     * threshold. A run is what the cache is actually up against, since that is the unit O12 encodes in.
+     */
+    private static final int PENDING_RUN = 32;
+
+    /**
      * The bulk sizes the recording figures are swept over.
      * <p>
      * Chosen around the store's 16 KiB staging threshold rather than for being round. At the event size used
@@ -102,6 +114,20 @@ public class EventPersistenceBenchmark {
      * The smallest bulk size is below it on purpose, which is exactly why this is not a share of the round.
      */
     private static final int JIT_WARMUP = 10_000;
+
+    /**
+     * Divides the measured rounds, so hardware too slow to sweep at full width can still produce the table.
+     * <p>
+     * Set through the instrumentation argument {@code LD_EVENT_BENCH_DIVISOR}. It defaults to 1, which is
+     * what every figure quoted in the research notes was taken at, and it is recorded in the results header
+     * so that a narrowed run cannot be mistaken for one.
+     * <p>
+     * <b>Only the measured rounds shrink; warmup does not.</b> A loop that is not compiled reports the
+     * interpreter rather than the encoder, so warmup is a correctness floor rather than a cost to trade
+     * away. What raising this does trade is precision: fewer iterations per round means more of the round
+     * is whatever else the device was doing, and fastest-of-{@link #ROUNDS} has less to choose from.
+     */
+    private static int divisor = 1;
 
     /**
      * Consumes results so that the JIT cannot prove the work is unused and delete it. Never read for
@@ -129,6 +155,7 @@ public class EventPersistenceBenchmark {
         File file = new File(
                 InstrumentationRegistry.getInstrumentation().getTargetContext().getFilesDir(),
                 "event-bench.txt");
+        divisor = readDivisor();
         logFile = new PrintWriter(new FileWriter(file, true), true);
         logFile.println("device=" + android.os.Build.MODEL
                 + " manufacturer=" + android.os.Build.MANUFACTURER
@@ -136,7 +163,21 @@ public class EventPersistenceBenchmark {
                 + " abi=" + android.os.Build.SUPPORTED_ABIS[0]
                 + " sdk=" + android.os.Build.VERSION.SDK_INT
                 + " release=" + android.os.Build.VERSION.RELEASE
-                + " hardware=" + android.os.Build.HARDWARE);
+                + " hardware=" + android.os.Build.HARDWARE
+                + " divisor=" + divisor);
+    }
+
+    /** Anything unparseable is treated as absent, because a silently narrowed run is the worse failure. */
+    private static int readDivisor() {
+        String argument = InstrumentationRegistry.getArguments().getString("LD_EVENT_BENCH_DIVISOR");
+        if (argument == null) {
+            return 1;
+        }
+        try {
+            return Math.max(1, Integer.parseInt(argument.trim()));
+        } catch (NumberFormatException e) {
+            return 1;
+        }
     }
 
     @AfterClass
@@ -190,6 +231,83 @@ public class EventPersistenceBenchmark {
 
         report("building one feature event, no serialization", building);
         report("serializing one feature event", serializing);
+    }
+
+    /**
+     * What reusing an encoded context across a run of events is worth, measured both ways on one CPU.
+     * <p>
+     * Every event carries the whole context, and an application identifies once and then evaluates many
+     * times, so a run of events encodes the same context over and over. The question this answers is how
+     * much of an event's cost that repetition is -- which is also how much of it can be removed without
+     * changing a byte of what goes on the wire.
+     * <p>
+     * Both columns are taken in the same test method on the same device, alternating the two buffers
+     * rather than running one table and then the other, because a benchmark that measures the variants in
+     * separate runs is measuring the thermal state of the device as much as the code.
+     * <p>
+     * Two tables, because the two matter for different reasons. The first is one event at a time, which
+     * is the shape of the cost and shows where the saving comes from: it should grow with the context and
+     * with what redaction has to do, and the cached column should not. The second is a run of
+     * {@link #PENDING_RUN} events through {@code serializeAll}, which is what a commit actually encodes
+     * under O12, and so is the figure a {@code track} pays.
+     */
+    @Test
+    public void contextEncodingCacheCostByContextShape() {
+        List<ComparisonMeasurement> single = new ArrayList<>();
+        List<ComparisonMeasurement> runs = new ArrayList<>();
+
+        for (ContextShape shape : ContextShape.values()) {
+            final LDContext context = makeContext(shape, "benchmark-key");
+
+            for (PrivacyShape privacy : privacyShapes()) {
+                final OutboundEventBuffer uncached = makeBuffer(privacy, false);
+                final OutboundEventBuffer cached = makeBuffer(privacy, true);
+
+                byte[] sample = cached.serialize(featureEvent(context, true));
+                assertNotNull("the corpus produced an event that will not serialize", sample);
+                assertArrayEquals("caching changed the bytes, which it is not allowed to do",
+                        uncached.serialize(featureEvent(context, true)), sample);
+
+                double without = measure(50_000, i -> {
+                    byte[] out = uncached.serialize(featureEvent(context, true));
+                    blackhole += out == null ? 0 : out.length;
+                });
+                double with = measure(50_000, i -> {
+                    byte[] out = cached.serialize(featureEvent(context, true));
+                    blackhole += out == null ? 0 : out.length;
+                });
+
+                String label = shape.label + ", " + privacy.name + ", " + sample.length + " bytes";
+                single.add(new ComparisonMeasurement(label, without, with, cached.contextCacheHitRate()));
+            }
+
+            // Only the unredacted case for the run table. Redaction is the same lever pulled harder, and
+            // the first table already shows how it moves; repeating it here would say nothing new at three
+            // times the running time.
+            final OutboundEventBuffer uncachedRun = makeBuffer(noRedaction(), false);
+            final OutboundEventBuffer cachedRun = makeBuffer(noRedaction(), true);
+            final List<Event> run = new ArrayList<>();
+            for (int i = 0; i < PENDING_RUN; i++) {
+                run.add(featureEvent(context, true));
+            }
+
+            double withoutRun = measure(2_000, PENDING_RUN, i -> {
+                for (byte[] out : uncachedRun.serializeAll(run)) {
+                    blackhole += out.length;
+                }
+            }) / PENDING_RUN;
+            double withRun = measure(2_000, PENDING_RUN, i -> {
+                for (byte[] out : cachedRun.serializeAll(run)) {
+                    blackhole += out.length;
+                }
+            }) / PENDING_RUN;
+
+            runs.add(new ComparisonMeasurement(shape.label, withoutRun, withRun,
+                    cachedRun.contextCacheHitRate()));
+        }
+
+        reportComparison("serializing one feature event", single);
+        reportComparison("serializing a run of " + count(PENDING_RUN) + " events, per event", runs);
     }
 
     /**
@@ -444,7 +562,7 @@ public class EventPersistenceBenchmark {
         for (final int flagCount : new int[] {1, 10, 50}) {
             final OutboundEventBuffer buffer = makeBuffer(noRedaction());
 
-            double countingOnly = measure(20_000, i -> {
+            double countingOnly = measure(20_000, flagCount, i -> {
                 for (int flag = 0; flag < flagCount; flag++) {
                     buffer.summarize(summaryEvent(context, flag));
                 }
@@ -452,7 +570,7 @@ public class EventPersistenceBenchmark {
             // Drained, so the counters left behind above do not inflate the first serialized round.
             buffer.serializeSummariesAndReset();
 
-            double countingAndSerializing = measure(20_000, i -> {
+            double countingAndSerializing = measure(20_000, flagCount, i -> {
                 for (int flag = 0; flag < flagCount; flag++) {
                     buffer.summarize(summaryEvent(context, flag));
                 }
@@ -469,6 +587,45 @@ public class EventPersistenceBenchmark {
         }
 
         report("turning counters into a summary event", results);
+    }
+
+    /**
+     * What O2 removes from a summary event. Both columns include counting, because counters have to be
+     * populated before every serialization; that work is identical and therefore makes this a conservative
+     * statement of the cache's value rather than one obtained by subtracting two noisy measurements.
+     */
+    @Test
+    public void summaryContextEncodingCacheCost() {
+        final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
+        List<ComparisonMeasurement> results = new ArrayList<>();
+
+        for (final int flagCount : new int[] {1, 10, 50}) {
+            final OutboundEventBuffer uncached = makeBuffer(noRedaction(), false);
+            final OutboundEventBuffer cached = makeBuffer(noRedaction(), true);
+
+            double without = measure(20_000, flagCount, i -> {
+                for (int flag = 0; flag < flagCount; flag++) {
+                    uncached.summarize(summaryEvent(context, flag));
+                }
+                for (byte[] summary : uncached.serializeSummariesAndReset()) {
+                    blackhole += summary.length;
+                }
+            });
+            double with = measure(20_000, flagCount, i -> {
+                for (int flag = 0; flag < flagCount; flag++) {
+                    cached.summarize(summaryEvent(context, flag));
+                }
+                for (byte[] summary : cached.serializeSummariesAndReset()) {
+                    blackhole += summary.length;
+                }
+            });
+
+            results.add(new ComparisonMeasurement(
+                    flagCount + " flags: counting + serializing",
+                    without, with, cached.contextCacheHitRate()));
+        }
+
+        reportComparison("turning counters into a summary event", results);
     }
 
     // MARK: Corpus
@@ -568,8 +725,12 @@ public class EventPersistenceBenchmark {
     }
 
     private OutboundEventBuffer makeBuffer(PrivacyShape privacy) {
+        return makeBuffer(privacy, true);
+    }
+
+    private OutboundEventBuffer makeBuffer(PrivacyShape privacy, boolean cacheContexts) {
         return new OutboundEventBuffer(privacy.allAttributesPrivate, privacy.privateAttributes,
-                true, Integer.MAX_VALUE, logger);
+                true, Integer.MAX_VALUE, logger, cacheContexts);
     }
 
     private static Event.FeatureRequest featureEvent(LDContext context, boolean requireFullEvent) {
@@ -594,7 +755,22 @@ public class EventPersistenceBenchmark {
      * itself. That is also why these numbers should not be read as what a busy device would see.
      */
     private double measure(int iterations, IntConsumer body) {
-        int warmup = Math.max(10_000, iterations / 4);
+        return measure(iterations, 1, body);
+    }
+
+    /**
+     * As {@link #measure(int, IntConsumer)}, for a body that performs {@code workPerIteration} of the thing
+     * being timed rather than one.
+     * <p>
+     * Warmup exists to get the work compiled, so it is counted in units of that work rather than in calls to
+     * {@code body}. A body that encodes {@link #PENDING_RUN} events reaches {@link #JIT_WARMUP} invocations
+     * of the encoder in a thirty-second of the calls a body that encodes one does, and warming it as though
+     * it were the latter costs thirty-two times more than being compiled requires. The returned figure is
+     * still per call to {@code body}; callers divide.
+     */
+    private double measure(int iterations, int workPerIteration, IntConsumer body) {
+        int rounds = Math.max(1, iterations / divisor);
+        int warmup = Math.max(JIT_WARMUP / Math.max(1, workPerIteration), rounds / 4);
         for (int i = 0; i < warmup; i++) {
             body.accept(i);
         }
@@ -602,11 +778,11 @@ public class EventPersistenceBenchmark {
         double best = Double.MAX_VALUE;
         for (int round = 0; round < ROUNDS; round++) {
             long start = System.nanoTime();
-            for (int i = 0; i < iterations; i++) {
+            for (int i = 0; i < rounds; i++) {
                 body.accept(i);
             }
             long elapsed = System.nanoTime() - start;
-            best = Math.min(best, (double) elapsed / iterations);
+            best = Math.min(best, (double) elapsed / rounds);
         }
         return best;
     }
@@ -796,6 +972,47 @@ public class EventPersistenceBenchmark {
             this.name = name;
             this.nanosPerOp = nanosPerOp;
         }
+    }
+
+    private static final class ComparisonMeasurement {
+        final String name;
+        final double without;
+        final double with;
+        final double hitRate;
+
+        ComparisonMeasurement(String name, double without, double with, double hitRate) {
+            this.name = name;
+            this.without = without;
+            this.with = with;
+            this.hitRate = hitRate;
+        }
+    }
+
+    /**
+     * Both variants side by side, with what the second saves. The hit rate is there so a row showing no
+     * saving can be read: a cache that never hits and a cache that hits and buys nothing are different
+     * findings, and the timing alone cannot tell them apart.
+     */
+    private static void reportComparison(String title, List<ComparisonMeasurement> results) {
+        int width = 0;
+        for (ComparisonMeasurement result : results) {
+            width = Math.max(width, result.name.length());
+        }
+        StringBuilder out = new StringBuilder("\n").append(title).append('\n')
+                .append("  ").append(pad("", width))
+                .append("  ").append(column("no cache"))
+                .append("  ").append(column("cached"))
+                .append("  ").append(column("saved"))
+                .append("  ").append(column("hit rate")).append('\n');
+        for (ComparisonMeasurement result : results) {
+            out.append("  ").append(pad(result.name, width))
+                    .append("  ").append(format(result.without))
+                    .append("  ").append(format(result.with))
+                    .append("  ").append(String.format("%10.0f%%",
+                            100 * (result.without - result.with) / result.without))
+                    .append("  ").append(String.format("%10.0f%%", 100 * result.hitRate)).append('\n');
+        }
+        emit(out);
     }
 
     private static void report(String title, List<Measurement> results) {
