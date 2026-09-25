@@ -814,7 +814,7 @@ public class LDConfig {
                 ModeResolutionTable resolutionTable = ModeResolutionTable.createMobile(
                         startingMode, backgroundMode);
                 effectiveDataSource = new FDv2DataSourceBuilder(
-                        modeTable, startingMode, resolutionTable);
+                        modeTable, startingMode, resolutionTable, this.dataSystemBuilder.isUsePost());
                 effectiveAutoModeSwitching = this.dataSystemBuilder.getAutomaticModeSwitchingConfig();
             } else {
                 effectiveDataSource = this.dataSource == null

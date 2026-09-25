@@ -31,7 +31,7 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
 /**
  * Default OkHttp-based implementation of {@link FDv2Requestor}.
  * <p>
- * Builds GET or REPORT requests to the FDv2 polling endpoint. If the current selector is
+ * Builds GET or POST requests to the FDv2 polling endpoint. If the current selector is
  * non-empty, its state is sent as the {@code basis} query parameter. ETag tracking is used
  * to detect 304 Not Modified responses; when the server returns 304 the application layer
  * treats it as {@code ChangeSetType.None} (no flags changed), so no OkHttp disk cache is
@@ -40,7 +40,6 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
  * The OkHttpClient is closed by {@link #close()}.
  */
 final class DefaultFDv2Requestor implements FDv2Requestor {
-    private static final String METHOD_REPORT = "REPORT";
     private static final String BASIS_PARAM = "basis";
     private static final String FILTER_PARAM = "filter";
     private static final String WITH_REASONS_PARAM = "withReasons";
@@ -50,10 +49,10 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
     private final OkHttpClient httpClient;
     private final URI pollingUri;
     private final okhttp3.Headers headers;
-    private final boolean useReport;
+    private final boolean usePost;
     private final boolean evaluationReasons;
     @Nullable
-    private final RequestBody reportBody;
+    private final RequestBody postBody;
     @Nullable
     private final String payloadFilter;
     private final LDLogger logger;
@@ -67,10 +66,10 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
     /**
      * @param evaluationContext  the context to evaluate flags for
      * @param baseUri            polling base URI from service endpoints
-     * @param getRequestPath     path for GET requests (context appended as a path segment)
-     * @param reportRequestPath  path for REPORT requests (context sent in the request body)
+     * @param requestPath        polling request path; GET appends the base64-encoded context as a
+     *                           path segment, POST uses the path as is
      * @param httpProperties     SDK HTTP configuration (timeouts, proxy, TLS, user-agent, etc.)
-     * @param useReport          if true, send context in the request body via REPORT; otherwise
+     * @param usePost            if true, send the context in the request body via POST; otherwise
      *                           append the base64-encoded context to the GET path
      * @param evaluationReasons  if true, append {@code withReasons=true} to the query string
      * @param payloadFilter      optional payload filter key; sent as {@code filter} query param
@@ -79,14 +78,13 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
     DefaultFDv2Requestor(
             @NonNull LDContext evaluationContext,
             @NonNull URI baseUri,
-            @NonNull String getRequestPath,
-            @NonNull String reportRequestPath,
+            @NonNull String requestPath,
             @NonNull HttpProperties httpProperties,
-            boolean useReport,
+            boolean usePost,
             boolean evaluationReasons,
             @Nullable String payloadFilter,
             @NonNull LDLogger logger) {
-        this.useReport = useReport;
+        this.usePost = usePost;
         this.evaluationReasons = evaluationReasons;
         this.payloadFilter = payloadFilter;
         this.logger = logger;
@@ -94,14 +92,13 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
 
         // Precompute the base polling URI for the chosen request method. For GET, the
         // base64-encoded context is a fixed path segment (context never changes after
-        // construction). For REPORT, the context goes in the request body so no path
+        // construction). For POST, the context goes in the request body so no path
         // segment is needed.
-        URI basePollingUri = HttpHelpers.concatenateUriPath(baseUri,
-                useReport ? reportRequestPath : getRequestPath);
-        this.pollingUri = useReport
+        URI basePollingUri = HttpHelpers.concatenateUriPath(baseUri, requestPath);
+        this.pollingUri = usePost
                 ? basePollingUri
                 : HttpHelpers.concatenateUriPath(basePollingUri, LDUtil.urlSafeBase64(evaluationContext));
-        this.reportBody = useReport
+        this.postBody = usePost
                 ? RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON)
                 : null;
 
@@ -139,8 +136,8 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                     .url(requestUri.toURL())
                     .headers(headers);
 
-            if (useReport) {
-                reqBuilder.method(METHOD_REPORT, reportBody);
+            if (usePost) {
+                reqBuilder.post(postBody);
             } else {
                 synchronized (etagLock) {
                     if (!requestUri.equals(lastRequestUri)) {
@@ -207,7 +204,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                 return;
             }
 
-            if (!useReport) {
+            if (!usePost) {
                 synchronized (etagLock) {
                     cachedEtag = response.header(ETAG_HEADER);
                 }

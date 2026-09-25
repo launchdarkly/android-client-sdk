@@ -51,8 +51,7 @@ public class FDv2StreamingSynchronizerTest {
 
     // Bogus paths used by tests — deliberately not the real production paths.
     private static final String STREAM_PATH = "/fake-stream";
-    private static final String POLL_GET_PATH = "/fake-poll-get";
-    private static final String POLL_REPORT_PATH = "/fake-poll-report";
+    private static final String POLL_PATH = "/fake-poll";
 
     private static HttpProperties httpProperties() {
         return new HttpProperties(
@@ -92,10 +91,10 @@ public class FDv2StreamingSynchronizerTest {
 
     private FDv2StreamingSynchronizer makeSynchronizer(
             URI streamBaseUri,
-            boolean evaluationReasons, boolean useReport) {
+            boolean evaluationReasons, boolean usePost) {
         return new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
-                null, 100, evaluationReasons, useReport,
+                null, 100, evaluationReasons, usePost,
                 httpProperties(), executor, LOGGER, null);
     }
 
@@ -1051,7 +1050,7 @@ public class FDv2StreamingSynchronizerTest {
     }
 
     @Test
-    public void useReportMethodForStreamRequest() throws Exception {
+    public void usePostMethodForStreamRequest() throws Exception {
         String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
         String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
 
@@ -1062,17 +1061,17 @@ public class FDv2StreamingSynchronizerTest {
                 Handlers.SSE.leaveOpen()))) {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(),
-                    false, true /* useReport */);
+                    false, true /* usePost */);
 
             Future<FDv2SourceResult> resultFuture = sync.next();
             FDv2SourceResult result = resultFuture.get(5, TimeUnit.SECONDS);
             assertEquals(SourceResultType.CHANGE_SET, result.getResultType());
 
             RequestInfo request = server.getRecorder().requireRequest();
-            assertEquals("REPORT", request.getMethod());
-            // With REPORT the context goes in the body, not the URL path
-            assertFalse("path should not contain base64 context segment when using REPORT",
-                    request.getPath().contains(LDUtil.urlSafeBase64(CONTEXT)));
+            assertEquals("POST", request.getMethod());
+            // With POST the context goes in the body, not the URL path
+            assertEquals("path should be the stream path with no context segment",
+                    STREAM_PATH, request.getPath());
             assertNotNull("body should contain serialized context", request.getBody());
             assertTrue("body should contain context key",
                     request.getBody().contains("test-context"));
@@ -1126,7 +1125,7 @@ public class FDv2StreamingSynchronizerTest {
 
             DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
                     CONTEXT, pollServer.getUri(),
-                    POLL_GET_PATH, POLL_REPORT_PATH,
+                    POLL_PATH,
                     httpProperties(), false, false, null, LOGGER);
 
             FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(

@@ -284,7 +284,7 @@ public class SdkClientEntity {
     ConfigHelper.configureIsolatedInMemoryPersistence(builder);
 
     if (params.dataSystem != null) {
-      configureDataSystem(builder, params.dataSystem);
+      configureDataSystem(builder, params.dataSystem, params.clientSide.usePost);
     } else {
       if (params.polling != null && params.polling.baseUri != null) {
         endpoints.polling(params.polling.baseUri);
@@ -391,15 +391,16 @@ public class SdkClientEntity {
     return builder.build();
   }
 
-  private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem) {
+  private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem,
+                                   boolean usePost) {
     if (Boolean.TRUE.equals(dataSystem.useDefaultDataSystem)) {
-      builder.dataSystem(Components.dataSystem());
+      builder.dataSystem(Components.dataSystem().usePost(usePost));
       return;
     }
 
     SdkConfigConnectionModeConfig connModeConfig = dataSystem.connectionModeConfig;
 
-    DataSystemBuilder dsBuilder = Components.dataSystem();
+    DataSystemBuilder dsBuilder = Components.dataSystem().usePost(usePost);
 
     // at the time of writing this, we did not have contract tests that could test platform state changes,
     // disabling automatic mode simplifies the behavior being tested

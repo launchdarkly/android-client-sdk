@@ -92,6 +92,10 @@ public abstract class HttpConfigurationBuilder implements ComponentConfigurer<Ht
      * However, the REPORT method is not always supported by operating systems or network gateways.
      * Therefore it is disabled in the SDK by default. You can enable it if you know your code will
      * not be running in an environment that disallows REPORT.
+     * <p>
+     * This option has no effect when the data system is configured with
+     * {@link com.launchdarkly.sdk.android.LDConfig.Builder#dataSystem(DataSystemBuilder)}. Use
+     * {@link DataSystemBuilder#usePost(boolean)} instead to send the context in the request body.
      *
      * @param useReport true to enable the REPORT method
      * @return the builder

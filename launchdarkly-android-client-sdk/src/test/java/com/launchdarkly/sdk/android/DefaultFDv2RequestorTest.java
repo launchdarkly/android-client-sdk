@@ -36,8 +36,7 @@ public class DefaultFDv2RequestorTest {
 
     private static final LDContext CONTEXT = LDContext.create("test-context-key");
     // Bogus paths used by tests — deliberately not the real production paths.
-    private static final String GET_REQUEST_PATH = "/fake-poll-get";
-    private static final String REPORT_REQUEST_PATH = "/fake-poll-report";
+    private static final String REQUEST_PATH = "/fake-poll";
     private static final LDLogger LOGGER = LDLogger.none();
 
     private static HttpProperties httpProperties() {
@@ -49,14 +48,13 @@ public class DefaultFDv2RequestorTest {
                 null, null);
     }
 
-    private static DefaultFDv2Requestor makeRequestor(HttpServer server, boolean useReport, boolean evaluationReasons, String payloadFilter) {
+    private static DefaultFDv2Requestor makeRequestor(HttpServer server, boolean usePost, boolean evaluationReasons, String payloadFilter) {
         return new DefaultFDv2Requestor(
                 CONTEXT,
                 server.getUri(),
-                GET_REQUEST_PATH,
-                REPORT_REQUEST_PATH,
+                REQUEST_PATH,
                 httpProperties(),
-                useReport,
+                usePost,
                 evaluationReasons,
                 payloadFilter,
                 LOGGER);
@@ -93,7 +91,7 @@ public class DefaultFDv2RequestorTest {
                 assertEquals("payload-transferred", response.getEvents().get(2).getEventType());
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertTrue("path should start with " + GET_REQUEST_PATH, req.getPath().startsWith(GET_REQUEST_PATH));
+                assertTrue("path should start with " + REQUEST_PATH, req.getPath().startsWith(REQUEST_PATH));
             }
         }
     }
@@ -121,7 +119,7 @@ public class DefaultFDv2RequestorTest {
                 future.get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertTrue(req.getPath().startsWith(GET_REQUEST_PATH));
+                assertTrue(req.getPath().startsWith(REQUEST_PATH));
                 assertTrue("query should contain basis=test-state", req.getQuery() != null && req.getQuery().contains("basis=test-state"));
             }
         }
@@ -260,7 +258,7 @@ public class DefaultFDv2RequestorTest {
                 future.get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertTrue(req.getPath().startsWith(GET_REQUEST_PATH));
+                assertTrue(req.getPath().startsWith(REQUEST_PATH));
                 assertTrue("query should contain URL-encoded basis", req.getQuery() != null && req.getQuery().contains("basis=%28p%3Apayload-1%3A100%29"));
             }
         }
@@ -274,7 +272,7 @@ public class DefaultFDv2RequestorTest {
                 future.get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertTrue(req.getPath().startsWith(GET_REQUEST_PATH));
+                assertTrue(req.getPath().startsWith(REQUEST_PATH));
                 assertTrue("query should contain URL-encoded basis", req.getQuery() != null && req.getQuery().contains("basis=%28p%3Amy-payload%3A200%29"));
             }
         }
@@ -357,8 +355,7 @@ public class DefaultFDv2RequestorTest {
             try (DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
                     CONTEXT,
                     uri,
-                    GET_REQUEST_PATH,
-                    REPORT_REQUEST_PATH,
+                    REQUEST_PATH,
                     httpProperties(),
                     false,
                     false,
@@ -368,7 +365,7 @@ public class DefaultFDv2RequestorTest {
                 future.get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertTrue("path should start with context path + request path", req.getPath().startsWith("/fake-base" + GET_REQUEST_PATH));
+                assertTrue("path should start with context path + request path", req.getPath().startsWith("/fake-base" + REQUEST_PATH));
             }
         }
     }
@@ -506,18 +503,16 @@ public class DefaultFDv2RequestorTest {
     }
 
     @Test
-    public void useReportMethod() throws Exception {
+    public void usePostMethod() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.bodyJson(EMPTY_EVENTS_JSON))) {
             try (DefaultFDv2Requestor requestor = makeRequestor(server, true, false, null)) {
                 requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertEquals("REPORT", req.getMethod());
-                // Context should be in the request body, not the URL path
-                assertTrue("path should use REPORT path without context segment",
-                        req.getPath().startsWith(REPORT_REQUEST_PATH));
-                assertFalse("path should not contain GET context segment",
-                        req.getPath().startsWith(GET_REQUEST_PATH));
+                assertEquals("POST", req.getMethod());
+                // The context goes in the request body, not in the URL path
+                assertEquals("path should be the request path with no context segment",
+                        REQUEST_PATH, req.getPath());
                 assertNotNull("body should contain serialized context", req.getBody());
                 assertTrue("body should contain context key",
                         req.getBody().contains("test-context-key"));
@@ -526,23 +521,38 @@ public class DefaultFDv2RequestorTest {
     }
 
     @Test
-    public void useReportMethodDoesNotUseEtag() throws Exception {
-        // ETag caching is disabled for REPORT requests since the context is in the body
+    public void getMethodAppendsContextToPath() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.bodyJson(EMPTY_EVENTS_JSON))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+
+                RequestInfo req = server.getRecorder().requireRequest();
+                assertEquals("GET", req.getMethod());
+                assertEquals(REQUEST_PATH + "/" + LDUtil.urlSafeBase64(CONTEXT), req.getPath());
+                assertTrue("GET request should have no body",
+                        req.getBody() == null || req.getBody().isEmpty());
+            }
+        }
+    }
+
+    @Test
+    public void usePostMethodDoesNotUseEtag() throws Exception {
+        // ETag caching is disabled for POST requests since the context is in the body
         Handler etagResp = Handlers.all(
                 Handlers.header("ETag", "some-etag"),
                 Handlers.bodyJson(EMPTY_EVENTS_JSON));
 
         try (HttpServer server = HttpServer.start(etagResp)) {
             try (DefaultFDv2Requestor requestor = makeRequestor(server, true, false, null)) {
-                // First REPORT request — server returns an ETag, but it should not be cached
+                // First POST request: the server returns an ETag, but it is not stored
                 requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
                 RequestInfo req1 = server.getRecorder().requireRequest();
-                assertNull("REPORT request should not send If-None-Match", req1.getHeader("If-None-Match"));
+                assertNull("POST request should not send If-None-Match", req1.getHeader("If-None-Match"));
 
-                // Second REPORT request — still no If-None-Match because ETag was never stored
+                // Second POST request: still no If-None-Match because the ETag was never stored
                 requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
                 RequestInfo req2 = server.getRecorder().requireRequest();
-                assertNull("REPORT request should never send If-None-Match", req2.getHeader("If-None-Match"));
+                assertNull("POST request should never send If-None-Match", req2.getHeader("If-None-Match"));
             }
         }
     }
@@ -551,7 +561,7 @@ public class DefaultFDv2RequestorTest {
     public void http400LogsProguardWarning() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(400))) {
             try (DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
-                    CONTEXT, server.getUri(), GET_REQUEST_PATH, REPORT_REQUEST_PATH,
+                    CONTEXT, server.getUri(), REQUEST_PATH,
                     httpProperties(), false, false, null, logging.logger)) {
 
                 Future<FDv2Requestor.FDv2PayloadResponse> future = requestor.poll(Selector.EMPTY);
@@ -569,7 +579,7 @@ public class DefaultFDv2RequestorTest {
     public void networkFailureThrowsException() throws Exception {
         try (DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
                 CONTEXT, URI.create("http://localhost:1"),
-                GET_REQUEST_PATH, REPORT_REQUEST_PATH,
+                REQUEST_PATH,
                 httpProperties(), false, false, null, LOGGER)) {
             requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
         }

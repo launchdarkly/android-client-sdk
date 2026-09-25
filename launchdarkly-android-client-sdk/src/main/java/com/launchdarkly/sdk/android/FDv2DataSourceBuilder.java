@@ -34,10 +34,13 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     private final Map<ConnectionMode, ModeDefinition> modeTable;
     private final ConnectionMode startingMode;
     private final ModeResolutionTable resolutionTable;
+    private final boolean usePost;
 
     private ConnectionMode activeMode;
     private boolean includeInitializers = true; // start with initializers
     private ScheduledExecutorService sharedExecutor;
+    // The useReport warning is logged on the first build only. Builds run on one thread.
+    private boolean useReportWarningLogged = false;
 
     FDv2DataSourceBuilder() {
         this(DataSystemComponents.makeDefaultModeTable(), ConnectionMode.STREAMING, ModeResolutionTable.MOBILE);
@@ -55,9 +58,23 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
             @NonNull ConnectionMode startingMode,
             @NonNull ModeResolutionTable resolutionTable
     ) {
+        this(modeTable, startingMode, resolutionTable, false);
+    }
+
+    /**
+     * @param usePost true if FDv2 polling and streaming requests send the context in the request
+     *                body with POST instead of encoding it into the GET path
+     */
+    FDv2DataSourceBuilder(
+            @NonNull Map<ConnectionMode, ModeDefinition> modeTable,
+            @NonNull ConnectionMode startingMode,
+            @NonNull ModeResolutionTable resolutionTable,
+            boolean usePost
+    ) {
         this.modeTable = modeTable;
         this.startingMode = startingMode;
         this.resolutionTable = resolutionTable;
+        this.usePost = usePost;
     }
 
     /**
@@ -73,6 +90,15 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
     @NonNull
     ConnectionMode getStartingMode() {
         return startingMode;
+    }
+
+    /**
+     * Returns whether FDv2 flag requests send the context in the request body with POST.
+     *
+     * @return true if flag requests use POST
+     */
+    boolean isUsePost() {
+        return usePost;
     }
 
     /**
@@ -107,6 +133,15 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
         }
 
         ConnectionMode mode = activeMode != null ? activeMode : startingMode;
+
+        // The FDv2 endpoints take POST, not REPORT. The data system has its own usePost option,
+        // so the FDv1 useReport option does not apply here.
+        if (clientContext.getHttp().isUseReport() && !useReportWarningLogged) {
+            useReportWarningLogged = true;
+            clientContext.getBaseLogger().warn(
+                    "useReport has no effect with the FDv2 data system and is ignored. " +
+                    "Use DataSystemBuilder.usePost to send the evaluation context in the request body.");
+        }
 
         ModeDefinition modeDef = modeTable.get(mode);
         if (modeDef == null) {
@@ -159,6 +194,7 @@ class FDv2DataSourceBuilder implements ComponentConfigurer<DataSource>, Closeabl
                 clientContext.getServiceEndpoints(),
                 clientContext.getHttp(),
                 clientContext.isEvaluationReasons(),
+                usePost,
                 selectorSource,
                 sharedExecutor,
                 impl.getPlatformState().getCacheDir(),

@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -24,6 +25,17 @@ public class DataSystemBuilderTest {
         assertTrue(auto.isLifecycle());
         assertTrue(auto.isNetwork());
         assertTrue(b.getConnectionModeOverrides().isEmpty());
+    }
+
+    @Test
+    public void defaultBuilder_usePostIsFalse() {
+        assertFalse(Components.dataSystem().isUsePost());
+    }
+
+    @Test
+    public void usePost_setsFlag() {
+        assertTrue(Components.dataSystem().usePost(true).isUsePost());
+        assertFalse(Components.dataSystem().usePost(true).usePost(false).isUsePost());
     }
 
     @Test
