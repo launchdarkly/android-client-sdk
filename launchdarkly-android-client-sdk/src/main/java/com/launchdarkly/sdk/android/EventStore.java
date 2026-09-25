@@ -314,6 +314,16 @@ class EventStore implements Closeable {
     }
 
     /**
+     * @return whether a commit writes anything, which is false where persistence is off and once a write
+     *   has failed and the store has given up on it
+     */
+    boolean isPersisting() {
+        synchronized (bufferLock) {
+            return persistEvents;
+        }
+    }
+
+    /**
      * Stages an already serialized event.
      * <p>
      * Staging is a copy into a buffer; {@link #commit()} is what makes the event outlive the process.

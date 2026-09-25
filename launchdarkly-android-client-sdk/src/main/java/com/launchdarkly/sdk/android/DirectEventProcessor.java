@@ -44,8 +44,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * points, because an application reporting an error is saying this matters more than the microseconds it
  * costs and the crash it describes may be moments away; a commit encodes the whole held run, so the
  * exposures leading up to the error go down with it. Evaluations get no such promise and are committed once
- * {@link #PENDING_COMMIT_THRESHOLD} of them have accumulated, on {@code flush}, or when the application
- * flushes from its own crash handler.
+ * {@link #PENDING_COMMIT_THRESHOLD} of them have accumulated where persistence is on, on {@code flush}, or
+ * when the application flushes from its own crash handler.
  * <p>
  * Whether a commit point runs on the caller's thread is the application's choice, through
  * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence(
@@ -308,7 +308,7 @@ final class DirectEventProcessor implements EventProcessor {
             // is usually the main thread doing it; the store writes these on its own thread once enough of them
             // have piled up, and the next event recorded at a commit point makes them durable along with itself.
             if (needsCommit) {
-                scheduleCommit();
+                scheduleThresholdCommit();
             }
         } catch (RuntimeException e) {
             // This runs on the application's thread, usually inside a flag evaluation, and an
@@ -359,7 +359,7 @@ final class DirectEventProcessor implements EventProcessor {
                 needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
             }
             if (needsCommit) {
-                scheduleCommit();
+                scheduleThresholdCommit();
             }
         } catch (RuntimeException e) {
             // As in recordEvaluationEvent: on the caller's thread, so a failure is logged, not thrown.
@@ -385,6 +385,19 @@ final class DirectEventProcessor implements EventProcessor {
         } catch (RuntimeException e) {
             // As in recordEvaluationEvent: every commit point is on the caller's thread.
             logUnexpectedError(e);
+        }
+    }
+
+    /**
+     * Queues the commit a full pending run asks for, where there is a disk for it to reach.
+     * <p>
+     * Without persistence a commit makes nothing durable. All it would do is move the encode into the
+     * middle of the application's evaluations, where it competes with them for the CPU; left alone, the
+     * run waits for the flush, which encodes it anyway, and capacity still bounds how much is held.
+     */
+    private void scheduleThresholdCommit() {
+        if (store.isPersisting()) {
+            scheduleCommit();
         }
     }
 

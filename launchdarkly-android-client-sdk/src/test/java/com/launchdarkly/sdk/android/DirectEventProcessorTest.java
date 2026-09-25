@@ -748,6 +748,43 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFullPendingRunIsCommittedWherePersistenceIsOn() throws Exception {
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run);
+
+        assertTrue("the run was never committed", pendingEventsInStoreAfterAFullRun(store) > 0);
+    }
+
+    @Test
+    public void aFullPendingRunWaitsForTheFlushWherePersistenceIsOff() throws Exception {
+        // Committing it would make nothing durable, and would put the encode in among the evaluations.
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, false,
+                logging.logger, Runnable::run);
+
+        assertEquals(0, pendingEventsInStoreAfterAFullRun(store));
+    }
+
+    /**
+     * Records more tracked evaluations than a pending run holds, lets the events thread run whatever that
+     * queued, and reports how many events reached the store.
+     */
+    private int pendingEventsInStoreAfterAFullRun(EventStore store) throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        try {
+            for (int i = 0; i < 40; i++) {
+                eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, true, null);
+            }
+            scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+            return store.getPendingEventCount();
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void closeStillWritesWhenTheEventsThreadNeverGetsToIt() throws Exception {
         // The events thread is single-threaded, so a delivery that hangs holds the final commit behind it
         // for longer than close() waits. The write is close()'s promise, so it falls to the caller.
