@@ -1,18 +1,11 @@
 package com.launchdarkly.sdk.android;
 
-import com.google.gson.stream.JsonWriter;
 import com.launchdarkly.sdk.AttributeRef;
-import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.internal.events.Event;
 
-import java.io.IOException;
-import java.io.StringWriter;
 import java.util.Collection;
 import java.util.Map;
-
-import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
 /**
  * Writes the events this SDK records, reusing a context's encoding across the run of events that share
@@ -30,8 +23,8 @@ import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
  * against {@code EventOutputFormatter} keep that copy honest.
  * <p>
  * <b>What keeps it honest.</b> The field order, the conditions on optional fields and the redaction
- * directive per event kind are upstream's, and {@code LDValue} and {@code EvaluationReason} are written
- * with upstream's own Gson serializers rather than by hand, so values cannot drift at all.
+ * directive per event kind are upstream's, and {@link JsonByteWriter} reproduces Gson's output for
+ * {@code LDValue} and {@code EvaluationReason}, escaping included.
  * {@code OutboundEventBufferSerializationTest} asserts that what this writes is byte for byte what
  * {@code EventOutputFormatter} writes, over every event kind crossed with every context shape and privacy
  * setting. That test is the gate: this is allowed to be faster and nothing else.
@@ -56,7 +49,7 @@ final class FullEventWriter {
      * @return false if the event is not one this writes, in which case nothing has been written and the
      *   caller should fall back to {@code EventOutputFormatter}
      */
-    boolean write(Event event, JsonWriter jw) throws IOException {
+    boolean write(Event event, JsonByteWriter jw) {
         if (event.getContext() == null || !event.getContext().isValid()) {
             // Upstream skips these rather than failing, on the grounds that an event with no valid
             // context cannot be serialized at all. Same here.
@@ -75,12 +68,12 @@ final class FullEventWriter {
             if (fe.getVariation() >= 0) {
                 jw.name("variation").value(fe.getVariation());
             }
-            writeLDValue("value", fe.getValue(), jw);
-            writeLDValue("default", fe.getDefaultVal(), jw);
+            jw.nameAndValue("value", fe.getValue());
+            jw.nameAndValue("default", fe.getDefaultVal());
             if (fe.getPrereqOf() != null) {
                 jw.name("prereqOf").value(fe.getPrereqOf());
             }
-            writeEvaluationReason(fe.getReason(), jw);
+            jw.nameAndReason("reason", fe.getReason());
             jw.endObject();
             return true;
         }
@@ -102,7 +95,7 @@ final class FullEventWriter {
             // (redactAnonymousAllEvents), and this is a client-side SDK. On the client only feature
             // events redact anonymous.
             writeContext(ce.getContext(), jw, false);
-            writeLDValue("data", ce.getData(), jw);
+            jw.nameAndValue("data", ce.getData());
             if (ce.getMetricValue() != null) {
                 jw.name("metricValue").value(ce.getMetricValue());
             }
@@ -116,7 +109,7 @@ final class FullEventWriter {
     /**
      * Writes one summary event in java-core's field and iteration order.
      */
-    void writeSummary(SummaryEventAccumulator.Summary summary, JsonWriter jw) throws IOException {
+    void writeSummary(SummaryEventAccumulator.Summary summary, JsonByteWriter jw) {
         jw.beginObject();
         jw.name("kind").value("summary");
         jw.name("startDate").value(summary.startDate);
@@ -129,7 +122,7 @@ final class FullEventWriter {
         for (Map.Entry<String, SummaryEventAccumulator.FlagInfo> flagEntry : summary.counters.entrySet()) {
             SummaryEventAccumulator.FlagInfo flag = flagEntry.getValue();
             jw.name(flagEntry.getKey()).beginObject();
-            writeLDValue("default", flag.defaultValue, jw);
+            jw.nameAndValue("default", flag.defaultValue);
             jw.name("contextKinds").beginArray();
             for (String kind : flag.contextKinds) {
                 jw.value(kind);
@@ -153,7 +146,7 @@ final class FullEventWriter {
                     } else {
                         jw.name("unknown").value(true);
                     }
-                    writeLDValue("value", counter.value, jw);
+                    jw.nameAndValue("value", counter.value);
                     jw.name("count").value(counter.count);
                     jw.endObject();
                 }
@@ -179,7 +172,7 @@ final class FullEventWriter {
         return hits + misses == 0 ? -1 : (double) hits / (hits + misses);
     }
 
-    private void writeContext(LDContext context, JsonWriter jw, boolean redactAnonymous) throws IOException {
+    private void writeContext(LDContext context, JsonByteWriter jw, boolean redactAnonymous) {
         jw.name("context");
 
         if (contextCache == null) {
@@ -187,40 +180,20 @@ final class FullEventWriter {
             return;
         }
 
-        String encoded = contextCache.get(context, redactAnonymous);
-        if (encoded == null) {
-            // Encoded aside so the result can be kept. The scratch writer takes JsonWriter's defaults,
-            // which the writer above has too, so these are the bytes writing straight through would have
-            // produced.
-            StringWriter captured = new StringWriter();
-            JsonWriter scratch = new JsonWriter(captured);
-            contextWriter.write(context, scratch, redactAnonymous);
-            scratch.flush();
-            encoded = captured.toString();
-            contextCache.put(context, redactAnonymous, encoded);
+        byte[] encoded = contextCache.get(context, redactAnonymous);
+        if (encoded != null) {
+            jw.writeRaw(encoded);
+            return;
         }
-
-        jw.jsonValue(encoded);
+        // Written in place and copied out afterwards, so a miss costs one copy of the context's bytes
+        // rather than a second writer.
+        int start = jw.size();
+        contextWriter.write(context, jw, redactAnonymous);
+        contextCache.put(context, redactAnonymous, jw.bytesFrom(start));
     }
 
-    private static void writeKindAndCreationDate(JsonWriter jw, String kind, long creationDate) throws IOException {
+    private static void writeKindAndCreationDate(JsonByteWriter jw, String kind, long creationDate) {
         jw.name("kind").value(kind);
         jw.name("creationDate").value(creationDate);
-    }
-
-    private static void writeLDValue(String key, LDValue value, JsonWriter jw) throws IOException {
-        if (value == null || value.isNull()) {
-            return;
-        }
-        jw.name(key);
-        gsonInstance().toJson(value, LDValue.class, jw); // LDValue defines its own custom serializer
-    }
-
-    private static void writeEvaluationReason(EvaluationReason er, JsonWriter jw) throws IOException {
-        if (er == null) {
-            return;
-        }
-        jw.name("reason");
-        gsonInstance().toJson(er, EvaluationReason.class, jw); // EvaluationReason defines its own custom serializer
     }
 }

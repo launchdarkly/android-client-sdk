@@ -1,16 +1,12 @@
 package com.launchdarkly.sdk.android;
 
-import com.google.gson.stream.JsonWriter;
 import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.LDValueType;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
-import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
 
 /**
  * Writes a context in the form events carry it, redacting whatever was designated private and listing
@@ -24,7 +20,8 @@ import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
  * <p>
  * <b>Copied rather than reimplemented, deliberately.</b> Redaction is where a mistake is a privacy bug
  * rather than a wrong number, so nothing here is re-derived; the logic below is upstream's, changed only
- * in its package and its name. {@code OutboundEventBufferSerializationTest} asserts byte-for-byte
+ * in its package, its name and the writer it writes to, which is {@link JsonByteWriter} rather than
+ * Gson's. {@code OutboundEventBufferSerializationTest} asserts byte-for-byte
  * agreement with {@code EventOutputFormatter} across the corpus, so a change upstream shows up as a
  * failing test rather than as events that quietly disagree with every other SDK.
  * <p>
@@ -39,7 +36,7 @@ final class EventContextWriter {
         this.globalPrivateAttributes = globalPrivateAttributes == null ? new AttributeRef[0] : globalPrivateAttributes;
     }
 
-    void write(LDContext c, JsonWriter w, boolean redactAnonymous) throws IOException {
+    void write(LDContext c, JsonByteWriter w, boolean redactAnonymous) {
         if (c.isMultiple()) {
             w.beginObject();
             w.name("kind").value("multi");
@@ -54,7 +51,7 @@ final class EventContextWriter {
         }
     }
 
-    private void writeSingleKind(LDContext c, JsonWriter w, boolean includeKind, boolean redactAnonymous) throws IOException {
+    private void writeSingleKind(LDContext c, JsonByteWriter w, boolean includeKind, boolean redactAnonymous) {
         w.beginObject();
 
         // kind, key, and anonymous are never redacted
@@ -104,13 +101,13 @@ final class EventContextWriter {
     }
 
     private List<String> writeOrRedactAttribute(
-            JsonWriter w,
+            JsonByteWriter w,
             LDContext c,
             String attrName,
             LDValue value,
             List<String> redacted,
             boolean redactAnonymous
-    ) throws IOException {
+    ) {
         if (allAttributesPrivate) {
             return addOrCreate(redacted, attrName);
         } else if (redactAnonymous && c.isAnonymous()) {
@@ -123,14 +120,14 @@ final class EventContextWriter {
     // can be 1. written as-is, 2. fully redacted, or 3. (for a JSON object) partially redacted.
     // It returns the updated redacted attribute list.
     private List<String> writeRedactedValue(
-            JsonWriter w,
+            JsonByteWriter w,
             LDContext c,
             int previousDepth,
             String attrName,
             LDValue value,
             AttributeRef previousMatchRef,
             List<String> redacted
-    ) throws IOException {
+    ) {
         // See findPrivateRef for the meaning of the previousMatchRef parameter.
         int depth = previousDepth + 1;
         AttributeRef privateRef = findPrivateRef(c, depth, attrName, previousMatchRef);
@@ -212,9 +209,8 @@ final class EventContextWriter {
         return ref.getComponent(depth - 1).equals(attrName);
     }
 
-    private static void writeNameAndValue(JsonWriter w, String name, LDValue value) throws IOException {
-        w.name(name);
-        gsonInstance().toJson(value, LDValue.class, w);
+    private static void writeNameAndValue(JsonByteWriter w, String name, LDValue value) {
+        w.nameAndValue(name, value);
     }
 
     private static <T> List<T> addOrCreate(List<T> list, T value) {

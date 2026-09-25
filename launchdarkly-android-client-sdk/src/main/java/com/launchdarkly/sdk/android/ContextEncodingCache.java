@@ -31,7 +31,7 @@ import com.launchdarkly.sdk.LDContext;
  */
 final class ContextEncodingCache {
     private final LDContext[] contexts = new LDContext[2];
-    private final String[] encodings = new String[2];
+    private final byte[][] encodings = new byte[2][];
 
     private long hits;
     private long misses;
@@ -39,9 +39,9 @@ final class ContextEncodingCache {
     /**
      * @param context the context an event is being written for
      * @param redactAnonymous whether this event redacts the attributes of an anonymous context
-     * @return the encoded context, or null if this slot does not hold it
+     * @return the encoded context's UTF-8 bytes, or null if this slot does not hold it
      */
-    synchronized String get(LDContext context, boolean redactAnonymous) {
+    synchronized byte[] get(LDContext context, boolean redactAnonymous) {
         int slot = slot(redactAnonymous);
         // LDContext.equals short-circuits on identity, which is the common case: an application hands
         // the same context to every evaluation, so a hit costs a reference comparison, not a walk.
@@ -53,7 +53,7 @@ final class ContextEncodingCache {
         return null;
     }
 
-    synchronized void put(LDContext context, boolean redactAnonymous, String encoded) {
+    synchronized void put(LDContext context, boolean redactAnonymous, byte[] encoded) {
         int slot = slot(redactAnonymous);
         contexts[slot] = context;
         encodings[slot] = encoded;

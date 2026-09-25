@@ -321,6 +321,98 @@ public class OutboundEventBufferSerializationTest {
     }
 
     /**
+     * Every character Gson escapes, in both of its escaping modes, and every width of UTF-8. The writer
+     * encodes these itself, so this is where it would drift from Gson if it drifted at all.
+     */
+    @Test
+    public void escapingAndEncodingAgreeWithTheFormatterByteForByte() throws Exception {
+        StringBuilder controls = new StringBuilder();
+        for (char c = 0; c < 0x20; c++) {
+            controls.append(c);
+        }
+        String awkward = controls + "\"\\/<>&='" + " é中😀\u2028\u2029\u007f";
+        String loneSurrogates = "high\uD83D-low\uDE00-end\uD83D";
+        LDValue data = LDValue.buildObject()
+                .put("plain", awkward)
+                .put(awkward, LDValue.buildArray().add(awkward).add(LDValue.ofNull()).add(1).build())
+                .put("dropped", LDValue.ofNull())
+                .put("nested", LDValue.buildObject().put("<key>", "=value'").build())
+                .build();
+        LDContext context = LDContext.builder("key-" + awkward)
+                .name("name-" + awkward)
+                .set("attr-" + awkward, awkward)
+                .set("secret<&>", "redacted")
+                .set("surrogates", loneSurrogates)
+                .privateAttributes(AttributeRef.fromLiteral("secret<&>"))
+                .build();
+        EvaluationReason[] reasons = {
+                EvaluationReason.ruleMatch(3, "rule-" + awkward, true),
+                EvaluationReason.prerequisiteFailed("prereq-" + awkward),
+                EvaluationReason.fallthrough(true),
+                EvaluationReason.error(EvaluationReason.ErrorKind.MALFORMED_FLAG),
+                EvaluationReason.off().withBigSegmentsStatus(EvaluationReason.BigSegmentsStatus.STALE),
+        };
+        List<Event> events = new ArrayList<>();
+        for (EvaluationReason reason : reasons) {
+            events.add(new Event.FeatureRequest(1000, "flag-" + awkward, context, 10, 1, data,
+                    LDValue.of(awkward), reason, "parent-" + awkward, true, null, false));
+        }
+        events.add(new Event.Custom(1001, "custom-" + awkward, context, data, 0.1));
+        events.add(new Event.Custom(1002, loneSurrogates, context, LDValue.of(loneSurrogates), -0.0));
+        events.add(new Event.Identify(1003, context));
+        for (double number : new double[]{1.5, -0.0, 1e21, 1e-7, Integer.MAX_VALUE, 2147483648.0, -5,
+                Double.NaN, Double.POSITIVE_INFINITY}) {
+            events.add(new Event.Custom(1004, "number", CONTEXT, LDValue.of(number), 1e10));
+        }
+
+        for (PrivacyShape privacy : privacyShapes()) {
+            assertBytesMatchFormatter(privacy, events.toArray(new Event[0]));
+        }
+    }
+
+    @Test
+    public void escapingInSummariesAgreesWithTheFormatter() throws Exception {
+        String awkward = "\u0001\t\"\\<>&='é中😀\u2028";
+        LDContext context = LDContext.builder("key" + awkward).set("attr" + awkward, awkward).build();
+        for (PrivacyShape privacy : privacyShapes()) {
+            assertSummaryMatchesFormatter("awkward strings", privacy, true,
+                    summaryEvent(1000, "flag" + awkward, context, 10, 1, LDValue.of(awkward), LDValue.of(awkward)),
+                    summaryEvent(1001, "flag" + awkward, context, -1, -1, LDValue.of(2.5), LDValue.ofNull()));
+        }
+    }
+
+    /**
+     * As {@link #assertMatchesFormatter}, but compared as the bytes that go on the wire: the formatter's
+     * characters through the same UTF-8 encoder the SDK used to write them with.
+     */
+    private void assertBytesMatchFormatter(PrivacyShape privacy, Event... events) throws Exception {
+        OutboundEventBuffer staged = makeBuffer(privacy.allAttributesPrivate, privacy.privateAttributes);
+        java.io.ByteArrayOutputStream actual = new java.io.ByteArrayOutputStream();
+        actual.write('[');
+        for (int i = 0; i < events.length; i++) {
+            byte[] frame = staged.serialize(events[i]);
+            assertNotNull("event " + i + " did not serialize", frame);
+            if (i > 0) {
+                actual.write(',');
+            }
+            actual.write(frame);
+        }
+        actual.write(']');
+
+        EventsConfiguration config = new EventsConfiguration(
+                privacy.allAttributesPrivate, 100, null, 0, null, null, 1, null, 0,
+                false, false, privacy.privateAttributes, true);
+        java.io.ByteArrayOutputStream expected = new java.io.ByteArrayOutputStream();
+        java.io.Writer writer = new java.io.OutputStreamWriter(expected, StandardCharsets.UTF_8);
+        new EventOutputFormatter(config).writeOutputEvents(
+                events, Collections.<EventSummarizer.EventSummary>emptyList(), writer);
+        writer.flush();
+
+        assertEquals(new String(expected.toByteArray(), StandardCharsets.ISO_8859_1),
+                new String(actual.toByteArray(), StandardCharsets.ISO_8859_1));
+    }
+
+    /**
      * Asserts that serializing each event on its own and joining the frames produces exactly the payload
      * {@link EventOutputFormatter} would have sent for the same events.
      * <p>
