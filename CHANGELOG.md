@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.16.1](https://github.com/launchdarkly/android-client-sdk/compare/5.16.0...5.16.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* Stop the FDv1 stream on the stream thread after an unrecoverable HTTP error ([#402](https://github.com/launchdarkly/android-client-sdk/issues/402)) ([0f40e44](https://github.com/launchdarkly/android-client-sdk/commit/0f40e44b989d46e7d4a8c0c0475029c85c5bbe08))
+* **tests:** stop streaming data sources in StreamingDataSourceTest ([#400](https://github.com/launchdarkly/android-client-sdk/issues/400)) ([cf6110b](https://github.com/launchdarkly/android-client-sdk/commit/cf6110bbd51bdcdd9730e87d3c47b036efd9dac9))
+
 ## [5.16.0](https://github.com/launchdarkly/android-client-sdk/compare/5.15.0...5.16.0) (2026-08-27)
 
 
