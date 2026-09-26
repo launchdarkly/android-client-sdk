@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.FDv2SourceResult;
 import com.launchdarkly.sdk.fdv2.SourceResultType;
@@ -99,16 +100,48 @@ final class FDv2DataSourceConditions {
     }
 
     /**
-     * Recovery: timer starts when built. Future completes with RECOVERY when timer fires.
+     * Decides, when a recovery timer fires, whether there is anything to recover to.
+     */
+    interface RecoveryGate {
+        boolean canRecover();
+    }
+
+    /**
+     * Recovery: timer starts when built. Future completes with RECOVERY when timer fires, unless
+     * the gate says there is nothing to recover to yet, in which case the timer is re-armed for
+     * another timeout.
      */
     static final class RecoveryCondition extends TimedCondition {
+        @Nullable
+        private final RecoveryGate gate;
+        private volatile boolean closed = false;
 
         RecoveryCondition(@NonNull ScheduledExecutorService executor, long timeoutSeconds) {
+            this(executor, timeoutSeconds, null);
+        }
+
+        RecoveryCondition(@NonNull ScheduledExecutorService executor, long timeoutSeconds, @Nullable RecoveryGate gate) {
             super(executor, timeoutSeconds);
-            this.timerFuture = executor.schedule(
-                    () -> resultFuture.set(ConditionType.RECOVERY),
-                    timeoutSeconds,
-                    TimeUnit.SECONDS);
+            this.gate = gate;
+            arm();
+        }
+
+        private void arm() {
+            this.timerFuture = sharedExecutor.schedule(this::onTimer, timeoutSeconds, TimeUnit.SECONDS);
+        }
+
+        private void onTimer() {
+            if (gate == null || gate.canRecover()) {
+                resultFuture.set(ConditionType.RECOVERY);
+            } else if (!closed) {
+                arm();
+            }
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+            super.close();
         }
 
         @Override

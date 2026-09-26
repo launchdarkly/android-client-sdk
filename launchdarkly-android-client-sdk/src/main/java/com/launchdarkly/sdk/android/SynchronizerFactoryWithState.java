@@ -1,27 +1,45 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
+import java.util.concurrent.ScheduledFuture;
+
 /**
- * Wraps a synchronizer factory with availability state (available/blocked).
- * Used by {@link SourceManager} to skip synchronizers that have been blocked (e.g. after TERMINAL_ERROR).
+ * Wraps a synchronizer factory with availability state.
+ * Used by {@link SourceManager} to skip synchronizers that are not currently usable: either
+ * because they are waiting out a backoff after an unexpected error, or because they are blocked
+ * (for example the FDv1 fallback synchronizer before the server has directed the SDK to it).
  * <p>
- * Package-private for internal use by FDv2DataSource.
+ * Package-private for internal use by FDv2DataSource. Callers synchronize on the
+ * {@link SourceManager}'s lock.
  */
 final class SynchronizerFactoryWithState {
 
     enum State {
         /** This synchronizer is available to use. */
         Available,
-        /** This synchronizer is no longer available (e.g. after TERMINAL_ERROR). */
+        /**
+         * This synchronizer reported an unexpected error and is waiting out a backoff before it
+         * may be used again.
+         */
+        BackingOff,
+        /** This synchronizer is not available until something unblocks it. */
         Blocked
     }
 
     private final FDv2DataSource.DataSourceFactory<Synchronizer> factory;
     private State state = State.Available;
     private final boolean isFDv1Fallback;
+    // Backoff after unexpected errors from this slot's synchronizers. Every failure recorded here
+    // is unexpected, so only the extended regime ever applies.
+    private final RetryState retryState = RetryState.forSynchronizerSlot();
+    @Nullable
+    private ScheduledFuture<?> pendingUnblock;
+    @Nullable
+    private String lastSynchronizerName;
 
     SynchronizerFactoryWithState(@NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory) {
         this(factory, false);
@@ -50,5 +68,62 @@ final class SynchronizerFactoryWithState {
 
     boolean isFDv1Fallback() {
         return isFDv1Fallback;
+    }
+
+    /**
+     * Records healthy operation by this slot's synchronizer.
+     *
+     * @param nowMillis the current time
+     */
+    void recordHealthy(long nowMillis) {
+        retryState.recordSuccess(nowMillis);
+    }
+
+    /**
+     * Records an unexpected error from this slot's synchronizer and puts the slot into backoff.
+     *
+     * @param synchronizerName the name of the synchronizer that failed, for logging
+     * @param nowMillis        the current time
+     * @return how long the slot stays in backoff, in milliseconds
+     */
+    long startBackoff(@NonNull String synchronizerName, long nowMillis) {
+        retryState.recordFailure(true, nowMillis);
+        state = State.BackingOff;
+        lastSynchronizerName = synchronizerName;
+        return retryState.nextDelayMillis();
+    }
+
+    /**
+     * Ends this slot's backoff, if it is in one.
+     *
+     * @return true if the slot became available
+     */
+    boolean endBackoff() {
+        pendingUnblock = null;
+        if (state != State.BackingOff) {
+            return false;
+        }
+        state = State.Available;
+        return true;
+    }
+
+    /**
+     * @return the name of the synchronizer whose unexpected error started the current backoff,
+     * or null if there has been none
+     */
+    @Nullable
+    String getLastSynchronizerName() {
+        return lastSynchronizerName;
+    }
+
+    void setPendingUnblock(@Nullable ScheduledFuture<?> pendingUnblock) {
+        this.pendingUnblock = pendingUnblock;
+    }
+
+    void cancelPendingUnblock() {
+        if (pendingUnblock != null) {
+            pendingUnblock.cancel(false);
+            pendingUnblock = null;
+        }
     }
 }

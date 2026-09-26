@@ -149,7 +149,7 @@ final class FDv2DataSource implements DataSource {
         }
 
         // note that the source manager only uses the initializers after the cache initializers and not the cache initializers
-        this.sourceManager = new SourceManager(allSynchronizers, generalInitializers);
+        this.sourceManager = new SourceManager(allSynchronizers, generalInitializers, sharedExecutor);
         this.fallbackTimeoutSeconds = fallbackTimeoutSeconds;
         this.recoveryTimeoutSeconds = recoveryTimeoutSeconds;
         this.sharedExecutor = sharedExecutor;
@@ -475,9 +475,34 @@ final class FDv2DataSource implements DataSource {
         List<FDv2DataSourceConditions.Condition> list = new ArrayList<>();
         list.add(new FDv2DataSourceConditions.FallbackCondition(sharedExecutor, fallbackTimeoutSeconds));
         if (!isPrime) {
-            list.add(new FDv2DataSourceConditions.RecoveryCondition(sharedExecutor, recoveryTimeoutSeconds));
+            // Recovery only goes ahead if a higher-priority synchronizer is actually available;
+            // one that is still backing off after an unexpected error keeps the timer running.
+            list.add(new FDv2DataSourceConditions.RecoveryCondition(sharedExecutor, recoveryTimeoutSeconds,
+                    sourceManager::hasAvailableSynchronizerBeforeCurrent));
         }
         return list;
+    }
+
+    /**
+     * Returns the next available synchronizer. If none is available but at least one is waiting
+     * out a backoff, waits for the first backoff to end and tries again, so that unexpected errors
+     * from every synchronizer never stop the data source. Returns null once the data source is
+     * stopped or there is truly nothing left to try.
+     */
+    @Nullable
+    private Synchronizer nextSynchronizerOrWaitForBackoff() throws InterruptedException {
+        while (true) {
+            Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+            if (synchronizer != null || !sourceManager.hasBackingOffSynchronizers()) {
+                return synchronizer;
+            }
+            logger.info("All synchronizers are waiting out a backoff after unexpected errors; the first to become available will be tried next.");
+            try {
+                sourceManager.awaitAvailabilityChange().get();
+            } catch (ExecutionException e) {
+                return null;
+            }
+        }
     }
 
     private static String detailForThrowable(@Nullable Throwable error) {
@@ -515,12 +540,12 @@ final class FDv2DataSource implements DataSource {
             @NonNull DataSourceUpdateSinkV2 sink
     ) {
         try {
-            Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+            Synchronizer synchronizer = nextSynchronizerOrWaitForBackoff();
             while (synchronizer != null) {
                 String synchronizerName = synchronizer.name();
                 logger.info("Synchronizer '{}' is starting.", synchronizerName);
                 resetSynchronizerStatusDedupe();
-                int synchronizerCount = sourceManager.getAvailableSynchronizerCount();
+                int synchronizerCount = sourceManager.getUsableSynchronizerCount();
                 boolean isPrime = sourceManager.isPrimeSynchronizer();
                 try {
                     boolean running = true;
@@ -570,6 +595,7 @@ final class FDv2DataSource implements DataSource {
                                     if (changeSet != null) {
                                         sink.apply(context, changeSet);
                                         sink.setStatus(DataSourceState.VALID, null);
+                                        sourceManager.recordCurrentSynchronizerHealthy(System.currentTimeMillis());
                                         tryCompleteStart(true, null);
                                     }
                                     break;
@@ -595,14 +621,20 @@ final class FDv2DataSource implements DataSource {
                                                 running = false;
                                                 break;
                                             case TERMINAL_ERROR:
+                                                // The synchronizer hit an error that is not expected to
+                                                // resolve soon, such as HTTP 401. Move on to the next one
+                                                // now, and put this one aside for a while rather than
+                                                // for good, so that a transient cause still recovers.
                                                 maybeLogSynchronizerStatusChange(
                                                         synchronizer.name(),
                                                         status.getState()
                                                 );
-                                                sourceManager.blockCurrentSynchronizer();
+                                                long backoffMillis = sourceManager.backOffCurrentSynchronizer(
+                                                        synchronizer.name(), System.currentTimeMillis());
                                                 logger.warn(
-                                                        "Synchronizer '{}' permanently failed and will not be used again until application restart.",
-                                                        synchronizer.name()
+                                                        "Synchronizer '{}' reported an unexpected error and will not be tried again for {} seconds.",
+                                                        synchronizer.name(),
+                                                        backoffMillis / 1000
                                                 );
                                                 running = false;
                                                 sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
@@ -651,7 +683,7 @@ final class FDv2DataSource implements DataSource {
                     Thread.currentThread().interrupt();
                     return;
                 }
-                synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+                synchronizer = nextSynchronizerOrWaitForBackoff();
             }
             if (!stopCalled.get()) {
                 logger.warn("No more synchronizers available.");

@@ -21,7 +21,8 @@ import org.junit.rules.Timeout;
 import java.io.IOException;
 import java.net.URI;
 import java.util.HashMap;
-import java.util.concurrent.ExecutorService;
+import java.util.Random;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -38,11 +39,13 @@ public class FDv2StreamingSynchronizerTest {
     @Rule
     public Timeout globalTimeout = Timeout.seconds(10);
 
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(4);
+    private final FakeScheduledExecutorService fakeExecutor = new FakeScheduledExecutorService();
 
     @After
     public void tearDown() {
         executor.shutdownNow();
+        fakeExecutor.shutdownNow();
     }
 
     private static final LDContext CONTEXT = LDContext.create("test-context");
@@ -97,6 +100,32 @@ public class FDv2StreamingSynchronizerTest {
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
                 null, 100, evaluationReasons, useReport,
                 httpProperties(), executor, LOGGER, null);
+    }
+
+    // The tests of backoff behavior drive the synchronizer's timers with a
+    // FakeScheduledExecutorService and a RetryState without jitter, so the delay chosen for each
+    // reconnect can be asserted exactly instead of waited for.
+    private static final long NORMAL_DELAY_MILLIS = 1000;
+    private static final long NORMAL_MAX_DELAY_MILLIS = 4000;
+    // A healthy-operation threshold no test reaches.
+    private static final long NEVER_RESET_MILLIS = 60_000;
+
+    private static RetryState retryStateWithoutJitter(long healthyResetThresholdMillis) {
+        return new RetryState(NORMAL_DELAY_MILLIS, NORMAL_MAX_DELAY_MILLIS,
+                NORMAL_DELAY_MILLIS, NORMAL_MAX_DELAY_MILLIS, 0, healthyResetThresholdMillis, 0,
+                new Random() {
+                    @Override
+                    public double nextDouble() {
+                        return 0;
+                    }
+                });
+    }
+
+    private FDv2StreamingSynchronizer makeSynchronizer(URI streamBaseUri, RetryState retryState) {
+        return new FDv2StreamingSynchronizer(
+                CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
+                null, 1, false, false,
+                httpProperties(), fakeExecutor, LOGGER, null, retryState);
     }
 
     private static DiagnosticStore basicDiagnosticStore() {
@@ -334,6 +363,96 @@ public class FDv2StreamingSynchronizerTest {
             assertEquals(SourceSignal.TERMINAL_ERROR, result.getStatus().getState());
 
             sync.close();
+        }
+    }
+
+    // ---- backoff after failures ----
+
+    @Test
+    public void recoverableErrorSchedulesReconnectWithGrowingDelay() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(503),
+                Handlers.status(503),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred),
+                        Handlers.SSE.leaveOpen())))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), retryStateWithoutJitter(NEVER_RESET_MILLIS));
+
+            // Each 503 is reported as an interruption, and the reconnect is scheduled with double
+            // the previous delay.
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+            assertEquals(NORMAL_DELAY_MILLIS, fakeExecutor.awaitScheduledDelayMillis(5000));
+            fakeExecutor.advanceTime(NORMAL_DELAY_MILLIS);
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+            assertEquals(NORMAL_DELAY_MILLIS * 2, fakeExecutor.awaitScheduledDelayMillis(5000));
+
+            // Once that delay has passed, the synchronizer reconnects and delivers data.
+            fakeExecutor.advanceTime(NORMAL_DELAY_MILLIS * 2);
+            assertEquals(SourceResultType.CHANGE_SET, sync.next().get(5, TimeUnit.SECONDS).getResultType());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void healthyStreamResetsBackoffToInitialDelay() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+        // The synchronizer measures healthy operation on its own clock, so the server must hold
+        // the stream open for a moment after the data before ending it. This is the shortest
+        // margin that reliably exceeds the 1 ms threshold used here.
+        long healthyMarginMillis = 20;
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(503),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred),
+                        Handlers.delay(healthyMarginMillis)),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred),
+                        Handlers.SSE.leaveOpen())))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), retryStateWithoutJitter(1));
+
+            // The 503 costs one attempt; the reconnect then delivers data and is ended by the
+            // server.
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+            assertEquals(NORMAL_DELAY_MILLIS, fakeExecutor.awaitScheduledDelayMillis(5000));
+            fakeExecutor.advanceTime(NORMAL_DELAY_MILLIS);
+            assertEquals(SourceResultType.CHANGE_SET, sync.next().get(5, TimeUnit.SECONDS).getResultType());
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+
+            // Having been healthy for longer than the threshold, the next delay starts over
+            // instead of doubling.
+            assertEquals(NORMAL_DELAY_MILLIS, fakeExecutor.awaitScheduledDelayMillis(5000));
+            fakeExecutor.advanceTime(NORMAL_DELAY_MILLIS);
+            assertEquals(SourceResultType.CHANGE_SET, sync.next().get(5, TimeUnit.SECONDS).getResultType());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void closeDuringBackoffCancelsReconnect() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), retryStateWithoutJitter(NEVER_RESET_MILLIS));
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+            assertEquals(NORMAL_DELAY_MILLIS, fakeExecutor.awaitScheduledDelayMillis(5000));
+
+            // Closing cancels the scheduled attempt and reports shutdown.
+            sync.close();
+            assertTrue(fakeExecutor.pendingDelaysMillis().isEmpty());
+            assertEquals(SourceSignal.SHUTDOWN, sync.next().get(1, TimeUnit.SECONDS).getStatus().getState());
         }
     }
 

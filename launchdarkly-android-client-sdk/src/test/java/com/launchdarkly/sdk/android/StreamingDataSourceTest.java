@@ -27,8 +27,10 @@ import org.junit.rules.Timeout;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -163,6 +165,41 @@ public class StreamingDataSourceTest {
         return (StreamingDataSource) Components.streamingDataSource()
                 .initialReconnectDelayMillis(initialReconnectDelayMillis)
                 .build(clientContext);
+    }
+
+    // The tests of backoff behavior below drive the data source's timers with a FakeTaskExecutor
+    // and a RetryState without jitter, so the delay chosen for each reconnect can be asserted
+    // exactly instead of waited for.
+    private static final long NORMAL_DELAY_MILLIS = 1;
+    private static final long EXTENDED_DELAY_MILLIS = 300_000;
+    // A healthy-operation threshold no test reaches.
+    private static final long NEVER_RESET_MILLIS = 60_000;
+
+    private final FakeTaskExecutor fakeTaskExecutor = new FakeTaskExecutor();
+
+    private static RetryState retryStateWithoutJitter(long healthyResetThresholdMillis) {
+        return new RetryState(NORMAL_DELAY_MILLIS, NORMAL_DELAY_MILLIS,
+                EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 4, 0, healthyResetThresholdMillis, 0,
+                new Random() {
+                    @Override
+                    public double nextDouble() {
+                        return 0;
+                    }
+                });
+    }
+
+    private StreamingDataSource makeStreamingDataSource(URI streamBaseUri, RetryState retryState) {
+        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                .serviceEndpoints(Components.serviceEndpoints().streaming(streamBaseUri))
+                .build();
+        ClientContext baseClientContext = ClientContextImpl.fromConfig(
+                config, MOBILE_KEY, "", perEnvironmentData,
+                makeFeatureFetcher(), CONTEXT,
+                logging.logger, platformState, environmentReporter, fakeTaskExecutor);
+        ClientContext clientContext = ClientContextImpl.forDataSource(
+                baseClientContext, dataSourceUpdateSink, CONTEXT, false, false);
+        return new StreamingDataSource(clientContext, CONTEXT, dataSourceUpdateSink,
+                makeFeatureFetcher(), 1, false, retryState);
     }
 
     private static String makeSseEvent(String type, String data) {
@@ -636,7 +673,7 @@ public class StreamingDataSourceTest {
     // --- start(): error handling verified via HttpServer ---
 
     @Test
-    public void startWithHttp401ShutsDownSink() throws Exception {
+    public void startWithHttp401DoesNotShutDownSink() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(401))) {
             StreamingDataSource sds = makeStreamingDataSource(
                     server.getUri(), false, false);
@@ -649,13 +686,9 @@ public class StreamingDataSourceTest {
             LDInvalidResponseCodeFailure failure = (LDInvalidResponseCodeFailure) error;
             assertEquals(401, failure.getResponseCode());
             assertFalse(failure.isRetryable());
-            // shutDown() runs on the EventSource background thread, so poll briefly
-            // to allow that thread to complete before asserting.
-            long deadline = System.currentTimeMillis() + 1000;
-            while (!dataSourceUpdateSink.shutDownCalled && System.currentTimeMillis() < deadline) {
-                Thread.sleep(10);
-            }
-            assertTrue(dataSourceUpdateSink.shutDownCalled);
+            // Reporting the error is the last thing the data source does with it, so the SDK
+            // has not been shut down and will not be.
+            assertFalse(dataSourceUpdateSink.shutDownCalled);
         }
     }
 
@@ -770,33 +803,12 @@ public class StreamingDataSourceTest {
         assertFalse(dataSourceUpdateSink.shutDownCalled);
     }
 
-    @Test
-    public void startWithHttp401PreventsSubsequentStart() throws Exception {
-        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
-            StreamingDataSource sds = makeStreamingDataSource(
-                    server.getUri(), false, false);
-            TrackingCallback callback1 = new TrackingCallback();
-            startDataSource(sds, callback1);
-
-            assertNotNull(callback1.awaitError());
-
-            // Second start should be a no-op due to connection401Error flag
-            TrackingCallback callback2 = new TrackingCallback();
-            startDataSource(sds, callback2);
-
-            assertNull("Second start should not produce a callback",
-                    callback2.errors.poll(500, TimeUnit.MILLISECONDS));
-            assertNull(callback2.successes.poll(200, TimeUnit.MILLISECONDS));
-        }
-    }
-
-    // --- start(): no reconnect after an unrecoverable HTTP error ---
+    // --- start(): backoff after failures ---
 
     @Test
-    public void unrecoverableErrorOnInitialConnectDoesNotReconnect() throws Exception {
+    public void unexpectedErrorSchedulesReconnectAfterExtendedDelay() throws Exception {
         String putEvent = makeSseEvent("put", VALID_PUT_JSON);
 
-        // A second request would get a working stream. The SDK must not make it.
         try (HttpServer server = HttpServer.start(Handlers.sequential(
                 Handlers.status(401),
                 Handlers.all(
@@ -804,57 +816,135 @@ public class StreamingDataSourceTest {
                         Handlers.SSE.event(putEvent),
                         Handlers.SSE.leaveOpen())))) {
 
-            StreamingDataSource sds = makeStreamingDataSource(
-                    server.getUri(), dataSourceUpdateSink, false, false, 1);
+            StreamingDataSource sds = makeStreamingDataSource(server.getUri(),
+                    retryStateWithoutJitter(NEVER_RESET_MILLIS));
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
+            startDataSource(sds, callback);
 
-            Throwable error = callback.awaitError();
-            assertNotNull(error);
-            assertFalse(((LDInvalidResponseCodeFailure) error).isRetryable());
-
+            // The 401 is reported, and the reconnect is scheduled for the extended delay.
+            assertNotNull(callback.awaitError());
             server.getRecorder().requireRequest();
-            server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
-            assertNull("no stream data expected after the error",
-                    callback.successes.poll(100, TimeUnit.MILLISECONDS));
+            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+
+            // Once that delay has passed, the data source reconnects and receives data.
+            fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
+            assertNotNull(callback.awaitSuccess());
+            server.getRecorder().requireRequest();
+            assertFalse(dataSourceUpdateSink.shutDownCalled);
         }
     }
 
     @Test
-    public void unrecoverableErrorOnReconnectDoesNotReconnectAgain() throws Exception {
+    public void unexpectedErrorOnReconnectSchedulesExtendedDelay() throws Exception {
         String putEvent = makeSseEvent("put", VALID_PUT_JSON);
 
         try (HttpServer server = HttpServer.start(Handlers.sequential(
-                // The first connection delivers data, then the server ends the stream.
                 Handlers.all(
                         Handlers.SSE.start(),
                         Handlers.SSE.event(putEvent)),
-                // The reconnect gets an unrecoverable status.
                 Handlers.status(403),
-                // A third request would get a working stream. The SDK must not make it.
                 Handlers.all(
                         Handlers.SSE.start(),
                         Handlers.SSE.event(putEvent),
                         Handlers.SSE.leaveOpen())))) {
 
-            StreamingDataSource sds = makeStreamingDataSource(
-                    server.getUri(), dataSourceUpdateSink, false, false, 1);
+            StreamingDataSource sds = makeStreamingDataSource(server.getUri(),
+                    retryStateWithoutJitter(NEVER_RESET_MILLIS));
             TrackingCallback callback = new TrackingCallback();
-            sds.start(callback);
-
+            startDataSource(sds, callback);
             assertNotNull(callback.awaitSuccess());
 
-            // The dropped stream reports a network failure first; the 403 follows.
+            // The server ending the first stream is a normal failure, so the reconnect is
+            // scheduled for the normal delay.
             Throwable error = callback.awaitError();
-            while (error != null && !(error instanceof LDInvalidResponseCodeFailure)) {
-                error = callback.awaitError();
-            }
-            assertNotNull(error);
-            assertEquals(403, ((LDInvalidResponseCodeFailure) error).getResponseCode());
+            assertEquals(LDFailure.FailureType.NETWORK_FAILURE, ((LDFailure) error).getFailureType());
+            assertEquals(Collections.singletonList(NORMAL_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+            fakeTaskExecutor.advanceTime(NORMAL_DELAY_MILLIS);
 
-            server.getRecorder().requireRequest();
-            server.getRecorder().requireRequest();
-            server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
+            // The 403 on that reconnect moves the data source to the extended delay, after which
+            // it connects again.
+            error = callback.awaitError();
+            assertEquals(403, ((LDInvalidResponseCodeFailure) error).getResponseCode());
+            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+            fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
+            assertNotNull(callback.awaitSuccess());
+        }
+    }
+
+    @Test
+    public void sustainedUnexpectedErrorsKeepReconnectingWithGrowingDelay() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            StreamingDataSource sds = makeStreamingDataSource(server.getUri(),
+                    retryStateWithoutJitter(NEVER_RESET_MILLIS));
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+
+            // Every attempt fails; each one is reported and the next is scheduled with double
+            // the delay, and the data source never gives up.
+            for (long expectedDelay : new long[] {EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 2, EXTENDED_DELAY_MILLIS * 4}) {
+                assertNotNull(callback.awaitError());
+                server.getRecorder().requireRequest();
+                assertEquals(Collections.singletonList(expectedDelay), fakeTaskExecutor.pendingDelaysMillis());
+                fakeTaskExecutor.advanceTime(expectedDelay);
+            }
+            assertNotNull(callback.awaitError());
+            assertFalse(dataSourceUpdateSink.shutDownCalled);
+        }
+    }
+
+    @Test
+    public void healthyStreamResetsBackoffToNormalDelay() throws Exception {
+        String putEvent = makeSseEvent("put", VALID_PUT_JSON);
+        // The data source measures healthy operation on its own clock, so the server must hold
+        // the stream open for a moment after the message before ending it. This is the shortest
+        // margin that reliably exceeds the 1 ms threshold used here.
+        long healthyMarginMillis = 20;
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(401),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(putEvent),
+                        Handlers.delay(healthyMarginMillis)),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(putEvent),
+                        Handlers.SSE.leaveOpen())))) {
+
+            StreamingDataSource sds = makeStreamingDataSource(server.getUri(), retryStateWithoutJitter(1));
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+
+            // The 401 puts the data source in the extended regime; the reconnect then delivers
+            // data and is ended by the server.
+            assertNotNull(callback.awaitError());
+            fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
+            assertNotNull(callback.awaitSuccess());
+            assertNotNull(callback.awaitError());
+
+            // Having been healthy for longer than the threshold, the data source is back to the
+            // normal delay rather than doubling the extended one.
+            assertEquals(Collections.singletonList(NORMAL_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+            fakeTaskExecutor.advanceTime(NORMAL_DELAY_MILLIS);
+            assertNotNull(callback.awaitSuccess());
+        }
+    }
+
+    @Test
+    public void stopCancelsPendingReconnect() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            StreamingDataSource sds = makeStreamingDataSource(server.getUri(),
+                    retryStateWithoutJitter(NEVER_RESET_MILLIS));
+            TrackingCallback callback = new TrackingCallback();
+            startDataSource(sds, callback);
+            assertNotNull(callback.awaitError());
+            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+
+            // Stopping cancels the scheduled reconnect.
+            AwaitableCallback<Void> stopped = new AwaitableCallback<>();
+            sds.stop(stopped);
+            stopped.await(STOP_TIMEOUT_MILLIS);
+            assertTrue(fakeTaskExecutor.pendingDelaysMillis().isEmpty());
         }
     }
 
