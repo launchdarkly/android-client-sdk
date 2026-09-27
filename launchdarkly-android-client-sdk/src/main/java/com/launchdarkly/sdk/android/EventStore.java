@@ -701,7 +701,17 @@ class EventStore implements Closeable {
         // process cannot splice its bytes into the middle of what another wrote.
         FileOutputStream stream = new FileOutputStream(openLog(), true);
         if (isNew) {
-            stream.write(Format.fileHeader());
+            try {
+                stream.write(Format.fileHeader());
+            } catch (IOException | RuntimeException e) {
+                // Not yet in output, so closeOutputHoldingIoLock would not reach it.
+                try {
+                    stream.close();
+                } catch (IOException ignored) {
+                    // The write already failed; that is the error worth reporting.
+                }
+                throw e;
+            }
         }
         output = stream;
         return output;
