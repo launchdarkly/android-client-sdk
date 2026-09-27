@@ -624,10 +624,10 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, false,
                 logging.logger, Runnable::run) {
             @Override
-            boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
+            boolean stageReserved(byte[] serializedEvent) {
                 staging.countDown();
                 awaitQuietly(releaseStaging, 5, TimeUnit.SECONDS);
-                return super.stage(serializedEvent, bypassingCapacity);
+                return super.stageReserved(serializedEvent);
             }
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
@@ -642,6 +642,40 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertEquals(1, eventProcessor.getAndClearDroppedCount());
         } finally {
             releaseStaging.countDown();
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void anEventAlreadyStagedIsNotCountedTwiceAgainstCapacity() throws Exception {
+        // Paused just after the first event reached the store, with the commit that staged it still
+        // running. Counted once, it leaves room for a second event under a capacity of two; counted both
+        // as staged and as on its way, it would not.
+        CountDownLatch staged = new CountDownLatch(1);
+        CountDownLatch releaseCommit = new CountDownLatch(1);
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, false,
+                logging.logger, Runnable::run) {
+            @Override
+            boolean stageReserved(byte[] serializedEvent) {
+                boolean result = super.stageReserved(serializedEvent);
+                staged.countDown();
+                awaitQuietly(releaseCommit, 5, TimeUnit.SECONDS);
+                return result;
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, 2, scheduler);
+        try {
+            eventProcessor.recordIdentifyEvent(CONTEXT);
+            assertTrue("the commit never staged the event", staged.await(2, TimeUnit.SECONDS));
+
+            eventProcessor.recordIdentifyEvent(CONTEXT);
+            releaseCommit.countDown();
+
+            assertEquals(0, eventProcessor.getAndClearDroppedCount());
+        } finally {
+            releaseCommit.countDown();
             eventProcessor.close();
             scheduler.shutdownNow();
         }
@@ -1012,6 +1046,12 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 synchronized boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
                     staged.add(LDValue.parse(new String(serializedEvent, StandardCharsets.UTF_8)));
                     return super.stage(serializedEvent, bypassingCapacity);
+                }
+
+                @Override
+                synchronized boolean stageReserved(byte[] serializedEvent) {
+                    staged.add(LDValue.parse(new String(serializedEvent, StandardCharsets.UTF_8)));
+                    return super.stageReserved(serializedEvent);
                 }
 
                 @Override

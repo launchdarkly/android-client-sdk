@@ -131,13 +131,6 @@ final class DirectEventProcessor implements EventProcessor {
     private final List<Event> pending = new ArrayList<>();
 
     /**
-     * How many events a commit has taken from {@link #pending} and not yet staged, guarded by
-     * {@link #recordLock}. The encode between the two happens outside that lock, and capacity has to
-     * count these events for as long as they are in neither place.
-     */
-    private int eventsBeingStaged;
-
-    /**
      * Guards everything one recording writes: {@link #pending} and the summary counters behind
      * {@link #buffer}.
      * <p>
@@ -441,16 +434,17 @@ final class DirectEventProcessor implements EventProcessor {
                 pending.clear();
                 summaries = eventBuffer.takeSummaries();
                 summaryContextsExceeded.set(false);
-                eventsBeingStaged = run.size();
+                // Reserved in the same critical section the run leaves pending in, so capacity counts
+                // it in one place or the other throughout the encode. Each staged event uses up its
+                // reservation as it arrives, so none is counted twice either.
+                store.reserve(run.size());
             }
             try {
                 stageRun(run);
-                stageSummaries(summaries);
             } finally {
-                synchronized (recordLock) {
-                    eventsBeingStaged = 0;
-                }
+                store.releaseReservations();
             }
+            stageSummaries(summaries);
             store.commit();
         }
     }
@@ -460,14 +454,15 @@ final class DirectEventProcessor implements EventProcessor {
      * <p>
      * The run was taken under {@link #recordLock} and is encoded outside it, so recording does not wait on
      * the encoder. Staging bypasses capacity because the decision to keep these events was already made in
-     * {@link #record}, and refusing them here would drop events the SDK has counted as accepted.
+     * {@link #record}, and refusing them here would drop events the SDK has counted as accepted; the
+     * reservation taken with the run is what keeps them counted until they are staged.
      * <p>
      * Requires {@link #commitLock}: two threads staging separate runs would stage them in whichever order
      * they finished encoding, which is not the order they were recorded in.
      */
     private void stageRun(List<Event> run) {
         for (byte[] serialized : eventBuffer.serializeAll(run)) {
-            store.stage(serialized, true);
+            store.stageReserved(serialized);
         }
     }
 
@@ -493,7 +488,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
             return;
         }
-        if (pending.size() + eventsBeingStaged + store.getPendingEventCount() >= capacity) {
+        if (pending.size() + store.getPendingEventCount() >= capacity) {
             if (capacityExceeded.compareAndSet(false, true)) {
                 logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
             }
