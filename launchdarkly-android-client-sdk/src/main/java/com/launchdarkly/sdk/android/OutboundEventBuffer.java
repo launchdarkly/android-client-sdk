@@ -10,7 +10,7 @@ import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
 import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
-import com.launchdarkly.sdk.internal.events.PerContextEventSummarizer;
+import com.launchdarkly.sdk.internal.events.ApiLevelSafePerContextEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.BufferedWriter;
@@ -82,7 +82,7 @@ final class OutboundEventBuffer {
                 perContextSummarization);
         this.formatter = new EventOutputFormatter(outputConfig);
         this.summarizer = perContextSummarization
-                ? new PerContextEventSummarizer()
+                ? new ApiLevelSafePerContextEventSummarizer()
                 : new AggregatedEventSummarizer();
         // One bucket overall, so there is no cardinality to bound and nothing to track it with.
         this.maxContexts = perContextSummarization ? maxContexts : Integer.MAX_VALUE;
