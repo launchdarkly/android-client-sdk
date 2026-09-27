@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -29,7 +30,8 @@ final class JsonByteWriter {
     private static final byte[] TRUE = {'t', 'r', 'u', 'e'};
     private static final byte[] FALSE = {'f', 'a', 'l', 's', 'e'};
     private static final byte[] NULL = {'n', 'u', 'l', 'l'};
-    private static final byte[] LONG_MIN_VALUE = Long.toString(Long.MIN_VALUE).getBytes();
+    private static final byte[] LONG_MIN_VALUE =
+            Long.toString(Long.MIN_VALUE).getBytes(StandardCharsets.US_ASCII);
     private static final byte[] HEX_DIGITS = {
             '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
     };
@@ -213,7 +215,10 @@ final class JsonByteWriter {
                     }
                     break;
                 case PREREQUISITE_FAILED:
-                    name("prerequisiteKey").value(reason.getPrerequisiteKey());
+                    // Gson.toJson turns serializeNulls off, so a null key drops the name along with it.
+                    if (reason.getPrerequisiteKey() != null) {
+                        name("prerequisiteKey").value(reason.getPrerequisiteKey());
+                    }
                     break;
                 case ERROR:
                     name("errorKind").value(reason.getErrorKind().name());
@@ -234,7 +239,9 @@ final class JsonByteWriter {
     /**
      * {@code LDValue}'s own serializer, under {@code Gson.toJson}: lenient, so a non-finite number is
      * written as Java spells it, and not serializing nulls, so an object member whose value is null is
-     * left out, name and all. A null in an array is still written.
+     * left out, name and all. A null in an array is still written. {@code LDValueObject.write} itself
+     * emits the null; it is the writer's {@code serializeNulls}, which {@code Gson.toJson} turns off,
+     * that drops it.
      */
     private void writeLDValue(LDValue value) {
         switch (value.getType()) {

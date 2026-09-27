@@ -370,6 +370,31 @@ public class OutboundEventBufferSerializationTest {
         }
     }
 
+    /**
+     * Gson.toJson turns serializeNulls off, so a null reached through an LDValue or a reason drops its
+     * name too, while an array element that is null is still written. That holds on the partial-redaction
+     * path as well, where the context writer names each member of an object attribute itself.
+     */
+    @Test
+    public void nullsInsideValuesAndReasonsAgreeWithTheFormatter() throws Exception {
+        LDValue withNulls = LDValue.buildObject()
+                .put("city", "Springfield")
+                .put("gone", LDValue.ofNull())
+                .put("list", LDValue.buildArray().add(LDValue.ofNull()).build())
+                .put("inner", LDValue.buildObject().put("gone", LDValue.ofNull()).put("kept", 1).build())
+                .build();
+        LDContext context = LDContext.builder("nulls").set("address", withNulls).build();
+        List<Event> events = new ArrayList<>();
+        events.add(new Event.FeatureRequest(1000, FLAG_KEY, context, 10, 1, withNulls, LDValue.ofNull(),
+                EvaluationReason.prerequisiteFailed(null), null, true, null, false));
+        events.add(new Event.Custom(1001, "custom", context, withNulls, null));
+        events.add(new Event.Identify(1002, context));
+
+        for (PrivacyShape privacy : privacyShapes()) {
+            assertBytesMatchFormatter(privacy, events.toArray(new Event[0]));
+        }
+    }
+
     @Test
     public void escapingInSummariesAgreesWithTheFormatter() throws Exception {
         String awkward = "\u0001\t\"\\<>&='é中😀\u2028";
