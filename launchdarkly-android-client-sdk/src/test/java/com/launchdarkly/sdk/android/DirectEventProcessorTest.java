@@ -700,7 +700,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // are in neither place. Counting only the two would let an event recorded then past capacity.
         CountDownLatch staging = new CountDownLatch(1);
         CountDownLatch releaseStaging = new CountDownLatch(1);
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, false,
+        // Persisting, since without it a commit point queues no commit at all.
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, true,
                 logging.logger, Runnable::run) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {
@@ -733,7 +734,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // as staged and as on its way, it would not.
         CountDownLatch staged = new CountDownLatch(1);
         CountDownLatch releaseCommit = new CountDownLatch(1);
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, false,
+        // Persisting, for the reason the test above is.
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, true,
                 logging.logger, Runnable::run) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {

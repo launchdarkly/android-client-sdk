@@ -345,7 +345,7 @@ final class DirectEventProcessor implements EventProcessor {
             // is usually the main thread doing it; the store writes these on its own thread once enough of them
             // have piled up, and the next event recorded at a commit point makes them durable along with itself.
             if (needsCommit) {
-                scheduleThresholdCommit();
+                scheduleCommitWherePersisting();
             }
         } catch (RuntimeException e) {
             // This runs on the application's thread, usually inside a flag evaluation, and an
@@ -399,7 +399,7 @@ final class DirectEventProcessor implements EventProcessor {
                 needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
             }
             if (needsCommit) {
-                scheduleThresholdCommit();
+                scheduleCommitWherePersisting();
             }
             return sequence;
         } catch (RuntimeException e) {
@@ -424,7 +424,7 @@ final class DirectEventProcessor implements EventProcessor {
             if (commitOnCallerThread) {
                 commitDurablyThrough(through);
             } else {
-                scheduleCommit();
+                scheduleCommitWherePersisting();
             }
         } catch (RuntimeException e) {
             // As in recordEvaluationEvent: every commit point is on the caller's thread.
@@ -456,13 +456,14 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Queues the commit a full pending run asks for, where there is a disk for it to reach.
+     * Queues the commit a full pending run or a commit point asks for, where there is a disk for it to reach.
      * <p>
      * Without persistence a commit makes nothing durable. All it would do is move the encode into the
-     * middle of the application's evaluations, where it competes with them for the CPU; left alone, the
-     * run waits for the flush, which encodes it anyway, and capacity still bounds how much is held.
+     * middle of the application's evaluations, where it competes with them for the CPU and splits their
+     * counters across summaries; left alone, the run waits for the flush, which encodes it anyway, and
+     * capacity still bounds how much is held.
      */
-    private void scheduleThresholdCommit() {
+    private void scheduleCommitWherePersisting() {
         if (store.isPersisting()) {
             scheduleCommit();
         }
