@@ -4,13 +4,14 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
 import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
-import com.launchdarkly.sdk.internal.events.ApiLevelSafePerContextEventSummarizer;
+import com.launchdarkly.sdk.internal.events.SameContextPerContextEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.BufferedWriter;
@@ -60,6 +61,12 @@ final class OutboundEventBuffer {
      */
     private final int maxContexts;
     private final Set<LDContext> countedContexts;
+    /**
+     * The context counted last, compared by reference so that the set above is only hashed into when the
+     * context changes. {@link LDContext#hashCode()} is not cached, and an application evaluates against
+     * one instance until it identifies again.
+     */
+    private LDContext lastCountedContext;
 
     /**
      * @param allAttributesPrivate true to redact every context attribute except the key
@@ -82,7 +89,7 @@ final class OutboundEventBuffer {
                 perContextSummarization);
         this.formatter = new EventOutputFormatter(outputConfig);
         this.summarizer = perContextSummarization
-                ? new ApiLevelSafePerContextEventSummarizer()
+                ? new SameContextPerContextEventSummarizer()
                 : new AggregatedEventSummarizer();
         // One bucket overall, so there is no cardinality to bound and nothing to track it with.
         this.maxContexts = perContextSummarization ? maxContexts : Integer.MAX_VALUE;
@@ -97,37 +104,44 @@ final class OutboundEventBuffer {
      * A counter is an aggregate rather than a buffered event, so no number of evaluations of a context
      * already being counted can make this drop anything. What capacity does bound is how many distinct
      * contexts are counted at once, because each one costs a retained context and its own counters.
+     * <p>
+     * Not synchronized: the caller holds its own lock across this and the rest of the recording, as it
+     * does across {@link #takeSummaries}, and a second monitor inside it would only be taken for nothing.
      *
      * @param event the evaluation
      * @return false if this evaluation was not counted, because counting it would have meant holding
      *   a context beyond the configured capacity
      */
-    synchronized boolean summarize(Event.FeatureRequest event) {
+    boolean summarize(Event.FeatureRequest event) {
         // Checked here rather than in DirectEventProcessor, for the same reason the sampling ratio
-        // is: this is where an event arrives from outside. The processor builds its own through the
-        // constructor overload that leaves this false, so a guard there could never fire and would
-        // read as dead. java-sdk-internal's DefaultEventProcessor, which this path replaced, honored
-        // the flag, and a counter is the one thing no later stage can reconstruct.
+        // is: this is where an event arrives from outside. The processor summarizes from the values
+        // themselves, which have no such flag. java-sdk-internal's DefaultEventProcessor, which this
+        // path replaced, honored it, and a counter is the one thing no later stage can reconstruct.
         if (event.isExcludeFromSummaries()) {
             return true;
         }
+        return summarize(event.getCreationDate(), event.getKey(), event.getVersion(), event.getVariation(),
+                event.getValue(), event.getDefaultVal(), event.getContext());
+    }
+
+    /**
+     * As {@link #summarize(Event.FeatureRequest)}, from the evaluation's values, so that an evaluation
+     * nobody needs a full event for costs no event to be built.
+     */
+    boolean summarize(long timestamp, String flagKey, int flagVersion, int variation, LDValue value,
+                      LDValue defaultValue, LDContext context) {
         // Only a context that is not being counted yet can be turned away, so reaching the limit costs
         // an application evaluating against one context nothing, however many evaluations it does.
-        if (countedContexts != null && !countedContexts.contains(event.getContext())) {
-            if (countedContexts.size() >= maxContexts) {
-                return false;
+        if (countedContexts != null && context != lastCountedContext) {
+            if (!countedContexts.contains(context)) {
+                if (countedContexts.size() >= maxContexts) {
+                    return false;
+                }
+                countedContexts.add(context);
             }
-            countedContexts.add(event.getContext());
+            lastCountedContext = context;
         }
-        summarizer.summarizeEvent(
-                event.getCreationDate(),
-                event.getKey(),
-                event.getVersion(),
-                event.getVariation(),
-                event.getValue(),
-                event.getDefaultVal(),
-                event.getContext()
-        );
+        summarizer.summarizeEvent(timestamp, flagKey, flagVersion, variation, value, defaultValue, context);
         return true;
     }
 
@@ -163,11 +177,13 @@ final class OutboundEventBuffer {
      * Separate from {@link #encode} so that the caller can take the counters in the same critical
      * section it lifts the full events in. An evaluation writes a counter and a full event, and a
      * flush that took the two at different moments could split one evaluation across two payloads.
+     * Not synchronized, for the reason {@link #summarize(Event.FeatureRequest)} is not.
      */
-    synchronized List<EventSummarizer.EventSummary> takeSummaries() {
+    List<EventSummarizer.EventSummary> takeSummaries() {
         List<EventSummarizer.EventSummary> summaries = summarizer.getSummariesAndReset();
         if (countedContexts != null) {
             countedContexts.clear();
+            lastCountedContext = null;
         }
         return summaries;
     }

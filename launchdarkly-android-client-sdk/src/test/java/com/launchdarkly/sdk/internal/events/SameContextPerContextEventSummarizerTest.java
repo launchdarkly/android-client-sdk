@@ -13,10 +13,10 @@ import org.junit.Test;
 import java.util.List;
 
 /**
- * Checks the API-level-safe copy against the summarizer it stands in for. The JVM these run on has
+ * Checks the summarizer against the one it stands in for. The JVM these run on has
  * {@code computeIfAbsent}, so the original can be run alongside it and the two compared directly.
  */
-public class ApiLevelSafePerContextEventSummarizerTest {
+public class SameContextPerContextEventSummarizerTest {
     private static final LDContext USER = LDContext.builder("user").name("User").set("plan", "pro").build();
     private static final LDContext DEVICE = LDContext.create(ContextKind.of("device"), "device");
     private static final LDContext MULTI = LDContext.createMulti(USER, DEVICE);
@@ -42,7 +42,7 @@ public class ApiLevelSafePerContextEventSummarizerTest {
     @Test
     public void summarizesAsTheOriginalDoes() {
         PerContextEventSummarizer original = new PerContextEventSummarizer();
-        ApiLevelSafePerContextEventSummarizer copy = new ApiLevelSafePerContextEventSummarizer();
+        SameContextPerContextEventSummarizer copy = new SameContextPerContextEventSummarizer();
         summarizeTheSame(original, copy);
 
         assertFalse(copy.isEmpty());
@@ -58,7 +58,7 @@ public class ApiLevelSafePerContextEventSummarizerTest {
     @Test
     public void restoresAsTheOriginalDoes() {
         PerContextEventSummarizer original = new PerContextEventSummarizer();
-        ApiLevelSafePerContextEventSummarizer copy = new ApiLevelSafePerContextEventSummarizer();
+        SameContextPerContextEventSummarizer copy = new SameContextPerContextEventSummarizer();
         summarizeTheSame(original, copy);
         List<EventSummarizer.EventSummary> taken = copy.getSummariesAndReset();
         original.restoreTo(original.getSummariesAndReset());
@@ -70,8 +70,25 @@ public class ApiLevelSafePerContextEventSummarizerTest {
     }
 
     @Test
+    public void theContextSeenLastIsCountedAfreshAfterEveryReset() {
+        SameContextPerContextEventSummarizer copy = new SameContextPerContextEventSummarizer();
+        PerContextEventSummarizer original = new PerContextEventSummarizer();
+        for (Runnable reset : new Runnable[]{
+                copy::getSummariesAndReset,
+                copy::clear,
+                () -> copy.restoreTo(java.util.Collections.<EventSummarizer.EventSummary>emptyList())}) {
+            copy.summarizeEvent(1000, "flag", 1, 0, LDValue.of(true), LDValue.of(false), USER);
+            reset.run();
+            copy.summarizeEvent(1001, "flag", 1, 0, LDValue.of(true), LDValue.of(false), USER);
+            original.summarizeEvent(1001, "flag", 1, 0, LDValue.of(true), LDValue.of(false), USER);
+
+            assertEquals(original.getSummariesAndReset(), copy.getSummariesAndReset());
+        }
+    }
+
+    @Test
     public void clearForgetsEverything() {
-        ApiLevelSafePerContextEventSummarizer copy = new ApiLevelSafePerContextEventSummarizer();
+        SameContextPerContextEventSummarizer copy = new SameContextPerContextEventSummarizer();
         copy.summarizeEvent(1000, "flag", 1, 0, LDValue.of(true), LDValue.of(false), USER);
 
         copy.clear();

@@ -105,6 +105,32 @@ public class OutboundEventBufferSerializationTest {
     }
 
     @Test
+    public void theContextLimitHoldsWhateverOrderContextsArriveIn() {
+        OutboundEventBuffer buffer = new OutboundEventBuffer(false, Collections.emptyList(), true, 1,
+                LDLogger.withAdapter(logAdapter, ""));
+        LDContext other = LDContext.create("other-key");
+
+        assertTrue(summarize(buffer, CONTEXT));
+        assertTrue(summarize(buffer, CONTEXT));
+        // Equal to the one counted but a different instance, so it misses the reference check and
+        // has to be found in the set rather than turned away.
+        assertTrue(summarize(buffer, LDContext.create(CONTEXT.getKey())));
+        assertEquals(false, summarize(buffer, other));
+        assertTrue(summarize(buffer, CONTEXT));
+        assertEquals(false, summarize(buffer, other));
+
+        buffer.takeSummaries();
+
+        // The limit lifts with the drain, for the context seen last as much as any other.
+        assertTrue(summarize(buffer, other));
+        assertEquals(false, summarize(buffer, CONTEXT));
+    }
+
+    private static boolean summarize(OutboundEventBuffer buffer, LDContext context) {
+        return buffer.summarize(1000, FLAG_KEY, 10, 1, LDValue.of(true), LDValue.of(false), context);
+    }
+
+    @Test
     public void serializingSummariesWithNothingCountedReturnsNothing() {
         assertTrue(makeBuffer().serializeSummariesAndReset().isEmpty());
     }

@@ -288,11 +288,16 @@ final class DirectEventProcessor implements EventProcessor {
             if (isStopped() || context == null) {
                 return;
             }
-            Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
-                    context, flagVersion, variation, value, defaultValue, reason, null,
-                    requireFullEvent, debugEventsUntilDate, false);
+            long timestamp = System.currentTimeMillis();
+            boolean debug = shouldDebugEvent(debugEventsUntilDate);
+            // Only built when something is kept beyond the counter. Most flags are not tracked, and for
+            // those an evaluation is a counter increment with nothing left behind for the collector.
             // Built before the lock is taken, so that the critical section is only the writes.
-            Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
+            Event.FeatureRequest event = requireFullEvent || debug
+                    ? new Event.FeatureRequest(timestamp, flagKey, context, flagVersion, variation, value,
+                            defaultValue, reason, null, requireFullEvent, debugEventsUntilDate, false)
+                    : null;
+            Event debugEvent = debug ? event.toDebugEvent() : null;
             boolean contextsExceeded;
             boolean warnContextsExceeded;
             boolean needsCommit;
@@ -300,7 +305,8 @@ final class DirectEventProcessor implements EventProcessor {
                 if (closed.get()) {
                     return;
                 }
-                contextsExceeded = !eventBuffer.summarize(event);
+                contextsExceeded = !eventBuffer.summarize(timestamp, flagKey, flagVersion, variation,
+                        value, defaultValue, context);
                 // Claimed under the lock that the commit resets it under, so the warning belongs to the
                 // run whose summarizer turned this evaluation away rather than to the next one.
                 warnContextsExceeded = contextsExceeded

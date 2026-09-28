@@ -6,6 +6,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
+import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.EvaluationDetail;
@@ -37,6 +38,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -83,6 +85,13 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile EnvironmentMetadata environmentMetadata;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
+
+    // Flags already reported unknown at info level. An application can poll a flag that does not exist
+    // on every redraw, and each of those would otherwise write to logcat. Bounded because the keys come
+    // from the application; past the bound an unknown flag is reported at debug only.
+    private static final int MAX_UNKNOWN_FLAGS_REPORTED = 100;
+    private final Set<String> unknownFlagsReported =
+            Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     // Shared by both registration paths, so that a plugin failing during init and the same plugin
     // failing under registerPlugin are reported identically.
@@ -641,7 +650,11 @@ public class LDClient implements LDClientInterface, Closeable {
         EvaluationDetail<LDValue> result;
 
         if (flag == null) {
-            logger.info("Unknown feature flag \"{}\"; returning default value", key);
+            if (unknownFlagsReported.size() < MAX_UNKNOWN_FLAGS_REPORTED && unknownFlagsReported.add(key)) {
+                logger.info("Unknown feature flag \"{}\"; returning default value", key);
+            } else {
+                logger.debug("Unknown feature flag \"{}\"; returning default value", key);
+            }
             eventProcessor.recordEvaluationEvent(context, key,
                     EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
                     null, defaultValue, false, null);
@@ -700,7 +713,11 @@ public class LDClient implements LDClientInterface, Closeable {
             );
         }
 
-        logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
+        // Checked first: three arguments go through the varargs overload, which builds its array whether
+        // or not debug logging is on.
+        if (logger.isEnabled(LDLogLevel.DEBUG)) {
+            logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
+        }
         return result;
     }
 
