@@ -832,6 +832,78 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void concurrentImmediateTracksShareCommitsAndEachIsDurableOnReturn() throws Exception {
+        final int trackers = 8;
+        Queue<String> staged = new ConcurrentLinkedQueue<>();
+        Queue<String> durable = new ConcurrentLinkedQueue<>();
+        AtomicInteger commits = new AtomicInteger();
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            boolean stageReserved(byte[] serializedEvent) {
+                staged.add(new String(serializedEvent, StandardCharsets.UTF_8));
+                return super.stageReserved(serializedEvent);
+            }
+
+            @Override
+            void commit() {
+                commits.incrementAndGet();
+                // A slow disk, so that the other tracks arrive while this write is under way.
+                sleepQuietly(50);
+                // Everything staged so far was staged under the commit lock this commit holds.
+                List<String> writing = new ArrayList<>(staged);
+                super.commit();
+                durable.addAll(writing);
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(), UNUSED_EVENTS_URI,
+                null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS, scheduler, diagnosticExecutor,
+                store, DEFAULT_CAPACITY, true);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            AtomicInteger notDurableOnReturn = new AtomicInteger();
+            List<Thread> threads = new ArrayList<>();
+            for (int i = 0; i < trackers; i++) {
+                String key = "event-" + i;
+                Thread thread = new Thread(() -> {
+                    awaitQuietly(start, 5, TimeUnit.SECONDS);
+                    eventProcessor.recordCustomEvent(CONTEXT, key, LDValue.ofNull(), null);
+                    boolean found = false;
+                    for (String event : durable) {
+                        found |= event.contains("\"key\":\"" + key + "\"");
+                    }
+                    if (!found) {
+                        notDurableOnReturn.incrementAndGet();
+                    }
+                });
+                thread.start();
+                threads.add(thread);
+            }
+            start.countDown();
+            for (Thread thread : threads) {
+                thread.join(10_000);
+            }
+
+            assertEquals("a track returned before its event was on disk", 0, notDurableOnReturn.get());
+            assertTrue("each track committed on its own: " + commits.get() + " commits for "
+                    + trackers + " tracks", commits.get() < trackers);
+        } finally {
+            eventProcessor.close();
+        }
+    }
+
+    private static void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
     public void deferredPersistenceNeverWritesOnTheCallersThread() throws Exception {
         Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,

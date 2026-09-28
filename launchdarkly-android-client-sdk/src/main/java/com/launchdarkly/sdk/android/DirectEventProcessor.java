@@ -171,6 +171,24 @@ final class DirectEventProcessor implements EventProcessor {
     private final Object commitLock = new Object();
 
     /**
+     * Numbers every recording, guarded by {@link #recordLock}, so a caller at a commit point can tell whether
+     * a commit has already covered it.
+     */
+    private long recordedSequence;
+
+    /**
+     * The last recording a finished commit covered. Written under {@link #commitLock}, and read outside it
+     * so that a caller whose recording is already durable does not queue for the lock at all.
+     * <p>
+     * This is what makes concurrent {@code IMMEDIATE} commit points a group commit. The first caller's
+     * commit takes every recording made before it took the run, including those of callers now waiting
+     * behind it; they find their recordings covered and return, and the next caller still uncovered
+     * commits everything that arrived in the meantime. Without it each waiter committed again in turn,
+     * and each of those commits wrote a summary of its own.
+     */
+    private volatile long committedSequence;
+
+    /**
      * Whether a commit is already queued, so a run of recordings past the threshold submits one task rather
      * than one per event.
      */
@@ -305,6 +323,7 @@ final class DirectEventProcessor implements EventProcessor {
                 if (closed.get()) {
                     return;
                 }
+                recordedSequence++;
                 contextsExceeded = !eventBuffer.summarize(timestamp, flagKey, flagVersion, variation,
                         value, defaultValue, context);
                 // Claimed under the lock that the commit resets it under, so the warning belongs to the
@@ -341,8 +360,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        record(new Event.Identify(System.currentTimeMillis(), context));
-        commitAtCommitPoint();
+        commitAtCommitPoint(record(new Event.Identify(System.currentTimeMillis(), context)));
     }
 
     @Override
@@ -350,8 +368,8 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
-        commitAtCommitPoint();
+        commitAtCommitPoint(record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data,
+                metricValue)));
     }
 
     /**
@@ -360,9 +378,12 @@ final class DirectEventProcessor implements EventProcessor {
      * Capacity is consulted before anything is encoded, so an event that will not be kept is never encoded.
      * That ordering is what bounds an application re-evaluating a tracked flag in a render loop: once the
      * limit is reached the cost of an evaluation falls back to its summary counter, however fast the loop runs.
+     *
+     * @return the recording's sequence number, for the commit point that follows it; 0 if it was refused
      */
-    void record(Event event) {
+    long record(Event event) {
         try {
+            long sequence;
             boolean needsCommit;
             synchronized (recordLock) {
                 // The close check that decides the outcome, as against the fast path the public record methods
@@ -371,17 +392,20 @@ final class DirectEventProcessor implements EventProcessor {
                 // before that commit takes it, or it is refused. Tested outside the lock the two interleave, and
                 // an event can be left in a list that nothing will drain again.
                 if (closed.get()) {
-                    return;
+                    return 0;
                 }
+                sequence = ++recordedSequence;
                 addPending(event);
                 needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
             }
             if (needsCommit) {
                 scheduleThresholdCommit();
             }
+            return sequence;
         } catch (RuntimeException e) {
             // As in recordEvaluationEvent: on the caller's thread, so a failure is logged, not thrown.
             logUnexpectedError(e);
+            return 0;
         }
     }
 
@@ -392,17 +416,42 @@ final class DirectEventProcessor implements EventProcessor {
      * it returns. Scheduling it instead keeps the encode and the write off that thread, and the event is
      * durable a moment later rather than immediately -- which is nothing at all when persistence is off,
      * since there is no disk for an early commit to reach.
+     *
+     * @param through the last recording the caller needs durable: its own, or for a flush everything so far
      */
-    private void commitAtCommitPoint() {
+    private void commitAtCommitPoint(long through) {
         try {
             if (commitOnCallerThread) {
-                commitDurably();
+                commitDurablyThrough(through);
             } else {
                 scheduleCommit();
             }
         } catch (RuntimeException e) {
             // As in recordEvaluationEvent: every commit point is on the caller's thread.
             logUnexpectedError(e);
+        }
+    }
+
+    /**
+     * Commits unless a finished commit already covers recording {@code through}, checked again once the lock
+     * is held, since the commit a caller waited behind is the one most likely to have covered it.
+     */
+    private void commitDurablyThrough(long through) {
+        if (committedSequence >= through) {
+            return;
+        }
+        synchronized (commitLock) {
+            if (committedSequence >= through) {
+                return;
+            }
+            commitDurably();
+        }
+    }
+
+    /** @return the sequence number of the last recording so far */
+    private long lastRecordedSequence() {
+        synchronized (recordLock) {
+            return recordedSequence;
         }
     }
 
@@ -460,10 +509,12 @@ final class DirectEventProcessor implements EventProcessor {
         synchronized (commitLock) {
             List<Event> run;
             List<EventSummarizer.EventSummary> summaries;
+            long through;
             // Both taken at once, so that an evaluation's counter and its full event are staged by the
             // same commit. Taken separately, a commit landing between the two writes one evaluation makes
             // stages the counter and leaves the event for the next one -- or, at close, for none at all.
             synchronized (recordLock) {
+                through = recordedSequence;
                 run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
                 pending.clear();
                 summaries = eventBuffer.takeSummaries();
@@ -480,6 +531,7 @@ final class DirectEventProcessor implements EventProcessor {
             }
             stageSummaries(summaries);
             store.commit();
+            committedSequence = through;
         }
     }
 
@@ -586,7 +638,7 @@ final class DirectEventProcessor implements EventProcessor {
         // A commit point, written on the caller's thread only where the application asked for that.
         // Otherwise the write is queued ahead of the delivery, so it still happens when the delivery
         // cannot run because the client is offline.
-        commitAtCommitPoint();
+        commitAtCommitPoint(lastRecordedSequence());
         submit(this::deliverPayload);
     }
 
