@@ -121,8 +121,11 @@ class EventStore implements Closeable {
     /**
      * Whether events are being written to disk, which is what the application asked for until a write
      * fails and the store gives up on persistence for the rest of the session.
+     * <p>
+     * Written under {@link #bufferLock} but volatile, so {@link #isPersisting} can answer without it:
+     * every {@code track} asks, and a commit takes that lock once for each event it stages.
      */
-    private boolean persistEvents;
+    private volatile boolean persistEvents;
     /**
      * Whether the application asked for persistence at all. Unlike {@link #persistEvents} this does not
      * change when a write fails, because batches written before the failure still have to be read back.
@@ -349,9 +352,7 @@ class EventStore implements Closeable {
      *   has failed and the store has given up on it
      */
     boolean isPersisting() {
-        synchronized (bufferLock) {
-            return persistEvents;
-        }
+        return persistEvents;
     }
 
     /**
