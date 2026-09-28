@@ -75,6 +75,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     /** Created by makeEventProcessor, which the tests call instead of building a processor. */
     private final List<ExecutorService> diagnosticExecutors = new ArrayList<>();
+    /** The commit executor the last processor made here commits on, for a test to wait behind. */
+    private ExecutorService lastCommitExecutor;
 
     @After
     public void shutDownDiagnosticExecutors() {
@@ -952,7 +954,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     /**
-     * Records more tracked evaluations than a pending run holds, lets the events thread run whatever that
+     * Records more tracked evaluations than a pending run holds, lets the commit thread run whatever that
      * queued, and reports how many events reached the store.
      */
     private int pendingEventsInStoreAfterAFullRun(EventStore store) throws Exception {
@@ -963,7 +965,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
                         FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, true, null);
             }
-            scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+            lastCommitExecutor.submit(() -> { }).get(2, TimeUnit.SECONDS);
             return store.getPendingEventCount();
         } finally {
             eventProcessor.close();
@@ -1833,6 +1835,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     boolean commitOnCallerThread) {
         ExecutorService commitExecutor = EventStore.defaultCommitExecutor();
         diagnosticExecutors.add(commitExecutor);
+        lastCommitExecutor = commitExecutor;
         return new DirectEventProcessor(
                 new OutboundEventBuffer(false, Collections.emptyList(), true, capacity,
                         logging.logger),
