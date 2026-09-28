@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
@@ -219,13 +220,16 @@ class EventStore implements Closeable {
      * @param platformState where the no-backup directory and the process name come from
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
      * @param persistEvents whether the application asked for events to outlive the process
+     * @param commitExecutor where a commit no caller waits on runs, shared with whatever else commits
+     *   to this store so that writes queue behind one another rather than behind a delivery
      */
     static EventStore create(
             final PlatformState platformState,
             String mobileKey,
             int capacity,
             boolean persistEvents,
-            LDLogger logger
+            LDLogger logger,
+            Executor commitExecutor
     ) {
         final String environmentDirectory = environmentDirectoryName(mobileKey);
         Location location = new Location() {
@@ -240,7 +244,7 @@ class EventStore implements Closeable {
                 return platformState.getProcessName();
             }
         };
-        return new EventStore(location, capacity, persistEvents, logger, defaultCommitExecutor());
+        return new EventStore(location, capacity, persistEvents, logger, commitExecutor);
     }
 
     /**
@@ -296,7 +300,8 @@ class EventStore implements Closeable {
         }
     }
 
-    private static Executor defaultCommitExecutor() {
+    /** The single daemon thread a store's commits run on when no caller is waiting for them. */
+    static ExecutorService defaultCommitExecutor() {
         return Executors.newSingleThreadExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable r) {

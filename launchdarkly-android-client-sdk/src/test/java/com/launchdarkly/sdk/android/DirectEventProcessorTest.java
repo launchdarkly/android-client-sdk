@@ -193,6 +193,85 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void aDeferredTrackReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        CountDownLatch deliveryAnswers = new CountDownLatch(1);
+        try {
+            // Stands in for a post to a network that does not answer, which holds the events thread for
+            // as long as its timeouts allow.
+            scheduler.submit(() -> awaitQuietly(deliveryAnswers, 10, TimeUnit.SECONDS));
+
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (kindsOnDisk("custom") == 0 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals(1, kindsOnDisk("custom"));
+        } finally {
+            deliveryAnswers.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
+    public void aFailedDeliveryIsRetriedOnceUnderTheSamePayloadId() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                // A flush that waits, waits for the retry too, so it reports the delivery that worked.
+                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                RequestInfo failed = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                RequestInfo retried = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                assertEquals(failed.getHeader("X-LaunchDarkly-Payload-ID"),
+                        retried.getHeader("X-LaunchDarkly-Payload-ID"));
+                assertEquals(failed.getBody(), retried.getBody());
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void waitingToRetryDoesNotHoldTheEventsThread() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                    DEFAULT_CAPACITY, true, logging.logger);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.flush();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // Well inside the retry delay: a thread sleeping through it would not get to this.
+                scheduler.submit(() -> { }).get(DirectEventProcessor.RETRY_DELAY_MILLIS / 2,
+                        TimeUnit.MILLISECONDS);
+
+                // One retry and no more; the batch then waits for the next flush.
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 2,
+                        TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
     /** @return how many events of this kind the store holds, read as another process would read it */
     private int kindsOnDisk(String kind) throws Exception {
         EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
@@ -1678,6 +1757,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     EventStore store,
                                                     int capacity,
                                                     boolean commitOnCallerThread) {
+        ExecutorService commitExecutor = EventStore.defaultCommitExecutor();
+        diagnosticExecutors.add(commitExecutor);
         return new DirectEventProcessor(
                 new OutboundEventBuffer(false, Collections.emptyList(), true, capacity,
                         logging.logger),
@@ -1696,6 +1777,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 false,
                 true, // initiallyOffline, as the SDK builds it
                 scheduler,
+                commitExecutor,
                 diagnosticExecutor,
                 logging.logger);
     }

@@ -87,6 +87,9 @@ final class DirectEventProcessor implements EventProcessor {
      */
     static final long DEFAULT_CLOSE_BUDGET_MILLIS = 2_000;
 
+    /** How long a delivery that failed in a way that may pass waits for its one retry, as the other SDKs do. */
+    static final long RETRY_DELAY_MILLIS = 1_000;
+
     private final OutboundEventBuffer eventBuffer;
     private final EventStore store;
     private final EventSender diagnosticEventSender;
@@ -97,6 +100,14 @@ final class DirectEventProcessor implements EventProcessor {
     private final long diagnosticRecordingIntervalMillis;
     private final long closeBudgetMillis;
     private final ScheduledExecutorService scheduler;
+    /**
+     * Where a commit no caller waits for runs: the store's write thread, not {@link #scheduler}.
+     * <p>
+     * The scheduler also delivers, and one delivery can hold it for as long as two network timeouts. A
+     * commit queued behind that would leave a {@code DEFERRED} {@code track} in memory for all of it, and
+     * let the pending run fill toward capacity meanwhile.
+     */
+    private final ExecutorService commitExecutor;
     private final ExecutorService diagnosticExecutor;
     private final LDLogger logger;
 
@@ -198,6 +209,12 @@ final class DirectEventProcessor implements EventProcessor {
     /** Set under {@link #submitLock} once close() has queued the release of those resources. */
     private boolean shuttingDown = false;
 
+    /**
+     * The retry queued after a delivery failed in a way that may pass, guarded by {@link #submitLock}.
+     * One at a time: it retries every batch still waiting, so a second would only repeat it.
+     */
+    private ScheduledFuture<Boolean> pendingRetry;
+
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
             EventStore store,
@@ -213,6 +230,7 @@ final class DirectEventProcessor implements EventProcessor {
             boolean initiallyInBackground,
             boolean initiallyOffline,
             ScheduledExecutorService scheduler,
+            ExecutorService commitExecutor,
             ExecutorService diagnosticExecutor,
             LDLogger logger
     ) {
@@ -228,6 +246,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
         this.scheduler = scheduler;
+        this.commitExecutor = commitExecutor;
         this.diagnosticExecutor = diagnosticExecutor;
         this.logger = logger;
         this.inBackground = new AtomicBoolean(initiallyInBackground);
@@ -397,7 +416,9 @@ final class DirectEventProcessor implements EventProcessor {
     /** Queues a commit unless one is already queued, so a run of recordings asks for one rather than many. */
     private void scheduleCommit() {
         if (commitScheduled.compareAndSet(false, true)) {
-            if (submit(this::runScheduledCommit) == null) {
+            try {
+                commitExecutor.execute(guarded(this::runScheduledCommit));
+            } catch (RuntimeException e) { // shut down by close(), whose own commit takes these events
                 commitScheduled.set(false);
             }
         }
@@ -406,9 +427,16 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Clears the scheduling flag before committing, not after, so events recorded while this runs can queue
      * a commit of their own rather than waiting for the next one to be triggered.
+     * <p>
+     * Does nothing once closed. {@link #close()} sets the flag before its final commit, which takes
+     * everything recorded up to then, and nothing is recorded after it; a commit reaching here later could
+     * only run against a store that has been released.
      */
     private void runScheduledCommit() {
         commitScheduled.set(false);
+        if (closed.get()) {
+            return;
+        }
         commitDurably();
     }
 
@@ -563,12 +591,15 @@ final class DirectEventProcessor implements EventProcessor {
         }
         // The write is part of the task waited on rather than done first: the caller waits either way,
         // and this way the disk is touched on the events thread instead of the caller's.
-        Future<?> delivery = submit(this::commitAndDeliver);
-        if (delivery == null) {
+        Callable<DeliveryOutcome> delivery = this::commitAndDeliverReportingOutcome;
+        Future<DeliveryOutcome> pending = submit(delivery);
+        if (pending == null) {
             return;
         }
         try {
-            delivery.get();
+            awaitDelivery(pending, -1);
+        } catch (TimeoutException e) {
+            // Not reachable without a timeout.
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
@@ -582,13 +613,13 @@ final class DirectEventProcessor implements EventProcessor {
             return false;
         }
         // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
-        Callable<Boolean> delivery = this::commitAndDeliverReportingOutcome;
-        Future<Boolean> pending = submit(delivery);
+        Callable<DeliveryOutcome> delivery = this::commitAndDeliverReportingOutcome;
+        Future<DeliveryOutcome> pending = submit(delivery);
         if (pending == null) {
             return false;
         }
         try {
-            return Boolean.TRUE.equals(pending.get(timeout, unit));
+            return awaitDelivery(pending, Math.max(0, unit.toNanos(timeout)));
         } catch (TimeoutException e) {
             // Left running rather than cancelled: the buffer has already been drained into the
             // payload, so interrupting the delivery now would only make the loss certain.
@@ -617,14 +648,15 @@ final class DirectEventProcessor implements EventProcessor {
         // events down where persistence is on, so they go out on a later run; where it is off they
         // are discarded.
         final AtomicBoolean finalCommitDone = new AtomicBoolean(false);
-        Future<?> delivery = submit(() -> {
+        Callable<DeliveryOutcome> finalDelivery = () -> {
             commitDurably();
             finalCommitDone.set(true);
-            deliverPayload();
-        });
+            return deliverPayloadAndRetryLater();
+        };
+        Future<DeliveryOutcome> delivery = submit(finalDelivery);
         if (delivery != null) {
             try {
-                delivery.get(closeBudgetMillis, TimeUnit.MILLISECONDS);
+                awaitDelivery(delivery, TimeUnit.MILLISECONDS.toNanos(closeBudgetMillis));
             } catch (TimeoutException e) {
                 // Deliberately not cancelled. The run has already been drained into a payload, so
                 // interrupting now would make the loss certain, while leaving it to run costs
@@ -660,10 +692,18 @@ final class DirectEventProcessor implements EventProcessor {
         // between them and put a delivery behind the release, where it would find the store closed.
         synchronized (submitLock) {
             shuttingDown = true;
+            if (pendingRetry != null) {
+                // Not interrupted if it is already posting: it checks shuttingDown before it starts, and
+                // one that got past that runs ahead of the release queued below on the same thread.
+                pendingRetry.cancel(false);
+                pendingRetry = null;
+            }
             queueRelease(scheduler, this::releaseDeliveryResources);
             queueRelease(diagnosticExecutor, this::releaseDiagnosticResources);
             scheduler.shutdown();
             diagnosticExecutor.shutdown();
+            // Commits already queued there still run, and find the processor closed.
+            commitExecutor.shutdown();
         }
     }
 
@@ -700,65 +740,164 @@ final class DirectEventProcessor implements EventProcessor {
      * went.
      */
     private void deliverPayload() {
-        deliverPayloadReportingOutcome();
+        deliverPayloadAndRetryLater();
     }
 
     /**
      * Writes everything accepted so far, then delivers. The write comes first because a delivery
      * refused for being offline returns before writing anything.
      */
-    private void commitAndDeliver() {
-        commitAndDeliverReportingOutcome();
-    }
-
-    private boolean commitAndDeliverReportingOutcome() {
+    private DeliveryOutcome commitAndDeliverReportingOutcome() {
         commitDurably();
-        return deliverPayloadReportingOutcome();
+        return deliverPayloadAndRetryLater();
     }
 
     /**
-     * Delivers as {@link #deliverPayload()} does, and says whether it worked, for a caller that is
-     * waiting to find out.
+     * How a delivery went, or the retry that will say, for a caller waiting to find out.
+     */
+    private static final class DeliveryOutcome {
+        static final DeliveryOutcome DELIVERED = new DeliveryOutcome(true, null);
+        static final DeliveryOutcome NOT_DELIVERED = new DeliveryOutcome(false, null);
+
+        final boolean delivered;
+        /** Non-null when a batch failed in a way that may pass, and a retry of every batch is queued. */
+        final Future<Boolean> retry;
+
+        private DeliveryOutcome(boolean delivered, Future<Boolean> retry) {
+            this.delivered = delivered;
+            this.retry = retry;
+        }
+    }
+
+    /**
+     * Waits for a delivery and, when it queued a retry, for that too, within one budget.
+     *
+     * @param timeoutNanos how long to wait in all, or a negative number to wait as long as it takes
+     * @return true if the events reached the service, or if there were none to send
+     */
+    private boolean awaitDelivery(Future<DeliveryOutcome> delivery, long timeoutNanos)
+            throws InterruptedException, ExecutionException, TimeoutException {
+        long deadline = System.nanoTime() + timeoutNanos;
+        DeliveryOutcome outcome = timeoutNanos < 0 ? delivery.get()
+                : delivery.get(timeoutNanos, TimeUnit.NANOSECONDS);
+        if (outcome == null) {
+            return false;
+        }
+        if (outcome.retry == null) {
+            return outcome.delivered;
+        }
+        Boolean retried = timeoutNanos < 0 ? outcome.retry.get()
+                : outcome.retry.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+        return Boolean.TRUE.equals(retried);
+    }
+
+    /**
+     * Closes what has been committed into a batch and delivers every batch waiting, queueing one retry
+     * if a batch failed in a way that may pass.
      * <p>
      * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
      * and the run is taken exactly once per delivery. The run and the counters are taken together
      * under {@link #recordLock}, so an evaluation is never split across two payloads, and encoded
      * outside it, so recording does not wait on the encoder.
-     *
-     * @return true if the events reached the service, or if there were none to send; false if they
-     *   could not be sent or the service did not accept them
      */
-    private boolean deliverPayloadReportingOutcome() {
+    private DeliveryOutcome deliverPayloadAndRetryLater() {
         if (disabled || offline.get()) {
-            return false;
+            return DeliveryOutcome.NOT_DELIVERED;
         }
 
         commitDurably();
         store.closeBatch();
 
-        // Every batch, not just the one just closed: the others are deliveries an earlier attempt did not
-        // finish, or that a previous run of the application never got to start.
+        BatchesOutcome outcome = deliverPendingBatches();
+        if (outcome == BatchesOutcome.RETRYABLE) {
+            Future<Boolean> retry = scheduleRetry();
+            return retry == null ? DeliveryOutcome.NOT_DELIVERED : new DeliveryOutcome(false, retry);
+        }
+        return outcome == BatchesOutcome.DELIVERED ? DeliveryOutcome.DELIVERED : DeliveryOutcome.NOT_DELIVERED;
+    }
+
+    private enum BatchesOutcome { DELIVERED, FAILED, RETRYABLE }
+
+    /**
+     * Makes one attempt at every batch waiting, oldest first: the others are deliveries an earlier attempt
+     * did not finish, or that a previous run of the application never got to start.
+     * <p>
+     * Stops at the first failure that may pass. The batches behind it would most likely meet the same
+     * network, and the retry takes all of them again.
+     */
+    private BatchesOutcome deliverPendingBatches() {
         boolean allDelivered = true;
         for (EventStore.Batch batch : store.pendingBatches()) {
             if (disabled || offline.get()) {
-                return false;
+                return BatchesOutcome.FAILED;
             }
-            allDelivered &= deliver(batch);
+            BatchesOutcome outcome = deliver(batch);
+            if (outcome == BatchesOutcome.RETRYABLE) {
+                return outcome;
+            }
+            allDelivered &= outcome == BatchesOutcome.DELIVERED;
         }
-        return allDelivered;
+        return allDelivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED;
     }
 
     /**
-     * @return true if the batch is no longer the SDK's problem, whether because it arrived or because it
-     *   never can
+     * Queues the retry on the scheduler rather than sleeping for it there, which would hold every flush,
+     * and close()'s final delivery, behind the wait.
+     *
+     * @return the retry, a retry already queued, or null if the processor is shutting down
      */
-    private boolean deliver(EventStore.Batch batch) {
+    private Future<Boolean> scheduleRetry() {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                return null;
+            }
+            if (pendingRetry != null && !pendingRetry.isDone()) {
+                return pendingRetry;
+            }
+            try {
+                pendingRetry = scheduler.schedule(this::retryPendingBatches, RETRY_DELAY_MILLIS,
+                        TimeUnit.MILLISECONDS);
+            } catch (RuntimeException e) { // the executor was shut down under us
+                return null;
+            }
+            logger.warn("Will retry posting events in {}ms after a failure", RETRY_DELAY_MILLIS);
+            return pendingRetry;
+        }
+    }
+
+    /**
+     * The one retry. A failure here is not retried again; the batches wait on disk, or in memory, for the
+     * next flush.
+     */
+    private boolean retryPendingBatches() {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                // close() has queued the release of the store and the sender behind this.
+                return false;
+            }
+        }
+        if (disabled || offline.get()) {
+            return false;
+        }
+        try {
+            return deliverPendingBatches() == BatchesOutcome.DELIVERED;
+        } catch (RuntimeException e) {
+            logUnexpectedError(e);
+            return false;
+        }
+    }
+
+    /**
+     * @return DELIVERED if the batch is no longer the SDK's problem, whether because it arrived or because
+     *   it never can; RETRYABLE if it failed in a way that may pass
+     */
+    private BatchesOutcome deliver(EventStore.Batch batch) {
         byte[] body = store.body(batch);
         if (body == null) {
             // Unreadable, or already delivered by another process of this application. Either way there
             // is nothing to send and nothing to keep.
             store.remove(batch);
-            return true;
+            return BatchesOutcome.DELIVERED;
         }
         if (diagnosticStore != null) {
             diagnosticStore.recordEventsInBatch(batch.eventCount);
@@ -770,14 +909,14 @@ final class DirectEventProcessor implements EventProcessor {
             if (result != null && (result.isSuccess() || result.isMustShutDown())) {
                 // Forgotten once the service has either taken the events or told us to stop sending
                 // them. Anything else - a timeout, a 503, no network - leaves the batch where it is, to
-                // be tried again on the next flush or the next run of the application.
+                // be tried again by the retry, the next flush or the next run of the application.
                 store.remove(batch);
-                return result.isSuccess();
+                return result.isSuccess() ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED;
             }
-            return false;
+            return result == null ? BatchesOutcome.FAILED : BatchesOutcome.RETRYABLE;
         } catch (Exception e) {
             logUnexpectedError(e);
-            return false;
+            return BatchesOutcome.FAILED;
         }
     }
 
