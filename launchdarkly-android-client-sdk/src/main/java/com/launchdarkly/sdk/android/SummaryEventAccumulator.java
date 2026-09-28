@@ -28,6 +28,8 @@ final class SummaryEventAccumulator {
     private final boolean perContext;
     private final Map<LDContext, Summary> byContext;
     private Summary aggregated;
+    private LDContext lastContext;
+    private Summary lastSummary;
 
     SummaryEventAccumulator(boolean perContext) {
         this.perContext = perContext;
@@ -36,17 +38,36 @@ final class SummaryEventAccumulator {
     }
 
     void summarize(Event.FeatureRequest event) {
+        summarize(event.getCreationDate(), event.getKey(), event.getVersion(), event.getVariation(),
+                event.getValue(), event.getDefaultVal(), event.getContext());
+    }
+
+    /**
+     * An application usually evaluates against one context instance, so the summary for the context seen
+     * last is kept to hand. Compared by reference, since {@link LDContext#hashCode} is not cached.
+     */
+    void summarize(long timestamp, String flagKey, int flagVersion, int variation, LDValue value,
+                   LDValue defaultValue, LDContext context) {
         Summary summary;
-        if (perContext) {
-            summary = byContext.get(event.getContext());
-            if (summary == null) {
-                summary = new Summary(event.getContext());
-                byContext.put(event.getContext(), summary);
-            }
-        } else {
+        if (!perContext) {
             summary = aggregated;
+        } else if (context == lastContext) {
+            summary = lastSummary;
+        } else {
+            summary = byContext.get(context);
+            if (summary == null) {
+                summary = new Summary(context);
+                byContext.put(context, summary);
+            }
+            lastContext = context;
+            lastSummary = summary;
         }
-        summary.add(event);
+        summary.add(timestamp, flagKey, flagVersion, variation, value, defaultValue, context);
+    }
+
+    private void forgetLastContext() {
+        lastContext = null;
+        lastSummary = null;
     }
 
     boolean isEmpty() {
@@ -75,6 +96,7 @@ final class SummaryEventAccumulator {
             }
         }
         byContext.clear();
+        forgetLastContext();
         return results;
     }
 
@@ -87,6 +109,7 @@ final class SummaryEventAccumulator {
         }
 
         byContext.clear();
+        forgetLastContext();
         for (Summary summary : summaries) {
             if (summary.context != null && !summary.isEmpty()) {
                 byContext.put(summary.context, summary);
@@ -108,29 +131,29 @@ final class SummaryEventAccumulator {
             return counters.isEmpty();
         }
 
-        private void add(Event.FeatureRequest event) {
-            FlagInfo flag = counters.get(event.getKey());
+        private void add(long timestamp, String flagKey, int flagVersion, int variation, LDValue value,
+                         LDValue defaultValue, LDContext context) {
+            FlagInfo flag = counters.get(flagKey);
             if (flag == null) {
-                flag = new FlagInfo(event.getDefaultVal());
-                counters.put(event.getKey(), flag);
+                flag = new FlagInfo(defaultValue);
+                counters.put(flagKey, flag);
             }
-            for (int i = 0; i < event.getContext().getIndividualContextCount(); i++) {
-                flag.contextKinds.add(event.getContext().getIndividualContext(i).getKind().toString());
+            for (int i = 0; i < context.getIndividualContextCount(); i++) {
+                flag.contextKinds.add(context.getIndividualContext(i).getKind().toString());
             }
 
-            IntKeyedMap<CounterValue> variations = flag.versionsAndVariations.get(event.getVersion());
+            IntKeyedMap<CounterValue> variations = flag.versionsAndVariations.get(flagVersion);
             if (variations == null) {
                 variations = new IntKeyedMap<>();
-                flag.versionsAndVariations.put(event.getVersion(), variations);
+                flag.versionsAndVariations.put(flagVersion, variations);
             }
-            CounterValue counter = variations.get(event.getVariation());
+            CounterValue counter = variations.get(variation);
             if (counter == null) {
-                variations.put(event.getVariation(), new CounterValue(event.getValue()));
+                variations.put(variation, new CounterValue(value));
             } else {
                 counter.count++;
             }
 
-            long timestamp = event.getCreationDate();
             if (startDate == 0 || timestamp < startDate) {
                 startDate = timestamp;
             }

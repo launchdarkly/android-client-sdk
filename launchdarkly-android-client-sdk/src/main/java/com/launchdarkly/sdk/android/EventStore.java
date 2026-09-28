@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
@@ -112,10 +113,19 @@ class EventStore implements Closeable {
     private int committedEvents;
     private int closedEvents;
     /**
+     * Events a caller has taken to encode and promised to stage, counted against capacity until each is
+     * staged. Staging one moves it from here to {@link #bufferedEventCount} under one lock, so an event
+     * on its way in is counted exactly once throughout.
+     */
+    private int reservedEvents;
+    /**
      * Whether events are being written to disk, which is what the application asked for until a write
      * fails and the store gives up on persistence for the rest of the session.
+     * <p>
+     * Written under {@link #bufferLock} but volatile, so {@link #isPersisting} can answer without it:
+     * every {@code track} asks, and a commit takes that lock once for each event it stages.
      */
-    private boolean persistEvents;
+    private volatile boolean persistEvents;
     /**
      * Whether the application asked for persistence at all. Unlike {@link #persistEvents} this does not
      * change when a write fails, because batches written before the failure still have to be read back.
@@ -213,13 +223,16 @@ class EventStore implements Closeable {
      * @param platformState where the no-backup directory and the process name come from
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
      * @param persistEvents whether the application asked for events to outlive the process
+     * @param commitExecutor where a commit no caller waits on runs, shared with whatever else commits
+     *   to this store so that writes queue behind one another rather than behind a delivery
      */
     static EventStore create(
             final PlatformState platformState,
             String mobileKey,
             int capacity,
             boolean persistEvents,
-            LDLogger logger
+            LDLogger logger,
+            Executor commitExecutor
     ) {
         final String environmentDirectory = environmentDirectoryName(mobileKey);
         Location location = new Location() {
@@ -234,7 +247,7 @@ class EventStore implements Closeable {
                 return platformState.getProcessName();
             }
         };
-        return new EventStore(location, capacity, persistEvents, logger, defaultCommitExecutor());
+        return new EventStore(location, capacity, persistEvents, logger, commitExecutor);
     }
 
     /**
@@ -290,7 +303,8 @@ class EventStore implements Closeable {
         }
     }
 
-    private static Executor defaultCommitExecutor() {
+    /** The single daemon thread a store's commits run on when no caller is waiting for them. */
+    static ExecutorService defaultCommitExecutor() {
         return Executors.newSingleThreadExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable r) {
@@ -309,7 +323,27 @@ class EventStore implements Closeable {
      */
     int getPendingEventCount() {
         synchronized (bufferLock) {
-            return bufferedEventCount + committedEvents + closedEvents;
+            return bufferedEventCount + committedEvents + closedEvents + reservedEvents;
+        }
+    }
+
+    /**
+     * Counts events against capacity before they are staged, for a caller that has taken them from
+     * somewhere capacity was already counting them and will encode them before staging.
+     * <p>
+     * Each {@link #stageReserved} uses one up, and {@link #releaseReservations} gives back any that
+     * never made it, such as an event that could not be serialized.
+     */
+    void reserve(int events) {
+        synchronized (bufferLock) {
+            reservedEvents += events;
+        }
+    }
+
+    /** Gives back every reservation not used up by {@link #stageReserved}. */
+    void releaseReservations() {
+        synchronized (bufferLock) {
+            reservedEvents = 0;
         }
     }
 
@@ -318,9 +352,7 @@ class EventStore implements Closeable {
      *   has failed and the store has given up on it
      */
     boolean isPersisting() {
-        synchronized (bufferLock) {
-            return persistEvents;
-        }
+        return persistEvents;
     }
 
     /**
@@ -338,6 +370,18 @@ class EventStore implements Closeable {
      * @param bypassingCapacity true for an event that must be recorded even when the store is full
      */
     boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
+        return stage(serializedEvent, bypassingCapacity, false);
+    }
+
+    /**
+     * Stages an event {@link #reserve} already counted, turning its reservation into a staged event in
+     * one step. Bypasses capacity, which the reservation already answered to.
+     */
+    boolean stageReserved(byte[] serializedEvent) {
+        return stage(serializedEvent, true, true);
+    }
+
+    private boolean stage(byte[] serializedEvent, boolean bypassingCapacity, boolean reserved) {
         if (serializedEvent == null || serializedEvent.length == 0
                 || serializedEvent.length > Format.MAX_FRAME_SIZE) {
             return false;
@@ -345,12 +389,15 @@ class EventStore implements Closeable {
 
         boolean needsCommit;
         synchronized (bufferLock) {
-            if (!bypassingCapacity
-                    && bufferedEventCount + committedEvents + closedEvents >= capacity) {
+            if (!bypassingCapacity && bufferedEventCount + committedEvents + closedEvents
+                    + reservedEvents >= capacity) {
                 return false;
             }
             Format.writeFrame(bufferData, serializedEvent);
             bufferedEventCount++;
+            if (reserved && reservedEvents > 0) {
+                reservedEvents--;
+            }
             needsCommit = persistEvents && bufferData.size() >= STAGING_THRESHOLD && !commitScheduled;
             if (needsCommit) {
                 commitScheduled = true;
@@ -701,7 +748,17 @@ class EventStore implements Closeable {
         // process cannot splice its bytes into the middle of what another wrote.
         FileOutputStream stream = new FileOutputStream(openLog(), true);
         if (isNew) {
-            stream.write(Format.fileHeader());
+            try {
+                stream.write(Format.fileHeader());
+            } catch (IOException | RuntimeException e) {
+                // Not yet in output, so closeOutputHoldingIoLock would not reach it.
+                try {
+                    stream.close();
+                } catch (IOException ignored) {
+                    // The write already failed; that is the error worth reporting.
+                }
+                throw e;
+            }
         }
         output = stream;
         return output;

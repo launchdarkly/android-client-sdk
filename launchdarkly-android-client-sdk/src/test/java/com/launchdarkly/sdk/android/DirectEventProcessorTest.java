@@ -75,6 +75,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     /** Created by makeEventProcessor, which the tests call instead of building a processor. */
     private final List<ExecutorService> diagnosticExecutors = new ArrayList<>();
+    /** The commit executor the last processor made here commits on, for a test to wait behind. */
+    private ExecutorService lastCommitExecutor;
 
     @After
     public void shutDownDiagnosticExecutors() {
@@ -187,6 +189,85 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                     Thread.sleep(10);
                 }
                 assertEquals(1, kindsOnDisk("custom"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aDeferredTrackReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        CountDownLatch deliveryAnswers = new CountDownLatch(1);
+        try {
+            // Stands in for a post to a network that does not answer, which holds the events thread for
+            // as long as its timeouts allow.
+            scheduler.submit(() -> awaitQuietly(deliveryAnswers, 10, TimeUnit.SECONDS));
+
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (kindsOnDisk("custom") == 0 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals(1, kindsOnDisk("custom"));
+        } finally {
+            deliveryAnswers.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
+    public void aFailedDeliveryIsRetriedOnceUnderTheSamePayloadId() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                // A flush that waits, waits for the retry too, so it reports the delivery that worked.
+                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+
+                RequestInfo failed = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                RequestInfo retried = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                assertEquals(failed.getHeader("X-LaunchDarkly-Payload-ID"),
+                        retried.getHeader("X-LaunchDarkly-Payload-ID"));
+                assertEquals(failed.getBody(), retried.getBody());
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void waitingToRetryDoesNotHoldTheEventsThread() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                    DEFAULT_CAPACITY, true, logging.logger);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.flush();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // Well inside the retry delay: a thread sleeping through it would not get to this.
+                scheduler.submit(() -> { }).get(DirectEventProcessor.RETRY_DELAY_MILLIS / 2,
+                        TimeUnit.MILLISECONDS);
+
+                // One retry and no more; the batch then waits for the next flush.
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 2,
+                        TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
             }
@@ -621,13 +702,14 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // are in neither place. Counting only the two would let an event recorded then past capacity.
         CountDownLatch staging = new CountDownLatch(1);
         CountDownLatch releaseStaging = new CountDownLatch(1);
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, false,
+        // Persisting, since without it a commit point queues no commit at all.
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, true,
                 logging.logger, Runnable::run) {
             @Override
-            boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
+            boolean stageReserved(byte[] serializedEvent) {
                 staging.countDown();
                 awaitQuietly(releaseStaging, 5, TimeUnit.SECONDS);
-                return super.stage(serializedEvent, bypassingCapacity);
+                return super.stageReserved(serializedEvent);
             }
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
@@ -642,6 +724,41 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertEquals(1, eventProcessor.getAndClearDroppedCount());
         } finally {
             releaseStaging.countDown();
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void anEventAlreadyStagedIsNotCountedTwiceAgainstCapacity() throws Exception {
+        // Paused just after the first event reached the store, with the commit that staged it still
+        // running. Counted once, it leaves room for a second event under a capacity of two; counted both
+        // as staged and as on its way, it would not.
+        CountDownLatch staged = new CountDownLatch(1);
+        CountDownLatch releaseCommit = new CountDownLatch(1);
+        // Persisting, for the reason the test above is.
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, true,
+                logging.logger, Runnable::run) {
+            @Override
+            boolean stageReserved(byte[] serializedEvent) {
+                boolean result = super.stageReserved(serializedEvent);
+                staged.countDown();
+                awaitQuietly(releaseCommit, 5, TimeUnit.SECONDS);
+                return result;
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, 2, scheduler);
+        try {
+            eventProcessor.recordIdentifyEvent(CONTEXT);
+            assertTrue("the commit never staged the event", staged.await(2, TimeUnit.SECONDS));
+
+            eventProcessor.recordIdentifyEvent(CONTEXT);
+            releaseCommit.countDown();
+
+            assertEquals(0, eventProcessor.getAndClearDroppedCount());
+        } finally {
+            releaseCommit.countDown();
             eventProcessor.close();
             scheduler.shutdownNow();
         }
@@ -719,6 +836,78 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void concurrentImmediateTracksShareCommitsAndEachIsDurableOnReturn() throws Exception {
+        final int trackers = 8;
+        Queue<String> staged = new ConcurrentLinkedQueue<>();
+        Queue<String> durable = new ConcurrentLinkedQueue<>();
+        AtomicInteger commits = new AtomicInteger();
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            boolean stageReserved(byte[] serializedEvent) {
+                staged.add(new String(serializedEvent, StandardCharsets.UTF_8));
+                return super.stageReserved(serializedEvent);
+            }
+
+            @Override
+            void commit() {
+                commits.incrementAndGet();
+                // A slow disk, so that the other tracks arrive while this write is under way.
+                sleepQuietly(50);
+                // Everything staged so far was staged under the commit lock this commit holds.
+                List<String> writing = new ArrayList<>(staged);
+                super.commit();
+                durable.addAll(writing);
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(), UNUSED_EVENTS_URI,
+                null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS, scheduler, diagnosticExecutor,
+                store, DEFAULT_CAPACITY, true);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            AtomicInteger notDurableOnReturn = new AtomicInteger();
+            List<Thread> threads = new ArrayList<>();
+            for (int i = 0; i < trackers; i++) {
+                String key = "event-" + i;
+                Thread thread = new Thread(() -> {
+                    awaitQuietly(start, 5, TimeUnit.SECONDS);
+                    eventProcessor.recordCustomEvent(CONTEXT, key, LDValue.ofNull(), null);
+                    boolean found = false;
+                    for (String event : durable) {
+                        found |= event.contains("\"key\":\"" + key + "\"");
+                    }
+                    if (!found) {
+                        notDurableOnReturn.incrementAndGet();
+                    }
+                });
+                thread.start();
+                threads.add(thread);
+            }
+            start.countDown();
+            for (Thread thread : threads) {
+                thread.join(10_000);
+            }
+
+            assertEquals("a track returned before its event was on disk", 0, notDurableOnReturn.get());
+            assertTrue("each track committed on its own: " + commits.get() + " commits for "
+                    + trackers + " tracks", commits.get() < trackers);
+        } finally {
+            eventProcessor.close();
+        }
+    }
+
+    private static void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
     public void deferredPersistenceNeverWritesOnTheCallersThread() throws Exception {
         Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
@@ -765,7 +954,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     /**
-     * Records more tracked evaluations than a pending run holds, lets the events thread run whatever that
+     * Records more tracked evaluations than a pending run holds, lets the commit thread run whatever that
      * queued, and reports how many events reached the store.
      */
     private int pendingEventsInStoreAfterAFullRun(EventStore store) throws Exception {
@@ -776,7 +965,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
                         FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, true, null);
             }
-            scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+            lastCommitExecutor.submit(() -> { }).get(2, TimeUnit.SECONDS);
             return store.getPendingEventCount();
         } finally {
             eventProcessor.close();
@@ -1012,6 +1201,12 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 synchronized boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
                     staged.add(LDValue.parse(new String(serializedEvent, StandardCharsets.UTF_8)));
                     return super.stage(serializedEvent, bypassingCapacity);
+                }
+
+                @Override
+                synchronized boolean stageReserved(byte[] serializedEvent) {
+                    staged.add(LDValue.parse(new String(serializedEvent, StandardCharsets.UTF_8)));
+                    return super.stageReserved(serializedEvent);
                 }
 
                 @Override
@@ -1638,6 +1833,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     EventStore store,
                                                     int capacity,
                                                     boolean commitOnCallerThread) {
+        ExecutorService commitExecutor = EventStore.defaultCommitExecutor();
+        diagnosticExecutors.add(commitExecutor);
+        lastCommitExecutor = commitExecutor;
         return new DirectEventProcessor(
                 new OutboundEventBuffer(false, Collections.emptyList(), true, capacity,
                         logging.logger),
@@ -1656,6 +1854,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 false,
                 true, // initiallyOffline, as the SDK builds it
                 scheduler,
+                commitExecutor,
                 diagnosticExecutor,
                 logging.logger);
     }

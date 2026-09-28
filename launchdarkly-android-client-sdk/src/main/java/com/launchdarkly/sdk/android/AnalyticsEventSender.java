@@ -38,8 +38,6 @@ final class AnalyticsEventSender implements Closeable {
     private static final String EVENT_SCHEMA_HEADER = "X-LaunchDarkly-Event-Schema";
     private static final String EVENT_SCHEMA_VERSION = "4";
     private static final String PAYLOAD_ID_HEADER = "X-LaunchDarkly-Payload-ID";
-    /** One immediate retry, as the other SDKs do, for a failure that may just be a bad moment. */
-    private static final long RETRY_DELAY_MILLIS = 1000;
 
     private final OkHttpClient client;
     private final boolean ownsClient;
@@ -59,50 +57,38 @@ final class AnalyticsEventSender implements Closeable {
     }
 
     /**
-     * Posts a batch, retrying once if the failure looks temporary.
+     * Posts a batch once. The retry is the caller's, so that the wait before it does not hold a thread.
      *
      * @param body the JSON request body
      * @param eventCount how many events the body holds, for logging
      * @param payloadId identifies this delivery, the same on every attempt at it
      * @param eventsBaseUri the events service
-     * @return whether the events arrived, whether the SDK must stop, and the service's clock
+     * @return whether the events arrived, whether the SDK must stop, and the service's clock; neither
+     *   set means the failure may pass and the batch is worth trying again
      */
     EventSender.Result sendBatch(byte[] body, int eventCount, String payloadId, URI eventsBaseUri) {
         URI uri = HttpHelpers.concatenateUriPath(eventsBaseUri,
                 StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH);
+        Request request = new Request.Builder()
+                .url(uri.toString())
+                .headers(baseHeaders)
+                .addHeader("Content-Type", "application/json")
+                .addHeader(EVENT_SCHEMA_HEADER, EVENT_SCHEMA_VERSION)
+                .addHeader(PAYLOAD_ID_HEADER, payloadId)
+                .post(RequestBody.create(body, JSON))
+                .build();
 
-        for (int attempt = 0; attempt < 2; attempt++) {
-            if (attempt > 0) {
-                try {
-                    Thread.sleep(RETRY_DELAY_MILLIS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return new EventSender.Result(false, false, null);
-                }
-                logger.warn("Will retry posting {} event(s) after a failure", eventCount);
+        try (Response response = client.newCall(request).execute()) {
+            if (response.isSuccessful()) {
+                logger.debug("Posted {} event(s)", eventCount);
+                return new EventSender.Result(true, false, parseDate(response));
             }
-
-            Request request = new Request.Builder()
-                    .url(uri.toString())
-                    .headers(baseHeaders)
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader(EVENT_SCHEMA_HEADER, EVENT_SCHEMA_VERSION)
-                    .addHeader(PAYLOAD_ID_HEADER, payloadId)
-                    .post(RequestBody.create(body, JSON))
-                    .build();
-
-            try (Response response = client.newCall(request).execute()) {
-                if (response.isSuccessful()) {
-                    logger.debug("Posted {} event(s)", eventCount);
-                    return new EventSender.Result(true, false, parseDate(response));
-                }
-                logger.warn("Error posting events: HTTP status {}", response.code());
-                if (!LDUtil.isHttpErrorRecoverable(response.code())) {
-                    return new EventSender.Result(false, true, null);
-                }
-            } catch (IOException e) {
-                logger.warn("Error posting events: {}", LogValues.exceptionSummary(e));
+            logger.warn("Error posting events: HTTP status {}", response.code());
+            if (!LDUtil.isHttpErrorRecoverable(response.code())) {
+                return new EventSender.Result(false, true, null);
             }
+        } catch (IOException e) {
+            logger.warn("Error posting events: {}", LogValues.exceptionSummary(e));
         }
         return new EventSender.Result(false, false, null);
     }
