@@ -40,8 +40,10 @@ final class SourceManager implements Closeable {
 
     private SynchronizerFactoryWithState currentSynchronizerFactory;
 
-    // Completed and replaced whenever a slot's backoff ends or this manager closes.
-    private LDAwaitFuture<Void> availabilityChanged = new LDAwaitFuture<>();
+    // Handed out by nextAvailableSynchronizer() while every usable slot is backing off, and
+    // completed by the first backoff to end or by close().
+    @Nullable
+    private LDAwaitFuture<Synchronizer> pendingNext;
 
     SourceManager(
             @NonNull List<SynchronizerFactoryWithState> synchronizerFactories,
@@ -75,8 +77,8 @@ final class SourceManager implements Closeable {
 
     /**
      * Block all non-FDv1 synchronizers, unblock the FDv1 fallback, and reset the
-     * synchronizer index so the next {@link #getNextAvailableSynchronizerAndSetActive()}
-     * picks the now-unblocked FDv1 slot.
+     * synchronizer index so the next {@link #nextAvailableSynchronizer()} picks the now-unblocked
+     * FDv1 slot.
      */
     void fdv1Fallback() {
         synchronized (activeSourceLock) {
@@ -115,7 +117,7 @@ final class SourceManager implements Closeable {
      * and return it. Returns null if shutdown or no available synchronizers.
      * Skips synchronizers whose factory returns null from build().
      */
-    Synchronizer getNextAvailableSynchronizerAndSetActive() {
+    private Synchronizer getNextAvailableSynchronizerAndSetActive() {
         synchronized (activeSourceLock) {
             if (isShutdown) {
                 currentSynchronizerFactory = null;
@@ -146,6 +148,34 @@ final class SourceManager implements Closeable {
         }
     }
 
+    /**
+     * Selects the synchronizer to run next, builds it, and makes it the active source in place of
+     * the previous one. If every usable slot is backing off, the returned future completes when
+     * the first backoff ends. It completes with null once this manager is closed or no
+     * synchronizer is left to try.
+     *
+     * @return a future for the next synchronizer
+     */
+    @NonNull
+    Future<Synchronizer> nextAvailableSynchronizer() {
+        synchronized (activeSourceLock) {
+            Synchronizer synchronizer = getNextAvailableSynchronizerAndSetActive();
+            if (synchronizer != null || !hasBackingOffSynchronizers()) {
+                return completed(synchronizer);
+            }
+            if (pendingNext == null) {
+                pendingNext = new LDAwaitFuture<>();
+            }
+            return pendingNext;
+        }
+    }
+
+    private static <T> LDAwaitFuture<T> completed(@Nullable T value) {
+        LDAwaitFuture<T> future = new LDAwaitFuture<>();
+        future.set(value);
+        return future;
+    }
+
     boolean hasAvailableSources() {
         return hasInitializers() || getAvailableSynchronizerCount() > 0;
     }
@@ -168,21 +198,20 @@ final class SourceManager implements Closeable {
 
     /**
      * Puts the current synchronizer's slot into backoff. The slot is skipped by
-     * {@link #getNextAvailableSynchronizerAndSetActive()} until the backoff ends.
+     * {@link #nextAvailableSynchronizer()} until the backoff ends.
      *
-     * @param synchronizerName the name of the synchronizer that failed, for logging
-     * @param nowMillis        the current time in milliseconds, on the same clock as every other
-     *                         call on this manager
+     * @param nowMillis the current time in milliseconds, on the same clock as every other call on
+     *                  this manager
      * @return how long the slot stays in backoff, in milliseconds, or -1 if there is no current
      * synchronizer
      */
-    long backOffCurrentSynchronizer(@NonNull String synchronizerName, long nowMillis) {
+    long backOffCurrentSynchronizer(long nowMillis) {
         synchronized (activeSourceLock) {
             final SynchronizerFactoryWithState slot = currentSynchronizerFactory;
             if (slot == null || isShutdown) {
                 return -1;
             }
-            long delayMillis = slot.startBackoff(synchronizerName, nowMillis);
+            long delayMillis = slot.startBackoff(nowMillis);
             ScheduledFuture<?> unblock = executor.schedule(new Runnable() {
                 @Override
                 public void run() {
@@ -210,29 +239,30 @@ final class SourceManager implements Closeable {
     }
 
     /**
-     * Ends a slot's backoff and wakes any caller waiting in {@link #awaitAvailabilityChange()}.
-     *
-     * @return the name of the synchronizer whose error started the backoff, if the slot became
-     * available, or null if nothing changed
+     * Ends a slot's backoff. If a caller is waiting in {@link #nextAvailableSynchronizer()}, the
+     * next synchronizer is selected and handed to it.
      */
-    @Nullable
-    String endBackoff(@NonNull SynchronizerFactoryWithState slot) {
-        LDAwaitFuture<Void> toComplete;
-        String name;
+    void endBackoff(@NonNull SynchronizerFactoryWithState slot) {
+        LDAwaitFuture<Synchronizer> waiting = null;
+        Synchronizer synchronizer = null;
         synchronized (activeSourceLock) {
             if (isShutdown || !slot.endBackoff()) {
-                return null;
+                return;
             }
-            name = slot.getLastSynchronizerName();
-            toComplete = availabilityChanged;
-            availabilityChanged = new LDAwaitFuture<>();
+            if (pendingNext != null) {
+                synchronizer = getNextAvailableSynchronizerAndSetActive();
+                if (synchronizer != null || !hasBackingOffSynchronizers()) {
+                    waiting = pendingNext;
+                    pendingNext = null;
+                }
+            }
         }
-        toComplete.set(null);
-        return name == null ? "" : name;
+        if (waiting != null) {
+            waiting.set(synchronizer);
+        }
     }
 
-    /** True if any synchronizer is waiting out a backoff. Always false once closed. */
-    boolean hasBackingOffSynchronizers() {
+    private boolean hasBackingOffSynchronizers() {
         synchronized (activeSourceLock) {
             if (isShutdown) {
                 return false;
@@ -243,16 +273,6 @@ final class SourceManager implements Closeable {
                 }
             }
             return false;
-        }
-    }
-
-    /**
-     * @return a future that completes the next time a slot's backoff ends, or when this manager
-     * closes
-     */
-    Future<Void> awaitAvailabilityChange() {
-        synchronized (activeSourceLock) {
-            return availabilityChanged;
         }
     }
 
@@ -347,7 +367,7 @@ final class SourceManager implements Closeable {
 
     @Override
     public void close() {
-        LDAwaitFuture<Void> toComplete;
+        LDAwaitFuture<Synchronizer> waiting;
         synchronized (activeSourceLock) {
             isShutdown = true;
             if (activeSource != null) {
@@ -357,9 +377,12 @@ final class SourceManager implements Closeable {
             for (SynchronizerFactoryWithState s : synchronizerFactories) {
                 s.cancelPendingUnblock();
             }
-            toComplete = availabilityChanged;
+            waiting = pendingNext;
+            pendingNext = null;
         }
-        toComplete.set(null);
+        if (waiting != null) {
+            waiting.set(null);
+        }
     }
 
     private static void safeClose(Closeable closeable) {

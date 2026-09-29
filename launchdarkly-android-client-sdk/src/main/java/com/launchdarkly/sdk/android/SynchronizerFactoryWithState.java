@@ -40,8 +40,6 @@ final class SynchronizerFactoryWithState {
             new Random());
     @Nullable
     private ScheduledFuture<?> pendingUnblock;
-    @Nullable
-    private String lastSynchronizerName;
 
     SynchronizerFactoryWithState(@NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory) {
         this(factory, false);
@@ -85,15 +83,13 @@ final class SynchronizerFactoryWithState {
     /**
      * Records an unexpected error from this slot's synchronizer and puts the slot into backoff.
      *
-     * @param synchronizerName the name of the synchronizer that failed, for logging
-     * @param nowMillis        the current time in milliseconds, on the same clock as every other
-     *                         call on this instance
+     * @param nowMillis the current time in milliseconds, on the same clock as every other call on
+     *                  this instance
      * @return how long the slot stays in backoff, in milliseconds
      */
-    long startBackoff(@NonNull String synchronizerName, long nowMillis) {
+    long startBackoff(long nowMillis) {
         retryState.recordFailure(true, nowMillis);
         state = State.BackingOff;
-        lastSynchronizerName = synchronizerName;
         return retryState.nextDelayMillis();
     }
 
@@ -109,15 +105,6 @@ final class SynchronizerFactoryWithState {
         }
         state = State.Available;
         return true;
-    }
-
-    /**
-     * @return the name of the synchronizer whose unexpected error started the current backoff,
-     * or null if there has been none
-     */
-    @Nullable
-    String getLastSynchronizerName() {
-        return lastSynchronizerName;
     }
 
     void setPendingUnblock(@Nullable ScheduledFuture<?> pendingUnblock) {

@@ -2,7 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -16,8 +15,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -31,6 +31,7 @@ public class SourceManagerTest {
     public Timeout globalTimeout = Timeout.seconds(5);
 
     private final FakeScheduledExecutorService executor = new FakeScheduledExecutorService();
+    private final List<SynchronizerFactoryWithState> slots = new ArrayList<>();
 
     @After
     public void tearDown() {
@@ -61,16 +62,11 @@ public class SourceManagerTest {
         }
     }
 
-    private static SynchronizerFactoryWithState slot(final String name) {
-        return new SynchronizerFactoryWithState(() -> new NamedSynchronizer(name));
-    }
-
     private SourceManager manager(String... names) {
-        SynchronizerFactoryWithState[] slots = new SynchronizerFactoryWithState[names.length];
-        for (int i = 0; i < names.length; i++) {
-            slots[i] = slot(names[i]);
+        for (final String name : names) {
+            slots.add(new SynchronizerFactoryWithState(() -> new NamedSynchronizer(name)));
         }
-        return new SourceManager(Arrays.asList(slots), Collections.emptyList(), executor);
+        return new SourceManager(slots, Collections.emptyList(), executor);
     }
 
     private static void assertFirstBackoff(long delayMillis) {
@@ -79,99 +75,98 @@ public class SourceManagerTest {
                         && delayMillis <= RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
     }
 
-    /** Advances the clock past a backoff and waits for the slot to become available again. */
-    private void endBackoff(SourceManager manager, long delayMillis) throws Exception {
-        Future<Void> changed = manager.awaitAvailabilityChange();
-        executor.advanceTime(delayMillis);
-        changed.get(1, TimeUnit.SECONDS);
+    /** Selects the next synchronizer, asserting that one is known right away. */
+    private static String nextNow(SourceManager manager) throws Exception {
+        Future<Synchronizer> next = manager.nextAvailableSynchronizer();
+        assertTrue(next.isDone());
+        Synchronizer synchronizer = next.get();
+        return synchronizer == null ? null : synchronizer.name();
     }
 
     @Test
-    public void backingOffASlotSkipsItUntilTheBackoffEnds() throws Exception {
+    public void backingOffTheCurrentSlotSkipsItInFavorOfTheNext() throws Exception {
         SourceManager manager = manager("a", "b");
-        assertEquals("a", manager.getNextAvailableSynchronizerAndSetActive().name());
+        assertEquals("a", nextNow(manager));
 
-        // Backing off the current slot schedules its return and makes selection skip it.
-        long delay = manager.backOffCurrentSynchronizer("a", 0);
+        long delay = manager.backOffCurrentSynchronizer(0);
         assertFirstBackoff(delay);
         assertEquals(delay, executor.awaitScheduledDelayMillis(1000));
-        assertTrue(manager.hasBackingOffSynchronizers());
-        assertEquals("b", manager.getNextAvailableSynchronizerAndSetActive().name());
-        assertEquals("b", manager.getNextAvailableSynchronizerAndSetActive().name());
 
-        // Once the backoff ends, the slot is selected again.
-        endBackoff(manager, delay);
-        assertFalse(manager.hasBackingOffSynchronizers());
-        assertEquals("a", manager.getNextAvailableSynchronizerAndSetActive().name());
+        assertEquals("b", nextNow(manager));
+        assertEquals("b", nextNow(manager));
     }
 
     @Test
-    public void allSlotsBackingOffYieldsNoSynchronizerUntilOneReturns() throws Exception {
-        SourceManager manager = manager("a", "b");
-        manager.getNextAvailableSynchronizerAndSetActive();
-        long firstDelay = manager.backOffCurrentSynchronizer("a", 0);
-        manager.getNextAvailableSynchronizerAndSetActive();
-        long secondDelay = manager.backOffCurrentSynchronizer("b", 0);
+    public void slotReturnsWhenItsBackoffEnds() throws Exception {
+        SourceManager manager = manager("a");
+        assertEquals("a", nextNow(manager));
+        long delay = manager.backOffCurrentSynchronizer(0);
 
-        // Nothing can be selected, but the manager still knows a synchronizer will return.
-        assertNull(manager.getNextAvailableSynchronizerAndSetActive());
-        assertTrue(manager.hasBackingOffSynchronizers());
+        // With every slot backing off, the next synchronizer is not known yet.
+        Future<Synchronizer> next = manager.nextAvailableSynchronizer();
+        assertFalse(next.isDone());
 
-        // The first backoff to end makes its slot available.
-        endBackoff(manager, Math.max(firstDelay, secondDelay));
-        assertNotNull(manager.getNextAvailableSynchronizerAndSetActive());
+        // The backoff ending supplies it.
+        executor.advanceTime(delay);
+        assertEquals("a", next.get(1, TimeUnit.SECONDS).name());
+        assertEquals("a", nextNow(manager));
     }
 
     @Test
     public void aBackingOffSlotStillOutranksTheCurrentOneForRecovery() throws Exception {
         SourceManager manager = manager("a", "b");
-        manager.getNextAvailableSynchronizerAndSetActive();
-        long delay = manager.backOffCurrentSynchronizer("a", 0);
-        assertEquals("b", manager.getNextAvailableSynchronizerAndSetActive().name());
+        nextNow(manager);
+        manager.backOffCurrentSynchronizer(0);
+        assertEquals("b", nextNow(manager));
 
         // While "a" is backing off, "b" is not prime, but there is nothing to recover to yet.
         assertFalse(manager.isPrimeSynchronizer());
         assertFalse(manager.hasAvailableSynchronizerBeforeCurrent());
 
         // Once "a" is available again, recovery to it is possible.
-        endBackoff(manager, delay);
+        manager.endBackoff(slots.get(0));
         assertTrue(manager.hasAvailableSynchronizerBeforeCurrent());
     }
 
     @Test
     public void repeatedUnexpectedErrorsDoubleTheBackoffUntilHealthyOperationResetsIt() throws Exception {
         SourceManager manager = manager("a");
-        manager.getNextAvailableSynchronizerAndSetActive();
+        nextNow(manager);
 
         // A second unexpected error without any healthy operation in between doubles the wait.
-        long firstDelay = manager.backOffCurrentSynchronizer("a", 0);
+        long firstDelay = manager.backOffCurrentSynchronizer(0);
         assertFirstBackoff(firstDelay);
-        endBackoff(manager, firstDelay);
-        manager.getNextAvailableSynchronizerAndSetActive();
-        long secondDelay = manager.backOffCurrentSynchronizer("a", 0);
+        manager.endBackoff(slots.get(0));
+        nextNow(manager);
+        long secondDelay = manager.backOffCurrentSynchronizer(0);
         assertTrue("delay " + secondDelay, secondDelay > RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
-        endBackoff(manager, secondDelay);
+        manager.endBackoff(slots.get(0));
 
         // Healthy operation for the reset threshold before the next error starts the backoff over.
-        manager.getNextAvailableSynchronizerAndSetActive();
+        nextNow(manager);
         long healthyAt = 10_000;
         manager.recordCurrentSynchronizerHealthy(healthyAt);
-        long thirdDelay = manager.backOffCurrentSynchronizer("a", healthyAt + StreamingRetryState.RESET_THRESHOLD_MILLIS);
+        long thirdDelay = manager.backOffCurrentSynchronizer(
+                healthyAt + StreamingRetryState.RESET_THRESHOLD_MILLIS);
         assertFirstBackoff(thirdDelay);
     }
 
     @Test
-    public void closeCancelsPendingBackoffsAndWakesWaiters() throws Exception {
+    public void closeCompletesTheWaitWithNullAndCancelsPendingBackoffs() throws Exception {
         SourceManager manager = manager("a");
-        manager.getNextAvailableSynchronizerAndSetActive();
-        manager.backOffCurrentSynchronizer("a", 0);
-        Future<Void> changed = manager.awaitAvailabilityChange();
+        nextNow(manager);
+        manager.backOffCurrentSynchronizer(0);
+        Future<Synchronizer> next = manager.nextAvailableSynchronizer();
+        assertFalse(next.isDone());
 
-        // Closing wakes anyone waiting for a slot and drops the scheduled return.
         manager.close();
-        changed.get(1, TimeUnit.SECONDS);
-        assertFalse(manager.hasBackingOffSynchronizers());
+        assertNull(next.get(1, TimeUnit.SECONDS));
         assertTrue(executor.pendingDelaysMillis().isEmpty());
-        assertNull(manager.getNextAvailableSynchronizerAndSetActive());
+        assertNull(nextNow(manager));
+    }
+
+    @Test
+    public void noSynchronizersYieldsNullRightAway() throws Exception {
+        assertNull(nextNow(manager()));
     }
 }

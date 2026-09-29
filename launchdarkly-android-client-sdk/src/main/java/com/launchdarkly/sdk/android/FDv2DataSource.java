@@ -489,21 +489,6 @@ final class FDv2DataSource implements DataSource {
      * try.
      */
     @Nullable
-    private Synchronizer nextSynchronizerOrWaitForBackoff() throws InterruptedException {
-        while (true) {
-            Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
-            if (synchronizer != null || !sourceManager.hasBackingOffSynchronizers()) {
-                return synchronizer;
-            }
-            logger.info("All synchronizers are waiting out a backoff after unexpected errors; the first to become available will be tried next.");
-            try {
-                sourceManager.awaitAvailabilityChange().get();
-            } catch (ExecutionException e) {
-                return null;
-            }
-        }
-    }
-
     private static String detailForThrowable(@Nullable Throwable error) {
         if (error == null) {
             return "unknown error";
@@ -539,7 +524,7 @@ final class FDv2DataSource implements DataSource {
             @NonNull DataSourceUpdateSinkV2 sink
     ) {
         try {
-            Synchronizer synchronizer = nextSynchronizerOrWaitForBackoff();
+            Synchronizer synchronizer = sourceManager.nextAvailableSynchronizer().get();
             while (synchronizer != null) {
                 String synchronizerName = synchronizer.name();
                 logger.info("Synchronizer '{}' is starting.", synchronizerName);
@@ -627,12 +612,15 @@ final class FDv2DataSource implements DataSource {
                                                         status.getState()
                                                 );
                                                 long backoffMillis = sourceManager.backOffCurrentSynchronizer(
-                                                        synchronizer.name(), System.currentTimeMillis());
+                                                        System.currentTimeMillis());
                                                 logger.warn(
                                                         "Synchronizer '{}' reported an unexpected error and will not be tried again for {} seconds.",
                                                         synchronizer.name(),
                                                         backoffMillis / 1000
                                                 );
+                                                if (sourceManager.getAvailableSynchronizerCount() == 0) {
+                                                    logger.info("All synchronizers are waiting out a backoff after unexpected errors; the first to become available will be tried next.");
+                                                }
                                                 running = false;
                                                 sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
                                                 break;
@@ -680,7 +668,7 @@ final class FDv2DataSource implements DataSource {
                     Thread.currentThread().interrupt();
                     return;
                 }
-                synchronizer = nextSynchronizerOrWaitForBackoff();
+                synchronizer = sourceManager.nextAvailableSynchronizer().get();
             }
             if (!stopCalled.get()) {
                 logger.warn("No more synchronizers available.");
