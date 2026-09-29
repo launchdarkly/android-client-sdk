@@ -93,13 +93,14 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * the buffer is flushed (see {@link #flushIntervalMillis(int)}, events will be discarded. Increasing the
      * capacity means that events are less likely to be discarded, at the cost of consuming more memory.
      * <p>
-     * The default value is {@link #DEFAULT_CAPACITY}.
+     * The default value is {@link #DEFAULT_CAPACITY}. A capacity below one is treated as one; to
+     * stop sending events altogether, use {@link Components#noEvents()} instead.
      *
      * @param capacity the capacity of the event buffer
      * @return the builder
      */
     public EventProcessorBuilder capacity(int capacity) {
-        this.capacity = capacity;
+        this.capacity = capacity < 1 ? 1 : capacity;
         return this;
     }
 
