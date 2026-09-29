@@ -97,7 +97,7 @@ final class OutboundEventBuffer {
      * contexts are counted at once, because each one costs a retained context and its own counters.
      *
      * @param event the evaluation
-     * @return false if this evaluation was not counted, because counting it would have meant holding
+     * @return false if this event was not counted, because counting it would have meant holding
      *   a context beyond the configured capacity
      */
     synchronized boolean summarize(Event.FeatureRequest event) {
