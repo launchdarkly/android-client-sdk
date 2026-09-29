@@ -5,6 +5,7 @@ import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
+import java.util.Random;
 import java.util.concurrent.ScheduledFuture;
 
 /**
@@ -32,7 +33,11 @@ final class SynchronizerFactoryWithState {
     private State state = State.Available;
     private final boolean isFDv1Fallback;
     // Backoff after unexpected errors from this slot's synchronizers.
-    private final RetryState retryState = RetryState.forSynchronizerSlot();
+    private final StreamingRetryState retryState = new StreamingRetryState(
+            RetryRegime.EXTENDED,
+            RetryRegime.EXTENDED,
+            StreamingRetryState.RESET_THRESHOLD_MILLIS,
+            new Random());
     @Nullable
     private ScheduledFuture<?> pendingUnblock;
     @Nullable
@@ -70,7 +75,8 @@ final class SynchronizerFactoryWithState {
     /**
      * Records healthy operation by this slot's synchronizer.
      *
-     * @param nowMillis the current time
+     * @param nowMillis the current time in milliseconds, on the same clock as every other call on
+     *                  this instance
      */
     void recordHealthy(long nowMillis) {
         retryState.recordSuccess(nowMillis);
@@ -80,7 +86,8 @@ final class SynchronizerFactoryWithState {
      * Records an unexpected error from this slot's synchronizer and puts the slot into backoff.
      *
      * @param synchronizerName the name of the synchronizer that failed, for logging
-     * @param nowMillis        the current time
+     * @param nowMillis        the current time in milliseconds, on the same clock as every other
+     *                         call on this instance
      * @return how long the slot stays in backoff, in milliseconds
      */
     long startBackoff(@NonNull String synchronizerName, long nowMillis) {

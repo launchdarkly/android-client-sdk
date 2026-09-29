@@ -171,7 +171,8 @@ final class SourceManager implements Closeable {
      * {@link #getNextAvailableSynchronizerAndSetActive()} until the backoff ends.
      *
      * @param synchronizerName the name of the synchronizer that failed, for logging
-     * @param nowMillis        the current time
+     * @param nowMillis        the current time in milliseconds, on the same clock as every other
+     *                         call on this manager
      * @return how long the slot stays in backoff, in milliseconds, or -1 if there is no current
      * synchronizer
      */
@@ -196,6 +197,9 @@ final class SourceManager implements Closeable {
     /**
      * Records healthy operation by the current synchronizer, which counts toward resetting its
      * slot's backoff.
+     *
+     * @param nowMillis the current time in milliseconds, on the same clock as every other call on
+     *                  this manager
      */
     void recordCurrentSynchronizerHealthy(long nowMillis) {
         synchronized (activeSourceLock) {

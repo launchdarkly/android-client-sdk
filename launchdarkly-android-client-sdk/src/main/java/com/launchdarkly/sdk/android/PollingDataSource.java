@@ -34,7 +34,7 @@ final class PollingDataSource implements DataSource {
     final AtomicReference<ScheduledFuture<?>> currentPollTask = new AtomicReference<>(); // visible for testing
 
     // Guarded by the lock on this instance.
-    private final RetryState retryState;
+    private final PollingRetryState retryState;
     private boolean running = false;
 
     /**
@@ -62,11 +62,11 @@ final class PollingDataSource implements DataSource {
             LDLogger logger
     ) {
         this(context, dataSourceUpdateSink, initialDelayMillis, pollIntervalMillis, maxNumberOfPolls,
-                fetcher, platformState, taskExecutor, RetryState.forPolling(pollIntervalMillis), logger);
+                fetcher, platformState, taskExecutor, new PollingRetryState(pollIntervalMillis), logger);
     }
 
     /**
-     * This constructor allows tests to supply a {@link RetryState} with short delays. See the
+     * This constructor allows tests to supply a {@link PollingRetryState} with short delays. See the
      * other constructor for the remaining parameters.
      *
      * @param retryState the retry state that decides the wait after a failed poll
@@ -80,7 +80,7 @@ final class PollingDataSource implements DataSource {
             FeatureFetcher fetcher,
             PlatformState platformState,
             TaskExecutor taskExecutor,
-            RetryState retryState,
+            PollingRetryState retryState,
             LDLogger logger
     ) {
         this.context = context;
@@ -147,7 +147,7 @@ final class PollingDataSource implements DataSource {
             public void onSuccess(Boolean result) {
                 long delay;
                 synchronized (PollingDataSource.this) {
-                    retryState.recordSuccess(System.currentTimeMillis());
+                    retryState.recordSuccess();
                     delay = retryState.nextDelayMillis();
                 }
                 resultCallback.onSuccess(result);
@@ -159,7 +159,7 @@ final class PollingDataSource implements DataSource {
                 boolean unexpected = LDUtil.isUnexpectedFailure(error);
                 long delay;
                 synchronized (PollingDataSource.this) {
-                    retryState.recordFailure(unexpected, System.currentTimeMillis());
+                    retryState.recordFailure(unexpected);
                     delay = retryState.nextDelayMillis();
                 }
                 if (unexpected) {

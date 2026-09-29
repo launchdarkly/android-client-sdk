@@ -168,8 +168,8 @@ public class StreamingDataSourceTest {
     }
 
     // The tests of backoff behavior below drive the data source's timers with a FakeTaskExecutor
-    // and a RetryState without jitter, so the delay chosen for each reconnect can be asserted
-    // exactly instead of waited for.
+    // and a StreamingRetryState without jitter, so the delay chosen for each reconnect can be
+    // asserted exactly instead of waited for.
     private static final long NORMAL_DELAY_MILLIS = 1;
     private static final long EXTENDED_DELAY_MILLIS = 300_000;
     // A healthy-operation threshold no test reaches.
@@ -177,9 +177,11 @@ public class StreamingDataSourceTest {
 
     private final FakeTaskExecutor fakeTaskExecutor = new FakeTaskExecutor();
 
-    private static RetryState retryStateWithoutJitter(long healthyResetThresholdMillis) {
-        return new RetryState(NORMAL_DELAY_MILLIS, NORMAL_DELAY_MILLIS,
-                EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 4, 0, healthyResetThresholdMillis, 0,
+    private static StreamingRetryState retryStateWithoutJitter(long healthyResetThresholdMillis) {
+        return new StreamingRetryState(
+                new RetryRegime(NORMAL_DELAY_MILLIS, NORMAL_DELAY_MILLIS),
+                new RetryRegime(EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 4),
+                healthyResetThresholdMillis,
                 new Random() {
                     @Override
                     public double nextDouble() {
@@ -188,7 +190,7 @@ public class StreamingDataSourceTest {
                 });
     }
 
-    private StreamingDataSource makeStreamingDataSource(URI streamBaseUri, RetryState retryState) {
+    private StreamingDataSource makeStreamingDataSource(URI streamBaseUri, StreamingRetryState retryState) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .serviceEndpoints(Components.serviceEndpoints().streaming(streamBaseUri))
                 .build();

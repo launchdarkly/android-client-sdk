@@ -71,7 +71,7 @@ final class StreamingDataSource implements DataSource {
     private final LDLogger logger;
 
     // The following fields are guarded by the lock on this instance.
-    private final RetryState retryState;
+    private final StreamingRetryState retryState;
     private BackgroundEventSource es;
     private BackgroundEventHandler handler;
     private ScheduledFuture<?> pendingReconnect;
@@ -89,11 +89,11 @@ final class StreamingDataSource implements DataSource {
             boolean streamEvenInBackground
     ) {
         this(clientContext, context, dataSourceUpdateSink, fetcher, initialReconnectDelayMillis,
-                streamEvenInBackground, RetryState.forStreaming(initialReconnectDelayMillis));
+                streamEvenInBackground, new StreamingRetryState(initialReconnectDelayMillis));
     }
 
     /**
-     * This constructor allows tests to supply a {@link RetryState} with short delays.
+     * This constructor allows tests to supply a {@link StreamingRetryState} with short delays.
      */
     StreamingDataSource(
             @NonNull ClientContext clientContext,
@@ -102,7 +102,7 @@ final class StreamingDataSource implements DataSource {
             @NonNull FeatureFetcher fetcher,
             int initialReconnectDelayMillis,
             boolean streamEvenInBackground,
-            @NonNull RetryState retryState
+            @NonNull StreamingRetryState retryState
     ) {
         this.context = context;
         this.dataSourceUpdateSink = dataSourceUpdateSink;

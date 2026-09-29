@@ -75,8 +75,8 @@ public class SourceManagerTest {
 
     private static void assertFirstBackoff(long delayMillis) {
         assertTrue("delay " + delayMillis,
-                delayMillis > RetryState.EXTENDED_INITIAL_DELAY_MILLIS / 2
-                        && delayMillis <= RetryState.EXTENDED_INITIAL_DELAY_MILLIS);
+                delayMillis > RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS / 2
+                        && delayMillis <= RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
     }
 
     /** Advances the clock past a backoff and waits for the slot to become available again. */
@@ -149,14 +149,14 @@ public class SourceManagerTest {
         endBackoff(manager, firstDelay);
         manager.getNextAvailableSynchronizerAndSetActive();
         long secondDelay = manager.backOffCurrentSynchronizer("a", 0);
-        assertTrue("delay " + secondDelay, secondDelay > RetryState.EXTENDED_INITIAL_DELAY_MILLIS);
+        assertTrue("delay " + secondDelay, secondDelay > RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
         endBackoff(manager, secondDelay);
 
         // Healthy operation for the reset threshold before the next error starts the backoff over.
         manager.getNextAvailableSynchronizerAndSetActive();
         long healthyAt = 10_000;
         manager.recordCurrentSynchronizerHealthy(healthyAt);
-        long thirdDelay = manager.backOffCurrentSynchronizer("a", healthyAt + RetryState.STREAMING_RESET_THRESHOLD_MILLIS);
+        long thirdDelay = manager.backOffCurrentSynchronizer("a", healthyAt + StreamingRetryState.RESET_THRESHOLD_MILLIS);
         assertFirstBackoff(thirdDelay);
     }
 

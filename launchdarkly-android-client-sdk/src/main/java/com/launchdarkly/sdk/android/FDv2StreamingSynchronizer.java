@@ -79,7 +79,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
     // The following are only touched by the current connection attempt. Attempts never overlap.
     private final FDv2ProtocolHandler protocolHandler = new FDv2ProtocolHandler();
-    private final RetryState retryState;
+    private final StreamingRetryState retryState;
     // Set while handling a message when the current connection must be dropped and a new one
     // made, along with the wait before doing so.
     private boolean restartRequested = false;
@@ -124,11 +124,11 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     ) {
         this(evaluationContext, selectorSource, streamBaseUri, streamRequestPath, requestor,
                 initialReconnectDelayMillis, evaluationReasons, useReport, httpProperties, executor,
-                logger, diagnosticStore, RetryState.forStreaming(initialReconnectDelayMillis));
+                logger, diagnosticStore, new StreamingRetryState(initialReconnectDelayMillis));
     }
 
     /**
-     * This constructor allows tests to supply a {@link RetryState} with short delays. See the
+     * This constructor allows tests to supply a {@link StreamingRetryState} with short delays. See the
      * other constructor for the remaining parameters.
      *
      * @param retryState the retry state that decides the wait before each reconnection
@@ -146,7 +146,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             @NonNull ScheduledExecutorService executor,
             @NonNull LDLogger logger,
             @Nullable DiagnosticStore diagnosticStore,
-            @NonNull RetryState retryState
+            @NonNull StreamingRetryState retryState
     ) {
         this.evaluationContext = evaluationContext;
         this.selectorSource = selectorSource;

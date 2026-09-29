@@ -103,16 +103,16 @@ public class FDv2StreamingSynchronizerTest {
     }
 
     // The tests of backoff behavior drive the synchronizer's timers with a
-    // FakeScheduledExecutorService and a RetryState without jitter, so the delay chosen for each
-    // reconnect can be asserted exactly instead of waited for.
+    // FakeScheduledExecutorService and a StreamingRetryState without jitter, so the delay chosen
+    // for each reconnect can be asserted exactly instead of waited for.
     private static final long NORMAL_DELAY_MILLIS = 1000;
     private static final long NORMAL_MAX_DELAY_MILLIS = 4000;
     // A healthy-operation threshold no test reaches.
     private static final long NEVER_RESET_MILLIS = 60_000;
 
-    private static RetryState retryStateWithoutJitter(long healthyResetThresholdMillis) {
-        return new RetryState(NORMAL_DELAY_MILLIS, NORMAL_MAX_DELAY_MILLIS,
-                NORMAL_DELAY_MILLIS, NORMAL_MAX_DELAY_MILLIS, 0, healthyResetThresholdMillis, 0,
+    private static StreamingRetryState retryStateWithoutJitter(long healthyResetThresholdMillis) {
+        RetryRegime regime = new RetryRegime(NORMAL_DELAY_MILLIS, NORMAL_MAX_DELAY_MILLIS);
+        return new StreamingRetryState(regime, regime, healthyResetThresholdMillis,
                 new Random() {
                     @Override
                     public double nextDouble() {
@@ -121,7 +121,7 @@ public class FDv2StreamingSynchronizerTest {
                 });
     }
 
-    private FDv2StreamingSynchronizer makeSynchronizer(URI streamBaseUri, RetryState retryState) {
+    private FDv2StreamingSynchronizer makeSynchronizer(URI streamBaseUri, StreamingRetryState retryState) {
         return new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
                 null, 1, false, false,

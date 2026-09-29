@@ -291,7 +291,7 @@ public class PollingDataSourceTest {
 
     // --- backoff after failures ---
     //
-    // These tests drive the data source's timers with a FakeTaskExecutor and a RetryState
+    // These tests drive the data source's timers with a FakeTaskExecutor and a PollingRetryState
     // without jitter. The mock fetcher answers synchronously, so every poll and its outcome
     // happen inside advanceTime() and the scheduled delays can be asserted exactly.
 
@@ -304,10 +304,9 @@ public class PollingDataSourceTest {
         return new LDInvalidResponseCodeFailure("test failure", status, LDUtil.isHttpErrorRecoverable(status));
     }
 
-    private static RetryState retryStateWithoutJitter() {
-        return new RetryState(POLL_INTERVAL_MILLIS, POLL_INTERVAL_MILLIS,
-                EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 4, POLL_INTERVAL_MILLIS,
-                0, RetryState.POLLING_RESET_THRESHOLD_SUCCESSES,
+    private static PollingRetryState retryStateWithoutJitter() {
+        return new PollingRetryState(POLL_INTERVAL_MILLIS,
+                new RetryRegime(EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 4),
                 new Random() {
                     @Override
                     public double nextDouble() {

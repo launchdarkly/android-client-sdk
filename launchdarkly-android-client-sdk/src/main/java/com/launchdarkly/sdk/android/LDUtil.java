@@ -214,9 +214,6 @@ public class LDUtil {
     /**
      * Classifies an HTTP error status as either a {@code normal} failure, which may resolve on its
      * own if retried soon, or an {@code unexpected} failure, which is not expected to.
-     * <p>
-     * 400, 408, 429, and all 5xx statuses are {@code normal}. Every other 4xx status is
-     * {@code unexpected}. Any other status is {@code normal}.
      *
      * @param statusCode the HTTP status
      * @return true if the status is {@code normal}, or false if it is {@code unexpected}
@@ -236,11 +233,8 @@ public class LDUtil {
     }
 
     /**
-     * Classifies a data source failure as {@code unexpected} or {@code normal}.
-     * <p>
-     * Only an HTTP response failure whose status is {@code unexpected} under
-     * {@link #isHttpErrorRecoverable(int)} is {@code unexpected}. Every other failure is
-     * {@code normal}.
+     * Classifies a data source failure as either a {@code normal} failure, which may resolve on
+     * its own if retried soon, or an {@code unexpected} failure, which is not expected to.
      *
      * @param failure the failure reported by a data source, or null
      * @return true if the failure is {@code unexpected}, or false if it is {@code normal}

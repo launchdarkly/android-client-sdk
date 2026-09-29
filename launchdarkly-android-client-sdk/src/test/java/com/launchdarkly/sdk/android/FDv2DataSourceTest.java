@@ -652,14 +652,14 @@ public class FDv2DataSourceTest {
         // backoff has elapsed.
         assertEquals(Arrays.asList(DataSourceState.INTERRUPTED, DataSourceState.INTERRUPTED),
                 sink.awaitStatuses(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-        fakeExecutor.advanceTime(RetryState.EXTENDED_INITIAL_DELAY_MILLIS / 2 - 1);
+        fakeExecutor.advanceTime(RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS / 2 - 1);
         assertEquals(1, firstBuilds.get());
         assertEquals(1, secondBuilds.get());
 
         // Once the backoffs end, whichever synchronizer returns first is tried again and
         // initialization completes. The two backoffs have independent jitter, so either may be
         // the one that is rebuilt.
-        fakeExecutor.advanceTime(RetryState.EXTENDED_INITIAL_DELAY_MILLIS / 2 + 1);
+        fakeExecutor.advanceTime(RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS / 2 + 1);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
         assertEquals(3, firstBuilds.get() + secondBuilds.get());
         stopDataSource(dataSource);
@@ -1545,7 +1545,7 @@ public class FDv2DataSourceTest {
 
         // Once the backoff ends the synchronizer is tried again and the status returns to VALID,
         // never having reached OFF.
-        fakeExecutor.advanceTime(RetryState.EXTENDED_INITIAL_DELAY_MILLIS);
+        fakeExecutor.advanceTime(RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
         assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         assertEquals(2, builds.get());
         stopDataSource(dataSource);
