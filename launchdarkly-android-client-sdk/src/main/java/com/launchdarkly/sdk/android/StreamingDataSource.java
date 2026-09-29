@@ -41,10 +41,9 @@ import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
  * The SDK uses this implementation if streaming is enabled (as it is by default) and the
  * application is the foreground. The logic for this is in ComponentsImpl.StreamingDataSourceBuilderImpl.
  * <p>
- * Reconnection is managed by this class rather than by the EventSource library, so that the
- * backoff is controlled here: every stream failure, including HTTP statuses such as
- * 401 and 403 that used to stop the stream permanently, is retried. Failures that are unlikely to
- * resolve on their own are retried with a much longer backoff (see {@link RetryState}).
+ * Reconnection is managed by this class rather than by the EventSource library. Every stream
+ * failure is followed by a reconnect after a backoff. Failures that are unlikely to resolve on
+ * their own, such as HTTP 401, wait much longer.
  */
 final class StreamingDataSource implements DataSource {
     private static final String METHOD_REPORT = "REPORT";
@@ -71,8 +70,7 @@ final class StreamingDataSource implements DataSource {
     private final TaskExecutor taskExecutor;
     private final LDLogger logger;
 
-    // The following fields are guarded by the lock on this instance. retryState is only ever
-    // touched while holding that lock.
+    // The following fields are guarded by the lock on this instance.
     private final RetryState retryState;
     private BackgroundEventSource es;
     private BackgroundEventHandler handler;
@@ -152,8 +150,6 @@ final class StreamingDataSource implements DataSource {
             public void onMessage(final String name, MessageEvent event) {
                 final String eventData = event.getData();
                 logger.debug("onMessage: {}: {}", name, eventData);
-                // A payload on the stream is healthy operation; enough of it in a row resets
-                // the backoff.
                 synchronized (StreamingDataSource.this) {
                     retryState.recordSuccess(System.currentTimeMillis());
                 }
@@ -186,9 +182,8 @@ final class StreamingDataSource implements DataSource {
                     failure = new LDFailure("Network error in stream connection", t, LDFailure.FailureType.NETWORK_FAILURE);
                 }
 
-                // A StreamException means the connection has ended; every such transport failure
-                // is a normal failure. Anything else was thrown by this handler while
-                // processing an event, and the stream is still open, so there is nothing to retry.
+                // Only a StreamException means the connection has ended. Anything else was thrown
+                // while processing an event on a stream that is still open.
                 if (t instanceof StreamException) {
                     long delay = scheduleReconnectAfterFailure(unexpected);
                     if (delay >= 0) {
@@ -205,8 +200,7 @@ final class StreamingDataSource implements DataSource {
     }
 
     /**
-     * Opens a new stream connection if this data source is still running. Called from
-     * {@link #start} and from the reconnect task scheduled by {@link #scheduleReconnectAfterFailure}.
+     * Opens a new stream connection if this data source is still running.
      */
     private synchronized void connect() {
         if (!running) {
@@ -232,14 +226,11 @@ final class StreamingDataSource implements DataSource {
         EventSource.Builder esBuilder = new EventSource.Builder(connectStrategy);
 
         eventSourceStarted = System.currentTimeMillis();
-        // The previous BackgroundEventSource, if any, has already shut itself down: the connection
-        // error handler below ends the stream after every failure, and BackgroundEventSource
-        // closes itself when that happens.
+        // Reconnects run only after the previous stream has ended, so the previous event source
+        // is not closed here.
         es = new BackgroundEventSource.Builder(handler, esBuilder)
-                // The stream thread asks this handler, before it would reconnect, whether an
-                // error ends the stream. It always does: this class schedules its own reconnect
-                // from onError with a delay from RetryState. Deciding here, on the stream
-                // thread, means the library can never race ahead with a reconnect of its own.
+                // End the stream on every error. This class schedules its own reconnect from
+                // onError, so the library must never reconnect on its own.
                 .connectionErrorHandler(t -> ConnectionErrorHandler.Action.SHUTDOWN)
                 .build();
         es.start();
@@ -355,7 +346,6 @@ final class StreamingDataSource implements DataSource {
         BackgroundEventSource esToClose;
         synchronized (this) {
             running = false;
-            // A pending backoff wait is interrupted immediately by shutdown.
             if (pendingReconnect != null) {
                 pendingReconnect.cancel(false);
                 pendingReconnect = null;

@@ -9,7 +9,7 @@ import org.junit.Test;
 import java.util.Random;
 
 /**
- * Unit tests for {@link RetryState}: two-regime exponential backoff with jitter.
+ * Unit tests for {@link RetryState}.
  */
 public class RetryStateTest {
     private static final long SECOND = 1_000L;
@@ -238,7 +238,7 @@ public class RetryStateTest {
         state.recordFailure(true, 0);
         state.recordSuccess(10 * SECOND);
         state.recordSuccess(10 * MINUTE);
-        // The reset is applied when the next failure is recorded, and only then; until that
+        // The reset is applied when the next failure is recorded, and only then. Until that
         // point the regime is unchanged.
         assertTrue(state.isInExtendedRegime());
     }

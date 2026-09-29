@@ -21,14 +21,12 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * A {@link ScheduledExecutorService} with a manual clock, for unit tests of timer-driven code
- * whose tasks block (for example on network I/O) and so must run on real background threads.
+ * whose tasks must run on real background threads.
  * <p>
- * Tasks submitted for immediate execution, and scheduled tasks with no delay, run right away on
- * a background thread. A scheduled task with a delay is held until the test moves the clock past
- * that delay with {@link #advanceTime(long)}, and is then released to a background thread. A test
- * can wait for the code under test to schedule something with
- * {@link #awaitScheduledDelayMillis(long)} and assert on the delay it chose, and can assert that
- * a held task has not run because the clock has not moved, without sleeping.
+ * Tasks submitted without a delay run right away on a background thread. A task scheduled with a
+ * delay is held until {@link #advanceTime(long)} moves the clock past that delay. Tests can wait
+ * for a scheduling event with {@link #awaitScheduledDelayMillis(long)} and inspect held tasks
+ * with {@link #pendingDelaysMillis()}.
  */
 public class FakeScheduledExecutorService extends AbstractExecutorService implements ScheduledExecutorService {
     private final ExecutorService delegate = Executors.newCachedThreadPool();
@@ -78,7 +76,7 @@ public class FakeScheduledExecutorService extends AbstractExecutorService implem
 
     /**
      * @return how long, from the fake clock's current time, until each held task is due, in the
-     * order the tasks were scheduled; cancelled and already-released tasks are omitted
+     * order the tasks were scheduled. Cancelled and already-released tasks are omitted.
      */
     public List<Long> pendingDelaysMillis() {
         List<Long> delays = new ArrayList<>();

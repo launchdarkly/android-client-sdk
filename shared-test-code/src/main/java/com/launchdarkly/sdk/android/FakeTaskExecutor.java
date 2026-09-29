@@ -11,12 +11,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * A {@link TaskExecutor} with a manual clock, for unit tests of timer-driven code.
- * <p>
- * A scheduled task does not run until the test moves the clock past its delay with
- * {@link #advanceTime(long)}, and then it runs synchronously on the calling thread. A test can
- * therefore assert exactly which delays were scheduled, and that nothing ran before the clock
- * moved, without sleeping.
+ * A {@link TaskExecutor} with a manual clock, for unit tests of timer-driven code. A scheduled
+ * task is held until {@link #advanceTime(long)} moves the clock past its delay, and then runs
+ * synchronously on the calling thread.
  */
 public class FakeTaskExecutor implements TaskExecutor {
     private final Object lock = new Object();
@@ -51,7 +48,7 @@ public class FakeTaskExecutor implements TaskExecutor {
 
     /**
      * @return how long, from the fake clock's current time, until each pending task is due, in
-     * the order the tasks were scheduled; cancelled tasks are omitted
+     * the order the tasks were scheduled. Cancelled tasks are omitted.
      */
     public List<Long> pendingDelaysMillis() {
         List<Long> delays = new ArrayList<>();

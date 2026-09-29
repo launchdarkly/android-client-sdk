@@ -425,7 +425,7 @@ public class PollingDataSourceTest {
         fakeTaskExecutor.runDueTasks();
         assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
 
-        // One success returns to the regular interval; a second one clears the backoff, so the
+        // One success returns to the regular interval. A second one clears the backoff, so the
         // 500 that follows is retried at the regular interval instead of a doubled extended delay.
         fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
         assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), fakeTaskExecutor.pendingDelaysMillis());

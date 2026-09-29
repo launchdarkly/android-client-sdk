@@ -215,11 +215,11 @@ public class LDUtil {
      * Classifies an HTTP error status as either a {@code normal} failure, which may resolve on its
      * own if retried soon, or an {@code unexpected} failure, which is not expected to.
      * <p>
-     * 400, 408, 429, and all 5xx statuses are {@code normal}; every other 4xx status is
-     * {@code unexpected}; any other status is {@code normal}.
+     * 400, 408, 429, and all 5xx statuses are {@code normal}. Every other 4xx status is
+     * {@code unexpected}. Any other status is {@code normal}.
      *
      * @param statusCode the HTTP status
-     * @return true if the failure is {@code normal}; false if it is {@code unexpected}
+     * @return true if the status is {@code normal}, or false if it is {@code unexpected}
      */
     static boolean isHttpErrorRecoverable(int statusCode) {
         if (statusCode >= 400 && statusCode < 500) {
@@ -238,12 +238,12 @@ public class LDUtil {
     /**
      * Classifies a data source failure as {@code unexpected} or {@code normal}.
      * <p>
-     * Only an HTTP response failure whose status {@link #isHttpErrorRecoverable(int)} classifies as
-     * {@code unexpected} is {@code unexpected}. Every other failure, including transport errors,
-     * malformed response bodies, and unknown errors, is {@code normal}.
+     * Only an HTTP response failure whose status is {@code unexpected} under
+     * {@link #isHttpErrorRecoverable(int)} is {@code unexpected}. Every other failure is
+     * {@code normal}.
      *
-     * @param failure the failure reported by a data source; may be null
-     * @return true if the failure is {@code unexpected}; false if it is {@code normal}
+     * @param failure the failure reported by a data source, or null
+     * @return true if the failure is {@code unexpected}, or false if it is {@code normal}
      */
     static boolean isUnexpectedFailure(Throwable failure) {
         return failure instanceof LDInvalidResponseCodeFailure &&

@@ -136,9 +136,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
 
         @Override
         public void shutDown() {
-            // A custom DataSource may call this to stop the SDK permanently. The SDK's own data
-            // sources no longer do: they retry every failure, including HTTP 401, with a backoff
-            // instead of stopping.
             ConnectivityManager.this.shutDown();
             setStatus(ConnectionInformation.ConnectionMode.SHUTDOWN, null);
         }

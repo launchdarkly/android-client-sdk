@@ -19,9 +19,8 @@ import java.util.concurrent.TimeUnit;
  * advances through the lists (skipping synchronizers that are blocked or backing off),
  * and closes the previous source when switching.
  * <p>
- * A synchronizer that reports an unexpected error is put into a backoff rather than removed:
- * its slot is skipped until the backoff ends, and the wait doubles on each repeat, up to an
- * hour. No synchronizer is ever permanently removed.
+ * A synchronizer that reports an unexpected error is put into a backoff, and its slot is skipped
+ * until the backoff ends. No synchronizer is ever permanently removed.
  * <p>
  * Package-private for internal use by FDv2DataSource.
  */
@@ -41,8 +40,7 @@ final class SourceManager implements Closeable {
 
     private SynchronizerFactoryWithState currentSynchronizerFactory;
 
-    // Completed, and replaced, whenever a slot's backoff ends or this manager closes, so that a
-    // caller with no available synchronizer can wait for one.
+    // Completed and replaced whenever a slot's backoff ends or this manager closes.
     private LDAwaitFuture<Void> availabilityChanged = new LDAwaitFuture<>();
 
     SourceManager(
@@ -169,9 +167,8 @@ final class SourceManager implements Closeable {
     }
 
     /**
-     * Puts the current synchronizer's slot into backoff after it reported an unexpected error.
-     * The slot is skipped by {@link #getNextAvailableSynchronizerAndSetActive()} until the backoff
-     * ends, which is scheduled on the executor.
+     * Puts the current synchronizer's slot into backoff. The slot is skipped by
+     * {@link #getNextAvailableSynchronizerAndSetActive()} until the backoff ends.
      *
      * @param synchronizerName the name of the synchronizer that failed, for logging
      * @param nowMillis        the current time
@@ -212,7 +209,7 @@ final class SourceManager implements Closeable {
      * Ends a slot's backoff and wakes any caller waiting in {@link #awaitAvailabilityChange()}.
      *
      * @return the name of the synchronizer whose error started the backoff, if the slot became
-     * available; null if nothing changed
+     * available, or null if nothing changed
      */
     @Nullable
     String endBackoff(@NonNull SynchronizerFactoryWithState slot) {
@@ -256,8 +253,7 @@ final class SourceManager implements Closeable {
     }
 
     /**
-     * @return true if a synchronizer earlier in the list than the current one is available, so
-     * that recovering to it would move to a higher-priority synchronizer
+     * @return true if a synchronizer earlier in the list than the current one is available
      */
     boolean hasAvailableSynchronizerBeforeCurrent() {
         synchronized (activeSourceLock) {
@@ -304,9 +300,8 @@ final class SourceManager implements Closeable {
     }
 
     /**
-     * True if the current synchronizer is the prime one: no synchronizer before it in the list
-     * is available or merely backing off. A slot that is backing off still outranks the current
-     * one, so a recovery condition runs while it is unavailable and can return to it later.
+     * True if the current synchronizer is the prime one, meaning that no synchronizer before it
+     * in the list is available or backing off.
      */
     boolean isPrimeSynchronizer() {
         synchronized (activeSourceLock) {
@@ -332,8 +327,7 @@ final class SourceManager implements Closeable {
     }
 
     /**
-     * @return the number of synchronizers that are available or backing off, which is the number
-     * that could run at some point
+     * @return the number of synchronizers that are available or backing off
      */
     int getUsableSynchronizerCount() {
         synchronized (activeSourceLock) {

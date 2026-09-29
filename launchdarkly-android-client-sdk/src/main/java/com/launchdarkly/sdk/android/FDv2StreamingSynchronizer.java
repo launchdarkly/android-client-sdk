@@ -49,12 +49,10 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
  * If an optional {@link FDv2Requestor} is supplied, {@code ping} SSE events are handled by
  * issuing a poll request. If no requestor is supplied, {@code ping} events are ignored.
  * <p>
- * Reconnection is managed here rather than by the EventSource library. Every connection attempt
- * uses a fresh {@link EventSource} that surfaces any failure as an exception and never retries
- * on its own. A transport failure, a recoverable HTTP status, or a bad payload is reported as
- * INTERRUPTED and followed by a reconnect after the delay computed by {@link RetryState}. An
- * HTTP status that is not expected to resolve soon, such as 401, is reported as TERMINAL_ERROR
- * and ends this synchronizer; the data source that owns it decides when to try it again.
+ * Reconnection is managed here rather than by the EventSource library. A transport failure, a
+ * recoverable HTTP status, or a bad payload is reported as INTERRUPTED and followed by a
+ * reconnect after a backoff. An HTTP status that is not expected to resolve soon, such as 401, is
+ * reported as TERMINAL_ERROR and ends this synchronizer.
  */
 final class FDv2StreamingSynchronizer implements Synchronizer {
     private static final String METHOD_REPORT = "REPORT";
@@ -79,9 +77,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private final LDAwaitFuture<FDv2SourceResult> shutdownFuture = new LDAwaitFuture<>();
     private final AtomicBoolean started = new AtomicBoolean(false);
 
-    // The following are only touched on the streaming thread. Only one connection attempt runs
-    // at a time, and the next is scheduled by the previous one, so successive attempts are
-    // ordered even if they run on different threads.
+    // The following are only touched by the current connection attempt. Attempts never overlap.
     private final FDv2ProtocolHandler protocolHandler = new FDv2ProtocolHandler();
     private final RetryState retryState;
     // Set while handling a message when the current connection must be dropped and a new one
@@ -102,14 +98,13 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
      * @param streamBaseUri                base URI for the stream endpoint
      * @param streamRequestPath            path appended to the base URI for the stream request
      * @param requestor                    optional requestor for handling ping events via poll; may be null
-     * @param initialReconnectDelayMillis  base delay before reconnecting after a failure, in
-     *                                     milliseconds; later failures back off from this value
+     * @param initialReconnectDelayMillis  initial delay before reconnecting after a failure, in
+     *                                     milliseconds
      * @param evaluationReasons           true to request evaluation reasons in the stream
      * @param useReport                    true to use HTTP REPORT for the request body
      * @param httpProperties               HTTP configuration for the stream request
-     * @param executor                     executor used to run each connection attempt on a
-     *                                     background thread and to schedule the next attempt after
-     *                                     a failure; should use background-priority threads
+     * @param executor                     executor for the connection attempts and the waits
+     *                                     between them. Should use background-priority threads.
      * @param logger                       logger
      * @param diagnosticStore              optional store for stream diagnostics; may be null
      */
@@ -189,7 +184,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             closed = true;
             esToClose = eventSource;
             eventSource = null;
-            // A backoff wait ends with the synchronizer: nothing reconnects after close().
             if (pendingAttempt != null) {
                 pendingAttempt.cancel(false);
                 pendingAttempt = null;
@@ -214,8 +208,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     }
 
     /**
-     * One connection attempt: connect, read until the connection ends, then schedule the next
-     * attempt after the backoff delay. Only {@link #close()} stops the sequence.
+     * Runs one connection attempt and schedules the next one after the backoff delay. Only
+     * {@link #close()} stops the sequence.
      */
     private void runConnectionAttempt() {
         EventSource es = buildEventSource();
@@ -283,9 +277,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                     RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON));
         }
 
-        // With the default ErrorStrategy, every connection or read failure is thrown from
-        // readAnyEvent() and the EventSource neither waits nor reconnects on its own. This class
-        // owns both, using RetryState, and builds a new EventSource for each attempt.
+        // The default error strategy throws every failure from readAnyEvent() instead of
+        // reconnecting, which leaves the backoff to this class.
         return new EventSource.Builder(connectStrategy).build();
     }
 
@@ -309,7 +302,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                         return restartDelayMillis;
                     }
                 }
-                // StartedEvent and CommentEvent (SSE comment/heartbeat line): no action needed
+                // StartedEvent and CommentEvent (SSE comment/heartbeat line) need no action.
             }
         } catch (StreamException e) {
             if (isClosed() || e instanceof StreamClosedByCallerException) {
@@ -369,8 +362,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         String eventData = event.getData();
         logger.debug("onMessage: {}: {}", eventName, eventData);
 
-        // A message on the stream is healthy operation; enough of it in a row resets the
-        // backoff.
         retryState.recordSuccess(System.currentTimeMillis());
 
         if (PING.equalsIgnoreCase(eventName)) {
@@ -487,9 +478,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     }
 
     /**
-     * Classifies a connection failure and reports it. A recoverable failure is reported as
-     * INTERRUPTED and followed by a reconnect; an unexpected HTTP status is reported as
-     * TERMINAL_ERROR and ends this synchronizer.
+     * Classifies a connection failure and reports it.
      *
      * @return the wait in milliseconds before the next attempt, or -1 if this synchronizer has
      * ended and must not reconnect
@@ -540,8 +529,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
 
     /**
      * Asks the connection attempt to drop the current connection once the current message has
-     * been handled, and to reconnect after a normal-regime backoff. A malformed payload is a
-     * normal failure, and so is a server that announces it is about to close the connection.
+     * been handled, and to reconnect after a backoff.
      *
      * @param failed true if the restart is due to an error (for diagnostic recording)
      */

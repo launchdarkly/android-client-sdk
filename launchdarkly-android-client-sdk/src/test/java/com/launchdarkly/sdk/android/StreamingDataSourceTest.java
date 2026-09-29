@@ -879,7 +879,7 @@ public class StreamingDataSourceTest {
             TrackingCallback callback = new TrackingCallback();
             startDataSource(sds, callback);
 
-            // Every attempt fails; each one is reported and the next is scheduled with double
+            // Every attempt fails. Each one is reported and the next is scheduled with double
             // the delay, and the data source never gives up.
             for (long expectedDelay : new long[] {EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 2, EXTENDED_DELAY_MILLIS * 4}) {
                 assertNotNull(callback.awaitError());
@@ -915,7 +915,7 @@ public class StreamingDataSourceTest {
             TrackingCallback callback = new TrackingCallback();
             startDataSource(sds, callback);
 
-            // The 401 puts the data source in the extended regime; the reconnect then delivers
+            // The 401 puts the data source in the extended regime. The reconnect then delivers
             // data and is ended by the server.
             assertNotNull(callback.awaitError());
             fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);

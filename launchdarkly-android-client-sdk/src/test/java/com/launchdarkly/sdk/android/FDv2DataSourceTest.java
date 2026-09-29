@@ -108,8 +108,7 @@ public class FDv2DataSourceTest {
     }
 
     /**
-     * Builds a data source whose timers run on the given executor; tests of backoff behavior
-     * pass the fake executor so they can move the clock instead of waiting.
+     * Builds a data source whose timers run on the given executor.
      */
     private FDv2DataSource buildDataSource(
             MockComponents.MockDataSourceUpdateSink sink,
@@ -1527,7 +1526,7 @@ public class FDv2DataSourceTest {
         RuntimeException err = new RuntimeException("server error");
         AtomicInteger builds = new AtomicInteger(0);
 
-        // The synchronizer delivers data and then fails with an unexpected error; when it is
+        // The synchronizer delivers data and then fails with an unexpected error. When it is
         // built again it delivers data.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),

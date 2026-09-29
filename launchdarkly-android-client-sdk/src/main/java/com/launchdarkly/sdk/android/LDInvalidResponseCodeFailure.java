@@ -14,9 +14,7 @@ public class LDInvalidResponseCodeFailure extends LDFailure {
     private final int responseCode;
 
     /**
-     * Whether the failure is one that may resolve on its own if retried soon. This is a
-     * classification of the response code, not a statement about what the SDK will do: the SDK
-     * retries every failure, and simply waits longer between attempts when this is false.
+     * Whether the failure is one that may resolve on its own if retried soon.
      */
     private final boolean retryable;
 
@@ -44,8 +42,8 @@ public class LDInvalidResponseCodeFailure extends LDFailure {
     }
 
     /**
-     * @return true if the failure may resolve on its own if retried soon; false if it is unlikely
-     * to, as with an authentication failure
+     * @return true if the failure may resolve on its own if retried soon. An authentication
+     * failure, for example, is unlikely to.
      */
     public boolean isRetryable() {
         return retryable;

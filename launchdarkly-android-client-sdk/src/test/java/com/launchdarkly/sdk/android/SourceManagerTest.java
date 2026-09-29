@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Unit tests for {@link SourceManager}'s handling of synchronizers that report unexpected
- * errors: they are put aside for a backoff and then become available again.
+ * errors. Such a synchronizer is put aside for a backoff and then becomes available again.
  */
 public class SourceManagerTest {
 
@@ -37,7 +37,7 @@ public class SourceManagerTest {
         executor.shutdownNow();
     }
 
-    /** A synchronizer that never produces a result; only its name matters here. */
+    /** A synchronizer that never produces a result. Only its name matters here. */
     private static final class NamedSynchronizer implements Synchronizer {
         private final String name;
 

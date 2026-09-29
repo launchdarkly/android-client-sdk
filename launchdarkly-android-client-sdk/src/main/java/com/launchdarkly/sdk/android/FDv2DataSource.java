@@ -475,8 +475,8 @@ final class FDv2DataSource implements DataSource {
         List<FDv2DataSourceConditions.Condition> list = new ArrayList<>();
         list.add(new FDv2DataSourceConditions.FallbackCondition(sharedExecutor, fallbackTimeoutSeconds));
         if (!isPrime) {
-            // Recovery only goes ahead if a higher-priority synchronizer is actually available;
-            // one that is still backing off after an unexpected error keeps the timer running.
+            // Recovery only goes ahead once a higher-priority synchronizer is available, not
+            // merely backing off.
             list.add(new FDv2DataSourceConditions.RecoveryCondition(sharedExecutor, recoveryTimeoutSeconds,
                     sourceManager::hasAvailableSynchronizerBeforeCurrent));
         }
@@ -484,10 +484,9 @@ final class FDv2DataSource implements DataSource {
     }
 
     /**
-     * Returns the next available synchronizer. If none is available but at least one is waiting
-     * out a backoff, waits for the first backoff to end and tries again, so that unexpected errors
-     * from every synchronizer never stop the data source. Returns null once the data source is
-     * stopped or there is truly nothing left to try.
+     * Returns the next available synchronizer, waiting for a backoff to end if that is the only
+     * way to get one. Returns null once the data source is stopped or there is nothing left to
+     * try.
      */
     @Nullable
     private Synchronizer nextSynchronizerOrWaitForBackoff() throws InterruptedException {
@@ -621,10 +620,8 @@ final class FDv2DataSource implements DataSource {
                                                 running = false;
                                                 break;
                                             case TERMINAL_ERROR:
-                                                // The synchronizer hit an error that is not expected to
-                                                // resolve soon, such as HTTP 401. Move on to the next one
-                                                // now, and put this one aside for a while rather than
-                                                // for good, so that a transient cause still recovers.
+                                                // Move on to the next synchronizer now, and put this one
+                                                // into a backoff so that it is tried again later.
                                                 maybeLogSynchronizerStatusChange(
                                                         synchronizer.name(),
                                                         status.getState()

@@ -424,7 +424,7 @@ public class FDv2StreamingSynchronizerTest {
 
             FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), retryStateWithoutJitter(1));
 
-            // The 503 costs one attempt; the reconnect then delivers data and is ended by the
+            // The 503 costs one attempt. The reconnect then delivers data and is ended by the
             // server.
             assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
             assertEquals(NORMAL_DELAY_MILLIS, fakeExecutor.awaitScheduledDelayMillis(5000));

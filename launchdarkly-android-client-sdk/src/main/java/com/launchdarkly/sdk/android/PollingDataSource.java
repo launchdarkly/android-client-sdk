@@ -17,10 +17,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * in the background so we do polling instead. The logic for this is in
  * ComponentsImpl.PollingDataSourceBuilderImpl and ComponentsImpl.StreamingDataSourceBuilderImpl.
  * <p>
- * Each poll is scheduled individually after the previous one completes, so that the wait can
- * be chosen per attempt: after a successful poll the next one happens at the poll
- * interval, and after a failed poll the wait comes from {@link RetryState}. No failure stops the
- * data source from polling again.
+ * Polls happen at the poll interval, except that a failure that is not expected to resolve on
+ * its own, such as HTTP 401, is followed by a much longer wait. No failure stops the data source
+ * from polling again.
  */
 final class PollingDataSource implements DataSource {
     private final LDContext context;
@@ -118,7 +117,6 @@ final class PollingDataSource implements DataSource {
         synchronized (this) {
             running = false;
         }
-        // A pending wait, whether the poll interval or a backoff, ends immediately.
         ScheduledFuture<?> task = currentPollTask.getAndSet(null);
         if (task != null) {
             task.cancel(true);
@@ -178,8 +176,8 @@ final class PollingDataSource implements DataSource {
         try {
             ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink, pollCallback, logger);
         } catch (RuntimeException e) {
-            // A fetcher must report its outcome through the callback, but if one throws instead we
-            // still owe the caller a result and the next poll.
+            // If the fetcher throws instead of using its callback, the caller is still owed a
+            // result and the next poll.
             LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception while polling for flags");
             pollCallback.onError(new LDFailure("Exception while fetching flags", e, LDFailure.FailureType.UNKNOWN_ERROR));
         }

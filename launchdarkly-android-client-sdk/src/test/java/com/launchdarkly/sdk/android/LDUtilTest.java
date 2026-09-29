@@ -30,7 +30,7 @@ public class LDUtilTest {
 
     @Test
     public void isHttpErrorRecoverableClassifiesStatusCodes() {
-        // 400, 408, 429, and 5xx are normal; every other 4xx is unexpected.
+        // 400, 408, 429, and 5xx are normal. Every other 4xx is unexpected.
         Assert.assertTrue(LDUtil.isHttpErrorRecoverable(400));
         Assert.assertTrue(LDUtil.isHttpErrorRecoverable(408));
         Assert.assertTrue(LDUtil.isHttpErrorRecoverable(429));

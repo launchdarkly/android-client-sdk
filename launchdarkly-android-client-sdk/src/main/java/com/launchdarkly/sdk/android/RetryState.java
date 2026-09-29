@@ -5,25 +5,15 @@ import androidx.annotation.NonNull;
 import java.util.Random;
 
 /**
- * Retry state for a long-running component such as a streaming or polling data source:
- * exponential backoff with jitter, in two regimes.
+ * Backoff state for a long-running component such as a streaming or polling data source.
  * <p>
- * Every failure is classified as either {@code normal} or {@code unexpected}. A {@code normal}
- * failure advances the backoff within the current regime. An {@code unexpected} failure (for
- * example an HTTP 401 or 403, which is unlikely to resolve on its own quickly) moves the
- * component to the extended regime, whose delays run from minutes up to an hour, and the
- * component stays there until the reset threshold is met. No failure ever causes the component
- * to stop retrying.
+ * The owning component reports each success and failure, then asks how long to wait before its
+ * next attempt. A failure is either {@code normal} or {@code unexpected}. An {@code unexpected}
+ * failure, such as an HTTP 401, moves the component to a much longer backoff, which it leaves
+ * only after enough healthy operation.
  * <p>
- * The reset threshold differs for the two kinds of component:
- * <ul>
- *   <li>Streaming: continuous healthy operation for {@link #STREAMING_RESET_THRESHOLD_MILLIS},
- *       where healthy operation starts with the first payload received on a connection.</li>
- *   <li>Polling: {@link #POLLING_RESET_THRESHOLD_SUCCESSES} consecutive successful polls.</li>
- * </ul>
- * <p>
- * Timestamps are passed in explicitly so that the state machine is deterministic in tests. Any
- * monotonic millisecond clock may be used, as long as the same clock is used for every call.
+ * Timestamps are passed in explicitly. Any monotonic millisecond clock may be used, as long as
+ * the same clock is used for every call.
  * <p>
  * This class is not thread-safe. The owning component must serialize access to it.
  */
@@ -49,21 +39,18 @@ final class RetryState {
      */
     static final int POLLING_RESET_THRESHOLD_SUCCESSES = 2;
 
-    // 2^30 is far more doubling than any real delay needs, and keeps initialDelay * 2^exponent
-    // from overflowing a long for any plausible configured delay.
+    // Caps the doubling so that initialDelay * 2^exponent cannot overflow.
     private static final int MAX_EXPONENT = 30;
 
     private final long normalInitialDelayMillis;
     private final long normalMaxDelayMillis;
     private final long extendedInitialDelayMillis;
     private final long extendedMaxDelayMillis;
-    // The interval at which the component operates when healthy. The wait after a failure is
-    // never shorter than this, and it is the wait after a success. Zero for a component with no
-    // such interval, such as streaming.
+    // The interval at which the component operates when healthy, or zero if it has none.
     private final long operatingCadenceMillis;
-    // Duration-based reset threshold; zero if this component does not use one.
+    // Duration-based reset threshold, or zero if this component does not use one.
     private final long healthyResetThresholdMillis;
-    // Count-based reset threshold; zero if this component does not use one.
+    // Count-based reset threshold, or zero if this component does not use one.
     private final int successResetThreshold;
     private final Random random;
 
@@ -75,14 +62,11 @@ final class RetryState {
     private int consecutiveSuccesses = 0;
 
     /**
-     * Creates the retry state for a streaming data source or synchronizer.
-     * <p>
-     * The normal regime backs off from the configured initial reconnect delay up to
-     * {@link #NORMAL_MAX_DELAY_MILLIS}. The extended regime backs off from
-     * {@link #EXTENDED_INITIAL_DELAY_MILLIS} up to {@link #EXTENDED_MAX_DELAY_MILLIS}. The state
-     * resets after {@link #STREAMING_RESET_THRESHOLD_MILLIS} of healthy operation.
+     * Creates the retry state for a streaming data source or synchronizer. Normal failures back off
+     * from the configured initial reconnect delay. The state resets after
+     * {@link #STREAMING_RESET_THRESHOLD_MILLIS} of healthy operation.
      *
-     * @param initialReconnectDelayMillis the configured initial reconnect delay; may be zero
+     * @param initialReconnectDelayMillis the configured initial reconnect delay, which may be zero
      * @return the retry state
      */
     @NonNull
@@ -100,15 +84,11 @@ final class RetryState {
     }
 
     /**
-     * Creates the retry state for a polling data source or synchronizer.
-     * <p>
-     * A polling component's operating cadence is its poll interval. In the normal regime it keeps
-     * polling at that interval after a failure. In the extended regime it backs off from
-     * {@link #EXTENDED_INITIAL_DELAY_MILLIS} up to {@link #EXTENDED_MAX_DELAY_MILLIS}, but never
-     * more often than the poll interval. The state resets after
+     * Creates the retry state for a polling data source or synchronizer. Normal failures keep the
+     * poll interval, and no wait is ever shorter than it. The state resets after
      * {@link #POLLING_RESET_THRESHOLD_SUCCESSES} consecutive successful polls.
      *
-     * @param pollIntervalMillis the configured poll interval; must be positive
+     * @param pollIntervalMillis the configured poll interval, which must be positive
      * @return the retry state
      */
     @NonNull
@@ -126,12 +106,9 @@ final class RetryState {
     }
 
     /**
-     * Creates the retry state that the FDv2 data source keeps for one synchronizer slot.
-     * <p>
-     * Only unexpected failures are recorded against a slot, so both regimes are bound to the
-     * extended values: the slot waits {@link #EXTENDED_INITIAL_DELAY_MILLIS} after the first
-     * unexpected error, doubling up to {@link #EXTENDED_MAX_DELAY_MILLIS}. The state resets after
-     * {@link #STREAMING_RESET_THRESHOLD_MILLIS} of healthy operation by the slot's synchronizer.
+     * Creates the retry state for one synchronizer slot. Every failure, {@code normal} or
+     * {@code unexpected}, backs off in the extended regime. The state resets after
+     * {@link #STREAMING_RESET_THRESHOLD_MILLIS} of healthy operation.
      *
      * @return the retry state
      */
@@ -149,13 +126,12 @@ final class RetryState {
     }
 
     /**
-     * Creates a retry state with explicit parameters. Production code should use one of the
-     * static factories; this constructor exists so that tests can use short delays and a
-     * deterministic random source.
+     * Creates a retry state with explicit parameters, for tests. Production code should use one
+     * of the static factories.
      *
      * @param normalInitialDelayMillis    base delay for the first retry in the normal regime
      * @param normalMaxDelayMillis        ceiling on the wait in the normal regime
-     * @param extendedInitialDelayMillis  base delay for the first retry in the extended regime;
+     * @param extendedInitialDelayMillis  base delay for the first retry in the extended regime,
      *                                    raised to the normal initial delay if smaller
      * @param extendedMaxDelayMillis      ceiling on the wait in the extended regime
      * @param operatingCadenceMillis      the operating cadence, or zero if the component has none
@@ -187,15 +163,9 @@ final class RetryState {
     }
 
     /**
-     * Records healthy operation.
-     * <p>
-     * For a streaming component this is a payload received on the current connection; the first
-     * such call after a connection is established starts the clock toward the duration-based
-     * reset threshold, and later calls on the same connection do not move it. For a polling
-     * component this is a successful poll, which counts toward the count-based reset threshold.
-     * <p>
-     * After a success the next wait is the operating cadence, even if the retry state has not
-     * reset.
+     * Records healthy operation, such as a payload received on a stream or a successful poll.
+     * Enough healthy operation resets the state. After a success the next wait is the operating
+     * cadence, even if the state has not reset.
      *
      * @param nowMillis the current time
      */
@@ -213,13 +183,7 @@ final class RetryState {
     }
 
     /**
-     * Records a failure and updates the retry state.
-     * <p>
-     * If this component resets on a duration and it had been healthy for at least that long when
-     * the failure happened, the state is reset first so that the failure is counted against a
-     * clean slate. Either way, measurement toward the reset threshold restarts.
-     * <p>
-     * Call this before {@link #nextDelayMillis()}.
+     * Records a failure. Call this before {@link #nextDelayMillis()}.
      *
      * @param unexpected true if the failure is classified as {@code unexpected}, false if
      *                   {@code normal}
@@ -235,18 +199,17 @@ final class RetryState {
         lastOperationFailed = true;
 
         if (unexpected && !extended) {
-            // Move to the extended regime and start its attempt count over, so the first
-            // extended wait is the extended initial delay.
+            // Start the attempt count over so the first extended wait is the extended initial
+            // delay.
             extended = true;
             attempts = 1;
         } else {
-            // A repeated unexpected failure keeps counting in the extended regime.
             attempts++;
         }
     }
 
     /**
-     * Clears the retry state back to its initial values: no attempts, and the normal regime.
+     * Clears the retry state back to no attempts and the normal regime.
      */
     void reset() {
         attempts = 0;
@@ -255,13 +218,9 @@ final class RetryState {
     }
 
     /**
-     * Computes how long to wait before the next attempt.
-     * <p>
-     * If the most recent operation succeeded (or no operation has failed yet), this is the
-     * operating cadence. Otherwise it is {@code T - J}, where {@code T} is the regime's initial
-     * delay doubled once per attempt after the first and clamped to the regime's ceiling, and
-     * {@code J} is a uniformly random jitter of up to half of {@code T}. The result is never less
-     * than the operating cadence.
+     * Computes how long to wait before the next attempt. After a success this is the operating
+     * cadence. After a failure it is an exponential backoff with jitter, never less than the
+     * operating cadence.
      *
      * @return the wait in milliseconds
      */

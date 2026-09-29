@@ -8,10 +8,8 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 import java.util.concurrent.ScheduledFuture;
 
 /**
- * Wraps a synchronizer factory with availability state.
- * Used by {@link SourceManager} to skip synchronizers that are not currently usable: either
- * because they are waiting out a backoff after an unexpected error, or because they are blocked
- * (for example the FDv1 fallback synchronizer before the server has directed the SDK to it).
+ * Wraps a synchronizer factory with availability state. A synchronizer is not usable while it
+ * is waiting out a backoff after an unexpected error, or while it is blocked.
  * <p>
  * Package-private for internal use by FDv2DataSource. Callers synchronize on the
  * {@link SourceManager}'s lock.
@@ -33,8 +31,7 @@ final class SynchronizerFactoryWithState {
     private final FDv2DataSource.DataSourceFactory<Synchronizer> factory;
     private State state = State.Available;
     private final boolean isFDv1Fallback;
-    // Backoff after unexpected errors from this slot's synchronizers. Every failure recorded here
-    // is unexpected, so only the extended regime ever applies.
+    // Backoff after unexpected errors from this slot's synchronizers.
     private final RetryState retryState = RetryState.forSynchronizerSlot();
     @Nullable
     private ScheduledFuture<?> pendingUnblock;
