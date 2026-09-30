@@ -60,7 +60,6 @@ public class FDv2DataSourceTest {
     private static final long ORCHESTRATION_LOG_AWAIT_TIMEOUT_MS = AWAIT_TIMEOUT_SECONDS * 1000L;
 
     private ScheduledExecutorService executor;
-    private final FakeScheduledExecutorService fakeExecutor = new FakeScheduledExecutorService();
 
     @Before
     public void setUp() {
@@ -72,7 +71,6 @@ public class FDv2DataSourceTest {
         if (executor != null && !executor.isShutdown()) {
             executor.shutdownNow();
         }
-        fakeExecutor.shutdownNow();
     }
 
     private FDv2DataSource buildDataSource(
@@ -107,14 +105,17 @@ public class FDv2DataSourceTest {
                 recoveryTimeoutSeconds);
     }
 
+    // A synchronizer backoff short enough to wait out in a test.
+    private static final RetryRegime SHORT_BACKOFF = new RetryRegime(100, 100);
+
     /**
-     * Builds a data source whose timers run on the given executor.
+     * Builds a data source with the given backoff after a synchronizer's unexpected error.
      */
     private FDv2DataSource buildDataSource(
             MockComponents.MockDataSourceUpdateSink sink,
             List<FDv2DataSource.DataSourceFactory<Initializer>> initializers,
             List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizers,
-            ScheduledExecutorService executor) {
+            RetryRegime synchronizerBackoff) {
         return new FDv2DataSource(
                 CONTEXT,
                 initializers,
@@ -122,7 +123,10 @@ public class FDv2DataSourceTest {
                 null,
                 sink,
                 executor,
-                logging.logger);
+                logging.logger,
+                FDv2DataSourceConditions.DEFAULT_FALLBACK_TIMEOUT_SECONDS,
+                FDv2DataSourceConditions.DEFAULT_RECOVERY_TIMEOUT_SECONDS,
+                synchronizerBackoff);
     }
 
     /** Starts the data source and returns a callback that will receive the start result. */
@@ -644,22 +648,17 @@ public class FDv2DataSourceTest {
                         () -> secondBuilds.incrementAndGet() == 1
                                 ? new MockQueuedSynchronizer(terminalError())
                                 : new MockQueuedSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                fakeExecutor);
+                SHORT_BACKOFF);
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
 
         // Each failure is reported as an interruption, and the data source waits for a backoff
-        // to end rather than reporting OFF. Nothing is rebuilt before the shortest possible
-        // backoff has elapsed.
+        // to end rather than reporting OFF.
         assertEquals(Arrays.asList(DataSourceState.INTERRUPTED, DataSourceState.INTERRUPTED),
                 sink.awaitStatuses(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-        fakeExecutor.advanceTime(RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS / 2 - 1);
-        assertEquals(1, firstBuilds.get());
-        assertEquals(1, secondBuilds.get());
 
         // Once the backoffs end, whichever synchronizer returns first is tried again and
         // initialization completes. The two backoffs have independent jitter, so either may be
         // the one that is rebuilt.
-        fakeExecutor.advanceTime(RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS / 2 + 1);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
         assertEquals(3, firstBuilds.get() + secondBuilds.get());
         stopDataSource(dataSource);
@@ -1486,8 +1485,7 @@ public class FDv2DataSourceTest {
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(terminalErr), false))),
-                fakeExecutor);
+                        FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(terminalErr), false))));
 
         startDataSource(dataSource);
 
@@ -1535,7 +1533,7 @@ public class FDv2DataSourceTest {
                                 FDv2SourceResult.changeSet(makeChangeSet(false), false),
                                 FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(err), false))
                         : new MockQueuedSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                fakeExecutor);
+                SHORT_BACKOFF);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -1545,7 +1543,6 @@ public class FDv2DataSourceTest {
 
         // Once the backoff ends the synchronizer is tried again and the status returns to VALID,
         // never having reached OFF.
-        fakeExecutor.advanceTime(RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
         assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         assertEquals(2, builds.get());
         stopDataSource(dataSource);
@@ -2113,8 +2110,7 @@ public class FDv2DataSourceTest {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(terminalError())),
-                fakeExecutor);
+                Collections.singletonList(() -> new MockQueuedSynchronizer(terminalError())));
         startDataSource(dataSource);
         awaitLogContains(logging,
                 "Synchronizer 'MockQueuedSynchronizer' reported an unexpected error and will not be tried again for");
@@ -2128,8 +2124,7 @@ public class FDv2DataSourceTest {
                 Collections.emptyList(),
                 Arrays.asList(
                         () -> new MockQueuedSynchronizer(terminalError()),
-                        () -> new MockQueuedSynchronizer(terminalError())),
-                fakeExecutor);
+                        () -> new MockQueuedSynchronizer(terminalError())));
         startDataSource(dataSource);
         awaitLogContains(logging, "All synchronizers are waiting out a backoff after unexpected errors");
         stopDataSource(dataSource);

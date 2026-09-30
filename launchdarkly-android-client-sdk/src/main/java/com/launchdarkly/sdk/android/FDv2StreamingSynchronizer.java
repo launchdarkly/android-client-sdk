@@ -122,32 +122,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             @NonNull LDLogger logger,
             @Nullable DiagnosticStore diagnosticStore
     ) {
-        this(evaluationContext, selectorSource, streamBaseUri, streamRequestPath, requestor,
-                initialReconnectDelayMillis, evaluationReasons, useReport, httpProperties, executor,
-                logger, diagnosticStore, new StreamingRetryState(initialReconnectDelayMillis));
-    }
-
-    /**
-     * This constructor allows tests to supply a {@link StreamingRetryState} with short delays. See the
-     * other constructor for the remaining parameters.
-     *
-     * @param retryState the retry state that decides the wait before each reconnection
-     */
-    FDv2StreamingSynchronizer(
-            @NonNull LDContext evaluationContext,
-            @NonNull SelectorSource selectorSource,
-            @NonNull URI streamBaseUri,
-            @NonNull String streamRequestPath,
-            @Nullable FDv2Requestor requestor,
-            int initialReconnectDelayMillis,
-            boolean evaluationReasons,
-            boolean useReport,
-            @NonNull HttpProperties httpProperties,
-            @NonNull ScheduledExecutorService executor,
-            @NonNull LDLogger logger,
-            @Nullable DiagnosticStore diagnosticStore,
-            @NonNull StreamingRetryState retryState
-    ) {
         this.evaluationContext = evaluationContext;
         this.selectorSource = selectorSource;
         this.streamBaseUri = streamBaseUri;
@@ -159,7 +133,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         this.executor = executor;
         this.logger = logger;
         this.diagnosticStore = diagnosticStore;
-        this.retryState = retryState;
+        this.retryState = new StreamingRetryState(initialReconnectDelayMillis);
     }
 
     @Override

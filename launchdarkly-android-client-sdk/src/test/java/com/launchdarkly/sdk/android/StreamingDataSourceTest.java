@@ -167,15 +167,15 @@ public class StreamingDataSourceTest {
                 .build(clientContext);
     }
 
-    // The tests of backoff behavior below drive the data source's timers with a FakeTaskExecutor
-    // and a StreamingRetryState without jitter, so the delay chosen for each reconnect can be
-    // asserted exactly instead of waited for.
+    // The tests of backoff behavior below drive the data source's timers with a
+    // ManualTaskExecutor and a StreamingRetryState without jitter, so the delay chosen for each
+    // reconnect can be asserted exactly instead of waited for.
     private static final long NORMAL_DELAY_MILLIS = 1;
     private static final long EXTENDED_DELAY_MILLIS = 300_000;
     // A healthy-operation threshold no test reaches.
     private static final long NEVER_RESET_MILLIS = 60_000;
 
-    private final FakeTaskExecutor fakeTaskExecutor = new FakeTaskExecutor();
+    private final ManualTaskExecutor manualTaskExecutor = new ManualTaskExecutor();
 
     private static StreamingRetryState retryStateWithoutJitter(long healthyResetThresholdMillis) {
         return new StreamingRetryState(
@@ -197,7 +197,7 @@ public class StreamingDataSourceTest {
         ClientContext baseClientContext = ClientContextImpl.fromConfig(
                 config, MOBILE_KEY, "", perEnvironmentData,
                 makeFeatureFetcher(), CONTEXT,
-                logging.logger, platformState, environmentReporter, fakeTaskExecutor);
+                logging.logger, platformState, environmentReporter, manualTaskExecutor);
         ClientContext clientContext = ClientContextImpl.forDataSource(
                 baseClientContext, dataSourceUpdateSink, CONTEXT, false, false);
         return new StreamingDataSource(clientContext, CONTEXT, dataSourceUpdateSink,
@@ -826,10 +826,10 @@ public class StreamingDataSourceTest {
             // The 401 is reported, and the reconnect is scheduled for the extended delay.
             assertNotNull(callback.awaitError());
             server.getRecorder().requireRequest();
-            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
 
             // Once that delay has passed, the data source reconnects and receives data.
-            fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
+            manualTaskExecutor.runPendingTasks();
             assertNotNull(callback.awaitSuccess());
             server.getRecorder().requireRequest();
             assertFalse(dataSourceUpdateSink.shutDownCalled);
@@ -860,15 +860,15 @@ public class StreamingDataSourceTest {
             // scheduled for the normal delay.
             Throwable error = callback.awaitError();
             assertEquals(LDFailure.FailureType.NETWORK_FAILURE, ((LDFailure) error).getFailureType());
-            assertEquals(Collections.singletonList(NORMAL_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
-            fakeTaskExecutor.advanceTime(NORMAL_DELAY_MILLIS);
+            assertEquals(Collections.singletonList(NORMAL_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
+            manualTaskExecutor.runPendingTasks();
 
             // The 403 on that reconnect moves the data source to the extended delay, after which
             // it connects again.
             error = callback.awaitError();
             assertEquals(403, ((LDInvalidResponseCodeFailure) error).getResponseCode());
-            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
-            fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
+            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
+            manualTaskExecutor.runPendingTasks();
             assertNotNull(callback.awaitSuccess());
         }
     }
@@ -886,8 +886,8 @@ public class StreamingDataSourceTest {
             for (long expectedDelay : new long[] {EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 2, EXTENDED_DELAY_MILLIS * 4}) {
                 assertNotNull(callback.awaitError());
                 server.getRecorder().requireRequest();
-                assertEquals(Collections.singletonList(expectedDelay), fakeTaskExecutor.pendingDelaysMillis());
-                fakeTaskExecutor.advanceTime(expectedDelay);
+                assertEquals(Collections.singletonList(expectedDelay), manualTaskExecutor.pendingDelaysMillis());
+                manualTaskExecutor.runPendingTasks();
             }
             assertNotNull(callback.awaitError());
             assertFalse(dataSourceUpdateSink.shutDownCalled);
@@ -920,14 +920,14 @@ public class StreamingDataSourceTest {
             // The 401 puts the data source in the extended regime. The reconnect then delivers
             // data and is ended by the server.
             assertNotNull(callback.awaitError());
-            fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
+            manualTaskExecutor.runPendingTasks();
             assertNotNull(callback.awaitSuccess());
             assertNotNull(callback.awaitError());
 
             // Having been healthy for longer than the threshold, the data source is back to the
             // normal delay rather than doubling the extended one.
-            assertEquals(Collections.singletonList(NORMAL_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
-            fakeTaskExecutor.advanceTime(NORMAL_DELAY_MILLIS);
+            assertEquals(Collections.singletonList(NORMAL_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
+            manualTaskExecutor.runPendingTasks();
             assertNotNull(callback.awaitSuccess());
         }
     }
@@ -940,13 +940,13 @@ public class StreamingDataSourceTest {
             TrackingCallback callback = new TrackingCallback();
             startDataSource(sds, callback);
             assertNotNull(callback.awaitError());
-            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+            assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
 
             // Stopping cancels the scheduled reconnect.
             AwaitableCallback<Void> stopped = new AwaitableCallback<>();
             sds.stop(stopped);
             stopped.await(STOP_TIMEOUT_MILLIS);
-            assertTrue(fakeTaskExecutor.pendingDelaysMillis().isEmpty());
+            assertTrue(manualTaskExecutor.pendingDelaysMillis().isEmpty());
         }
     }
 

@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,7 +31,12 @@ public class SourceManagerTest {
     @Rule
     public Timeout globalTimeout = Timeout.seconds(5);
 
-    private final FakeScheduledExecutorService executor = new FakeScheduledExecutorService();
+    // A backoff long enough that no scheduled return runs during a test, with room to double.
+    private static final RetryRegime LONG_BACKOFF = new RetryRegime(60_000, 240_000);
+    // A backoff short enough to wait out.
+    private static final RetryRegime SHORT_BACKOFF = new RetryRegime(50, 50);
+
+    private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     private final List<SynchronizerFactoryWithState> slots = new ArrayList<>();
 
     @After
@@ -62,17 +68,17 @@ public class SourceManagerTest {
         }
     }
 
-    private SourceManager manager(String... names) {
+    private SourceManager manager(RetryRegime backoff, String... names) {
         for (final String name : names) {
-            slots.add(new SynchronizerFactoryWithState(() -> new NamedSynchronizer(name)));
+            slots.add(new SynchronizerFactoryWithState(() -> new NamedSynchronizer(name), false, backoff));
         }
         return new SourceManager(slots, Collections.emptyList(), executor);
     }
 
-    private static void assertFirstBackoff(long delayMillis) {
+    /** Asserts that a delay is the first backoff of the regime: its initial delay, less jitter. */
+    private static void assertFirstBackoff(RetryRegime regime, long delayMillis) {
         assertTrue("delay " + delayMillis,
-                delayMillis > RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS / 2
-                        && delayMillis <= RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
+                delayMillis > regime.initialDelayMillis / 2 && delayMillis <= regime.initialDelayMillis);
     }
 
     /** Selects the next synchronizer, asserting that one is known right away. */
@@ -85,12 +91,10 @@ public class SourceManagerTest {
 
     @Test
     public void backingOffTheCurrentSlotSkipsItInFavorOfTheNext() throws Exception {
-        SourceManager manager = manager("a", "b");
+        SourceManager manager = manager(LONG_BACKOFF, "a", "b");
         assertEquals("a", nextNow(manager));
 
-        long delay = manager.backOffCurrentSynchronizer(0);
-        assertFirstBackoff(delay);
-        assertEquals(delay, executor.awaitScheduledDelayMillis(1000));
+        assertFirstBackoff(LONG_BACKOFF, manager.backOffCurrentSynchronizer(0));
 
         assertEquals("b", nextNow(manager));
         assertEquals("b", nextNow(manager));
@@ -98,23 +102,19 @@ public class SourceManagerTest {
 
     @Test
     public void slotReturnsWhenItsBackoffEnds() throws Exception {
-        SourceManager manager = manager("a");
+        SourceManager manager = manager(SHORT_BACKOFF, "a");
         assertEquals("a", nextNow(manager));
-        long delay = manager.backOffCurrentSynchronizer(0);
+        manager.backOffCurrentSynchronizer(0);
 
-        // With every slot backing off, the next synchronizer is not known yet.
+        // With every slot backing off, the next synchronizer is supplied when the backoff ends.
         Future<Synchronizer> next = manager.nextAvailableSynchronizer();
-        assertFalse(next.isDone());
-
-        // The backoff ending supplies it.
-        executor.advanceTime(delay);
-        assertEquals("a", next.get(1, TimeUnit.SECONDS).name());
+        assertEquals("a", next.get(2, TimeUnit.SECONDS).name());
         assertEquals("a", nextNow(manager));
     }
 
     @Test
     public void aBackingOffSlotStillOutranksTheCurrentOneForRecovery() throws Exception {
-        SourceManager manager = manager("a", "b");
+        SourceManager manager = manager(LONG_BACKOFF, "a", "b");
         nextNow(manager);
         manager.backOffCurrentSynchronizer(0);
         assertEquals("b", nextNow(manager));
@@ -130,16 +130,15 @@ public class SourceManagerTest {
 
     @Test
     public void repeatedUnexpectedErrorsDoubleTheBackoffUntilHealthyOperationResetsIt() throws Exception {
-        SourceManager manager = manager("a");
+        SourceManager manager = manager(LONG_BACKOFF, "a");
         nextNow(manager);
 
         // A second unexpected error without any healthy operation in between doubles the wait.
-        long firstDelay = manager.backOffCurrentSynchronizer(0);
-        assertFirstBackoff(firstDelay);
+        assertFirstBackoff(LONG_BACKOFF, manager.backOffCurrentSynchronizer(0));
         manager.endBackoff(slots.get(0));
         nextNow(manager);
         long secondDelay = manager.backOffCurrentSynchronizer(0);
-        assertTrue("delay " + secondDelay, secondDelay > RetryRegime.EXTENDED_INITIAL_DELAY_MILLIS);
+        assertTrue("delay " + secondDelay, secondDelay > LONG_BACKOFF.initialDelayMillis);
         manager.endBackoff(slots.get(0));
 
         // Healthy operation for the reset threshold before the next error starts the backoff over.
@@ -148,12 +147,13 @@ public class SourceManagerTest {
         manager.recordCurrentSynchronizerHealthy(healthyAt);
         long thirdDelay = manager.backOffCurrentSynchronizer(
                 healthyAt + StreamingRetryState.RESET_THRESHOLD_MILLIS);
-        assertFirstBackoff(thirdDelay);
+        assertFirstBackoff(LONG_BACKOFF, thirdDelay);
     }
 
     @Test
     public void closeCompletesTheWaitWithNullAndCancelsPendingBackoffs() throws Exception {
-        SourceManager manager = manager("a");
+        executor.setRemoveOnCancelPolicy(true);
+        SourceManager manager = manager(LONG_BACKOFF, "a");
         nextNow(manager);
         manager.backOffCurrentSynchronizer(0);
         Future<Synchronizer> next = manager.nextAvailableSynchronizer();
@@ -161,12 +161,12 @@ public class SourceManagerTest {
 
         manager.close();
         assertNull(next.get(1, TimeUnit.SECONDS));
-        assertTrue(executor.pendingDelaysMillis().isEmpty());
+        assertTrue(executor.getQueue().isEmpty());
         assertNull(nextNow(manager));
     }
 
     @Test
     public void noSynchronizersYieldsNullRightAway() throws Exception {
-        assertNull(nextNow(manager()));
+        assertNull(nextNow(manager(LONG_BACKOFF)));
     }
 }

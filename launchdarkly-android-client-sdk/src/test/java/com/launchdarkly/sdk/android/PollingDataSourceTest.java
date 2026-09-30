@@ -291,14 +291,14 @@ public class PollingDataSourceTest {
 
     // --- backoff after failures ---
     //
-    // These tests drive the data source's timers with a FakeTaskExecutor and a PollingRetryState
-    // without jitter. The mock fetcher answers synchronously, so every poll and its outcome
-    // happen inside advanceTime() and the scheduled delays can be asserted exactly.
+    // These tests drive the data source's timers with a ManualTaskExecutor and a
+    // PollingRetryState without jitter. The mock fetcher answers synchronously, so every poll and
+    // its outcome happen inside runPendingTasks() and the scheduled delays can be asserted exactly.
 
     private static final long POLL_INTERVAL_MILLIS = 30_000;
     private static final long EXTENDED_DELAY_MILLIS = 300_000;
 
-    private final FakeTaskExecutor fakeTaskExecutor = new FakeTaskExecutor();
+    private final ManualTaskExecutor manualTaskExecutor = new ManualTaskExecutor();
 
     private static LDInvalidResponseCodeFailure httpFailure(int status) {
         return new LDInvalidResponseCodeFailure("test failure", status, LDUtil.isHttpErrorRecoverable(status));
@@ -325,7 +325,7 @@ public class PollingDataSourceTest {
                 maxNumberOfPolls,
                 clientContext.getFetcher(),
                 clientContext.getPlatformState(),
-                fakeTaskExecutor,
+                manualTaskExecutor,
                 retryStateWithoutJitter(),
                 clientContext.getBaseLogger()
         );
@@ -355,12 +355,12 @@ public class PollingDataSourceTest {
 
         // The first poll fails with a 500.
         ds.start(callback);
-        fakeTaskExecutor.runDueTasks();
+        manualTaskExecutor.runPendingTasks();
         assertEquals(1, callback.errors.size());
 
         // The next poll is scheduled for the regular interval and succeeds.
-        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
-        fakeTaskExecutor.advanceTime(POLL_INTERVAL_MILLIS);
+        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), manualTaskExecutor.pendingDelaysMillis());
+        manualTaskExecutor.runPendingTasks();
         assertEquals(1, callback.successes.size());
         assertEquals(2, fetcher.receivedContexts.size());
     }
@@ -374,14 +374,14 @@ public class PollingDataSourceTest {
 
         // The first poll fails with a 401, which is reported without shutting the SDK down.
         ds.start(callback);
-        fakeTaskExecutor.runDueTasks();
+        manualTaskExecutor.runPendingTasks();
         assertEquals(401, ((LDInvalidResponseCodeFailure) callback.errors.get(0)).getResponseCode());
         assertFalse(dataSourceUpdateSink.shutDownCalled);
 
         // The next poll is scheduled for the extended delay rather than the poll interval, and
         // succeeds once that delay has passed.
-        assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
-        fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
+        assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
+        manualTaskExecutor.runPendingTasks();
         assertEquals(1, callback.successes.size());
         assertEquals(2, fetcher.receivedContexts.size());
     }
@@ -398,10 +398,10 @@ public class PollingDataSourceTest {
         // Each failure schedules the next poll with double the delay, and the data source never
         // gives up.
         ds.start(callback);
-        fakeTaskExecutor.runDueTasks();
+        manualTaskExecutor.runPendingTasks();
         for (long expectedDelay : new long[] {EXTENDED_DELAY_MILLIS, EXTENDED_DELAY_MILLIS * 2, EXTENDED_DELAY_MILLIS * 4}) {
-            assertEquals(Collections.singletonList(expectedDelay), fakeTaskExecutor.pendingDelaysMillis());
-            fakeTaskExecutor.advanceTime(expectedDelay);
+            assertEquals(Collections.singletonList(expectedDelay), manualTaskExecutor.pendingDelaysMillis());
+            manualTaskExecutor.runPendingTasks();
         }
 
         // The fourth poll succeeded.
@@ -421,18 +421,18 @@ public class PollingDataSourceTest {
 
         // The 401 moves the data source to the extended delay.
         ds.start(callback);
-        fakeTaskExecutor.runDueTasks();
-        assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+        manualTaskExecutor.runPendingTasks();
+        assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
 
         // One success returns to the regular interval. A second one clears the backoff, so the
         // 500 that follows is retried at the regular interval instead of a doubled extended delay.
-        fakeTaskExecutor.advanceTime(EXTENDED_DELAY_MILLIS);
-        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
-        fakeTaskExecutor.advanceTime(POLL_INTERVAL_MILLIS);
-        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
-        fakeTaskExecutor.advanceTime(POLL_INTERVAL_MILLIS);
+        manualTaskExecutor.runPendingTasks();
+        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), manualTaskExecutor.pendingDelaysMillis());
+        manualTaskExecutor.runPendingTasks();
+        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), manualTaskExecutor.pendingDelaysMillis());
+        manualTaskExecutor.runPendingTasks();
         assertEquals(2, callback.errors.size());
-        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+        assertEquals(Collections.singletonList(POLL_INTERVAL_MILLIS), manualTaskExecutor.pendingDelaysMillis());
     }
 
     @Test
@@ -444,11 +444,11 @@ public class PollingDataSourceTest {
 
         // The single poll fails.
         ds.start(callback);
-        fakeTaskExecutor.runDueTasks();
+        manualTaskExecutor.runPendingTasks();
         assertEquals(1, callback.errors.size());
 
         // A one-shot data source is done after its one poll, so nothing further is scheduled.
-        assertTrue(fakeTaskExecutor.pendingDelaysMillis().isEmpty());
+        assertTrue(manualTaskExecutor.pendingDelaysMillis().isEmpty());
     }
 
     @Test
@@ -460,12 +460,12 @@ public class PollingDataSourceTest {
 
         // The 401 schedules a poll for the extended delay.
         ds.start(callback);
-        fakeTaskExecutor.runDueTasks();
-        assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), fakeTaskExecutor.pendingDelaysMillis());
+        manualTaskExecutor.runPendingTasks();
+        assertEquals(Collections.singletonList(EXTENDED_DELAY_MILLIS), manualTaskExecutor.pendingDelaysMillis());
 
         // Stopping cancels it.
         ds.stop(LDUtil.noOpCallback());
-        assertTrue(fakeTaskExecutor.pendingDelaysMillis().isEmpty());
+        assertTrue(manualTaskExecutor.pendingDelaysMillis().isEmpty());
     }
 
     private class MockFetcher implements FeatureFetcher {

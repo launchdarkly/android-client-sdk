@@ -33,21 +33,24 @@ final class SynchronizerFactoryWithState {
     private State state = State.Available;
     private final boolean isFDv1Fallback;
     // Backoff after unexpected errors from this slot's synchronizers.
-    private final StreamingRetryState retryState = new StreamingRetryState(
-            RetryRegime.EXTENDED,
-            RetryRegime.EXTENDED,
-            StreamingRetryState.RESET_THRESHOLD_MILLIS,
-            new Random());
+    private final StreamingRetryState retryState;
     @Nullable
     private ScheduledFuture<?> pendingUnblock;
 
-    SynchronizerFactoryWithState(@NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory) {
-        this(factory, false);
-    }
-
-    SynchronizerFactoryWithState(@NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory, boolean isFDv1Fallback) {
+    /**
+     * @param factory        builds this slot's synchronizer
+     * @param isFDv1Fallback true if this slot holds the FDv1 fallback synchronizer
+     * @param backoff        the delay bounds for the backoff after an unexpected error
+     */
+    SynchronizerFactoryWithState(
+            @NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory,
+            boolean isFDv1Fallback,
+            @NonNull RetryRegime backoff
+    ) {
         this.factory = factory;
         this.isFDv1Fallback = isFDv1Fallback;
+        this.retryState = new StreamingRetryState(
+                backoff, backoff, StreamingRetryState.RESET_THRESHOLD_MILLIS, new Random());
     }
 
     State getState() {

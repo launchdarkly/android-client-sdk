@@ -126,6 +126,29 @@ final class FDv2DataSource implements DataSource {
             long fallbackTimeoutSeconds,
             long recoveryTimeoutSeconds
     ) {
+        this(evaluationContext, initializers, synchronizers, fdv1FallbackSynchronizer,
+                dataSourceUpdateSink, sharedExecutor, logger, fallbackTimeoutSeconds,
+                recoveryTimeoutSeconds, RetryRegime.EXTENDED);
+    }
+
+    /**
+     * This constructor allows tests to shorten the backoff after a synchronizer's unexpected
+     * error. See the other constructor for the remaining parameters.
+     *
+     * @param synchronizerBackoff the delay bounds for that backoff
+     */
+    FDv2DataSource(
+            @NonNull LDContext evaluationContext,
+            @NonNull List<DataSourceFactory<Initializer>> initializers,
+            @NonNull List<DataSourceFactory<Synchronizer>> synchronizers,
+            @Nullable DataSourceFactory<Synchronizer> fdv1FallbackSynchronizer,
+            @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
+            @NonNull ScheduledExecutorService sharedExecutor,
+            @NonNull LDLogger logger,
+            long fallbackTimeoutSeconds,
+            long recoveryTimeoutSeconds,
+            @NonNull RetryRegime synchronizerBackoff
+    ) {
         this.evaluationContext = evaluationContext;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.logger = logger;
@@ -140,10 +163,11 @@ final class FDv2DataSource implements DataSource {
 
         List<SynchronizerFactoryWithState> allSynchronizers = new ArrayList<>();
         for (DataSourceFactory<Synchronizer> factory : synchronizers) {
-            allSynchronizers.add(new SynchronizerFactoryWithState(factory));
+            allSynchronizers.add(new SynchronizerFactoryWithState(factory, false, synchronizerBackoff));
         }
         if (fdv1FallbackSynchronizer != null) {
-            SynchronizerFactoryWithState fdv1 = new SynchronizerFactoryWithState(fdv1FallbackSynchronizer, true);
+            SynchronizerFactoryWithState fdv1 =
+                    new SynchronizerFactoryWithState(fdv1FallbackSynchronizer, true, synchronizerBackoff);
             fdv1.block();
             allSynchronizers.add(fdv1);
         }
