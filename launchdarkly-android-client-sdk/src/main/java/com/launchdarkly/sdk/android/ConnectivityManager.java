@@ -136,8 +136,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
 
         @Override
         public void shutDown() {
-            // The DataSource will call this method if it receives an error such as HTTP 401 that
-            // indicates the mobile key is invalid.
             ConnectivityManager.this.shutDown();
             setStatus(ConnectionInformation.ConnectionMode.SHUTDOWN, null);
         }

@@ -122,7 +122,8 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
                                 logger.error("Received 400 response when fetching flag values. Please check recommended ProGuard settings");
                             }
                             callback.onError(new LDInvalidResponseCodeFailure("Unexpected response when retrieving Feature Flags: " + response + " using url: "
-                                    + request.url() + " with body: " + body, response.code(), true));
+                                    + request.url() + " with body: " + body, response.code(),
+                                    LDUtil.isHttpErrorRecoverable(response.code())));
                             return;
                         }
                         logger.debug(body);

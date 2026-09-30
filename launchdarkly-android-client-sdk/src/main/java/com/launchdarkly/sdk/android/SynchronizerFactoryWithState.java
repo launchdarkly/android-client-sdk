@@ -1,35 +1,56 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
+import java.util.Random;
+import java.util.concurrent.ScheduledFuture;
+
 /**
- * Wraps a synchronizer factory with availability state (available/blocked).
- * Used by {@link SourceManager} to skip synchronizers that have been blocked (e.g. after TERMINAL_ERROR).
+ * Wraps a synchronizer factory with availability state. A synchronizer is not usable while it
+ * is waiting out a backoff after an unexpected error, or while it is blocked.
  * <p>
- * Package-private for internal use by FDv2DataSource.
+ * Package-private for internal use by FDv2DataSource. Callers synchronize on the
+ * {@link SourceManager}'s lock.
  */
 final class SynchronizerFactoryWithState {
 
     enum State {
         /** This synchronizer is available to use. */
         Available,
-        /** This synchronizer is no longer available (e.g. after TERMINAL_ERROR). */
+        /**
+         * This synchronizer reported an unexpected error and is waiting out a backoff before it
+         * may be used again.
+         */
+        BackingOff,
+        /** This synchronizer is not available until something unblocks it. */
         Blocked
     }
 
     private final FDv2DataSource.DataSourceFactory<Synchronizer> factory;
     private State state = State.Available;
     private final boolean isFDv1Fallback;
+    // Backoff after unexpected errors from this slot's synchronizers.
+    private final StreamingRetryState retryState;
+    @Nullable
+    private ScheduledFuture<?> pendingUnblock;
 
-    SynchronizerFactoryWithState(@NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory) {
-        this(factory, false);
-    }
-
-    SynchronizerFactoryWithState(@NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory, boolean isFDv1Fallback) {
+    /**
+     * @param factory        builds this slot's synchronizer
+     * @param isFDv1Fallback true if this slot holds the FDv1 fallback synchronizer
+     * @param backoff        the delay bounds for the backoff after an unexpected error
+     */
+    SynchronizerFactoryWithState(
+            @NonNull FDv2DataSource.DataSourceFactory<Synchronizer> factory,
+            boolean isFDv1Fallback,
+            @NonNull RetryRegime backoff
+    ) {
         this.factory = factory;
         this.isFDv1Fallback = isFDv1Fallback;
+        this.retryState = new StreamingRetryState(
+                backoff, backoff, StreamingRetryState.RESET_THRESHOLD_MILLIS, new Random());
     }
 
     State getState() {
@@ -50,5 +71,53 @@ final class SynchronizerFactoryWithState {
 
     boolean isFDv1Fallback() {
         return isFDv1Fallback;
+    }
+
+    /**
+     * Records healthy operation by this slot's synchronizer.
+     *
+     * @param nowMillis the current time in milliseconds, on the same clock as every other call on
+     *                  this instance
+     */
+    void recordHealthy(long nowMillis) {
+        retryState.recordSuccess(nowMillis);
+    }
+
+    /**
+     * Records an unexpected error from this slot's synchronizer and puts the slot into backoff.
+     *
+     * @param nowMillis the current time in milliseconds, on the same clock as every other call on
+     *                  this instance
+     * @return how long the slot stays in backoff, in milliseconds
+     */
+    long startBackoff(long nowMillis) {
+        retryState.recordFailure(true, nowMillis);
+        state = State.BackingOff;
+        return retryState.nextDelayMillis();
+    }
+
+    /**
+     * Ends this slot's backoff, if it is in one.
+     *
+     * @return true if the slot became available
+     */
+    boolean endBackoff() {
+        pendingUnblock = null;
+        if (state != State.BackingOff) {
+            return false;
+        }
+        state = State.Available;
+        return true;
+    }
+
+    void setPendingUnblock(@Nullable ScheduledFuture<?> pendingUnblock) {
+        this.pendingUnblock = pendingUnblock;
+    }
+
+    void cancelPendingUnblock() {
+        if (pendingUnblock != null) {
+            pendingUnblock.cancel(false);
+            pendingUnblock = null;
+        }
     }
 }

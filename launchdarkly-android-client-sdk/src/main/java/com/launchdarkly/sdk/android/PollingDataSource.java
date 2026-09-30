@@ -16,6 +16,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * streaming with Components.pollingDataSource(), or 2. streaming is enabled, but the application is
  * in the background so we do polling instead. The logic for this is in
  * ComponentsImpl.PollingDataSourceBuilderImpl and ComponentsImpl.StreamingDataSourceBuilderImpl.
+ * <p>
+ * Polls happen at the poll interval, except that a failure that is not expected to resolve on
+ * its own, such as HTTP 401, is followed by a much longer wait. No failure stops the data source
+ * from polling again.
  */
 final class PollingDataSource implements DataSource {
     private final LDContext context;
@@ -28,6 +32,10 @@ final class PollingDataSource implements DataSource {
     private final TaskExecutor taskExecutor;
     private final LDLogger logger;
     final AtomicReference<ScheduledFuture<?>> currentPollTask = new AtomicReference<>(); // visible for testing
+
+    // Guarded by the lock on this instance.
+    private final PollingRetryState retryState;
+    private boolean running = false;
 
     /**
      * @param context              that this data source will fetch data for
@@ -53,6 +61,28 @@ final class PollingDataSource implements DataSource {
             TaskExecutor taskExecutor,
             LDLogger logger
     ) {
+        this(context, dataSourceUpdateSink, initialDelayMillis, pollIntervalMillis, maxNumberOfPolls,
+                fetcher, platformState, taskExecutor, new PollingRetryState(pollIntervalMillis), logger);
+    }
+
+    /**
+     * This constructor allows tests to supply a {@link PollingRetryState} with short delays. See the
+     * other constructor for the remaining parameters.
+     *
+     * @param retryState the retry state that decides the wait after a failed poll
+     */
+    PollingDataSource(
+            LDContext context,
+            DataSourceUpdateSink dataSourceUpdateSink,
+            long initialDelayMillis,
+            long pollIntervalMillis,
+            long maxNumberOfPolls,
+            FeatureFetcher fetcher,
+            PlatformState platformState,
+            TaskExecutor taskExecutor,
+            PollingRetryState retryState,
+            LDLogger logger
+    ) {
         this.context = context;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.initialDelayMillis = initialDelayMillis;
@@ -61,6 +91,7 @@ final class PollingDataSource implements DataSource {
         this.fetcher = fetcher;
         this.platformState = platformState;
         this.taskExecutor = taskExecutor;
+        this.retryState = retryState;
         this.logger = logger;
     }
 
@@ -73,16 +104,19 @@ final class PollingDataSource implements DataSource {
             return;
         }
 
-        Runnable pollRunnable = () -> poll(resultCallback);
+        synchronized (this) {
+            running = true;
+        }
         logger.debug("Scheduling polling task with interval of {}ms, starting after {}ms, with number of polls {}",
                 pollIntervalMillis, initialDelayMillis, numberOfPollsRemaining);
-        ScheduledFuture<?> task = taskExecutor.startRepeatingTask(pollRunnable,
-                initialDelayMillis, pollIntervalMillis);
-        currentPollTask.set(task);
+        schedulePoll(initialDelayMillis, resultCallback);
     }
 
     @Override
     public void stop(Callback<Void> completionCallback) {
+        synchronized (this) {
+            running = false;
+        }
         ScheduledFuture<?> task = currentPollTask.getAndSet(null);
         if (task != null) {
             task.cancel(true);
@@ -90,18 +124,62 @@ final class PollingDataSource implements DataSource {
         completionCallback.onSuccess(null);
     }
 
-    private void poll(Callback<Boolean> resultCallback) {
-        // poll if there are polls remaining
-        if (numberOfPollsRemaining > 0) {
-            numberOfPollsRemaining--;
-            ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
-                    resultCallback, logger);
-        } else {
-            // terminate if we have no polls remaining
-            ScheduledFuture<?> task = currentPollTask.getAndSet(null);
-            if (task != null) {
-                task.cancel(true);
+    /**
+     * Schedules the next poll, unless the data source has been stopped or has used up its polls.
+     */
+    private synchronized void schedulePoll(long delayMillis, Callback<Boolean> resultCallback) {
+        if (!running || numberOfPollsRemaining <= 0) {
+            return;
+        }
+        currentPollTask.set(taskExecutor.scheduleTask(() -> poll(resultCallback), delayMillis));
+    }
+
+    private void poll(final Callback<Boolean> resultCallback) {
+        synchronized (this) {
+            if (!running || numberOfPollsRemaining <= 0) {
+                return;
             }
+            numberOfPollsRemaining--;
+        }
+
+        Callback<Boolean> pollCallback = new Callback<Boolean>() {
+            @Override
+            public void onSuccess(Boolean result) {
+                long delay;
+                synchronized (PollingDataSource.this) {
+                    retryState.recordSuccess();
+                    delay = retryState.nextDelayMillis();
+                }
+                resultCallback.onSuccess(result);
+                schedulePoll(delay, resultCallback);
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                boolean unexpected = LDUtil.isUnexpectedFailure(error);
+                long delay;
+                synchronized (PollingDataSource.this) {
+                    retryState.recordFailure(unexpected);
+                    delay = retryState.nextDelayMillis();
+                }
+                if (unexpected) {
+                    logger.error("Received HTTP error {} from polling request. This is not expected to resolve on its own; verify correct Mobile Key and Polling URI. Will retry in {} ms.",
+                            ((LDInvalidResponseCodeFailure) error).getResponseCode(), delay);
+                } else {
+                    logger.warn("Polling request failed. Will retry in {} ms.", delay);
+                }
+                resultCallback.onError(error);
+                schedulePoll(delay, resultCallback);
+            }
+        };
+
+        try {
+            ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink, pollCallback, logger);
+        } catch (RuntimeException e) {
+            // If the fetcher throws instead of using its callback, the caller is still owed a
+            // result and the next poll.
+            LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception while polling for flags");
+            pollCallback.onError(new LDFailure("Exception while fetching flags", e, LDFailure.FailureType.UNKNOWN_ERROR));
         }
     }
 }

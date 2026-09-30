@@ -5,12 +5,9 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import com.launchdarkly.eventsource.ConnectStrategy;
-import com.launchdarkly.eventsource.ErrorStrategy;
 import com.launchdarkly.eventsource.EventSource;
-import com.launchdarkly.eventsource.FaultEvent;
 import com.launchdarkly.eventsource.HttpConnectStrategy;
 import com.launchdarkly.eventsource.MessageEvent;
-import com.launchdarkly.eventsource.RetryDelayStrategy;
 import com.launchdarkly.eventsource.StreamClosedByCallerException;
 import com.launchdarkly.eventsource.StreamEvent;
 import com.launchdarkly.eventsource.ResponseHeaders;
@@ -34,8 +31,9 @@ import com.launchdarkly.sdk.json.JsonSerialization;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -51,12 +49,15 @@ import static com.launchdarkly.sdk.android.LDConfig.JSON;
  * If an optional {@link FDv2Requestor} is supplied, {@code ping} SSE events are handled by
  * issuing a poll request. If no requestor is supplied, {@code ping} events are ignored.
  * <p>
+ * Reconnection is managed here rather than by the EventSource library. A transport failure, a
+ * recoverable HTTP status, or a bad payload is reported as INTERRUPTED and followed by a
+ * reconnect after a backoff. An HTTP status that is not expected to resolve soon, such as 401, is
+ * reported as TERMINAL_ERROR and ends this synchronizer.
  */
 final class FDv2StreamingSynchronizer implements Synchronizer {
     private static final String METHOD_REPORT = "REPORT";
     private static final String PING = "ping";
     private static final long READ_TIMEOUT_MS = 300_000; // 5 minutes
-    private static final long MAX_RECONNECT_TIME_MS = 300_000; // 5 minutes
 
     private final HttpProperties httpProperties;
     private final URI streamBaseUri;
@@ -67,21 +68,28 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     @Nullable
     private final FDv2Requestor requestor;
     private final boolean evaluationReasons;
-    private final int initialReconnectDelayMillis;
     @Nullable
     private final DiagnosticStore diagnosticStore;
     private final LDLogger logger;
-    private final Executor executor;
+    private final ScheduledExecutorService executor;
 
     private final LDAsyncQueue<FDv2SourceResult> resultQueue = new LDAsyncQueue<>();
     private final LDAwaitFuture<FDv2SourceResult> shutdownFuture = new LDAwaitFuture<>();
     private final AtomicBoolean started = new AtomicBoolean(false);
-    private final FDv2ProtocolHandler protocolHandler = new FDv2ProtocolHandler();
 
-    // closeLock guards: closed and the eventSource assignment in startStream.
+    // The following are only touched by the current connection attempt. Attempts never overlap.
+    private final FDv2ProtocolHandler protocolHandler = new FDv2ProtocolHandler();
+    private final StreamingRetryState retryState;
+    // Set while handling a message when the current connection must be dropped and a new one
+    // made, along with the wait before doing so.
+    private boolean restartRequested = false;
+    private long restartDelayMillis = 0;
+
+    // closeLock guards closed, eventSource, and pendingAttempt.
     private final Object closeLock = new Object();
     private boolean closed = false;
-    private volatile EventSource eventSource;
+    private EventSource eventSource;
+    private ScheduledFuture<?> pendingAttempt;
     private volatile long streamStarted = 0;
 
     /**
@@ -90,12 +98,13 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
      * @param streamBaseUri                base URI for the stream endpoint
      * @param streamRequestPath            path appended to the base URI for the stream request
      * @param requestor                    optional requestor for handling ping events via poll; may be null
-     * @param initialReconnectDelayMillis  delay before reconnecting after an error, in milliseconds
+     * @param initialReconnectDelayMillis  initial delay before reconnecting after a failure, in
+     *                                     milliseconds
      * @param evaluationReasons           true to request evaluation reasons in the stream
      * @param useReport                    true to use HTTP REPORT for the request body
      * @param httpProperties               HTTP configuration for the stream request
-     * @param executor                     executor used to run the streaming loop on a background
-     *                                     thread; should use background-priority threads
+     * @param executor                     executor for the connection attempts and the waits
+     *                                     between them. Should use background-priority threads.
      * @param logger                       logger
      * @param diagnosticStore              optional store for stream diagnostics; may be null
      */
@@ -109,7 +118,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             boolean evaluationReasons,
             boolean useReport,
             @NonNull HttpProperties httpProperties,
-            @NonNull Executor executor,
+            @NonNull ScheduledExecutorService executor,
             @NonNull LDLogger logger,
             @Nullable DiagnosticStore diagnosticStore
     ) {
@@ -118,13 +127,13 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         this.streamBaseUri = streamBaseUri;
         this.streamRequestPath = streamRequestPath;
         this.requestor = requestor;
-        this.initialReconnectDelayMillis = initialReconnectDelayMillis;
         this.evaluationReasons = evaluationReasons;
         this.useReport = useReport;
         this.httpProperties = httpProperties;
         this.executor = executor;
         this.logger = logger;
         this.diagnosticStore = diagnosticStore;
+        this.retryState = new StreamingRetryState(initialReconnectDelayMillis);
     }
 
     @Override
@@ -134,7 +143,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             shouldStart = !closed && !started.getAndSet(true);
         }
         if (shouldStart) {
-            startStream();
+            executor.execute(this::runConnectionAttempt);
         }
         return LDFutures.anyOf(shutdownFuture, resultQueue.take());
     }
@@ -149,6 +158,10 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             closed = true;
             esToClose = eventSource;
             eventSource = null;
+            if (pendingAttempt != null) {
+                pendingAttempt.cancel(false);
+                pendingAttempt = null;
+            }
         }
         if (esToClose != null) {
             esToClose.close();
@@ -162,7 +175,51 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         shutdownFuture.set(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false));
     }
 
-    private void startStream() {
+    private boolean isClosed() {
+        synchronized (closeLock) {
+            return closed;
+        }
+    }
+
+    /**
+     * Runs one connection attempt and schedules the next one after the backoff delay. Only
+     * {@link #close()} stops the sequence.
+     */
+    private void runConnectionAttempt() {
+        EventSource es = buildEventSource();
+        synchronized (closeLock) {
+            if (closed) {
+                es.close();
+                return;
+            }
+            eventSource = es;
+        }
+        streamStarted = System.currentTimeMillis();
+
+        long delay;
+        try {
+            delay = readUntilDisconnected(es);
+        } finally {
+            es.close();
+            synchronized (closeLock) {
+                if (eventSource == es) {
+                    eventSource = null;
+                }
+            }
+        }
+
+        if (delay < 0) {
+            return;
+        }
+        synchronized (closeLock) {
+            if (closed) {
+                return;
+            }
+            pendingAttempt = executor.schedule(this::runConnectionAttempt, delay, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private EventSource buildEventSource() {
         HttpConnectStrategy connectStrategy = ConnectStrategy.http(getStreamUri())
                 .clientBuilderActions(clientBuilder -> {
                     httpProperties.applyToHttpClientBuilder(clientBuilder);
@@ -194,52 +251,57 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                     RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON));
         }
 
-        EventSource es = new EventSource.Builder(connectStrategy)
-                .retryDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
-                .retryDelayStrategy(RetryDelayStrategy.defaultStrategy()
-                        .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS))
-                .errorStrategy(ErrorStrategy.alwaysContinue())
-                .build();
+        // The default error strategy throws every failure from readAnyEvent() instead of
+        // reconnecting, which leaves the backoff to this class.
+        return new EventSource.Builder(connectStrategy).build();
+    }
 
-        synchronized (closeLock) {
-            if (closed) {
-                es.close();
-                return;
+    /**
+     * Reads events from one connection until it ends.
+     *
+     * @return the wait in milliseconds before the next connection attempt, or -1 if the
+     * synchronizer has been closed and must not reconnect
+     */
+    private long readUntilDisconnected(EventSource es) {
+        try {
+            while (true) {
+                StreamEvent event = es.readAnyEvent();
+                if (isClosed()) {
+                    return -1;
+                }
+                if (event instanceof MessageEvent) {
+                    handleMessage((MessageEvent) event);
+                    if (restartRequested) {
+                        restartRequested = false;
+                        return restartDelayMillis;
+                    }
+                }
+                // StartedEvent and CommentEvent (SSE comment/heartbeat line) need no action.
             }
-            eventSource = es;
+        } catch (StreamException e) {
+            if (isClosed() || e instanceof StreamClosedByCallerException) {
+                return -1;
+            }
+            return handleError(e);
+        } catch (RuntimeException e) {
+            if (isClosed()) {
+                return -1;
+            }
+            LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception while reading stream");
+            recordStreamInit(true);
+            protocolHandler.reset();
+            resultQueue.put(FDv2SourceResult.status(
+                    FDv2SourceResult.Status.interrupted(
+                            new LDFailure("Unexpected exception while reading stream", e,
+                                    LDFailure.FailureType.UNKNOWN_ERROR)),
+                    false));
+            return recordFailureAndGetDelay(false);
         }
+    }
 
-        executor.execute(() -> {
-            streamStarted = System.currentTimeMillis();
-            try {
-                for (StreamEvent event : es.anyEvents()) {
-                    if (closed) {
-                        break;
-                    }
-                    if (event instanceof MessageEvent) {
-                        handleMessage((MessageEvent) event);
-                    } else if (event instanceof FaultEvent) {
-                        handleError((FaultEvent) event);
-                    }
-                    // CommentEvent (SSE comment/heartbeat line) — no action needed
-                }
-            } catch (Exception e) {
-                synchronized (closeLock) {
-                    if (closed) {
-                        return;
-                    }
-                }
-                LDUtil.logExceptionAtErrorLevel(logger, e, "Stream thread ended with unexpected exception");
-                recordStreamInit(true);
-                resultQueue.put(FDv2SourceResult.status(
-                        FDv2SourceResult.Status.interrupted(
-                                new LDFailure("Stream thread ended unexpectedly", e,
-                                        LDFailure.FailureType.UNKNOWN_ERROR)),
-                        false));
-            } finally {
-                es.close();
-            }
-        });
+    private long recordFailureAndGetDelay(boolean unexpected) {
+        retryState.recordFailure(unexpected, System.currentTimeMillis());
+        return retryState.nextDelayMillis();
     }
 
     private URI getStreamUri() {
@@ -273,6 +335,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         String eventName = event.getEventName();
         String eventData = event.getData();
         logger.debug("onMessage: {}: {}", eventName, eventData);
+
+        retryState.recordSuccess(System.currentTimeMillis());
 
         if (PING.equalsIgnoreCase(eventName)) {
             handlePing();
@@ -387,37 +451,33 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         resultQueue.put(result);
     }
 
-    private void handleError(FaultEvent event) {
-        StreamException t = event.getCause();
-        if (t instanceof StreamClosedByCallerException) {
-            return;
-        }
-
+    /**
+     * Classifies a connection failure and reports it.
+     *
+     * @return the wait in milliseconds before the next attempt, or -1 if this synchronizer has
+     * ended and must not reconnect
+     */
+    private long handleError(StreamException t) {
         recordStreamInit(true);
         protocolHandler.reset();
 
-        boolean fdv1Fallback = isFdv1Fallback(event.getHeaders());
+        boolean fdv1Fallback = false;
+        LDFailure failure;
 
         if (t instanceof StreamHttpErrorException) {
             StreamHttpErrorException httpError = (StreamHttpErrorException) t;
-            fdv1Fallback = fdv1Fallback || isFdv1Fallback(httpError.getHeaders());
+            fdv1Fallback = isFdv1Fallback(httpError.getHeaders());
             int code = httpError.getCode();
             boolean recoverable = LDUtil.isHttpErrorRecoverable(code);
-            LDFailure failure = new LDInvalidResponseCodeFailure(
+            failure = new LDInvalidResponseCodeFailure(
                     "Unexpected response code from stream", t, code, recoverable);
 
             if (!recoverable) {
                 logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
                 shutdownFuture.set(FDv2SourceResult.status(
                         FDv2SourceResult.Status.terminalError(failure), fdv1Fallback));
-                EventSource es;
                 synchronized (closeLock) {
                     closed = true;
-                    es = eventSource;
-                    eventSource = null;
-                }
-                if (es != null) {
-                    es.close();
                 }
                 if (requestor != null) {
                     try {
@@ -425,45 +485,33 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                     } catch (IOException ignored) {
                     }
                 }
-            } else {
-                logger.warn("Stream received HTTP error {}; will retry", code);
-                streamStarted = System.currentTimeMillis();
-                resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback));
+                return -1;
             }
+            logger.warn("Stream received HTTP error {}; will retry", code);
         } else {
+            // Every transport-level failure, including the server closing the connection, is
+            // recoverable.
             LDUtil.logExceptionAtWarnLevel(logger, t, "Stream network error");
-            streamStarted = System.currentTimeMillis();
-            resultQueue.put(FDv2SourceResult.status(
-                    FDv2SourceResult.Status.interrupted(
-                            new LDFailure("Stream network error", t,
-                                    LDFailure.FailureType.NETWORK_FAILURE)),
-                    fdv1Fallback));
+            failure = new LDFailure("Stream network error", t, LDFailure.FailureType.NETWORK_FAILURE);
         }
+
+        long delay = recordFailureAndGetDelay(false);
+        logger.info("Will reconnect to stream in {} ms", delay);
+        resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(failure), fdv1Fallback));
+        return delay;
     }
 
     /**
-     * Interrupts the current connection so the EventSource reconnects immediately on the
-     * streaming thread, and resets the diagnostic timer for the new connection attempt.
-     * {@link EventSource#interrupt()} is safe to call from the streaming thread itself.
+     * Asks the connection attempt to drop the current connection once the current message has
+     * been handled, and to reconnect after a backoff.
      *
      * @param failed true if the restart is due to an error (for diagnostic recording)
      */
     private void restartStream(boolean failed) {
         recordStreamInit(failed);
-        streamStarted = System.currentTimeMillis();
-
-        EventSource es;
-        synchronized (closeLock) {
-            if (closed) {
-                return;
-            }
-            es = eventSource;
-        }
-
-        if (es != null) {
-            es.interrupt();
-        }
         protocolHandler.reset();
+        restartRequested = true;
+        restartDelayMillis = recordFailureAndGetDelay(false);
     }
 
     @Override

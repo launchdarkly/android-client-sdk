@@ -212,9 +212,11 @@ public class LDUtil {
     }
 
     /**
-     * Tests whether an HTTP error status represents a condition that might resolve on its own if we retry.
+     * Classifies an HTTP error status as either a {@code normal} failure, which may resolve on its
+     * own if retried soon, or an {@code unexpected} failure, which is not expected to.
+     *
      * @param statusCode the HTTP status
-     * @return true if retrying makes sense; false if it should be considered a permanent failure
+     * @return true if the status is {@code normal}, or false if it is {@code unexpected}
      */
     static boolean isHttpErrorRecoverable(int statusCode) {
         if (statusCode >= 400 && statusCode < 500) {
@@ -228,6 +230,18 @@ public class LDUtil {
             }
         }
         return true;
+    }
+
+    /**
+     * Classifies a data source failure as either a {@code normal} failure, which may resolve on
+     * its own if retried soon, or an {@code unexpected} failure, which is not expected to.
+     *
+     * @param failure the failure reported by a data source, or null
+     * @return true if the failure is {@code unexpected}, or false if it is {@code normal}
+     */
+    static boolean isUnexpectedFailure(Throwable failure) {
+        return failure instanceof LDInvalidResponseCodeFailure &&
+                !isHttpErrorRecoverable(((LDInvalidResponseCodeFailure) failure).getResponseCode());
     }
 
     static void logExceptionAtErrorLevel(LDLogger logger, Throwable ex, String msgFormat, Object... msgArgs) {

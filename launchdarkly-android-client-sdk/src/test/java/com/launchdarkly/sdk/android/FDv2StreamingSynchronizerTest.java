@@ -21,9 +21,8 @@ import org.junit.rules.Timeout;
 import java.io.IOException;
 import java.net.URI;
 import java.util.HashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -38,7 +37,7 @@ public class FDv2StreamingSynchronizerTest {
     @Rule
     public Timeout globalTimeout = Timeout.seconds(10);
 
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(4);
 
     @After
     public void tearDown() {
@@ -96,6 +95,13 @@ public class FDv2StreamingSynchronizerTest {
         return new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
                 null, 100, evaluationReasons, useReport,
+                httpProperties(), executor, LOGGER, null);
+    }
+
+    private FDv2StreamingSynchronizer makeSynchronizer(URI streamBaseUri, int initialReconnectDelayMillis) {
+        return new FDv2StreamingSynchronizer(
+                CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
+                null, initialReconnectDelayMillis, false, false,
                 httpProperties(), executor, LOGGER, null);
     }
 
@@ -334,6 +340,49 @@ public class FDv2StreamingSynchronizerTest {
             assertEquals(SourceSignal.TERMINAL_ERROR, result.getStatus().getState());
 
             sync.close();
+        }
+    }
+
+    // ---- backoff after failures ----
+
+    @Test
+    public void recoverableErrorIsReportedAndTheStreamReconnects() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.status(503),
+                Handlers.status(503),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred),
+                        Handlers.SSE.leaveOpen())))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), 1);
+
+            // Each 503 is reported as an interruption, and the synchronizer reconnects on its own
+            // until the stream delivers data.
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+            assertEquals(SourceResultType.CHANGE_SET, sync.next().get(5, TimeUnit.SECONDS).getResultType());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void closeDuringBackoffCancelsReconnect() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            // A long reconnect delay keeps the scheduled attempt pending until close() runs.
+            executor.setRemoveOnCancelPolicy(true);
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), 60_000);
+            assertEquals(SourceSignal.INTERRUPTED, sync.next().get(5, TimeUnit.SECONDS).getStatus().getState());
+
+            // Closing cancels the scheduled attempt and reports shutdown.
+            sync.close();
+            assertTrue(executor.getQueue().isEmpty());
+            assertEquals(SourceSignal.SHUTDOWN, sync.next().get(1, TimeUnit.SECONDS).getStatus().getState());
         }
     }
 

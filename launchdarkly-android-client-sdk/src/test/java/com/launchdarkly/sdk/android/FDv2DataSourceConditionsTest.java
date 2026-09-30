@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.Assert.assertEquals;
@@ -194,6 +195,17 @@ public class FDv2DataSourceConditionsTest {
         // The future should still fire (timer was not affected by inform calls).
         ConditionType type = condition.getFuture().get(500, TimeUnit.MILLISECONDS);
         assertEquals(ConditionType.RECOVERY, type);
+    }
+
+    @Test
+    public void recovery_gateClosed_rearmsTimerUntilGateOpens() throws Exception {
+        // The gate stays closed for the first two firings and opens on the third, so the future
+        // completes only after the timer has been re-armed twice.
+        AtomicInteger firings = new AtomicInteger(0);
+        RecoveryCondition condition = new RecoveryCondition(executor, 0, () -> firings.incrementAndGet() >= 3);
+
+        assertEquals(ConditionType.RECOVERY, condition.getFuture().get(500, TimeUnit.MILLISECONDS));
+        assertEquals(3, firings.get());
     }
 
     // ==== Conditions (wrapper) ====
