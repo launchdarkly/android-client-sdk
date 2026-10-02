@@ -48,26 +48,30 @@ final class StreamingDataSource implements DataSource {
     private static final String PATCH = "patch";
     private static final String DELETE = "delete";
 
-    private static final long MAX_RECONNECT_TIME_MS = 300_000; // 5 minutes
-
     private static final long READ_TIMEOUT_MS = 300_000;
     // 5 minutes is the standard read timeout used for all LaunchDarkly stream connections, based on
     // an expectation that the server will send heartbeats at a shorter interval than that
 
-    private BackgroundEventSource es;
+    private static final long MAX_RECONNECT_TIME_MS = 30_000;
+    private static final long EXTENDED_INITIAL_RECONNECT_DELAY_MS = 300_000;
+    private static final long EXTENDED_MAX_RECONNECT_TIME_MS = 3_600_000;
+
+    // volatile because the connection error handler reads it on the stream thread to switch
+    // retry regimes, while start() and stopSync() write it from other threads.
+    private volatile BackgroundEventSource es;
     private final LDContext context;
     private final HttpProperties httpProperties;
     private final boolean evaluationReasons;
     final int initialReconnectDelayMillis; // visible for testing
+    private final RetryDelayStrategy normalRetryDelay;
+    private final RetryDelayStrategy extendedRetryDelay;
     private final boolean useReport;
     private final URI streamUri;
     private final DataSourceUpdateSink dataSourceUpdateSink;
     private final FeatureFetcher fetcher;
     private final boolean streamEvenInBackground;
+    // volatile because stopSync() writes it from the thread stop() spawns, and start() reads it.
     private volatile boolean running = false;
-    // volatile because it is written from the EventSource background thread (onError)
-    // and read from start(), which may be invoked on a different thread.
-    private volatile boolean connection401Error = false;
     private final DiagnosticStore diagnosticStore;
     private long eventSourceStarted;
     private final LDLogger logger;
@@ -88,13 +92,19 @@ final class StreamingDataSource implements DataSource {
         this.evaluationReasons = clientContext.isEvaluationReasons();
         this.useReport = clientContext.getHttp().isUseReport();
         this.initialReconnectDelayMillis = initialReconnectDelayMillis;
+        this.normalRetryDelay = RetryDelayStrategy.defaultStrategy()
+                .initialDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
+                .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
+        this.extendedRetryDelay = RetryDelayStrategy.defaultStrategy()
+                .initialDelay(EXTENDED_INITIAL_RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS)
+                .maxDelay(EXTENDED_MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
         this.streamEvenInBackground = streamEvenInBackground;
         this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
         this.logger = clientContext.getBaseLogger();
     }
 
     public void start(@NonNull Callback<Boolean> resultCallback) {
-        if (!running && !connection401Error) {
+        if (!running) {
             logger.debug("Starting.");
 
             BackgroundEventHandler handler = new BackgroundEventHandler() {
@@ -133,24 +143,8 @@ final class StreamingDataSource implements DataSource {
                             diagnosticStore.recordStreamInit(eventSourceStarted, (int) (System.currentTimeMillis() - eventSourceStarted), true);
                         }
                         int code = ((StreamHttpErrorException) t).getCode();
-                        if (!LDUtil.isHttpErrorRecoverable(code)) {
-                            logger.error("Encountered non-retriable error: {}. Aborting connection to stream. Verify correct Mobile Key and Stream URI", code);
-                            running = false;
-                            // Set the connection401Error guard before notifying the callback. A consumer
-                            // may react to the error by synchronously calling start() again, and the
-                            // guard must already be set so that retry is a no-op.
-                            if (code == 401) {
-                                connection401Error = true;
-                            }
-                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, false));
-                            if (code == 401) {
-                                dataSourceUpdateSink.shutDown();
-                            }
-                            stop(null);
-                        } else {
-                            eventSourceStarted = System.currentTimeMillis();
-                            resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, true));
-                        }
+                        eventSourceStarted = System.currentTimeMillis();
+                        resultCallback.onError(new LDInvalidResponseCodeFailure("Unexpected Response Code From Stream Connection", t, code, true));
                     } else {
                         resultCallback.onError(new LDFailure("Network error in stream connection", t, LDFailure.FailureType.NETWORK_FAILURE));
                     }
@@ -173,20 +167,21 @@ final class StreamingDataSource implements DataSource {
             }
 
             EventSource.Builder esBuilder = new EventSource.Builder(connectStrategy)
-                    .retryDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
-                    .retryDelayStrategy(RetryDelayStrategy.defaultStrategy()
-                            .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS));
+                    .retryDelayStrategy(normalRetryDelay)
+                    .retryDelayStrategy(extendedRetryDelay);
 
             eventSourceStarted = System.currentTimeMillis();
             es = new BackgroundEventSource.Builder(handler, esBuilder)
-                    // The stream thread asks this handler, before it reconnects, whether an
-                    // error ends the stream. The onError callback above runs on a different
-                    // thread, so a stop() from there can arrive after a fast reconnect has
-                    // already opened a new connection. A decision made here cannot lose that race.
+                    // The stream thread calls this handler after a failure and before it
+                    // computes the reconnect delay, so a regime switched here applies to the
+                    // reconnect that follows this failure.
                     .connectionErrorHandler(t -> {
-                        if (t instanceof StreamHttpErrorException &&
+                        BackgroundEventSource current = es;
+                        if (current != null && t instanceof StreamHttpErrorException &&
                                 !LDUtil.isHttpErrorRecoverable(((StreamHttpErrorException) t).getCode())) {
-                            return ConnectionErrorHandler.Action.SHUTDOWN;
+                            current.getEventSource()
+                                    .activateRetryDelayStrategy(extendedRetryDelay);
+                            logger.info("Classified failure as unexpected. Verify correct Mobile Key and Stream URI. Engaging extended backoff");
                         }
                         return ConnectionErrorHandler.Action.PROCEED;
                     })

@@ -24,10 +24,11 @@ final class PollingDataSource implements DataSource {
     final long pollIntervalMillis; // visible for testing
     long numberOfPollsRemaining; // visible for testing
     private final FeatureFetcher fetcher;
-    private final PlatformState platformState;
     private final TaskExecutor taskExecutor;
     private final LDLogger logger;
-    final AtomicReference<ScheduledFuture<?>> currentPollTask = new AtomicReference<>(); // visible for testing
+    private final PollingRetryState retryState;
+    private volatile boolean stopped;
+    private final AtomicReference<ScheduledFuture<?>> currentPollTask = new AtomicReference<>();
 
     /**
      * @param context              that this data source will fetch data for
@@ -38,7 +39,6 @@ final class PollingDataSource implements DataSource {
      * @param pollIntervalMillis   interval in millis between each polling request
      * @param maxNumberOfPolls     the maximum number of polling attempts, use Long.MAX for effectively unlimited.
      * @param fetcher              that will be used for each fetch
-     * @param platformState        used for making decisions based on platform state
      * @param taskExecutor         that will be used to schedule the polling tasks
      * @param logger               for logging
      */
@@ -49,7 +49,6 @@ final class PollingDataSource implements DataSource {
             long pollIntervalMillis,
             long maxNumberOfPolls,
             FeatureFetcher fetcher,
-            PlatformState platformState,
             TaskExecutor taskExecutor,
             LDLogger logger
     ) {
@@ -59,9 +58,9 @@ final class PollingDataSource implements DataSource {
         this.pollIntervalMillis = pollIntervalMillis;
         this.numberOfPollsRemaining = maxNumberOfPolls;
         this.fetcher = fetcher;
-        this.platformState = platformState;
         this.taskExecutor = taskExecutor;
         this.logger = logger;
+        this.retryState = new PollingRetryState(pollIntervalMillis);
     }
 
     @Override
@@ -73,16 +72,14 @@ final class PollingDataSource implements DataSource {
             return;
         }
 
-        Runnable pollRunnable = () -> poll(resultCallback);
         logger.debug("Scheduling polling task with interval of {}ms, starting after {}ms, with number of polls {}",
                 pollIntervalMillis, initialDelayMillis, numberOfPollsRemaining);
-        ScheduledFuture<?> task = taskExecutor.startRepeatingTask(pollRunnable,
-                initialDelayMillis, pollIntervalMillis);
-        currentPollTask.set(task);
+        schedulePoll(resultCallback, initialDelayMillis);
     }
 
     @Override
     public void stop(Callback<Void> completionCallback) {
+        stopped = true;
         ScheduledFuture<?> task = currentPollTask.getAndSet(null);
         if (task != null) {
             task.cancel(true);
@@ -90,18 +87,35 @@ final class PollingDataSource implements DataSource {
         completionCallback.onSuccess(null);
     }
 
-    private void poll(Callback<Boolean> resultCallback) {
-        // poll if there are polls remaining
-        if (numberOfPollsRemaining > 0) {
-            numberOfPollsRemaining--;
-            ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
-                    resultCallback, logger);
-        } else {
-            // terminate if we have no polls remaining
-            ScheduledFuture<?> task = currentPollTask.getAndSet(null);
-            if (task != null) {
-                task.cancel(true);
-            }
+    private void schedulePoll(Callback<Boolean> resultCallback, long delayMillis) {
+        if (stopped) {
+            return;
         }
+        currentPollTask.set(taskExecutor.scheduleTask(() -> poll(resultCallback), delayMillis));
+    }
+
+    private void poll(Callback<Boolean> resultCallback) {
+        if (numberOfPollsRemaining <= 0) {
+            return;
+        }
+        numberOfPollsRemaining--;
+
+        // Each poll schedules the next one, so the wait can grow after a failure.
+        ConnectivityManager.fetchAndSetData(fetcher, context, dataSourceUpdateSink,
+                new Callback<Boolean>() {
+                    @Override
+                    public void onSuccess(Boolean result) {
+                        retryState.recordSuccess();
+                        resultCallback.onSuccess(result);
+                        schedulePoll(resultCallback, retryState.nextDelayMillis());
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        retryState.recordFailure(e);
+                        resultCallback.onError(e);
+                        schedulePoll(resultCallback, retryState.nextDelayMillis());
+                    }
+                }, logger);
     }
 }
