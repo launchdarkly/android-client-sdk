@@ -4,9 +4,10 @@ import com.launchdarkly.sdk.EvaluationDetail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.LDFutures;
 
 import java.io.Closeable;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Future;
 
 /**
  * Interface for an object that can send or store analytics events.
@@ -103,19 +104,27 @@ public interface EventProcessor extends Closeable {
     void blockingFlush();
 
     /**
-     * Specifies that any buffered events should be sent immediately, blocking until they have been
-     * delivered or until the timeout expires, whichever comes first.
+     * Specifies that any buffered events should be sent immediately, and reports through the
+     * returned future whether they were delivered.
+     * <p>
+     * This is the form the SDK itself uses, so that a caller with a deadline can wait for as long as
+     * it has and no longer, and so that several of these can be waited on together. Only the public
+     * API puts a timeout in a signature; see {@code LDClient.flushAndWait}.
+     * <p>
+     * Nothing cancels the delivery when a caller stops waiting for it: by then the events have been
+     * taken out of the buffer, so interrupting the post would only make losing them certain.
      *
-     * @param timeout how long to wait for delivery
-     * @param unit the time unit of {@code timeout}
-     * @return true if the events were delivered, or there were none to deliver; false if the
-     *   timeout expired first or the events could not be delivered
+     * @return a future that completes with true if the events reached the service, or there were
+     *   none to send; false if they could not be sent
      * @since 5.17.0
      */
-    default boolean blockingFlush(long timeout, TimeUnit unit) {
-        // An implementation written before this method existed has no way to honor a timeout, so it
-        // gets its unbounded flush and reports success, having no way to tell otherwise.
-        blockingFlush();
-        return true;
+    default Future<Boolean> flushAsync() {
+        // An implementation written before this method existed has only its unbounded blocking
+        // flush, so that runs on a thread of its own: the caller's deadline then bounds the wait
+        // rather than the flush, and the outcome it reports is still the flush's own.
+        return LDFutures.fromBlockingCall(() -> {
+            blockingFlush();
+            return true;
+        });
     }
 }
