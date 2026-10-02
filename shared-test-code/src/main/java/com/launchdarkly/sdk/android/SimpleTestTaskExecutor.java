@@ -30,12 +30,6 @@ public class SimpleTestTaskExecutor implements TaskExecutor {
     }
 
     @Override
-    public ScheduledFuture<?> startRepeatingTask(Runnable action, long initialDelayMillis, long intervalMillis) {
-        return executor.scheduleAtFixedRate(action,
-                initialDelayMillis, intervalMillis, TimeUnit.MILLISECONDS);
-    }
-
-    @Override
     public void close() {
         executor.shutdownNow();
     }

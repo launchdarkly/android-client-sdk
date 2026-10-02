@@ -2,10 +2,8 @@ package com.launchdarkly.sdk.android;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -24,11 +22,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.util.ArrayList;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -122,46 +118,4 @@ public class AndroidTaskExecutorTest {
         assertThat(message2.getText(), containsString(this.getClass().getName())); // stacktrace
     }
 
-    @Test
-    public void repeatingTasks() throws InterruptedException {
-        BlockingQueue<Long> executedA = new LinkedBlockingQueue<>(),
-                executedB = new LinkedBlockingQueue<>(),
-                executedC = new LinkedBlockingQueue<>();
-        ScheduledFuture<?> taskA = taskExecutor.startRepeatingTask(
-                () -> {
-                    executedA.add(System.currentTimeMillis());
-                },
-                10,
-                10
-        );
-        ScheduledFuture<?> taskB = taskExecutor.startRepeatingTask(
-                () -> {
-                    executedB.add(System.currentTimeMillis());
-                },
-                10,
-                20
-        );
-        ScheduledFuture<?> taskC = taskExecutor.startRepeatingTask(
-                () -> {
-                    executedC.add(System.currentTimeMillis());
-                },
-                10000,
-                20
-        );
-        try {
-            Thread.sleep(100);
-
-            assertEquals("C task should not have executed yet", 0, executedC.size());
-        } finally {
-            taskA.cancel(false);
-            taskB.cancel(false);
-            taskC.cancel(false);
-        }
-        executedA.drainTo(new ArrayList<>());
-        // After stopping the task, let's tolerate it firing one more time, but no more than that.
-        if (executedA.poll(50, TimeUnit.MILLISECONDS) != null) {
-            assertNull("A task should have stopped executing",
-                    executedA.poll(50, TimeUnit.MILLISECONDS));
-        }
-    }
 }

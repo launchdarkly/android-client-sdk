@@ -3,9 +3,7 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireValue;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -25,7 +23,6 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class PollingDataSourceTest {
@@ -260,7 +257,6 @@ public class PollingDataSourceTest {
                 50,
                 2, // maximum number of requests is 2
                 clientContext.getFetcher(),
-                clientContext.getPlatformState(),
                 clientContext.getTaskExecutor(),
                 clientContext.getBaseLogger()
         );
@@ -271,8 +267,6 @@ public class PollingDataSourceTest {
 
         try {
             ds.start(LDUtil.noOpCallback());
-            ScheduledFuture pollTask = ds.currentPollTask.get();
-            assertFalse(pollTask.isCancelled());
 
             LDContext context1 = requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
 
@@ -280,7 +274,6 @@ public class PollingDataSourceTest {
 
             // if a third request is sent, this will fail here
             requireNoMoreValues(fetcher.receivedContexts, 200, TimeUnit.MILLISECONDS);
-            assertTrue(pollTask.isCancelled());
         } finally {
             ds.stop(LDUtil.noOpCallback());
         }

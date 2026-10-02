@@ -292,7 +292,6 @@ abstract class ComponentsImpl {
                     pollInterval,
                     maxNumPolls,
                     clientContextImpl.getFetcher(),
-                    clientContextImpl.getPlatformState(),
                     clientContextImpl.getTaskExecutor(),
                     clientContext.getBaseLogger()
             );
