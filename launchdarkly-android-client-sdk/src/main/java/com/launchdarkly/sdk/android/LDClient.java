@@ -779,6 +779,49 @@ public class LDClient implements LDClientInterface, Closeable {
         eventProcessor.flush();
     }
 
+    @Override
+    public boolean flushAndWait(long timeout, TimeUnit unit) {
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        Map<String, LDClient> clients = getInstancesIfTheyIncludeThisClient();
+        if (clients.isEmpty()) {
+            // This client has been closed, or replaced by a later init; either way it can deliver
+            // nothing, and saying otherwise would tell the caller its events were safe.
+            return false;
+        }
+        // Every environment is started before any of them is waited on. Each has its own event
+        // processor and its own thread, so waiting on one before starting the next would spend the
+        // caller's budget on deliveries that could have been running all along.
+        List<Future<Boolean>> deliveries = new ArrayList<>(clients.size());
+        for (LDClient client : clients.values()) {
+            deliveries.add(client.eventProcessor.flushAsync());
+        }
+        boolean delivered = true;
+        for (Future<Boolean> delivery : deliveries) {
+            // Each wait gets what is left of the one budget rather than a fresh copy of it, so that
+            // the timeout the caller asked for is the time this call can take.
+            delivered &= awaitDelivery(delivery, Math.max(0, deadline - System.nanoTime()));
+        }
+        return delivered;
+    }
+
+    private boolean awaitDelivery(Future<Boolean> delivery, long remainingNanos) {
+        try {
+            return Boolean.TRUE.equals(delivery.get(remainingNanos, TimeUnit.NANOSECONDS));
+        } catch (TimeoutException e) {
+            // Left running rather than cancelled: the events have been taken out of the buffer by
+            // now, so interrupting the delivery would only make losing them certain.
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            logger.error("Exception caught when flushing events: {}", LogValues.exceptionSummary(cause));
+            logger.debug("{}", LogValues.exceptionTrace(cause));
+            return false;
+        }
+    }
+
     @VisibleForTesting
     void blockingFlush() {
         eventProcessor.blockingFlush();
