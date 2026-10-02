@@ -19,7 +19,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -133,6 +132,19 @@ final class DirectEventProcessor implements EventProcessor {
 
     /** Set under {@link #submitLock} once close() has queued the release of the sender. */
     private boolean shuttingDown = false;
+
+    /**
+     * Guards {@link #pendingFlush}. Taken on a caller's thread and on the delivery thread, never
+     * while holding {@link #recordLock}, and nothing blocking happens under it.
+     */
+    private final Object flushLock = new Object();
+
+    /**
+     * The delivery that is queued but has not started, which a flush request arriving now can wait
+     * on instead of queueing another. Null while nothing is queued, and cleared again as the queued
+     * delivery begins, which is the point past which it can no longer speak for what is recorded.
+     */
+    private LDAwaitFuture<Boolean> pendingFlush;
 
     DirectEventProcessor(
             OutboundEventBuffer buffer,
@@ -332,21 +344,12 @@ final class DirectEventProcessor implements EventProcessor {
 
     @Override
     public void flush() {
-        if (isStopped()) {
-            return;
-        }
-        submit(this::deliverPayload);
+        flushAsync();
     }
 
     @Override
     public void blockingFlush() {
-        if (isStopped()) {
-            return;
-        }
-        Future<?> delivery = submit(this::deliverPayload);
-        if (delivery == null) {
-            return;
-        }
+        Future<Boolean> delivery = flushAsync();
         try {
             delivery.get();
         } catch (InterruptedException e) {
@@ -357,29 +360,58 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     @Override
-    public boolean blockingFlush(long timeout, TimeUnit unit) {
+    public Future<Boolean> flushAsync() {
         if (isStopped()) {
-            return false;
+            return new LDSuccessFuture<>(false);
         }
-        // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
-        Callable<Boolean> delivery = this::deliverPayloadReportingOutcome;
-        Future<Boolean> pending = submit(delivery);
-        if (pending == null) {
-            return false;
+        return queueDelivery();
+    }
+
+    /**
+     * Queues a delivery, or hands back one that is already queued and has not started.
+     * <p>
+     * A delivery that has not started yet will take everything recorded up to the moment it does,
+     * which includes whatever the caller recorded before asking, so waiting on it answers the
+     * caller's question as well as a delivery of its own would. Without this, flushes arriving
+     * faster than a post completes each queue their own, and the one that matters -- the
+     * {@code flushAndWait} at shutdown -- waits behind all of them.
+     */
+    private Future<Boolean> queueDelivery() {
+        synchronized (flushLock) {
+            if (pendingFlush != null) {
+                return pendingFlush;
+            }
+            LDAwaitFuture<Boolean> result = new LDAwaitFuture<>();
+            if (submit(() -> runDelivery(result)) == null) {
+                // Shutting down, so there is no thread left to deliver on and nothing will be sent.
+                return new LDSuccessFuture<>(false);
+            }
+            pendingFlush = result;
+            return result;
         }
+    }
+
+    /**
+     * Runs one delivery on behalf of every flush request that joined it, and tells them all how it
+     * went.
+     */
+    private void runDelivery(LDAwaitFuture<Boolean> result) {
+        synchronized (flushLock) {
+            // Requests arriving from here on need a delivery of their own: this one is about to take
+            // the buffer, and what it takes is all it can speak for.
+            if (pendingFlush == result) {
+                pendingFlush = null;
+            }
+        }
+        boolean delivered = false;
         try {
-            return Boolean.TRUE.equals(pending.get(timeout, unit));
-        } catch (TimeoutException e) {
-            // Left running rather than cancelled: the buffer has already been drained into the
-            // payload, so interrupting the delivery now would only make the loss certain.
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        } catch (ExecutionException e) {
-            logUnexpectedError(e.getCause() == null ? e : e.getCause());
-            return false;
+            delivered = deliverPayloadReportingOutcome();
+        } catch (Throwable t) {
+            // Caught here rather than left to guarded(), because a caller is waiting on the future
+            // and completing it matters more than the stack reaching the executor.
+            logUnexpectedError(t);
         }
+        result.set(delivered);
     }
 
     @Override
@@ -395,22 +427,23 @@ final class DirectEventProcessor implements EventProcessor {
         // once the processor is gone. While offline that chance is not taken, and whatever is held
         // is discarded. Offline is the application telling the SDK to stay off the network, and
         // shutting down does not revoke that.
-        Future<?> delivery = submit(this::deliverPayload);
-        if (delivery != null) {
-            try {
-                delivery.get(closeBudgetMillis, TimeUnit.MILLISECONDS);
-            } catch (TimeoutException e) {
-                // Deliberately not cancelled. The run has already been drained into a payload, so
-                // interrupting now would make the loss certain, while leaving it to run costs
-                // nothing: the scheduler thread is a daemon, and returning from close() does not
-                // end an Android process. The budget bounds the caller, not the delivery.
-                logger.warn("Gave up waiting for the final event delivery after {}ms;" +
-                        " it continues in the background", closeBudgetMillis);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (ExecutionException e) {
-                logUnexpectedError(e.getCause() == null ? e : e.getCause());
-            }
+        //
+        // Queued directly rather than through flushAsync(), which refuses once closed is set, but
+        // through the same coalescing: a delivery that has not started yet will take these events
+        // too, so there is no reason to queue a second one behind it.
+        try {
+            queueDelivery().get(closeBudgetMillis, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            // Deliberately not cancelled. The run has already been drained into a payload, so
+            // interrupting now would make the loss certain, while leaving it to run costs
+            // nothing: the scheduler thread is a daemon, and returning from close() does not
+            // end an Android process. The budget bounds the caller, not the delivery.
+            logger.warn("Gave up waiting for the final event delivery after {}ms;" +
+                    " it continues in the background", closeBudgetMillis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            logUnexpectedError(e.getCause() == null ? e : e.getCause());
         }
         // Queued on both of the threads that post through the sender, so that it is released by
         // whichever of them finishes last. Closing it here instead would pull the HTTP client out
@@ -452,16 +485,17 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Serializes and sends everything buffered, for a caller that is not waiting to find out how it
-     * went.
+     * Serializes and sends everything buffered, for the periodic flush, which has nobody waiting to
+     * find out how it went. It is a fixed-delay series, so a run is only ever scheduled once the one
+     * before it has finished and these cannot pile up the way requested flushes could.
      */
     private void deliverPayload() {
         deliverPayloadReportingOutcome();
     }
 
     /**
-     * Delivers as {@link #deliverPayload()} does, and says whether it worked, for a caller that is
-     * waiting to find out.
+     * Delivers as {@link #deliverPayload()} does, and says whether it worked, for the callers of a
+     * requested flush, who are waiting to find out.
      * <p>
      * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
      * and the run is taken exactly once per delivery. The run and the counters are taken together
@@ -720,25 +754,6 @@ final class DirectEventProcessor implements EventProcessor {
             }
             try {
                 return scheduler.submit(guarded(task));
-            } catch (RuntimeException e) { // the executor was shut down under us
-                return null;
-            }
-        }
-    }
-
-    /**
-     * As {@link #submit(Runnable)}, for a delivery whose outcome the caller waits for. Not wrapped in
-     * {@link #guarded}, because here the caller is there to receive what escapes.
-     *
-     * @return the submitted task, or null if the processor is shutting down or already has
-     */
-    private <T> Future<T> submit(Callable<T> task) {
-        synchronized (submitLock) {
-            if (shuttingDown) {
-                return null;
-            }
-            try {
-                return scheduler.submit(task);
             } catch (RuntimeException e) { // the executor was shut down under us
                 return null;
             }
