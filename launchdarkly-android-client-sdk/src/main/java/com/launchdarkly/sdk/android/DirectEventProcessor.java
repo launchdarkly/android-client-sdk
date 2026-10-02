@@ -232,6 +232,19 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private ScheduledFuture<Boolean> pendingRetry;
 
+    /**
+     * Guards {@link #pendingFlush}. Taken on a caller's thread and on the delivery thread, never
+     * while holding {@link #recordLock}, and nothing blocking happens under it.
+     */
+    private final Object flushLock = new Object();
+
+    /**
+     * The delivery that is queued but has not started, which a flush request arriving now can wait
+     * on instead of queueing another. Null while nothing is queued, and cleared again as the queued
+     * delivery begins, which is the point past which it can no longer speak for what is recorded.
+     */
+    private LDAwaitFuture<Boolean> pendingFlush;
+
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
             EventStore store,
@@ -639,25 +652,14 @@ final class DirectEventProcessor implements EventProcessor {
         // Otherwise the write is queued ahead of the delivery, so it still happens when the delivery
         // cannot run because the client is offline.
         commitAtCommitPoint(lastRecordedSequence());
-        submit(this::deliverPayload);
+        flushAsync();
     }
 
     @Override
     public void blockingFlush() {
-        if (isStopped()) {
-            return;
-        }
-        // The write is part of the task waited on rather than done first: the caller waits either way,
-        // and this way the disk is touched on the events thread instead of the caller's.
-        Callable<DeliveryOutcome> delivery = this::commitAndDeliverReportingOutcome;
-        Future<DeliveryOutcome> pending = submit(delivery);
-        if (pending == null) {
-            return;
-        }
+        Future<Boolean> delivery = flushAsync();
         try {
-            awaitDelivery(pending, -1);
-        } catch (TimeoutException e) {
-            // Not reachable without a timeout.
+            delivery.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
@@ -666,29 +668,82 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     @Override
-    public boolean blockingFlush(long timeout, TimeUnit unit) {
+    public Future<Boolean> flushAsync() {
         if (isStopped()) {
-            return false;
+            return new LDSuccessFuture<>(false);
         }
-        // Typed rather than inlined, so that it is unambiguously submitted as work with a result.
-        Callable<DeliveryOutcome> delivery = this::commitAndDeliverReportingOutcome;
-        Future<DeliveryOutcome> pending = submit(delivery);
-        if (pending == null) {
-            return false;
+        return queueDelivery();
+    }
+
+    /**
+     * Queues a delivery, or hands back one that is already queued and has not started.
+     * <p>
+     * A delivery that has not started yet will take everything recorded up to the moment it does,
+     * which includes whatever the caller recorded before asking, so waiting on it answers the
+     * caller's question as well as a delivery of its own would. Without this, flushes arriving
+     * faster than a post completes each queue their own, and the one that matters -- the
+     * {@code flushAndWait} at shutdown -- waits behind all of them.
+     */
+    private Future<Boolean> queueDelivery() {
+        synchronized (flushLock) {
+            if (pendingFlush != null) {
+                return pendingFlush;
+            }
+            LDAwaitFuture<Boolean> result = new LDAwaitFuture<>();
+            if (submit(() -> runDelivery(result)) == null) {
+                // Shutting down, so there is no thread left to deliver on and nothing will be sent.
+                return new LDSuccessFuture<>(false);
+            }
+            pendingFlush = result;
+            return result;
         }
+    }
+
+    /**
+     * Runs one delivery on behalf of every flush request that joined it, and tells them all how it
+     * went.
+     */
+    private void runDelivery(LDAwaitFuture<Boolean> result) {
+        synchronized (flushLock) {
+            // Requests arriving from here on need a delivery of their own: this one is about to take
+            // the buffer, and what it takes is all it can speak for.
+            if (pendingFlush == result) {
+                pendingFlush = null;
+            }
+        }
+        DeliveryOutcome outcome;
         try {
-            return awaitDelivery(pending, Math.max(0, unit.toNanos(timeout)));
-        } catch (TimeoutException e) {
-            // Left running rather than cancelled: the buffer has already been drained into the
-            // payload, so interrupting the delivery now would only make the loss certain.
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        } catch (ExecutionException e) {
-            logUnexpectedError(e.getCause() == null ? e : e.getCause());
-            return false;
+            outcome = commitAndDeliverReportingOutcome();
+        } catch (Throwable t) {
+            // Caught here rather than left to guarded(), because a caller is waiting on the future
+            // and completing it matters more than the stack reaching the executor.
+            logUnexpectedError(t);
+            outcome = DeliveryOutcome.NOT_DELIVERED;
         }
+        if (outcome.retry == null) {
+            result.set(outcome.delivered);
+        } else {
+            completeWhenRetryEnds(result, outcome.retry);
+        }
+    }
+
+    /**
+     * Answers the waiters when the queued retry does, rather than telling them a batch failed when
+     * it is about to be sent again. Waiting happens on a pooled thread because the retry runs a
+     * second from now on this one, which must be free to take it.
+     */
+    private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, Future<Boolean> retry) {
+        LDAwaitFuture<Boolean> retried = LDFutures.fromFuture(retry);
+        retried.addListener(() -> {
+            try {
+                result.set(Boolean.TRUE.equals(retried.get()));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                result.set(false);
+            } catch (ExecutionException e) {
+                result.set(false);
+            }
+        });
     }
 
     @Override
@@ -794,8 +849,9 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Serializes and sends everything buffered, for a caller that is not waiting to find out how it
-     * went.
+     * Serializes and sends everything buffered, for the periodic flush, which has nobody waiting to
+     * find out how it went. It is a fixed-delay series, so a run is only ever scheduled once the one
+     * before it has finished and these cannot pile up the way requested flushes could.
      */
     private void deliverPayload() {
         deliverPayloadAndRetryLater();
@@ -1204,8 +1260,9 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * As {@link #submit(Runnable)}, for a delivery whose outcome the caller waits for. Not wrapped in
-     * {@link #guarded}, because here the caller is there to receive what escapes.
+     * As {@link #submit(Runnable)}, for the final delivery at close(), whose outcome close() waits
+     * for. Not wrapped in {@link #guarded}, because here the caller is there to receive what
+     * escapes.
      *
      * @return the submitted task, or null if the processor is shutting down or already has
      */

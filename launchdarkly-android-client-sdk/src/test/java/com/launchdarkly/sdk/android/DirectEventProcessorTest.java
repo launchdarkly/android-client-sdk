@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -33,11 +34,13 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -229,7 +232,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
 
                 // A flush that waits, waits for the retry too, so it reports the delivery that worked.
-                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
 
                 RequestInfo failed = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
                 RequestInfo retried = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
@@ -925,7 +928,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             eventProcessor.flush();
             eventProcessor.recordCustomEvent(CONTEXT, "another", LDValue.ofNull(), null);
             eventProcessor.blockingFlush();
-            eventProcessor.blockingFlush(2, TimeUnit.SECONDS);
+            awaitFlush(eventProcessor, 2, TimeUnit.SECONDS);
             eventProcessor.close();
 
             assertFalse("nothing was ever committed, so this proves nothing", committedOn.isEmpty());
@@ -1165,7 +1168,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
 
-                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
 
                 assertEquals(1, countEventsOfKind(collectDelivered(server), "custom"));
             } finally {
@@ -1323,7 +1326,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
                 // Nothing was recorded, so the caller's events are not waiting anywhere.
-                assertTrue(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
 
                 server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
             } finally {
@@ -1447,10 +1450,77 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 // The events are still buffered rather than delivered, and no amount of waiting
                 // changes that, so the caller is told so instead of being told they are safe.
-                assertFalse(eventProcessor.blockingFlush(10, TimeUnit.SECONDS));
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
 
                 server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
             } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushesArrivingWhileADeliveryRunsShareOneFollowUpDelivery() throws Exception {
+        // Otherwise a flush called faster than a post completes queues a post per call, and the
+        // flush that matters -- the one at shutdown, with a deadline -- waits behind all of them.
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(202)),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // The delivery thread is inside that post, so none of these can start, and each of
+                // them has to be answered by the one delivery that is queued behind it.
+                eventProcessor.recordCustomEvent(CONTEXT, "second", LDValue.ofNull(), null);
+                Future<Boolean> queued = eventProcessor.flushAsync();
+                for (int i = 0; i < 50; i++) {
+                    assertSame(queued, eventProcessor.flushAsync());
+                }
+
+                letFirstResponseFinish.release(1);
+                assertTrue(first.get(5, TimeUnit.SECONDS));
+                assertTrue(queued.get(5, TimeUnit.SECONDS));
+
+                // One post for the running delivery and one for the 51 that joined, and no more.
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushJoiningADeliveryStillCoversWhatTheCallerRecorded() throws Exception {
+        // Joining is only sound while the delivery it joins has not taken the buffer yet, so what
+        // the joining caller recorded has to come back in that delivery's payload.
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(202)),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "joined", LDValue.ofNull(), null);
+                Future<Boolean> queued = eventProcessor.flushAsync();
+
+                letFirstResponseFinish.release(1);
+                assertTrue(first.get(5, TimeUnit.SECONDS));
+                assertTrue(queued.get(5, TimeUnit.SECONDS));
+
+                RequestInfo second = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue("the joining caller's event was left behind",
+                        second.getBody().contains("\"key\":\"joined\""));
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
                 eventProcessor.close();
             }
         }
@@ -1465,7 +1535,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
 
-                assertFalse(eventProcessor.blockingFlush(100, TimeUnit.MILLISECONDS));
+                assertFalse(awaitFlush(eventProcessor, 100, TimeUnit.MILLISECONDS));
             } finally {
                 // Released before closing, so that the delivery still in flight can finish rather
                 // than hold up the shutdown that close() waits on.
@@ -1872,6 +1942,19 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private DiagnosticStore makeDiagnosticStore() {
         return new DiagnosticStore(new DiagnosticStore.SdkDiagnosticParams(MOBILE_KEY,
                 "android-client-sdk", "0.0.0", "Android", null, Collections.emptyMap(), null));
+    }
+
+    /**
+     * Flushes and waits for the outcome the way {@code LDClient.flushAndWait} does, which is the
+     * only place a timeout belongs.
+     */
+    private static boolean awaitFlush(EventProcessor eventProcessor, long timeout, TimeUnit unit)
+            throws Exception {
+        try {
+            return Boolean.TRUE.equals(eventProcessor.flushAsync().get(timeout, unit));
+        } catch (TimeoutException e) {
+            return false;
+        }
     }
 
     private static void awaitQuietly(CountDownLatch latch, long timeout, TimeUnit unit) {

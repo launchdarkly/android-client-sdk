@@ -120,7 +120,7 @@ final class OutboundEventBuffer {
      * does across {@link #takeSummaries}, and a second monitor inside it would only be taken for nothing.
      *
      * @param event the evaluation
-     * @return false if this evaluation was not counted, because counting it would have meant holding
+     * @return false if this event was not counted, because counting it would have meant holding
      *   a context beyond the configured capacity
      */
     boolean summarize(Event.FeatureRequest event) {

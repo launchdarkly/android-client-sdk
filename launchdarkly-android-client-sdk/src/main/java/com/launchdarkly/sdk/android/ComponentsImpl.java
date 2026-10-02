@@ -27,6 +27,7 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 /**
  * This class contains the package-private implementations of component factories and builders whose
@@ -73,6 +74,12 @@ abstract class ComponentsImpl {
 
         @Override
         public void blockingFlush() {}
+
+        @Override
+        public Future<Boolean> flushAsync() {
+            // Nothing was recorded, so there is nothing undelivered to warn the caller about.
+            return new LDSuccessFuture<>(true);
+        }
 
         @Override
         public void setInBackground(boolean inBackground) {}
