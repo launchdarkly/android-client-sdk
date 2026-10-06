@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -781,7 +782,9 @@ public class LDClient implements LDClientInterface, Closeable {
 
     @Override
     public boolean flushAndWait(long timeout, TimeUnit unit) {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        // Clamped because toNanos saturates: a timeout at Long.MIN_VALUE nanos would make the
+        // remaining time below underflow, and wrap round to a wait with no bound at all.
+        long deadline = System.nanoTime() + Math.max(0, unit.toNanos(timeout));
         Map<String, LDClient> clients = getInstancesIfTheyIncludeThisClient();
         if (clients.isEmpty()) {
             // This client has been closed, or replaced by a later init; either way it can deliver
@@ -813,6 +816,10 @@ public class LDClient implements LDClientInterface, Closeable {
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            return false;
+        } catch (CancellationException e) {
+            // Not something the SDK's own processor does, but a custom one can hand back a future
+            // that is cancelled, and that must not escape a call whose answer is a boolean.
             return false;
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() == null ? e : e.getCause();

@@ -18,6 +18,7 @@ import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
 import com.launchdarkly.sdk.android.integrations.Hook;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -26,6 +27,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.HttpUrl;
@@ -124,6 +127,80 @@ public class LDClientEventTest {
 
             assertFalse(client.flushAndWait(5, TimeUnit.SECONDS));
         }
+    }
+
+    @Test
+    public void flushAndWaitWithTheMostNegativeTimeoutDoesNotWait() throws IOException {
+        // toNanos saturates at Long.MIN_VALUE, and unclamped that wraps round to a wait for as long
+        // as the delivery takes -- which would then be reported as delivered.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse().setHeadersDelay(3, TimeUnit.SECONDS));
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                client.track("test-event");
+
+                long started = System.nanoTime();
+                assertFalse(client.flushAndWait(Long.MIN_VALUE, TimeUnit.NANOSECONDS));
+                long waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue("waited " + waitedMillis + "ms", waitedMillis < 1_000);
+            }
+        }
+    }
+
+    @Test
+    public void flushAndWaitReportsFailureWhenTheDeliveryIsCancelled() throws IOException {
+        // A custom event processor may hand back a future that is cancelled; Future.get then throws
+        // CancellationException, which is unchecked and must not escape a boolean answer.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .events(clientContext -> new CancellingEventProcessor())
+                    .build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                assertFalse(client.flushAndWait(5, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    /** An event processor whose deliveries are always cancelled before they can report. */
+    private static final class CancellingEventProcessor implements EventProcessor {
+        @Override
+        public Future<Boolean> flushAsync() {
+            FutureTask<Boolean> delivery = new FutureTask<>(() -> true);
+            delivery.cancel(false);
+            return delivery;
+        }
+
+        @Override
+        public void flush() {}
+
+        @Override
+        public void blockingFlush() {}
+
+        @Override
+        public void setInBackground(boolean inBackground) {}
+
+        @Override
+        public void setOffline(boolean offline) {}
+
+        @Override
+        public void close() {}
+
+        @Override
+        public void recordEvaluationEvent(LDContext context, String flagKey, int flagVersion,
+                                          int variation, LDValue value, EvaluationReason reason,
+                                          LDValue defaultValue, boolean requireFullEvent,
+                                          Long debugEventsUntilDate) {}
+
+        @Override
+        public void recordIdentifyEvent(LDContext context) {}
+
+        @Override
+        public void recordCustomEvent(LDContext context, String eventKey, LDValue data,
+                                      Double metricValue) {}
     }
 
     @Test
