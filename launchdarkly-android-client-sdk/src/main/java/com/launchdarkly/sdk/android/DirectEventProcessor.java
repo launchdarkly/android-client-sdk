@@ -134,8 +134,9 @@ final class DirectEventProcessor implements EventProcessor {
     private boolean shuttingDown = false;
 
     /**
-     * Guards {@link #pendingFlush}. Taken on a caller's thread and on the delivery thread, never
-     * while holding {@link #recordLock}, and nothing blocking happens under it.
+     * Guards {@link #pendingFlush} and {@link #pendingFlushAnswersACaller}. Taken on a caller's
+     * thread and on the delivery thread, never while holding {@link #recordLock}, and nothing
+     * blocking happens under it.
      */
     private final Object flushLock = new Object();
 
@@ -145,6 +146,23 @@ final class DirectEventProcessor implements EventProcessor {
      * delivery begins, which is the point past which it can no longer speak for what is recorded.
      */
     private LDAwaitFuture<Boolean> pendingFlush;
+
+    /**
+     * Whether a {@link #flushAsync()} caller, who is there to hear the outcome, is waiting on
+     * {@link #pendingFlush}, as opposed to only callers that discard it.
+     */
+    private boolean pendingFlushAnswersACaller;
+
+    /**
+     * Set when a delivery took events out of the buffer and did not get all of them to the service,
+     * and cleared once a {@link #flushAsync()} caller has been told so.
+     * <p>
+     * Without it, a delivery that finds the buffer empty reports success even when the events it is
+     * being asked about were taken a moment earlier by another delivery that then lost them: the
+     * periodic flush, or a flush whose caller did not wait for the outcome. Only touched on the
+     * scheduler thread, which every delivery runs on.
+     */
+    private boolean eventsLostSinceLastAnswer;
 
     DirectEventProcessor(
             OutboundEventBuffer buffer,
@@ -344,12 +362,18 @@ final class DirectEventProcessor implements EventProcessor {
 
     @Override
     public void flush() {
-        flushAsync();
+        if (isStopped()) {
+            return;
+        }
+        queueDelivery(false);
     }
 
     @Override
     public void blockingFlush() {
-        Future<Boolean> delivery = flushAsync();
+        if (isStopped()) {
+            return;
+        }
+        Future<Boolean> delivery = queueDelivery(false);
         try {
             delivery.get();
         } catch (InterruptedException e) {
@@ -364,7 +388,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return new LDSuccessFuture<>(false);
         }
-        return queueDelivery();
+        return queueDelivery(true);
     }
 
     /**
@@ -375,10 +399,14 @@ final class DirectEventProcessor implements EventProcessor {
      * caller's question as well as a delivery of its own would. Without this, flushes arriving
      * faster than a post completes each queue their own, and the one that matters -- the
      * {@code flushAndWait} at shutdown -- waits behind all of them.
+     *
+     * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
+     *   any events lost since the last answer, and false if the caller discards it
      */
-    private Future<Boolean> queueDelivery() {
+    private Future<Boolean> queueDelivery(boolean answersACaller) {
         synchronized (flushLock) {
             if (pendingFlush != null) {
+                pendingFlushAnswersACaller |= answersACaller;
                 return pendingFlush;
             }
             LDAwaitFuture<Boolean> result = new LDAwaitFuture<>();
@@ -387,6 +415,7 @@ final class DirectEventProcessor implements EventProcessor {
                 return new LDSuccessFuture<>(false);
             }
             pendingFlush = result;
+            pendingFlushAnswersACaller = answersACaller;
             return result;
         }
     }
@@ -394,13 +423,22 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Runs one delivery on behalf of every flush request that joined it, and tells them all how it
      * went.
+     * <p>
+     * Deliveries run one at a time, so any delivery that was in flight when a caller asked has
+     * finished before this one starts, and has already recorded whether it lost what it took. A
+     * caller who will hear the answer is told no if anything was lost since the last caller was
+     * told, as well as if this delivery fails: an empty buffer is not evidence that the events
+     * which used to be in it arrived.
      */
     private void runDelivery(LDAwaitFuture<Boolean> result) {
+        boolean answersACaller = false;
         synchronized (flushLock) {
             // Requests arriving from here on need a delivery of their own: this one is about to take
             // the buffer, and what it takes is all it can speak for.
             if (pendingFlush == result) {
                 pendingFlush = null;
+                answersACaller = pendingFlushAnswersACaller;
+                pendingFlushAnswersACaller = false;
             }
         }
         boolean delivered = false;
@@ -410,6 +448,10 @@ final class DirectEventProcessor implements EventProcessor {
             // Caught here rather than left to guarded(), because a caller is waiting on the future
             // and completing it matters more than the stack reaching the executor.
             logUnexpectedError(t);
+        }
+        if (answersACaller) {
+            delivered &= !eventsLostSinceLastAnswer;
+            eventsLostSinceLastAnswer = false;
         }
         result.set(delivered);
     }
@@ -432,7 +474,7 @@ final class DirectEventProcessor implements EventProcessor {
         // through the same coalescing: a delivery that has not started yet will take these events
         // too, so there is no reason to queue a second one behind it.
         try {
-            queueDelivery().get(closeBudgetMillis, TimeUnit.MILLISECONDS);
+            queueDelivery(false).get(closeBudgetMillis, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             // Deliberately not cancelled. The run has already been drained into a payload, so
             // interrupting now would make the loss certain, while leaving it to run costs
@@ -503,10 +545,11 @@ final class DirectEventProcessor implements EventProcessor {
      * outside it, so recording does not wait on the encoder.
      *
      * @return true if the events reached the service, or if there were none to send; false if they
-     *   could not be sent or the service did not accept them
+     *   could not be sent, the service did not accept them, or some could not be serialized
      */
     private boolean deliverPayloadReportingOutcome() {
         if (disabled || offline.get()) {
+            // Nothing is taken, so nothing is lost: the events stay buffered for a later delivery.
             return false;
         }
         List<Event> run;
@@ -517,6 +560,20 @@ final class DirectEventProcessor implements EventProcessor {
             summaries = buffer.takeSummaries();
             summaryContextsExceeded.set(false);
         }
+        boolean delivered = false;
+        try {
+            delivered = deliverTaken(run, summaries);
+        } finally {
+            // From here the events exist only in this delivery, so not delivering them loses them,
+            // including when something unexpected is thrown on the way.
+            if (!delivered) {
+                eventsLostSinceLastAnswer = true;
+            }
+        }
+        return delivered;
+    }
+
+    private boolean deliverTaken(List<Event> run, List<EventSummarizer.EventSummary> summaries) {
         OutboundEventBuffer.Payload payload;
         try {
             payload = buffer.encode(run, summaries);
@@ -527,6 +584,9 @@ final class DirectEventProcessor implements EventProcessor {
         if (payload == null) {
             return true;
         }
+        if (payload.getEventCount() == 0) {
+            return false; // everything taken was dropped as unserializable
+        }
         if (diagnosticStore != null) {
             diagnosticStore.recordEventsInBatch(payload.getEventCount());
         }
@@ -534,7 +594,7 @@ final class DirectEventProcessor implements EventProcessor {
             EventSender.Result result = eventSender.sendAnalyticsEvents(payload.getData(),
                     payload.getEventCount(), eventsUri);
             handleResponse(result);
-            return result != null && result.isSuccess();
+            return result != null && result.isSuccess() && payload.isComplete();
         } catch (Exception e) {
             logUnexpectedError(e);
             return false;

@@ -1012,6 +1012,72 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlushIsNotToldEventsArrivedThatAnEarlierDeliveryTookAndLost() throws Exception {
+        // By the time this flush runs the buffer is empty, which is also what it looks like when
+        // the events arrived, so only the earlier delivery's outcome can tell the two apart.
+        AtomicInteger sends = new AtomicInteger(0);
+        EventSender sender = new StubEventSender() {
+            @Override
+            public Result sendAnalyticsEvents(byte[] data, int eventCount, URI eventsBaseUri) {
+                return new Result(sends.incrementAndGet() > 1, false, null);
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(sender, NO_PERIODIC_FLUSH_MILLIS,
+                scheduler);
+        try {
+            eventProcessor.setOffline(false);
+            eventProcessor.recordCustomEvent(CONTEXT, "lost", LDValue.ofNull(), null);
+            eventProcessor.blockingFlush(); // takes the event, and its post fails unheard
+
+            assertFalse(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
+            assertEquals("the second flush had nothing of its own to post", 1, sends.get());
+
+            // Once a caller has been told, the next is answered only for what came after.
+            eventProcessor.recordCustomEvent(CONTEXT, "delivered", LDValue.ofNull(), null);
+            assertTrue(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aFlushIsNotToldEventsArrivedThatCouldNotBeSerialized() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushIsNotToldEventsArrivedWhenSomeOfThemCouldNotBeSerialized() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(CONTEXT, "fine", LDValue.ofNull(), 1.0);
+
+                // The post succeeds, and still not everything the caller recorded is in it.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(LDValue.of("fine"), requireEventOfKind(events, "custom").get("key"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void closeReleasesTheSenderOnlyAfterTheLastDeliveryFinishes() throws Exception {
         // Giving up on the wait must not turn into pulling the HTTP client out from under the
         // delivery we just decided not to wait for.

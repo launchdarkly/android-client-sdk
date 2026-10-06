@@ -163,7 +163,9 @@ public interface LDClientInterface extends Closeable {
      * @param timeout how long to wait for delivery
      * @param unit the time unit of {@code timeout}
      * @return true if the events were delivered, or there were none to deliver; false if the timeout
-     *   expired first, or the SDK is offline, closed, or otherwise unable to deliver them
+     *   expired first, the SDK is offline, closed, or otherwise unable to deliver them, or events
+     *   recorded since the last time this was answered were lost on the way, by this delivery or an
+     *   earlier one
      * @since 5.17.0
      */
     boolean flushAndWait(long timeout, TimeUnit unit);
