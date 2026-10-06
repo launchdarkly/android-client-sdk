@@ -25,7 +25,7 @@ final class FlushOnCrashHandler implements Thread.UncaughtExceptionHandler {
      * process in a half-dead state for all of them: past this point the events are worth less than
      * the delay, and the crash goes on to be reported.
      */
-    private static final long DELIVERY_BUDGET_MILLIS = 500;
+    private static final long DELIVERY_BUDGET_MILLIS = 2000;
 
     private final Thread.UncaughtExceptionHandler next;
 

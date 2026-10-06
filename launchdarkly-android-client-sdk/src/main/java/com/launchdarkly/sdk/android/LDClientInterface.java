@@ -156,16 +156,26 @@ public interface LDClientInterface extends Closeable {
      * any other last chance. Events buffered in memory do not survive the process, so a caller that
      * knows the process is ending can use this to give them one.
      * <p>
+     * It can only help while the process is still running code. An uncaught exception runs its
+     * handler first, and a move to the background is announced, so both leave time for this call.
+     * A {@code SIGKILL}, an ANR kill, a native crash, and the system reclaiming a backgrounded process
+     * run nothing at all, and events still in memory at that moment are lost whatever the
+     * application does.
+     * <p>
      * The timeout bounds the whole call, including when the SDK is configured for more than one
      * environment. Choose it with the caller in mind: a dying process is not a good place to wait on
-     * a network request that may never answer.
+     * a network request that may never answer. The call blocks the thread it is made on, so on the
+     * main thread the timeout also counts towards an ANR.
      *
      * @param timeout how long to wait for delivery
      * @param unit the time unit of {@code timeout}
      * @return true if the events were delivered, or there were none to deliver; false if the timeout
      *   expired first, the SDK is offline, closed, or otherwise unable to deliver them, or events
      *   recorded since the last time this was answered were lost on the way, by this delivery or an
-     *   earlier one
+     *   earlier one. A {@code false} because the timeout expired does not mean the events were not
+     *   sent: the delivery is left running when the caller stops waiting, and may still arrive if
+     *   the process lives long enough. A caller that resends on {@code false} can therefore cause
+     *   duplicates.
      * @since 5.17.0
      */
     boolean flushAndWait(long timeout, TimeUnit unit);
