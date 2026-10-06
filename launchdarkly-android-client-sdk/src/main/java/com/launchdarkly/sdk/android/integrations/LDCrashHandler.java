@@ -13,8 +13,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 /**
- * An uncaught exception handler that delivers the analytics events still in memory before the
- * process ends.
+ * An uncaught exception handler that gives the SDK its last chance to act before the process ends:
+ * it delivers the analytics events still in memory.
  * <p>
  * Events are kept in memory until they are sent, so a crash loses the ones recorded since the last
  * flush, and those are often the ones that explain it. An uncaught exception runs its handlers while
@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <pre><code>
  *     LDClient.init(application, config, context, 0);
- *     EventFlushingCrashHandler.install(2, TimeUnit.SECONDS);
+ *     LDCrashHandler.install(2, TimeUnit.SECONDS);
  *     SentryAndroid.init(application, options -&gt; { ... });
  * </code></pre>
  * <p>
@@ -49,7 +49,7 @@ import java.util.concurrent.TimeUnit;
  *
  * @since 5.17.0
  */
-public final class EventFlushingCrashHandler implements Thread.UncaughtExceptionHandler {
+public final class LDCrashHandler implements Thread.UncaughtExceptionHandler {
     private static final Object installLock = new Object();
 
     private final Callable<LDClientInterface> client;
@@ -58,7 +58,7 @@ public final class EventFlushingCrashHandler implements Thread.UncaughtException
     private final Thread.UncaughtExceptionHandler next;
 
     @VisibleForTesting
-    EventFlushingCrashHandler(
+    LDCrashHandler(
             @NonNull Callable<LDClientInterface> client,
             long timeoutMillis,
             @Nullable Thread.UncaughtExceptionHandler next
@@ -84,11 +84,11 @@ public final class EventFlushingCrashHandler implements Thread.UncaughtException
         long timeoutMillis = Math.max(0, unit.toMillis(timeout));
         synchronized (installLock) {
             Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-            if (previous instanceof EventFlushingCrashHandler) {
+            if (previous instanceof LDCrashHandler) {
                 return;
             }
             Thread.setDefaultUncaughtExceptionHandler(
-                    new EventFlushingCrashHandler(LDClient::get, timeoutMillis, previous));
+                    new LDCrashHandler(LDClient::get, timeoutMillis, previous));
         }
     }
 

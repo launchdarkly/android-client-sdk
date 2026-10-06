@@ -17,7 +17,7 @@ import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
-import com.launchdarkly.sdk.android.integrations.EventFlushingCrashHandler;
+import com.launchdarkly.sdk.android.integrations.LDCrashHandler;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
@@ -132,7 +132,7 @@ public class LDClientEventTest {
                 int[] requestsSeenByNextHandler = {-1};
                 Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
                         requestsSeenByNextHandler[0] = mockEventsServer.getRequestCount());
-                EventFlushingCrashHandler.install(5, TimeUnit.SECONDS);
+                LDCrashHandler.install(5, TimeUnit.SECONDS);
                 client.track("test-event");
 
                 Thread.getDefaultUncaughtExceptionHandler()

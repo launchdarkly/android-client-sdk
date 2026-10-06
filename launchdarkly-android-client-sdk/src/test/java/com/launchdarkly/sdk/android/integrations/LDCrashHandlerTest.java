@@ -21,7 +21,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-public class EventFlushingCrashHandlerTest {
+public class LDCrashHandlerTest {
     private final List<String> calls = new ArrayList<>();
     private final Thread crashed = new Thread("crashed");
     private final Throwable crash = new RuntimeException("boom");
@@ -52,7 +52,7 @@ public class EventFlushingCrashHandlerTest {
         });
         replay(client);
 
-        new EventFlushingCrashHandler(() -> client, 2000, next).uncaughtException(crashed, crash);
+        new LDCrashHandler(() -> client, 2000, next).uncaughtException(crashed, crash);
 
         verify(client);
         assertEquals(Arrays.asList("flush", "next"), calls);
@@ -64,7 +64,7 @@ public class EventFlushingCrashHandlerTest {
         expect(client.flushAndWait(eq(2000L), eq(TimeUnit.MILLISECONDS))).andReturn(false);
         replay(client);
 
-        new EventFlushingCrashHandler(() -> client, 2000, next).uncaughtException(crashed, crash);
+        new LDCrashHandler(() -> client, 2000, next).uncaughtException(crashed, crash);
 
         verify(client);
         assertEquals(Arrays.asList("next"), calls);
@@ -72,7 +72,7 @@ public class EventFlushingCrashHandlerTest {
 
     @Test
     public void passesTheCrashOnWhenTheClientWasNeverInitialized() {
-        new EventFlushingCrashHandler(() -> {
+        new LDCrashHandler(() -> {
             throw new LaunchDarklyException("LDClient.get() was called before init()!");
         }, 2000, next).uncaughtException(crashed, crash);
 
@@ -86,7 +86,7 @@ public class EventFlushingCrashHandlerTest {
                 .andThrow(new IllegalStateException("the crash broke the client too"));
         replay(client);
 
-        new EventFlushingCrashHandler(() -> client, 2000, next).uncaughtException(crashed, crash);
+        new LDCrashHandler(() -> client, 2000, next).uncaughtException(crashed, crash);
 
         assertEquals(Arrays.asList("next"), calls);
     }
@@ -95,11 +95,11 @@ public class EventFlushingCrashHandlerTest {
     public void installsInFrontOfTheCurrentDefaultHandler() {
         Thread.setDefaultUncaughtExceptionHandler(next);
 
-        EventFlushingCrashHandler.install(2, TimeUnit.SECONDS);
+        LDCrashHandler.install(2, TimeUnit.SECONDS);
         Thread.UncaughtExceptionHandler installed = Thread.getDefaultUncaughtExceptionHandler();
         installed.uncaughtException(crashed, crash);
 
-        assertTrue(installed instanceof EventFlushingCrashHandler);
+        assertTrue(installed instanceof LDCrashHandler);
         assertEquals(Arrays.asList("next"), calls);
     }
 
@@ -107,9 +107,9 @@ public class EventFlushingCrashHandlerTest {
     public void installingTwiceKeepsTheFirstHandler() {
         Thread.setDefaultUncaughtExceptionHandler(next);
 
-        EventFlushingCrashHandler.install(2, TimeUnit.SECONDS);
+        LDCrashHandler.install(2, TimeUnit.SECONDS);
         Thread.UncaughtExceptionHandler first = Thread.getDefaultUncaughtExceptionHandler();
-        EventFlushingCrashHandler.install(5, TimeUnit.SECONDS);
+        LDCrashHandler.install(5, TimeUnit.SECONDS);
 
         assertSame(first, Thread.getDefaultUncaughtExceptionHandler());
         first.uncaughtException(crashed, crash);
