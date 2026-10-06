@@ -27,11 +27,14 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.HttpUrl;
+import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -126,6 +129,34 @@ public class LDClientEventTest {
             client.close();
 
             assertFalse(client.flushAndWait(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void flushAndWaitDeliversEveryEnvironmentAtOnce() throws Exception {
+        // Each post is held for longer than half the budget, so the call can only report true if the
+        // environments' deliveries ran side by side rather than one after the other.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return new MockResponse().setHeadersDelay(1_500, TimeUnit.MILLISECONDS);
+                }
+            });
+            mockEventsServer.start();
+
+            Map<String, String> secondaryKeys = new HashMap<>();
+            secondaryKeys.put("second", "second-mobile-key");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .secondaryMobileKeys(secondaryKeys)
+                    .build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                client.track("primary-event");
+                LDClient.getForMobileKey("second").track("second-event");
+
+                assertTrue(client.flushAndWait(2_500, TimeUnit.MILLISECONDS));
+                assertEquals(2, mockEventsServer.getRequestCount());
+            }
         }
     }
 

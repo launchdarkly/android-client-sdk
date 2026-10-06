@@ -1000,12 +1000,63 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                Future<Boolean> delivery = eventProcessor.flushAsync();
 
-                assertFalse(awaitFlush(eventProcessor, 100, TimeUnit.MILLISECONDS));
+                try {
+                    delivery.get(100, TimeUnit.MILLISECONDS);
+                    fail("the delivery finished while its response was still being held");
+                } catch (TimeoutException expected) {
+                    // The caller gives up here, as flushAndWait does when its budget runs out.
+                }
+
+                // Left running rather than cancelled, the delivery still gets its events through
+                // once the service answers, and a cancelled one could not report that.
+                letResponseFinish.release(1);
+                assertTrue(delivery.get(5, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
             } finally {
                 // Released before closing, so that the delivery still in flight can finish rather
                 // than hold up the shutdown that close() waits on.
+                letResponseFinish.drainPermits();
                 letResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushReportsFailureWhenTheServiceRefusesTheEventsForNow() throws Exception {
+        // 503 is a failure that may pass, so the sender retries it once before giving up.
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushReportsFailureWhenTheServiceRefusesTheEventsForGood() throws Exception {
+        // 401 is not retried, and stops the processor for the life of the process, so the flush
+        // after it has nothing it can deliver on either.
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+            } finally {
                 eventProcessor.close();
             }
         }
