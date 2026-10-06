@@ -155,6 +155,8 @@ public interface LDClientInterface extends Closeable {
      * to lose the ability to send them: an uncaught exception handler, a move to the background, or
      * any other last chance. Events buffered in memory do not survive the process, so a caller that
      * knows the process is ending can use this to give them one.
+     * {@link com.launchdarkly.sdk.android.integrations.EventFlushingCrashHandler} does this for
+     * uncaught exceptions.
      * <p>
      * It can only help while the process is still running code. An uncaught exception runs its
      * handler first, and a move to the background is announced, so both leave time for this call.

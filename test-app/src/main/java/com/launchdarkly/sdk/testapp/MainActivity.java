@@ -23,9 +23,11 @@ import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
+import com.launchdarkly.sdk.android.integrations.EventFlushingCrashHandler;
 
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import timber.log.Timber;
@@ -107,7 +109,7 @@ public class MainActivity extends AppCompatActivity {
         setupOfflineSwitch();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
         // makes the pair worth pressing.
-        FlushOnCrashHandler.install();
+        EventFlushingCrashHandler.install(2, TimeUnit.SECONDS);
         setupListeners();
         updateDedupeStatus();
 
@@ -290,7 +292,7 @@ public class MainActivity extends AppCompatActivity {
      * <p>This is the shape a customer report takes: app code fails immediately after reporting the
      * failure. Unlike SIGKILL, an uncaught exception runs the default handler before the process
      * goes, so this is the one variant an application can rescue on its own, which
-     * {@link FlushOnCrashHandler} does by calling {@link LDClient#flushAndWait} from there. So these
+     * {@link EventFlushingCrashHandler} does by calling {@link LDClient#flushAndWait} from there. So these
      * events should arrive and the ones from the button next to it should not.
      */
     private void setupCrashNowButton() {

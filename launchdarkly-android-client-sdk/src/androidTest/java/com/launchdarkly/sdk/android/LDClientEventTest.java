@@ -17,6 +17,7 @@ import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
+import com.launchdarkly.sdk.android.integrations.EventFlushingCrashHandler;
 import com.launchdarkly.sdk.android.integrations.Hook;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
@@ -116,6 +117,33 @@ public class LDClientEventTest {
                 LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
                 assertCustomEvent(events[1], ldContext, "test-event");
             }
+        }
+    }
+
+    @Test
+    public void crashHandlerDeliversTheEventsBeforePassingTheCrashOn() throws IOException, InterruptedException {
+        Thread.UncaughtExceptionHandler originalDefault = Thread.getDefaultUncaughtExceptionHandler();
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                int[] requestsSeenByNextHandler = {-1};
+                Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
+                        requestsSeenByNextHandler[0] = mockEventsServer.getRequestCount());
+                EventFlushingCrashHandler.install(5, TimeUnit.SECONDS);
+                client.track("test-event");
+
+                Thread.getDefaultUncaughtExceptionHandler()
+                        .uncaughtException(Thread.currentThread(), new RuntimeException("boom"));
+
+                assertEquals(1, requestsSeenByNextHandler[0]);
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertCustomEvent(events[1], ldContext, "test-event");
+            }
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(originalDefault);
         }
     }
 
