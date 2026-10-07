@@ -1071,7 +1071,14 @@ final class DirectEventProcessor implements EventProcessor {
      *   it never can; RETRYABLE if it failed in a way that may pass
      */
     private BatchesOutcome deliver(EventStore.Batch batch) {
-        byte[] body = store.body(batch);
+        byte[] body;
+        try {
+            body = store.body(batch);
+        } catch (IOException e) {
+            // Kept: the file is still there, and a read that failed may not fail next time.
+            logger.warn("Could not read stored events: {}", LogValues.exceptionSummary(e));
+            return BatchesOutcome.RETRYABLE;
+        }
         if (body == null) {
             // Unreadable, or already delivered by another process of this application. Either way there
             // is nothing to send and nothing to keep.

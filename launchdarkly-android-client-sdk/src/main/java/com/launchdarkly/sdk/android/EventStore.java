@@ -564,7 +564,26 @@ class EventStore implements Closeable {
                     // Reading is only for a batch this process has not counted: one a previous run left
                     // behind, or one belonging to another process sharing the environment.
                     Integer counted = eventCounts.get(payloadId);
-                    int events = counted != null ? counted : Format.eventCount(readFile(file));
+                    int events;
+                    if (counted != null) {
+                        events = counted;
+                    } else {
+                        byte[] log;
+                        try {
+                            log = readFile(file);
+                        } catch (IOException e) {
+                            // Left for a later listing rather than deleted: the read may pass, and the
+                            // events in it may be intact. Without a count it cannot be delivered now.
+                            logger.warn("Could not read stored events, will try again later: {}",
+                                    LogValues.exceptionSummary(e));
+                            continue;
+                        }
+                        if (log == null) {
+                            // Delivered and removed by another process since the listing.
+                            continue;
+                        }
+                        events = Format.eventCount(log);
+                    }
                     if (events < 0) {
                         // Written by a version whose format this one does not read, or damaged beyond
                         // what the torn-tail recovery tolerates. Either way it can never be delivered.
@@ -599,9 +618,11 @@ class EventStore implements Closeable {
     }
 
     /**
-     * @return the JSON request body for a batch, or null if it has since become unreadable
+     * @return the JSON request body for a batch, or null if it is gone or holds nothing this version can
+     *   send, neither of which a later attempt changes
+     * @throws IOException if the batch is there but could not be read this time
      */
-    byte[] body(Batch batch) {
+    byte[] body(Batch batch) throws IOException {
         synchronized (ioLock) {
             HeldBatch held = inMemoryBatches.get(batch.payloadId);
             if (held != null) {
@@ -654,7 +675,18 @@ class EventStore implements Closeable {
         if (!openLog().exists()) {
             return;
         }
-        int events = Format.eventCount(readFile(openLog()));
+        int events;
+        try {
+            events = Format.eventCount(readFile(openLog()));
+        } catch (IOException e) {
+            // It cannot stay under this name, which this process is about to append its own events to,
+            // and deleting it would lose events that may be intact. Closed uncounted instead, it is read
+            // and counted by whichever listing first manages to.
+            logger.warn("Could not read events from a previous run, will try again later: {}",
+                    LogValues.exceptionSummary(e));
+            openLog().renameTo(batchFile(UUID.randomUUID().toString()));
+            return;
+        }
         if (events < 0) {
             // Unreadable, and a log that cannot be read cannot be appended to either.
             deleteQuietly(openLog());
@@ -842,20 +874,41 @@ class EventStore implements Closeable {
     }
 
     /**
-     * @return the file's bytes, or null if it could not be read
+     * @return the file's bytes, or null if it no longer exists
+     * @throws IOException if it exists but could not be read. That may pass, and the file is intact:
+     *   a process out of file descriptors fails to open it with the same exception a missing file
+     *   gets, which is why existence is checked rather than the exception's type.
      */
-    private byte[] readFile(File file) {
+    private byte[] readFile(File file) throws IOException {
         ByteArrayOutputStream contents = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
-        try (InputStream in = new FileInputStream(file)) {
+        try (InputStream in = openForReading(file)) {
             int read;
             while ((read = in.read(chunk)) > 0) {
                 contents.write(chunk, 0, read);
             }
         } catch (IOException e) {
-            return null;
+            if (!file.exists()) {
+                return null;
+            }
+            throw e;
         }
         return contents.toByteArray();
+    }
+
+    /** For inspecting the store, where a file that cannot be read is simply left out. */
+    private byte[] readFileOrNull(File file) {
+        try {
+            return readFile(file);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** Overridable so a test can make a read fail while the file is intact. */
+    @VisibleForTesting
+    InputStream openForReading(File file) throws IOException {
+        return new FileInputStream(file);
     }
 
     /**
@@ -1059,11 +1112,11 @@ class EventStore implements Closeable {
                     }
                 });
                 for (File file : sorted) {
-                    logs.add(readFile(file));
+                    logs.add(readFileOrNull(file));
                 }
             }
             if (usesDisk && openLog().exists()) {
-                logs.add(readFile(openLog()));
+                logs.add(readFileOrNull(openLog()));
             }
             synchronized (bufferLock) {
                 if (bufferedEventCount > 0) {

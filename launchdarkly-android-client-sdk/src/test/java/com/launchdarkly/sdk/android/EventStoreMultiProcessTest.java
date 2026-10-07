@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
@@ -16,8 +17,10 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,6 +30,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The event store's behavior when an application runs the SDK in more than one process.
@@ -261,7 +265,7 @@ public class EventStoreMultiProcessTest {
     // MARK: closed batches are shared on purpose
 
     @Test
-    public void aBatchClosedByOneProcessIsDeliverableByAnother() {
+    public void aBatchClosedByOneProcessIsDeliverableByAnother() throws IOException {
         // The point of sharing: a service process that records events and is then killed may never run
         // again, so a batch only it could see would never be delivered.
         EventStore service = storeFor(SERVICE_PROCESS);
@@ -311,7 +315,7 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
-    public void aBatchTheOtherProcessAlreadyDeliveredReadsAsNothingToSend() {
+    public void aBatchTheOtherProcessAlreadyDeliveredReadsAsNothingToSend() throws IOException {
         EventStore service = storeFor(SERVICE_PROCESS);
         service.stage(event("delivered-once"));
         EventStore.Batch batch = service.closeBatch();
@@ -355,6 +359,87 @@ public class EventStoreMultiProcessTest {
         main.pendingBatches(); // this is what reconciles the count with the directory
 
         assertEquals(3, main.getPendingEventCount());
+    }
+
+    // MARK: a read that fails is no reason to delete
+
+    /**
+     * A store whose reads fail while {@code failing} is set, the way they do in a process that has run
+     * out of file descriptors: the files are intact and readable again once some are freed.
+     */
+    private EventStore storeWithFailingReads(String processName, AtomicBoolean failing) {
+        return new EventStore(sharedDirectory(), processName, CAPACITY, true, logger, inline) {
+            @Override
+            InputStream openForReading(File file) throws IOException {
+                if (failing.get()) {
+                    throw new FileNotFoundException(file + " (Too many open files)");
+                }
+                return super.openForReading(file);
+            }
+        };
+    }
+
+    @Test
+    public void aBatchThatCannotBeReadIsLeftForALaterListing() {
+        EventStore service = storeFor(SERVICE_PROCESS);
+        service.stage(event("recorded-by-the-service"));
+        assertNotNull(service.closeBatch());
+
+        AtomicBoolean failing = new AtomicBoolean(true);
+        EventStore main = storeWithFailingReads(MAIN_PROCESS, failing);
+        assertTrue(main.pendingBatches().isEmpty());
+        assertEquals("a batch that could not be read was deleted", 1, filesNamed("ready-").size());
+
+        failing.set(false);
+        List<EventStore.Batch> pending = main.pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(1, pending.get(0).eventCount);
+    }
+
+    @Test
+    public void aBodyThatCannotBeReadIsAFailureToRetryRatherThanNothingToSend() throws IOException {
+        AtomicBoolean failing = new AtomicBoolean(false);
+        EventStore main = storeWithFailingReads(MAIN_PROCESS, failing);
+        main.stage(event("kept"));
+        EventStore.Batch batch = main.closeBatch();
+        assertNotNull(batch);
+
+        failing.set(true);
+        try {
+            main.body(batch);
+            fail("a batch that could not be read was reported as having nothing to send");
+        } catch (IOException expected) {
+            // what the processor retries on
+        }
+        assertEquals(1, filesNamed("ready-").size());
+
+        failing.set(false);
+        byte[] body = main.body(batch);
+        assertNotNull(body);
+        assertEquals(LDValue.of("kept"),
+                LDValue.parse(new String(body, Charset.forName("UTF-8"))).get(0).get("key"));
+    }
+
+    @Test
+    public void aPreviousRunsLogThatCannotBeReadIsKeptForALaterListing() {
+        EventStore firstRun = storeFor(SERVICE_PROCESS);
+        firstRun.stage(event("before-the-crash"));
+        firstRun.commit();
+
+        AtomicBoolean failing = new AtomicBoolean(true);
+        EventStore secondRun = storeWithFailingReads(SERVICE_PROCESS, failing);
+        secondRun.recoverInterruptedLog();
+        // Moved out from under the name this run appends to, and not deleted.
+        assertTrue(filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).isEmpty());
+        assertEquals(1, filesNamed("ready-").size());
+
+        secondRun.stage(event("this-run"));
+        secondRun.commit();
+        failing.set(false);
+        List<EventStore.Batch> pending = secondRun.pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(1, pending.get(0).eventCount);
+        assertEquals(Arrays.asList("before-the-crash", "this-run"), visibleKeys(secondRun));
     }
 
     // MARK: the two together

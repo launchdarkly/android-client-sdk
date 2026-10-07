@@ -26,8 +26,10 @@ import org.junit.After;
 import org.junit.Test;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -1996,6 +1998,49 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 }
                 assertEquals("oldest first, and neither left behind",
                         Arrays.asList("written", "held"), keys);
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void aBatchThatCannotBeReadIsKeptAndDeliveredOnceItCanBe() throws Exception {
+        AtomicBoolean failing = new AtomicBoolean(false);
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            InputStream openForReading(File file) throws IOException {
+                if (failing.get()) {
+                    // What a process out of file descriptors gets for a file that is there.
+                    throw new FileNotFoundException(file + " (Too many open files)");
+                }
+                return super.openForReading(file);
+            }
+        };
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), null);
+
+                failing.set(true);
+                assertFalse("a batch that could not be read was reported as delivered",
+                        awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+                logging.assertWarnLogged("Could not read stored events");
+
+                failing.set(false);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(1, countEventsOfKind(events, "custom"));
+                assertEquals(LDValue.of("kept"), requireEventOfKind(events, "custom").get("key"));
             } finally {
                 eventProcessor.close();
                 scheduler.shutdownNow();
