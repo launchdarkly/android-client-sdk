@@ -12,7 +12,6 @@ import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 import com.launchdarkly.sdk.internal.events.SameContextPerContextEventSummarizer;
-import com.launchdarkly.sdk.internal.events.Sampler;
 
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
@@ -165,14 +164,13 @@ final class OutboundEventBuffer {
      * nothing with a thread recording an event, and taking the lock would make an encode wait on a
      * counter increment and the other way round.
      *
+     * Sampling is not applied here. {@link DirectEventProcessor} draws for it once, as the event is
+     * recorded, and drawing again for the same event would square the odds against it.
+     *
      * @param event the event
-     * @return the event's JSON object, or null if it was dropped by sampling or could not be
-     *   serialized
+     * @return the event's JSON object, or null if it could not be serialized
      */
     byte[] serialize(Event event) {
-        if (!Sampler.shouldSample(event.getSamplingRatio())) {
-            return null;
-        }
         return writeSingleObject(new Event[]{ event }, Collections.<EventSummarizer.EventSummary>emptyList());
     }
 
@@ -251,10 +249,10 @@ final class OutboundEventBuffer {
      * output stream, the writer and the UTF-8 lookup, which {@link #writeSingleObject} otherwise
      * allocates on every call.
      * <p>
-     * Deliberately not synchronized, for the reason {@link #serialize} is not.
+     * Deliberately not synchronized, and not sampling, for the reasons {@link #serialize} is neither.
      *
      * @param pending the events, in the order they were recorded
-     * @return one JSON object per event that survived sampling and serialized
+     * @return one JSON object per event that serialized
      */
     List<byte[]> serializeAll(List<Event> pending) {
         if (pending.isEmpty()) {
@@ -266,9 +264,6 @@ final class OutboundEventBuffer {
                 new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
         Event[] one = new Event[1];
         for (Event event : pending) {
-            if (!Sampler.shouldSample(event.getSamplingRatio())) {
-                continue;
-            }
             one[0] = event;
             byte[] bytes = writeSingleObject(one, Collections.<EventSummarizer.EventSummary>emptyList(),
                     outputStream, writer);
