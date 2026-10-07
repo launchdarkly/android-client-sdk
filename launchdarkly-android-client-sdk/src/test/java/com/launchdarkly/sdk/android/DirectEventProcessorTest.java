@@ -1734,6 +1734,124 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void aBatchRefusedWith400IsPostedOnlyByEachFlushAndItsRetry() throws Exception {
+        assertPostedOnlyByEachFlushAndItsRetry(400);
+    }
+
+    @Test
+    public void aBatchRefusedWith503IsPostedOnlyByEachFlushAndItsRetry() throws Exception {
+        assertPostedOnlyByEachFlushAndItsRetry(503);
+    }
+
+    /**
+     * Kept is not the same as resent on its own: a failure must never queue another attempt beyond the
+     * one retry, or a batch the service always refuses would be posted in a loop.
+     */
+    private void assertPostedOnlyByEachFlushAndItsRetry(int status) throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(status))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                for (int flush = 0; flush < 2; flush++) {
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                    server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                    server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 3,
+                            TimeUnit.MILLISECONDS);
+                }
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushesDuringARefusedDeliveryShareOneDeliveryAndOneRetry() throws Exception {
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.all(Handlers.waitFor(letFirstResponseFinish),
+                Handlers.status(503)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                List<Future<Boolean>> flushes = new ArrayList<>();
+                flushes.add(eventProcessor.flushAsync());
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // Held on the first post, every one of these joins the single delivery queued behind it.
+                for (int i = 0; i < 20; i++) {
+                    flushes.add(eventProcessor.flushAsync());
+                }
+                letFirstResponseFinish.release(100);
+
+                for (Future<Boolean> flush : flushes) {
+                    assertFalse(flush.get(10, TimeUnit.SECONDS));
+                }
+                // The second delivery, then the one retry both failures share.
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 3,
+                        TimeUnit.MILLISECONDS);
+            } finally {
+                letFirstResponseFinish.release(100);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void thePeriodicFlushPostsARefusedBatchAtMostOncePerInterval() throws Exception {
+        int intervalMillis = 200;
+        long windowMillis = 2_000;
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilder(DEFAULT_CAPACITY).flushIntervalMillis(intervalMillis), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                Thread.sleep(windowMillis);
+
+                // One post per interval and one outstanding retry at a time; a loop would be in the
+                // hundreds by now.
+                int posts = server.getRecorder().count();
+                long most = windowMillis / intervalMillis + 1
+                        + windowMillis / DirectEventProcessor.RETRY_DELAY_MILLIS + 1;
+                assertTrue(posts + " posts in " + windowMillis + "ms", posts >= 3 && posts <= most);
+
+                // Offline stops it entirely, kept batch or not.
+                eventProcessor.setOffline(true);
+                Thread.sleep(DirectEventProcessor.RETRY_DELAY_MILLIS + intervalMillis);
+                int whenOffline = server.getRecorder().count();
+                Thread.sleep(intervalMillis * 3);
+                assertEquals(whenOffline, server.getRecorder().count());
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aBatchAPreviousRunLeftIsTriedOnceAtStartAndThenWaitsWhileStillRefused() throws Exception {
+        try (HttpServer refusing = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(refusing, DEFAULT_CAPACITY);
+            eventProcessor.recordCustomEvent(CONTEXT, "kept-event", LDValue.ofNull(), null);
+            eventProcessor.close();
+        }
+
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor nextRun = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                // The delivery at start and its retry, and nothing after them until a flush asks.
+                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"kept-event\""));
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 3,
+                        TimeUnit.MILLISECONDS);
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
     /**
      * Refuses a batch with {@code status} for several flushes in a row, each of which attempts it and
      * retries it once, then lets the service recover and checks that the batch arrives exactly once,
