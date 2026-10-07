@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The counters and the encoder behind {@link DirectEventProcessor}: evaluations are folded into
@@ -45,6 +46,7 @@ import java.util.Set;
 final class OutboundEventBuffer {
     private static final int INITIAL_OUTPUT_BUFFER_SIZE = 2000;
     private static final Event[] NO_EVENTS = new Event[0];
+    private static final byte[] NO_DATA = new byte[0];
     private static final List<EventSummarizer.EventSummary> NO_SUMMARIES = Collections.emptyList();
 
     private final EventOutputFormatter formatter;
@@ -67,6 +69,13 @@ final class OutboundEventBuffer {
      * one instance until it identifies again.
      */
     private LDContext lastCountedContext;
+
+    /**
+     * Set when an event or a summary was dropped for failing to serialize, until the processor asks.
+     * Serialization runs on whichever thread commits, so this is the one piece of state here that is
+     * written outside the caller's lock.
+     */
+    private final AtomicBoolean serializationFailed = new AtomicBoolean(false);
 
     /**
      * @param allAttributesPrivate true to redact every context attribute except the key
@@ -299,6 +308,7 @@ final class OutboundEventBuffer {
             written = formatter.writeOutputEvents(events, summaries, writer);
             writer.flush();
         } catch (Exception e) {
+            serializationFailed.set(true);
             logger.error("Dropping unserializable {}: {}", describe(events),
                     LogValues.exceptionSummary(e));
             logger.debug("{}", LogValues.exceptionTrace(e));
@@ -319,11 +329,19 @@ final class OutboundEventBuffer {
         if (all.length < 3 || all[0] != '[' || all[all.length - 1] != ']') {
             // Not the shape this depends on. Refusing the event is the safe reading: a frame that is
             // not one JSON object would corrupt every payload it was later spliced into.
+            serializationFailed.set(true);
             logger.error("Dropping unserializable {}: the encoder did not produce a single JSON"
                     + " object", describe(events));
             return null;
         }
         return Arrays.copyOfRange(all, 1, all.length - 1);
+    }
+
+    /**
+     * @return whether anything was dropped for failing to serialize since this was last called
+     */
+    boolean takeSerializationFailure() {
+        return serializationFailed.getAndSet(false);
     }
 
     /** Names what is being dropped, since this encoder is handed one event or one summary. */
@@ -348,7 +366,8 @@ final class OutboundEventBuffer {
      *
      * @param run the full events to send, in the order they were recorded
      * @param summaries the counters taken alongside that run
-     * @return the payload to send, or null if there was nothing to send
+     * @return the payload to send, or null if there was nothing to send; a payload that had to drop
+     *   something says so through {@link Payload#isComplete()}, and may then hold no events at all
      * @throws IOException if the events could not be serialized
      */
     Payload encode(List<Event> run, List<EventSummarizer.EventSummary> summaries) throws IOException {
@@ -372,43 +391,55 @@ final class OutboundEventBuffer {
         if (outputEventCount == 0) {
             return null;
         }
-        return new Payload(buffer.toByteArray(), outputEventCount);
+        return new Payload(buffer.toByteArray(), outputEventCount, true);
     }
 
     private Payload encodeSkippingFailures(List<Event> run,
                                            List<EventSummarizer.EventSummary> summaries) {
         List<byte[]> objects = new ArrayList<>();
         int outputEventCount = 0;
+        boolean dropped = false;
         for (Event event : run) {
             EncodedPiece piece = tryEncode(new Event[] { event }, NO_SUMMARIES);
             if (piece == null) {
                 logger.error("Dropping unserializable event of type {}", event.getClass().getSimpleName());
+                dropped = true;
                 continue;
             }
-            objects.add(piece.jsonObject);
-            outputEventCount += piece.eventCount;
+            if (piece != EncodedPiece.NOTHING) {
+                objects.add(piece.jsonObject);
+                outputEventCount += piece.eventCount;
+            }
         }
         for (EventSummarizer.EventSummary summary : summaries) {
             EncodedPiece piece = tryEncode(NO_EVENTS, Collections.singletonList(summary));
             if (piece == null) {
                 logger.error("Dropping unserializable summary event");
+                dropped = true;
                 continue;
             }
-            objects.add(piece.jsonObject);
-            outputEventCount += piece.eventCount;
+            if (piece != EncodedPiece.NOTHING) {
+                objects.add(piece.jsonObject);
+                outputEventCount += piece.eventCount;
+            }
         }
         if (objects.isEmpty()) {
-            return null;
+            return dropped ? new Payload(NO_DATA, 0, false) : null;
         }
-        return new Payload(joinObjects(objects), outputEventCount);
+        return new Payload(joinObjects(objects), outputEventCount, !dropped);
     }
 
+    /**
+     * @return the piece, {@link EncodedPiece#NOTHING} if the formatter had nothing to write for it,
+     *   or null if it could not be serialized
+     */
     private EncodedPiece tryEncode(Event[] events, List<EventSummarizer.EventSummary> summaries) {
         try {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
             int count = write(events, summaries, buffer);
             if (count == 0) {
-                return null;
+                // An empty summary, which the formatter skips. Nothing is lost by leaving it out.
+                return EncodedPiece.NOTHING;
             }
             byte[] jsonObject = objectFromArray(buffer.toByteArray());
             if (jsonObject == null) {
@@ -487,6 +518,8 @@ final class OutboundEventBuffer {
     }
 
     private static final class EncodedPiece {
+        static final EncodedPiece NOTHING = new EncodedPiece(NO_DATA, 0);
+
         final byte[] jsonObject;
         final int eventCount;
 
@@ -502,10 +535,12 @@ final class OutboundEventBuffer {
     static final class Payload {
         private final byte[] data;
         private final int eventCount;
+        private final boolean complete;
 
-        Payload(byte[] data, int eventCount) {
+        Payload(byte[] data, int eventCount, boolean complete) {
             this.data = data;
             this.eventCount = eventCount;
+            this.complete = complete;
         }
 
         /**
@@ -520,6 +555,14 @@ final class OutboundEventBuffer {
          */
         int getEventCount() {
             return eventCount;
+        }
+
+        /**
+         * @return false if something handed to the encoder could not be serialized and was dropped,
+         *   so that even a successful post of this body leaves those events undelivered
+         */
+        boolean isComplete() {
+            return complete;
         }
     }
 }

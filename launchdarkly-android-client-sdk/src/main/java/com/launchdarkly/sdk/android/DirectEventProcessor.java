@@ -82,7 +82,7 @@ final class DirectEventProcessor implements EventProcessor {
      * trips, which two seconds covers up to roughly a 600ms RTT. A network slower than that is one the
      * post is likely to fail on anyway.
      * <p>
-     * Overshooting the budget is cheaper than it looks, because the delivery is not cancelled when the
+     * Overshooting the budget is cheaper than it looks, because the delivery is not canceled when the
      * budget expires; see {@link #close()}.
      */
     static final long DEFAULT_CLOSE_BUDGET_MILLIS = 2_000;
@@ -234,8 +234,9 @@ final class DirectEventProcessor implements EventProcessor {
     private ScheduledFuture<Boolean> pendingRetry;
 
     /**
-     * Guards {@link #pendingFlush}. Taken on a caller's thread and on the delivery thread, never
-     * while holding {@link #recordLock}, and nothing blocking happens under it.
+     * Guards {@link #pendingFlush} and {@link #pendingFlushAnswersACaller}. Taken on a caller's
+     * thread and on the delivery thread, never while holding {@link #recordLock}, and nothing
+     * blocking happens under it.
      */
     private final Object flushLock = new Object();
 
@@ -245,6 +246,25 @@ final class DirectEventProcessor implements EventProcessor {
      * delivery begins, which is the point past which it can no longer speak for what is recorded.
      */
     private LDAwaitFuture<Boolean> pendingFlush;
+
+    /**
+     * Whether a {@link #flushAsync()} caller, who is there to hear the outcome, is waiting on
+     * {@link #pendingFlush}, as opposed to only callers that discard it.
+     */
+    private boolean pendingFlushAnswersACaller;
+
+    /**
+     * Set when events the SDK accepted were dropped for good, and cleared once a
+     * {@link #flushAsync()} caller has been told so.
+     * <p>
+     * A batch the service refuses in a way that may pass is kept and retried, so it is not a loss.
+     * What is lost is what the store never received: an event or a summary that could not be
+     * serialized when it was committed. A delivery that finds nothing to send cannot tell those
+     * apart from events that arrived, so without this it would report success for them. Atomic
+     * because commits run on the commit executor and on callers' threads, and a caller waiting
+     * behind a retry is answered from a pooled thread.
+     */
+    private final AtomicBoolean eventsLostSinceLastAnswer = new AtomicBoolean(false);
 
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
@@ -544,6 +564,9 @@ final class DirectEventProcessor implements EventProcessor {
                 store.releaseReservations();
             }
             stageSummaries(summaries);
+            if (eventBuffer.takeSerializationFailure()) {
+                eventsLostSinceLastAnswer.set(true);
+            }
             store.commit();
             committedSequence = through;
         }
@@ -653,12 +676,15 @@ final class DirectEventProcessor implements EventProcessor {
         // Otherwise the write is queued ahead of the delivery, so it still happens when the delivery
         // cannot run because the client is offline.
         commitAtCommitPoint(lastRecordedSequence());
-        flushAsync();
+        queueDelivery(false);
     }
 
     @Override
     public void blockingFlush() {
-        Future<Boolean> delivery = flushAsync();
+        if (isStopped()) {
+            return;
+        }
+        Future<Boolean> delivery = queueDelivery(false);
         try {
             delivery.get();
         } catch (InterruptedException e) {
@@ -673,21 +699,24 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return new LDSuccessFuture<>(false);
         }
-        return queueDelivery();
+        return queueDelivery(true);
     }
 
     /**
      * Queues a delivery, or hands back one that is already queued and has not started.
      * <p>
-     * A delivery that has not started yet will take everything recorded up to the moment it does,
-     * which includes whatever the caller recorded before asking, so waiting on it answers the
-     * caller's question as well as a delivery of its own would. Without this, flushes arriving
-     * faster than a post completes each queue their own, and the one that matters -- the
-     * {@code flushAndWait} at shutdown -- waits behind all of them.
+     * A delivery that has not started yet will send everything recorded before it starts. That
+     * includes the caller's events, so waiting on it is as good as queuing a new one. Without this,
+     * flushes arriving faster than a post completes each queue their own, and the one that matters --
+     * the {@code flushAndWait} at shutdown -- waits behind all of them.
+     *
+     * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
+     *   any events lost since the last answer, and false if the caller discards it
      */
-    private Future<Boolean> queueDelivery() {
+    private Future<Boolean> queueDelivery(boolean answersACaller) {
         synchronized (flushLock) {
             if (pendingFlush != null) {
+                pendingFlushAnswersACaller |= answersACaller;
                 return pendingFlush;
             }
             LDAwaitFuture<Boolean> result = new LDAwaitFuture<>();
@@ -696,6 +725,7 @@ final class DirectEventProcessor implements EventProcessor {
                 return new LDSuccessFuture<>(false);
             }
             pendingFlush = result;
+            pendingFlushAnswersACaller = answersACaller;
             return result;
         }
     }
@@ -703,13 +733,20 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Runs one delivery on behalf of every flush request that joined it, and tells them all how it
      * went.
+     * <p>
+     * A caller who will hear the answer is told no if events were dropped for good since the last
+     * caller was told, as well as if this delivery fails: a delivery that finds nothing to send is
+     * not evidence that everything recorded arrived.
      */
     private void runDelivery(LDAwaitFuture<Boolean> result) {
+        boolean answersACaller = false;
         synchronized (flushLock) {
             // Requests arriving from here on need a delivery of their own: this one is about to take
             // the buffer, and what it takes is all it can speak for.
             if (pendingFlush == result) {
                 pendingFlush = null;
+                answersACaller = pendingFlushAnswersACaller;
+                pendingFlushAnswersACaller = false;
             }
         }
         DeliveryOutcome outcome;
@@ -722,9 +759,9 @@ final class DirectEventProcessor implements EventProcessor {
             outcome = DeliveryOutcome.NOT_DELIVERED;
         }
         if (outcome.retry == null) {
-            result.set(outcome.delivered);
+            answer(result, outcome.delivered, answersACaller);
         } else {
-            completeWhenRetryEnds(result, outcome.retry);
+            completeWhenRetryEnds(result, outcome.retry, answersACaller);
         }
     }
 
@@ -733,18 +770,31 @@ final class DirectEventProcessor implements EventProcessor {
      * it is about to be sent again. Waiting happens on a pooled thread because the retry runs a
      * second from now on this one, which must be free to take it.
      */
-    private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, Future<Boolean> retry) {
+    private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, Future<Boolean> retry,
+                                       boolean answersACaller) {
         LDAwaitFuture<Boolean> retried = LDFutures.fromFuture(retry);
         retried.addListener(() -> {
+            boolean delivered = false;
             try {
-                result.set(Boolean.TRUE.equals(retried.get()));
+                delivered = Boolean.TRUE.equals(retried.get());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                result.set(false);
             } catch (ExecutionException e) {
-                result.set(false);
+                // Reported as not delivered.
             }
+            answer(result, delivered, answersACaller);
         });
+    }
+
+    /**
+     * Completes a delivery's future. A caller who will hear the answer is told no if anything was
+     * lost since the last caller was told, as well as if this delivery failed.
+     */
+    private void answer(LDAwaitFuture<Boolean> result, boolean delivered, boolean answersACaller) {
+        if (answersACaller) {
+            delivered &= !eventsLostSinceLastAnswer.getAndSet(false);
+        }
+        result.set(delivered);
     }
 
     @Override
@@ -772,7 +822,7 @@ final class DirectEventProcessor implements EventProcessor {
             try {
                 awaitDelivery(delivery, TimeUnit.MILLISECONDS.toNanos(closeBudgetMillis));
             } catch (TimeoutException e) {
-                // Deliberately not cancelled. The run has already been drained into a payload, so
+                // Deliberately not canceled. The run has already been drained into a payload, so
                 // interrupting now would make the loss certain, while leaving it to run costs
                 // nothing: the scheduler thread is a daemon, and returning from close() does not
                 // end an Android process. The budget bounds the caller, not the delivery.
@@ -1119,7 +1169,7 @@ final class DirectEventProcessor implements EventProcessor {
      * Unlike analytics events, diagnostics are not sent while offline or in the background.
      * <p>
      * {@link #updateScheduledTasks} cancels the periodic task when either becomes true, but that is
-     * not enough on its own. Cancelling does not stop a run already underway, and the init event is
+     * not enough on its own. Canceling does not stop a run already underway, and the init event is
      * submitted before it reaches the executor. Either can arrive here after the state changed.
      */
     private boolean diagnosticsSuspended() {
@@ -1170,12 +1220,12 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Must be called holding {@code stateLock}. Once closed, this only ever cancels: close() sets the
      * flag and then calls this under the same lock, so a call that got here first has its tasks
-     * cancelled by close(), and any call after it finds the flag set.
+     * canceled by close(), and any call after it finds the flag set.
      */
     private void updateScheduledTasks(boolean inBackground, boolean offline) {
         boolean stopped = closed.get();
-        // Flushing stays scheduled whether or not we are offline or in the background; a run while
-        // offline returns without doing anything. Cancelling it for an outage would restart the
+        // Flushing stays scheduled even while we are offline or in the background; a run while
+        // offline returns without doing anything. Canceling it for an outage would restart the
         // interval on every reconnect, and a run of brief outages would then hold events back for
         // far longer than one interval. Left running, what an outage buffered goes out at the first
         // run after it ends.

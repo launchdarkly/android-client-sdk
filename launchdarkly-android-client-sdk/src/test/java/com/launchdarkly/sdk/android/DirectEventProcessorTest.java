@@ -11,11 +11,13 @@ import static org.junit.Assert.fail;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventPersistence;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.testhelpers.httptest.HandlerSwitcher;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
@@ -57,6 +59,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private static final LDValue DEFAULT_VALUE = LDValue.of(false);
 
     private static final int DEFAULT_CAPACITY = 100;
+    private static final String PAYLOAD_ID_HEADER = "X-LaunchDarkly-Payload-ID";
 
     // Enough concurrent evaluations that close() reliably lands between the two writes one evaluation
     // makes. Against the unfixed code this failed in the first trial of every run, by two to four
@@ -1534,12 +1537,276 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                Future<Boolean> delivery = eventProcessor.flushAsync();
 
-                assertFalse(awaitFlush(eventProcessor, 100, TimeUnit.MILLISECONDS));
+                try {
+                    delivery.get(100, TimeUnit.MILLISECONDS);
+                    fail("the delivery finished while its response was still being held");
+                } catch (TimeoutException expected) {
+                    // The caller gives up here, as flushAndWait does when its budget runs out.
+                }
+
+                // Left running rather than canceled, the delivery still gets its events through
+                // once the service answers, and a canceled one could not report that.
+                letResponseFinish.release(1);
+                assertTrue(delivery.get(5, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
             } finally {
                 // Released before closing, so that the delivery still in flight can finish rather
                 // than hold up the shutdown that close() waits on.
+                letResponseFinish.drainPermits();
                 letResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushReportsFailureWhenTheServiceRefusesTheEventsForNow() throws Exception {
+        // 503 is a failure that may pass: the processor retries it once, and a caller waiting on the
+        // flush is answered by that retry. The batch is kept after it; see the tests below.
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushReportsFailureWhenTheServiceRefusesTheEventsForGood() throws Exception {
+        // 401 is not retried, and stops the processor for the life of the process, so the flush
+        // after it has nothing it can deliver on either.
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void flushAndWaitDoesNotReportDeliveryForEventsAnEarlierFailedFlushDrained() throws Exception {
+        // Every request fails recoverably (503): each delivery attempts, retries once, and keeps the batch.
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "kept-event", LDValue.ofNull(), null);
+
+                // Stands in for the periodic flush or the SDK's flush-on-background: it closes the
+                // buffer into a batch and its delivery fails. The batch stays in the store.
+                eventProcessor.blockingFlush();
+                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+
+                // The buffer is empty, but the event is still waiting in its batch, not delivered.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aBatchAnUnheardDeliveryCouldNotSendGoesOutOnceTheServiceRecovers() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "kept-event", LDValue.ofNull(), null);
+                eventProcessor.blockingFlush();
+                // The attempt and its one retry: the service only recovers once both have failed.
+                String payloadId = server.getRecorder().requireRequest(10, TimeUnit.SECONDS)
+                        .getHeader(PAYLOAD_ID_HEADER);
+                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                service.setTarget(Handlers.status(202));
+
+                // Nobody heard the failure, and the next flush still sends what it refused.
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo resent = server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                assertTrue(resent.getBody().contains("\"key\":\"kept-event\""));
+                assertEquals("the same delivery, so the service can discard a repeat",
+                        payloadId, resent.getHeader(PAYLOAD_ID_HEADER));
+
+                // Delivered once: the next flush has only its own events to send.
+                eventProcessor.recordCustomEvent(CONTEXT, "later-event", LDValue.ofNull(), null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo later = server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                assertTrue(later.getBody().contains("\"key\":\"later-event\""));
+                assertFalse(later.getBody().contains("kept-event"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aBatchIsKeptThroughRepeatedRefusalsAndDeliveredOnceTheServiceRecovers() throws Exception {
+        assertKeptThroughRefusalsAndDeliveredOnRecovery(503, eventsBuilder(DEFAULT_CAPACITY), 3);
+    }
+
+    @Test
+    public void aBatchHeldInMemoryIsKeptThroughRepeatedRefusalsWherePersistenceIsOff() throws Exception {
+        // Without a disk the store holds batches in memory, and a refusal must not cost them either.
+        assertKeptThroughRefusalsAndDeliveredOnRecovery(503,
+                eventsBuilder(DEFAULT_CAPACITY).eventPersistence(EventPersistence.DISABLED), 3);
+    }
+
+    @Test
+    public void everyRecoverableStatusKeepsTheBatchPastTheRetry() throws Exception {
+        // The statuses the SDK treats as worth trying again; each has to keep the batch, not just 503.
+        for (int status : new int[] { 400, 408, 429, 500, 502, 504 }) {
+            assertKeptThroughRefusalsAndDeliveredOnRecovery(status, eventsBuilder(DEFAULT_CAPACITY), 2);
+        }
+    }
+
+    @Test
+    public void eventsRecordedDuringAnOutageAreDeliveredWithTheBatchesRefusedBeforeThem() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "first-event", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                eventProcessor.recordCustomEvent(CONTEXT, "second-event", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                // Two flushes, each an attempt and a retry, all at the first batch: delivery stops at
+                // the oldest batch that fails in a way that may pass.
+                for (int i = 0; i < 4; i++) {
+                    assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                            .contains("\"key\":\"first-event\""));
+                }
+                service.setTarget(Handlers.status(202));
+
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                // Oldest first, each exactly once.
+                RequestInfo first = server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                RequestInfo second = server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+                assertTrue(first.getBody().contains("\"key\":\"first-event\""));
+                assertFalse(first.getBody().contains("second-event"));
+                assertTrue(second.getBody().contains("\"key\":\"second-event\""));
+                assertFalse(second.getBody().contains("first-event"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aBatchStillRefusedAtCloseIsDeliveredByTheNextRun() throws Exception {
+        String payloadId;
+        try (HttpServer refusing = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(refusing, DEFAULT_CAPACITY);
+            eventProcessor.recordCustomEvent(CONTEXT, "kept-event", LDValue.ofNull(), null);
+            assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            payloadId = refusing.getRecorder().requireRequest(1, TimeUnit.SECONDS)
+                    .getHeader(PAYLOAD_ID_HEADER);
+            eventProcessor.close();
+        }
+
+        // The same directory, as the application's next launch would find it.
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                assertTrue(awaitFlush(nextRun, 10, TimeUnit.SECONDS));
+                RequestInfo resent = server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                assertTrue(resent.getBody().contains("\"key\":\"kept-event\""));
+                assertEquals(payloadId, resent.getHeader(PAYLOAD_ID_HEADER));
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    /**
+     * Refuses a batch with {@code status} for several flushes in a row, each of which attempts it and
+     * retries it once, then lets the service recover and checks that the batch arrives exactly once,
+     * under the payload ID it was first sent with.
+     */
+    private void assertKeptThroughRefusalsAndDeliveredOnRecovery(int status, EventProcessorBuilder events,
+                                                                 int refusedFlushes) throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(status));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, events, true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "kept-event", LDValue.ofNull(), null);
+                String payloadId = null;
+                for (int flush = 0; flush < refusedFlushes; flush++) {
+                    assertFalse("HTTP " + status + ", flush " + flush,
+                            awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    for (int attempt = 0; attempt < 2; attempt++) {
+                        RequestInfo refused = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                        assertTrue("HTTP " + status + ": the batch was dropped before flush " + flush,
+                                refused.getBody().contains("\"key\":\"kept-event\""));
+                        if (payloadId == null) {
+                            payloadId = refused.getHeader(PAYLOAD_ID_HEADER);
+                        }
+                        assertEquals(payloadId, refused.getHeader(PAYLOAD_ID_HEADER));
+                    }
+                }
+                service.setTarget(Handlers.status(202));
+
+                assertTrue("HTTP " + status + ": not delivered once the service recovered",
+                        awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo delivered = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(delivered.getBody().contains("\"key\":\"kept-event\""));
+                assertEquals(payloadId, delivered.getHeader(PAYLOAD_ID_HEADER));
+
+                // Gone once accepted: nothing is left to resend.
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushIsNotToldEventsArrivedThatCouldNotBeSerialized() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushIsNotToldEventsArrivedWhenSomeOfThemCouldNotBeSerialized() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(CONTEXT, "fine", LDValue.ofNull(), 1.0);
+
+                // The post succeeds, and still not everything the caller recorded is in it.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(LDValue.of("fine"), requireEventOfKind(events, "custom").get("key"));
+            } finally {
                 eventProcessor.close();
             }
         }

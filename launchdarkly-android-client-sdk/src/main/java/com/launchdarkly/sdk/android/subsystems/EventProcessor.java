@@ -115,7 +115,8 @@ public interface EventProcessor extends Closeable {
      * taken out of the buffer, so interrupting the post would only make losing them certain.
      *
      * @return a future that completes with true if the events reached the service, or there were
-     *   none to send; false if they could not be sent
+     *   none to send; false if they could not be sent, including when a delivery that started
+     *   earlier took them and then lost them
      * @since 5.17.0
      */
     default Future<Boolean> flushAsync() {
