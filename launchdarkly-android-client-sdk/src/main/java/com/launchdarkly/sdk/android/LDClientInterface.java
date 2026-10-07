@@ -11,6 +11,7 @@ import com.launchdarkly.sdk.android.integrations.Plugin;
 import java.io.Closeable;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The interface for the LaunchDarkly SDK client.
@@ -145,6 +146,48 @@ public interface LDClientInterface extends Closeable {
      * Sends all pending events to LaunchDarkly.
      */
     void flush();
+
+    /**
+     * Sends all pending events to LaunchDarkly and waits for them to be delivered.
+     * <p>
+     * Unlike {@link #flush()}, which returns before the events reach the network, this reports
+     * whether they arrived, which is what makes it usable at a point where the application is about
+     * to lose the ability to send them: an uncaught exception handler, a move to the background, or
+     * any other last chance. Events buffered in memory do not survive the process, so a caller that
+     * knows the process is ending can use this to give them one.
+     * {@link com.launchdarkly.sdk.android.integrations.LDCrashHandler} does this for
+     * uncaught exceptions.
+     * <p>
+     * It can only help while the process is still running code. An uncaught exception runs its
+     * handler first, and a move to the background is announced, so both leave time for this call.
+     * A {@code SIGKILL}, an ANR kill, a native crash, and the system reclaiming a backgrounded process
+     * run nothing at all, and events still in memory at that moment are lost whatever the
+     * application does.
+     * <p>
+     * The timeout bounds the whole call, including when the SDK is configured for more than one
+     * environment. Choose it with the caller in mind: a dying process is not a good place to wait on
+     * a network request that may never answer. The call blocks the thread it is made on, so on the
+     * main thread the timeout also counts towards an ANR. On a network that does not answer, a
+     * delivery takes about 21 seconds to give up with the default HTTP configuration: two attempts a
+     * second apart, each allowed the timeout set by
+     * {@link com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder#connectTimeoutMillis(int)}.
+     * A shorter timeout returns {@code false} before then, so there it bounds the wait rather than
+     * reporting how the delivery went.
+     *
+     * @param timeout how long to wait for delivery
+     * @param unit the time unit of {@code timeout}
+     * @return true if the events were delivered, or there were none to deliver; false if the timeout
+     *   expired first, the SDK is offline, closed, or otherwise unable to deliver them, or events
+     *   recorded since the last time this was answered were lost on the way, by this delivery or an
+     *   earlier one. Events the service refuses, even with an error that may pass such as a 503, are
+     *   retried once straight away and then lost: they are not kept for a later flush, so calling
+     *   this again does not resend them. A {@code false} because the timeout expired does not mean
+     *   the events were not sent: the delivery is left running when the caller stops waiting, and
+     *   may still arrive if the process lives long enough. A caller that resends on {@code false}
+     *   can therefore cause duplicates.
+     * @since 5.17.0
+     */
+    boolean flushAndWait(long timeout, TimeUnit unit);
 
     /**
      * Returns a map of all feature flags for the current evaluation context. No events are sent to LaunchDarkly.
