@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import androidx.annotation.VisibleForTesting;
+
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 
@@ -449,9 +451,15 @@ class EventStore implements Closeable {
     // MARK: delivery
 
     /**
-     * Commits, then closes the open log into a batch to deliver.
+     * Commits, then closes the open log into a batch to deliver, and whatever is still staged in memory
+     * into another.
+     * <p>
+     * Both can hold events at once. A write that fails after earlier ones succeeded gives up on
+     * persistence with those earlier events in the log and the failed ones back in memory, and closing
+     * only the log would leave the rest for a delivery that reports success without them.
      *
-     * @return the batch, or null when there is nothing to send
+     * @return the batch closed from the log, or the one closed from memory where the log had nothing;
+     *   null when there is nothing to send
      */
     Batch closeBatch() {
         synchronized (ioLock) {
@@ -464,15 +472,11 @@ class EventStore implements Closeable {
                 stillBuffered = bufferedEventCount;
             }
 
-            if (events > 0) {
-                return closeOpenLogHoldingIoLock(events);
-            }
-            if (stillBuffered > 0) {
-                // Only reachable once persistence has been given up on; a healthy commit leaves nothing
-                // staged behind.
-                return closeInMemoryBatchHoldingIoLock();
-            }
-            return null;
+            Batch fromLog = events > 0 ? closeOpenLogHoldingIoLock(events) : null;
+            // Only reachable once persistence has been given up on; a healthy commit leaves nothing
+            // staged behind. Closed after the log, so the older events are delivered first.
+            Batch fromMemory = stillBuffered > 0 ? closeInMemoryBatchHoldingIoLock() : null;
+            return fromLog != null ? fromLog : fromMemory;
         }
     }
 
@@ -746,7 +750,7 @@ class EventStore implements Closeable {
         boolean isNew = !openLog().exists() || openLog().length() == 0;
         // Append mode is what makes each write land at the end of the file as one step, so that a
         // process cannot splice its bytes into the middle of what another wrote.
-        FileOutputStream stream = new FileOutputStream(openLog(), true);
+        FileOutputStream stream = openForAppending(openLog());
         if (isNew) {
             try {
                 stream.write(Format.fileHeader());
@@ -762,6 +766,12 @@ class EventStore implements Closeable {
         }
         output = stream;
         return output;
+    }
+
+    /** Overridable so a test can make a write fail partway through a session, as a full disk does. */
+    @VisibleForTesting
+    FileOutputStream openForAppending(File log) throws IOException {
+        return new FileOutputStream(log, true);
     }
 
     /** Requires {@code ioLock}. */

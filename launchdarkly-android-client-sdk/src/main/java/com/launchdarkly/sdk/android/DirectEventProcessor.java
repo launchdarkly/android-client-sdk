@@ -259,7 +259,7 @@ final class DirectEventProcessor implements EventProcessor {
      * <p>
      * A batch the service refuses in a way that may pass is kept and retried, so it is not a loss.
      * What is lost is what the store never received: an event or a summary that could not be
-     * serialized when it was committed. A delivery that finds nothing to send cannot tell those
+     * serialized when it was committed, or that serialized too large to store. A delivery that finds nothing to send cannot tell those
      * apart from events that arrived, so without this it would report success for them. Atomic
      * because commits run on the commit executor and on callers' threads, and a caller waiting
      * behind a retry is answered from a pooled thread.
@@ -309,11 +309,12 @@ final class DirectEventProcessor implements EventProcessor {
             if (store.pendingBatches().isEmpty()) {
                 return;
             }
-            // Either end of the race is handled: if the SDK is already allowed to send, these go now,
-            // and if it is not, going online later will pick them up.
-            if (offline.get() || isStopped()) {
-                hasEventsFromPreviousRun.set(true);
-            } else {
+            // Raised before offline is read, and claimed by whichever side sees both: going online writes
+            // offline and then claims the flag, so at least one of the two finds the other's write, and
+            // the claim makes it exactly one. Reading offline first left a window where going online
+            // found no flag yet and this then found the SDK still offline, and neither sent them.
+            hasEventsFromPreviousRun.set(true);
+            if (!offline.get() && !isStopped() && hasEventsFromPreviousRun.compareAndSet(true, false)) {
                 deliverPayload();
             }
         });
@@ -585,7 +586,9 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private void stageRun(List<Event> run) {
         for (byte[] serialized : eventBuffer.serializeAll(run)) {
-            store.stageReserved(serialized);
+            if (!store.stageReserved(serialized)) {
+                reportRefusedByStore("event", serialized);
+            }
         }
     }
 
@@ -596,8 +599,19 @@ final class DirectEventProcessor implements EventProcessor {
         for (byte[] summary : eventBuffer.serializeSummaries(summaries)) {
             // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
             // counted, and dropping it would lose all of them at once.
-            store.stage(summary, true);
+            if (!store.stage(summary, true)) {
+                reportRefusedByStore("summary event", summary);
+            }
         }
+    }
+
+    /**
+     * Records the loss of something the store would not take. Capacity is bypassed on both paths, so
+     * what is left is a frame too large to store, which no later attempt can fix.
+     */
+    private void reportRefusedByStore(String what, byte[] serialized) {
+        logger.error("Dropping {} of {} bytes, too large to store", what, serialized.length);
+        eventsLostSinceLastAnswer.set(true);
     }
 
     /**

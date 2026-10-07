@@ -26,9 +26,12 @@ import org.junit.After;
 import org.junit.Test;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
@@ -1926,6 +1929,76 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertEquals(LDValue.of("fine"), requireEventOfKind(events, "custom").get("key"));
             } finally {
                 eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushIsNotToldEventsArrivedWhenOneWasTooLargeToStore() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                char[] data = new char[EventStore.Format.MAX_FRAME_SIZE];
+                Arrays.fill(data, 'x');
+                eventProcessor.recordCustomEvent(CONTEXT, "too-large", LDValue.of(new String(data)), null);
+                eventProcessor.recordCustomEvent(CONTEXT, "fine", LDValue.ofNull(), null);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(1, countEventsOfKind(events, "custom"));
+                assertEquals(LDValue.of("fine"), requireEventOfKind(events, "custom").get("key"));
+                logging.assertErrorLogged("too large to store");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void eventsHeldInMemoryWhenAWriteFailsAreDeliveredWithThoseWrittenBeforeIt() throws Exception {
+        AtomicInteger writes = new AtomicInteger();
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            FileOutputStream openForAppending(File log) throws IOException {
+                return new FileOutputStream(log, true) {
+                    @Override
+                    public void write(byte[] bytes) throws IOException {
+                        // The file header and the first event land; the disk is full from then on.
+                        if (writes.incrementAndGet() > 2) {
+                            throw new IOException("No space left on device");
+                        }
+                        super.write(bytes);
+                    }
+                };
+            }
+        };
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "written", LDValue.ofNull(), null);
+                // Its write fails, so persistence is given up with "written" in the log and this in memory.
+                eventProcessor.recordCustomEvent(CONTEXT, "held", LDValue.ofNull(), null);
+                logging.assertWarnLogged("Giving up on persisting events");
+
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                List<String> keys = new ArrayList<>();
+                for (LDValue event : collectDelivered(server)) {
+                    keys.add(event.get("key").stringValue());
+                }
+                assertEquals("oldest first, and neither left behind",
+                        Arrays.asList("written", "held"), keys);
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
             }
         }
     }
