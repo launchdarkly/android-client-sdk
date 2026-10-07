@@ -185,7 +185,12 @@ public interface LDClientInterface extends Closeable {
      * The timeout bounds the whole call, including when the SDK is configured for more than one
      * environment. Choose it with the caller in mind: a dying process is not a good place to wait on
      * a network request that may never answer. The call blocks the thread it is made on, so on the
-     * main thread the timeout also counts towards an ANR.
+     * main thread the timeout also counts towards an ANR. On a network that does not answer, a
+     * delivery takes about 21 seconds to give up with the default HTTP configuration: two attempts a
+     * second apart, each allowed the timeout set by
+     * {@link com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder#connectTimeoutMillis(int)}.
+     * A shorter timeout returns {@code false} before then, so there it bounds the wait rather than
+     * reporting how the delivery went.
      *
      * @param timeout how long to wait for delivery
      * @param unit the time unit of {@code timeout}
