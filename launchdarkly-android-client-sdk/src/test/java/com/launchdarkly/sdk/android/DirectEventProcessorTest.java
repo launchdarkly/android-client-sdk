@@ -14,6 +14,7 @@ import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.testhelpers.httptest.HandlerSwitcher;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
@@ -1009,8 +1010,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                     // The caller gives up here, as flushAndWait does when its budget runs out.
                 }
 
-                // Left running rather than cancelled, the delivery still gets its events through
-                // once the service answers, and a cancelled one could not report that.
+                // Left running rather than canceled, the delivery still gets its events through
+                // once the service answers, and a canceled one could not report that.
                 letResponseFinish.release(1);
                 assertTrue(delivery.get(5, TimeUnit.SECONDS));
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
@@ -1080,7 +1081,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             eventProcessor.setOffline(false);
             eventProcessor.recordCustomEvent(CONTEXT, "lost", LDValue.ofNull(), null);
             eventProcessor.blockingFlush(); // takes the event, and its post fails unheard
-
+    
             assertFalse(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
             assertEquals("the second flush had nothing of its own to post", 1, sends.get());
 
@@ -1090,6 +1091,55 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         } finally {
             eventProcessor.close();
             scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void flushAndWaitDoesNotReportDeliveryForEventsAnEarlierFailedFlushDrained() throws Exception {
+        // Every request fails recoverably (503): the sender attempts, retries once, gives up.
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "lost-event", LDValue.ofNull(), null);
+
+                // Stands in for the periodic flush or the SDK's flush-on-background: it drains
+                // the buffer and its delivery fails. The run is not restored to the buffer.
+                eventProcessor.blockingFlush();
+                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+
+                // The event is irrecoverably gone, so "were my events delivered" is no.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushAfterTheServiceRecoversIsAnsweredOnlyForWhatCameAfterTheLoss() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "lost-event", LDValue.ofNull(), null);
+                eventProcessor.blockingFlush();
+                // The attempt and its one retry: the service only recovers once the run is lost.
+                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                service.setTarget(Handlers.status(202));
+
+                // The service is back, and the event it refused is still not delivered.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "delivered-event", LDValue.ofNull(), null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo request = server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                assertTrue(request.getBody().contains("\"key\":\"delivered-event\""));
+                assertFalse("a lost run is not resent", request.getBody().contains("lost-event"));
+            } finally {
+                eventProcessor.close();
+            }
         }
     }
 

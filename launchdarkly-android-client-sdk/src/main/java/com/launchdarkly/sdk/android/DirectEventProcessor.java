@@ -50,7 +50,7 @@ final class DirectEventProcessor implements EventProcessor {
      * trips, which two seconds covers up to roughly a 600ms RTT. A network slower than that is one the
      * post is likely to fail on anyway.
      * <p>
-     * Overshooting the budget is cheaper than it looks, because the delivery is not cancelled when the
+     * Overshooting the budget is cheaper than it looks, because the delivery is not canceled when the
      * budget expires; see {@link #close()}.
      */
     static final long DEFAULT_CLOSE_BUDGET_MILLIS = 2_000;
@@ -394,11 +394,10 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Queues a delivery, or hands back one that is already queued and has not started.
      * <p>
-     * A delivery that has not started yet will take everything recorded up to the moment it does,
-     * which includes whatever the caller recorded before asking, so waiting on it answers the
-     * caller's question as well as a delivery of its own would. Without this, flushes arriving
-     * faster than a post completes each queue their own, and the one that matters -- the
-     * {@code flushAndWait} at shutdown -- waits behind all of them.
+     * A delivery that has not started yet will send everything recorded before it starts. That
+     * includes the caller's events, so waiting on it is as good as queuing a new one. Without this,
+     * flushes arriving faster than a post completes each queue their own, and the one that matters --
+     * the {@code flushAndWait} at shutdown -- waits behind all of them.
      *
      * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
      *   any events lost since the last answer, and false if the caller discards it
@@ -476,7 +475,7 @@ final class DirectEventProcessor implements EventProcessor {
         try {
             queueDelivery(false).get(closeBudgetMillis, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            // Deliberately not cancelled. The run has already been drained into a payload, so
+            // Deliberately not canceled. The run has already been drained into a payload, so
             // interrupting now would make the loss certain, while leaving it to run costs
             // nothing: the scheduler thread is a daemon, and returning from close() does not
             // end an Android process. The budget bounds the caller, not the delivery.
@@ -560,6 +559,7 @@ final class DirectEventProcessor implements EventProcessor {
             summaries = buffer.takeSummaries();
             summaryContextsExceeded.set(false);
         }
+
         boolean delivered = false;
         try {
             delivered = deliverTaken(run, summaries);
@@ -587,9 +587,11 @@ final class DirectEventProcessor implements EventProcessor {
         if (payload.getEventCount() == 0) {
             return false; // everything taken was dropped as unserializable
         }
+
         if (diagnosticStore != null) {
             diagnosticStore.recordEventsInBatch(payload.getEventCount());
         }
+
         try {
             EventSender.Result result = eventSender.sendAnalyticsEvents(payload.getData(),
                     payload.getEventCount(), eventsUri);
@@ -685,7 +687,7 @@ final class DirectEventProcessor implements EventProcessor {
      * Unlike analytics events, diagnostics are not sent while offline or in the background.
      * <p>
      * {@link #updateScheduledTasks} cancels the periodic task when either becomes true, but that is
-     * not enough on its own. Cancelling does not stop a run already underway, and the init event is
+     * not enough on its own. Canceling does not stop a run already underway, and the init event is
      * submitted before it reaches the executor. Either can arrive here after the state changed.
      */
     private boolean diagnosticsSuspended() {
@@ -736,12 +738,12 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Must be called holding {@code stateLock}. Once closed, this only ever cancels: close() sets the
      * flag and then calls this under the same lock, so a call that got here first has its tasks
-     * cancelled by close(), and any call after it finds the flag set.
+     * canceled by close(), and any call after it finds the flag set.
      */
     private void updateScheduledTasks(boolean inBackground, boolean offline) {
         boolean stopped = closed.get();
-        // Flushing stays scheduled whether or not we are offline or in the background; a run while
-        // offline returns without doing anything. Cancelling it for an outage would restart the
+        // Flushing stays scheduled even while we are offline or in the background; a run while
+        // offline returns without doing anything. Canceling it for an outage would restart the
         // interval on every reconnect, and a run of brief outages would then hold events back for
         // far longer than one interval. Left running, what an outage buffered goes out at the first
         // run after it ends.

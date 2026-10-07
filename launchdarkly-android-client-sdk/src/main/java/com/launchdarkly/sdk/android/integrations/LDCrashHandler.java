@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit;
  * The timeout is how long the crash is held open for the events. The thread that threw waits for
  * it, so when that is the main thread the application stays frozen until the events are delivered
  * or the timeout expires; a couple of seconds is a reasonable budget. A delivery still running when
- * the timeout expires is not cancelled, and may finish while the rest of the handlers run.
+ * the timeout expires is not canceled, and may finish while the rest of the handlers run.
  * <p>
  * This handler only helps with uncaught Java and Kotlin exceptions. A {@code SIGKILL}, an ANR kill,
  * a native crash, and the system reclaiming a backgrounded process run no handlers, so the events

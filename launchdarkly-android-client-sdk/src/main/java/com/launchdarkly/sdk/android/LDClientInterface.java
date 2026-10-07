@@ -174,10 +174,12 @@ public interface LDClientInterface extends Closeable {
      * @return true if the events were delivered, or there were none to deliver; false if the timeout
      *   expired first, the SDK is offline, closed, or otherwise unable to deliver them, or events
      *   recorded since the last time this was answered were lost on the way, by this delivery or an
-     *   earlier one. A {@code false} because the timeout expired does not mean the events were not
-     *   sent: the delivery is left running when the caller stops waiting, and may still arrive if
-     *   the process lives long enough. A caller that resends on {@code false} can therefore cause
-     *   duplicates.
+     *   earlier one. Events the service refuses, even with an error that may pass such as a 503, are
+     *   retried once straight away and then lost: they are not kept for a later flush, so calling
+     *   this again does not resend them. A {@code false} because the timeout expired does not mean
+     *   the events were not sent: the delivery is left running when the caller stops waiting, and
+     *   may still arrive if the process lives long enough. A caller that resends on {@code false}
+     *   can therefore cause duplicates.
      * @since 5.17.0
      */
     boolean flushAndWait(long timeout, TimeUnit unit);

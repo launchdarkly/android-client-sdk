@@ -209,14 +209,14 @@ public class LDClientEventTest {
     }
 
     @Test
-    public void flushAndWaitReportsFailureWhenTheDeliveryIsCancelled() throws IOException {
-        // A custom event processor may hand back a future that is cancelled; Future.get then throws
+    public void flushAndWaitReportsFailureWhenTheDeliveryIsCanceled() throws IOException {
+        // A custom event processor may hand back a future that is canceled; Future.get then throws
         // CancellationException, which is unchecked and must not escape a boolean answer.
         try (MockWebServer mockEventsServer = new MockWebServer()) {
             mockEventsServer.start();
 
             LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
-                    .events(clientContext -> new CancellingEventProcessor())
+                    .events(clientContext -> new CancelingEventProcessor())
                     .build();
             try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
                 assertFalse(client.flushAndWait(5, TimeUnit.SECONDS));
@@ -224,8 +224,8 @@ public class LDClientEventTest {
         }
     }
 
-    /** An event processor whose deliveries are always cancelled before they can report. */
-    private static final class CancellingEventProcessor implements EventProcessor {
+    /** An event processor whose deliveries are always canceled before they can report. */
+    private static final class CancelingEventProcessor implements EventProcessor {
         @Override
         public Future<Boolean> flushAsync() {
             FutureTask<Boolean> delivery = new FutureTask<>(() -> true);

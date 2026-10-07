@@ -811,7 +811,7 @@ public class LDClient implements LDClientInterface, Closeable {
         try {
             return Boolean.TRUE.equals(delivery.get(remainingNanos, TimeUnit.NANOSECONDS));
         } catch (TimeoutException e) {
-            // Left running rather than cancelled: the events have been taken out of the buffer by
+            // Left running rather than canceled: the events have been taken out of the buffer by
             // now, so interrupting the delivery would only make losing them certain.
             return false;
         } catch (InterruptedException e) {
@@ -819,7 +819,7 @@ public class LDClient implements LDClientInterface, Closeable {
             return false;
         } catch (CancellationException e) {
             // Not something the SDK's own processor does, but a custom one can hand back a future
-            // that is cancelled, and that must not escape a call whose answer is a boolean.
+            // that is canceled, and that must not escape a call whose answer is a boolean.
             return false;
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() == null ? e : e.getCause();
