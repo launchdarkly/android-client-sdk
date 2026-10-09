@@ -178,7 +178,7 @@ final class StreamingDataSource implements DataSource {
                     .connectionErrorHandler(t -> {
                         BackgroundEventSource current = es;
                         if (current != null && t instanceof StreamHttpErrorException &&
-                                !LDUtil.isHttpErrorRecoverable(((StreamHttpErrorException) t).getCode())) {
+                                LDUtil.isHttpErrorUnexpected(((StreamHttpErrorException) t).getCode())) {
                             current.getEventSource()
                                     .activateRetryDelayStrategy(extendedRetryDelay);
                             logger.error("Encountered unexpected error: {}. Verify correct Mobile Key and Stream URI. Engaging extended backoff",
