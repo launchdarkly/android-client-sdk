@@ -16,6 +16,8 @@ public class MockPlatformState implements PlatformState {
 
     private volatile boolean foreground = true;
     private volatile boolean networkAvailable = true;
+    private volatile File noBackupFilesDir = null;
+    private volatile String processName = "test";
 
     @Override
     public boolean isNetworkAvailable() {
@@ -103,6 +105,28 @@ public class MockPlatformState implements PlatformState {
     @Override
     public File getCacheDir() {
         return new File(System.getProperty("java.io.tmpdir"));
+    }
+
+    @Override
+    public File getNoBackupFilesDir() {
+        return noBackupFilesDir != null ? noBackupFilesDir : getCacheDir();
+    }
+
+    public void setNoBackupFilesDir(File noBackupFilesDir) {
+        this.noBackupFilesDir = noBackupFilesDir;
+    }
+
+    @Override
+    public String getProcessName() {
+        return processName;
+    }
+
+    /**
+     * Lets a test act as a different process of a multi-process application while sharing the same
+     * directory, which is the situation the on-disk event log has to be safe in.
+     */
+    public void setProcessName(String processName) {
+        this.processName = processName;
     }
 
     @Override

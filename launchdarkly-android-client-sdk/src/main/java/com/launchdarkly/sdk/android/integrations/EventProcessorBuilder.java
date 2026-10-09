@@ -29,7 +29,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     /**
      * The default value for {@link #capacity(int)}.
      */
-    public static final int DEFAULT_CAPACITY = 100;
+    public static final int DEFAULT_CAPACITY = 1000;
 
     /**
      * The default value for {@link #diagnosticRecordingIntervalMillis(int)}: 15 minutes.
@@ -45,6 +45,11 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * The minimum value for {@link #diagnosticRecordingIntervalMillis(int)}: 5 minutes.
      */
     public static final int MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS = 300_000;
+
+    /**
+     * The default value for {@link #eventPersistence(EventPersistence)}: {@link EventPersistence#DISABLED}.
+     */
+    public static final EventPersistence DEFAULT_EVENT_PERSISTENCE = EventPersistence.DISABLED;
 
     /**
      * All attributes should be treated as private
@@ -65,6 +70,11 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * The flush interval in millis
      */
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
+
+    /**
+     * How far the SDK goes to make a recorded event outlive the process
+     */
+    protected EventPersistence eventPersistence = DEFAULT_EVENT_PERSISTENCE;
 
     /**
      * Set of attributes by reference that will be treated as private
@@ -132,6 +142,25 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      */
     public EventProcessorBuilder flushIntervalMillis(int flushIntervalMillis) {
         this.flushIntervalMillis = flushIntervalMillis <= 0 ? DEFAULT_FLUSH_INTERVAL_MILLIS : flushIntervalMillis;
+        return this;
+    }
+
+    /**
+     * Sets how far the SDK goes to make a recorded event outlive the process that recorded it.
+     * <p>
+     * Anything other than {@link EventPersistence#DISABLED} appends events to a log under the
+     * application's no-backup files directory and delivers them on a later run, which is what lets the
+     * crash an application was reporting when it died reach LaunchDarkly at all.
+     * {@link EventPersistence#IMMEDIATE} additionally puts the write on the thread that called
+     * {@code track} or {@code identify}, so there is no window in which the event exists only in memory.
+     * <p>
+     * The default value is {@link #DEFAULT_EVENT_PERSISTENCE}.
+     *
+     * @param eventPersistence how far to go to make events outlive the process
+     * @return the builder
+     */
+    public EventProcessorBuilder eventPersistence(EventPersistence eventPersistence) {
+        this.eventPersistence = eventPersistence == null ? DEFAULT_EVENT_PERSISTENCE : eventPersistence;
         return this;
     }
 

@@ -8,6 +8,7 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
@@ -16,6 +17,7 @@ import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
 import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
 import java.util.ArrayList;
@@ -31,14 +33,29 @@ public abstract class EventProcessorTestBase {
     protected static final LDContext CONTEXT = LDContext.create("user-key");
 
     // Long enough that the only payload in a test is the one it asks for explicitly.
-    private static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
+    protected static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
 
     @Rule
     public Timeout globalTimeout = Timeout.seconds(60);
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
+    /**
+     * A directory of its own per test, so that the events one test persists are never found by the next.
+     */
+    @Rule
+    public TemporaryFolder eventsDirectory = new TemporaryFolder();
 
     private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
+
+    /**
+     * The processor persists events, so it needs somewhere to put them. Tests get a real directory
+     * rather than a stub, which is what makes them exercise the same path an application does.
+     */
+    protected MockPlatformState platformState() {
+        MockPlatformState platformState = new MockPlatformState();
+        platformState.setNoBackupFilesDir(eventsDirectory.getRoot());
+        return platformState;
+    }
 
     protected HttpServer startEventsServer() {
         return HttpServer.start(Handlers.status(202));
@@ -58,8 +75,12 @@ public abstract class EventProcessorTestBase {
      *   tests that need to configure something else on top such as private attributes
      */
     protected EventProcessorBuilder eventsBuilder(int capacity) {
+        // Persistence is off by default for applications, so the tests that exercise it have to ask.
+        // IMMEDIATE is also what lets a test assert on the store straight after a track. Tests covering the
+        // default are in DirectEventProcessorTest.
         return Components.sendEvents()
                 .capacity(capacity)
+                .eventPersistence(EventPersistence.IMMEDIATE)
                 .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS);
     }
 
@@ -74,6 +95,12 @@ public abstract class EventProcessorTestBase {
     /** @return the processor as the SDK builds it, before initialization has turned it on */
     protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                         boolean diagnosticOptOut) {
+        return buildOfflineEventProcessor(server, events, diagnosticOptOut, platformState());
+    }
+
+    protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .diagnosticOptOut(diagnosticOptOut)
@@ -81,7 +108,7 @@ public abstract class EventProcessorTestBase {
                 .serviceEndpoints(Components.serviceEndpoints().events(server.getUri()))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
-                null, null, CONTEXT, logging.logger, null, environmentReporter, null);
+                null, null, CONTEXT, logging.logger, platformState, environmentReporter, null);
         return config.events.build(clientContext);
     }
 

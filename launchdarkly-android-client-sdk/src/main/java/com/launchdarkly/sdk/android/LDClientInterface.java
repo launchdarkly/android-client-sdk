@@ -143,7 +143,25 @@ public interface LDClientInterface extends Closeable {
     Future<Void> identify(LDContext context);
 
     /**
-     * Sends all pending events to LaunchDarkly.
+     * Writes down all pending events and sends them to LaunchDarkly.
+     * <p>
+     * Recording an event does not on its own make it outlive the process. Where
+     * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence(
+     * com.launchdarkly.sdk.android.integrations.EventPersistence)} is on,
+     * events are written in runs, so one recorded shortly before the process ends may never have been
+     * written at all; this call writes everything recorded so far, and the events then survive whether or
+     * not the delivery does. With {@link com.launchdarkly.sdk.android.integrations.EventPersistence#IMMEDIATE}
+     * that write happens before this returns; otherwise it is queued on the SDK's own thread, so that
+     * calling this from the main thread never touches the disk there, and {@link #flushAndWait(long, TimeUnit)}
+     * is the way to wait for it. Where persistence is off, events live in memory only and nothing survives
+     * the process, whether or not this was called.
+     * <p>
+     * That is what makes it worth calling where the process is about to end. An application that reports
+     * errors to LaunchDarkly and then crashes should flush from its uncaught exception handler, which runs
+     * while the process is still alive -- {@link #flushAndWait(long, TimeUnit)} is the better choice there,
+     * since it also waits for delivery. Terminations that run no application code, such as {@code SIGKILL},
+     * a native crash, an ANR, or the system reclaiming a backgrounded process, cannot be covered this way,
+     * and they take whatever was recorded since the last write.
      */
     void flush();
 
@@ -179,12 +197,13 @@ public interface LDClientInterface extends Closeable {
      * @return true if the events were delivered, or there were none to deliver; false if the timeout
      *   expired first, the SDK is offline, closed, or otherwise unable to deliver them, or events
      *   recorded since the last time this was answered were lost on the way, by this delivery or an
-     *   earlier one. Events the service refuses, even with an error that may pass such as a 503, are
-     *   retried once straight away and then lost: they are not kept for a later flush, so calling
-     *   this again does not resend them. A {@code false} because the timeout expired does not mean
-     *   the events were not sent: the delivery is left running when the caller stops waiting, and
-     *   may still arrive if the process lives long enough. A caller that resends on {@code false}
-     *   can therefore cause duplicates.
+     *   earlier one. Events the service refuses with an error that may pass, such as a 503, are not
+     *   lost: they are retried a second later and again by every flush after that, so a later call
+     *   can still deliver them, and where persistence is on so can a later run of the application.
+     *   A 401 or 403 stops delivery for good. A {@code false} because the timeout expired does not
+     *   mean the events were not sent: the delivery is left running when the caller stops waiting,
+     *   and may still arrive if the process lives long enough. A caller that resends on
+     *   {@code false} can therefore cause duplicates.
      * @since 5.17.0
      */
     boolean flushAndWait(long timeout, TimeUnit unit);

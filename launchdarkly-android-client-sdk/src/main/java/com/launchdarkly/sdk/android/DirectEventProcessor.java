@@ -13,12 +13,14 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -27,18 +29,48 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The Android SDK's analytics event processor.
  * <p>
- * Recording an event summarizes it immediately and, only if it has to be delivered in full,
- * buffers it. There is no queue between the calling thread and the summarizer, so a burst of flag
- * evaluations with trackEvent = false cannot displace anything and costs a counter increment,
- * The configured capacity limits only the events that have trackEvents = true.
+ * Recording an event summarizes it immediately and, only if it has to be delivered in full, holds it. A full
+ * event is kept as an {@link Event} until a commit turns the run of them into bytes and writes them, so
+ * evaluations of untracked flags cost a counter increment and evaluations of tracked ones cost that plus a
+ * list append. Nothing is encoded on the thread that evaluated.
+ * <p>
+ * Where the line falls is the subject of O12 in the event-encoding research, and it falls between the events
+ * an application asked for by name and the ones it did not. {@code track} and {@code identify} are commit
+ * points, because an application reporting an error is saying this matters more than the microseconds it
+ * costs and the crash it describes may be moments away; a commit encodes the whole held run, so the
+ * exposures leading up to the error go down with it. Evaluations get no such promise and are committed once
+ * {@link #PENDING_COMMIT_THRESHOLD} of them have accumulated where persistence is on, on {@code flush}, or
+ * when the application flushes from its own crash handler.
+ * <p>
+ * Whether a commit point runs on the caller's thread is the application's choice, through
+ * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence(
+ * com.launchdarkly.sdk.android.integrations.EventPersistence)}. Only at
+ * {@code IMMEDIATE} can {@code track} promise the event is on disk by the time it returns.
  */
 final class DirectEventProcessor implements EventProcessor {
+    /**
+     * How many full events may be held unencoded before one of them pays for a commit.
+     * <p>
+     * It replaces the store's staged-byte threshold, which cannot apply here because there are no bytes
+     * until the commit runs, and it sets two things at once.
+     * <p>
+     * The first is how many evaluations a termination can take. That is narrower than everything a crash
+     * could take: an uncaught exception runs the application's handler while the process is still alive, and
+     * a handler that flushes commits the whole held run, so this is the window for the terminations that run
+     * nothing on the way out -- {@code SIGKILL}, a native crash, an ANR kill, and the system reclaiming a
+     * backgrounded process. A {@code track} closes it too, because it commits.
+     * <p>
+     * The second is the worst a {@code track} can cost, since it encodes whatever is held before returning.
+     * The common case is far below the bound, because the commit executor keeps the run drained; raising
+     * this trades that tail against the number of writes.
+     */
+    private static final int PENDING_COMMIT_THRESHOLD = 32;
+
     /**
      * How long {@link #close()} spends waiting for the final delivery before it gives up and returns.
      * <p>
@@ -55,14 +87,27 @@ final class DirectEventProcessor implements EventProcessor {
      */
     static final long DEFAULT_CLOSE_BUDGET_MILLIS = 2_000;
 
-    private final OutboundEventBuffer buffer;
-    private final EventSender eventSender;
+    /** How long a delivery that failed in a way that may pass waits for its one retry, as the other SDKs do. */
+    static final long RETRY_DELAY_MILLIS = 1_000;
+
+    private final OutboundEventBuffer eventBuffer;
+    private final EventStore store;
+    private final EventSender diagnosticEventSender;
+    private final AnalyticsEventSender analyticsEventSender;
     private final URI eventsUri;
     private final DiagnosticStore diagnosticStore;
     private final long flushIntervalMillis;
     private final long diagnosticRecordingIntervalMillis;
     private final long closeBudgetMillis;
     private final ScheduledExecutorService scheduler;
+    /**
+     * Where a commit no caller waits for runs: the store's write thread, not {@link #scheduler}.
+     * <p>
+     * The scheduler also delivers, and one delivery can hold it for as long as two network timeouts. A
+     * commit queued behind that would leave a {@code DEFERRED} {@code track} in memory for all of it, and
+     * let the pending run fill toward capacity meanwhile.
+     */
+    private final ExecutorService commitExecutor;
     private final ExecutorService diagnosticExecutor;
     private final LDLogger logger;
 
@@ -73,6 +118,15 @@ final class DirectEventProcessor implements EventProcessor {
     private volatile boolean disabled = false;
     private volatile boolean diagnosticInitSent = false;
     private final AtomicLong lastKnownPastTime = new AtomicLong(0);
+    /**
+     * Whether a previous run of the application left events behind.
+     * <p>
+     * Those events are already as old as whatever happened to that run, so they are sent as soon as the
+     * SDK is allowed to send anything rather than at the next interval. The application in front of the
+     * user has moved on; an error report about a crash is not worth much thirty seconds late, and the
+     * process might not live that long either.
+     */
+    private final AtomicBoolean hasEventsFromPreviousRun = new AtomicBoolean(false);
 
     private final Object stateLock = new Object();
     private ScheduledFuture<?> flushTask;
@@ -80,6 +134,10 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * Full events recorded but not yet encoded, guarded by {@link #recordLock}.
+     * <p>
+     * Held rather than serialized because serializing early would not make them durable: the store stages
+     * bytes into memory too, and only {@link EventStore#commit()} reaches the file. Both forms are equally
+     * lost to a crash, so the encode may as well happen where it is cheapest.
      */
     private final List<Event> pending = new ArrayList<>();
 
@@ -100,7 +158,44 @@ final class DirectEventProcessor implements EventProcessor {
     private final Object recordLock = new Object();
 
     /**
-     * How many events the SDK will hold between flushes.
+     * Held for the whole of a commit, so that only one runs at a time.
+     * <p>
+     * This is what {@code track}'s guarantee rests on. Without it a commit already in flight could take the
+     * caller's event out of {@link #pending} before the caller got there, leaving the caller nothing to
+     * write and returning while those bytes were still being produced somewhere else. Waiting here instead
+     * means that when the call returns the event is on disk, whichever commit put it there.
+     * <p>
+     * Distinct from {@link #recordLock}, which is only held long enough to hand the run and the counters
+     * over: encoding under this lock must not block a thread that is merely recording.
+     */
+    private final Object commitLock = new Object();
+
+    /**
+     * Numbers every recording, guarded by {@link #recordLock}, so a caller at a commit point can tell whether
+     * a commit has already covered it.
+     */
+    private long recordedSequence;
+
+    /**
+     * The last recording a finished commit covered. Written under {@link #commitLock}, and read outside it
+     * so that a caller whose recording is already durable does not queue for the lock at all.
+     * <p>
+     * This is what makes concurrent {@code IMMEDIATE} commit points a group commit. The first caller's
+     * commit takes every recording made before it took the run, including those of callers now waiting
+     * behind it; they find their recordings covered and return, and the next caller still uncovered
+     * commits everything that arrived in the meantime. Without it each waiter committed again in turn,
+     * and each of those commits wrote a summary of its own.
+     */
+    private volatile long committedSequence;
+
+    /**
+     * Whether a commit is already queued, so a run of recordings past the threshold submits one task rather
+     * than one per event.
+     */
+    private final AtomicBoolean commitScheduled = new AtomicBoolean(false);
+
+    /**
+     * How many events the SDK will hold in total, across {@link #pending} and the store.
      */
     private final int capacity;
 
@@ -112,26 +207,31 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicLong droppedEvents = new AtomicLong(0);
 
     /**
+     * Whether a commit point encodes and writes before returning, rather than queueing that work.
+     */
+    private final boolean commitOnCallerThread;
+
+    /**
      * True while a diagnostic event is on its way to the service, so that a later one is dropped
      * rather than queued behind it.
      */
     private final AtomicBoolean diagnosticPostInFlight = new AtomicBoolean(false);
 
     /**
-     * The two threads that post through {@link #eventSender}, counted down at shutdown so that
-     * whichever finishes last is the one that closes it.
-     */
-    private final AtomicInteger sendersStillDraining = new AtomicInteger(2);
-
-    /**
      * Guards the handover from running to shut down: held for the length of a submit, and by
-     * {@link #close()} while it queues the release of the sender and stops the executors accepting
-     * work. Nothing blocking happens under it.
+     * {@link #close()} while it queues the release of each thread's resources and stops the
+     * executors accepting work. Nothing blocking happens under it.
      */
     private final Object submitLock = new Object();
 
-    /** Set under {@link #submitLock} once close() has queued the release of the sender. */
+    /** Set under {@link #submitLock} once close() has queued the release of those resources. */
     private boolean shuttingDown = false;
+
+    /**
+     * The retry queued after a delivery failed in a way that may pass, guarded by {@link #submitLock}.
+     * One at a time: it retries every batch still waiting, so a second would only repeat it.
+     */
+    private ScheduledFuture<Boolean> pendingRetry;
 
     /**
      * Guards {@link #pendingFlush} and {@link #pendingFlushAnswersACaller}. Taken on a caller's
@@ -154,33 +254,42 @@ final class DirectEventProcessor implements EventProcessor {
     private boolean pendingFlushAnswersACaller;
 
     /**
-     * Set when a delivery took events out of the buffer and did not get all of them to the service,
-     * and cleared once a {@link #flushAsync()} caller has been told so.
+     * Set when events the SDK accepted were dropped for good, and cleared once a
+     * {@link #flushAsync()} caller has been told so.
      * <p>
-     * Without it, a delivery that finds the buffer empty reports success even when the events it is
-     * being asked about were taken a moment earlier by another delivery that then lost them: the
-     * periodic flush, or a flush whose caller did not wait for the outcome. Only touched on the
-     * scheduler thread, which every delivery runs on.
+     * A batch the service refuses in a way that may pass is kept and retried, so it is not a loss.
+     * What is lost is what the store never received: an event or a summary that could not be
+     * serialized when it was committed, or that serialized too large to store. A delivery that finds nothing to send cannot tell those
+     * apart from events that arrived, so without this it would report success for them. Atomic
+     * because commits run on the commit executor and on callers' threads, and a caller waiting
+     * behind a retry is answered from a pooled thread.
      */
-    private boolean eventsLostSinceLastAnswer;
+    private final AtomicBoolean eventsLostSinceLastAnswer = new AtomicBoolean(false);
 
     DirectEventProcessor(
-            OutboundEventBuffer buffer,
-            EventSender eventSender,
+            OutboundEventBuffer eventBuffer,
+            EventStore store,
+            EventSender diagnosticEventSender,
+            AnalyticsEventSender analyticsEventSender,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
             int capacity,
+            boolean commitOnCallerThread,
             long flushIntervalMillis,
             long diagnosticRecordingIntervalMillis,
             long closeBudgetMillis,
             boolean initiallyInBackground,
             boolean initiallyOffline,
             ScheduledExecutorService scheduler,
+            ExecutorService commitExecutor,
             ExecutorService diagnosticExecutor,
             LDLogger logger
     ) {
-        this.buffer = buffer;
-        this.eventSender = eventSender;
+        this.eventBuffer = eventBuffer;
+        this.store = store;
+        this.commitOnCallerThread = commitOnCallerThread;
+        this.diagnosticEventSender = diagnosticEventSender;
+        this.analyticsEventSender = analyticsEventSender;
         this.eventsUri = eventsUri;
         this.diagnosticStore = diagnosticStore;
         this.capacity = capacity;
@@ -188,10 +297,27 @@ final class DirectEventProcessor implements EventProcessor {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
         this.scheduler = scheduler;
+        this.commitExecutor = commitExecutor;
         this.diagnosticExecutor = diagnosticExecutor;
         this.logger = logger;
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
+
+        // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem.
+        submit(() -> {
+            store.recoverInterruptedLog();
+            if (store.pendingBatches().isEmpty()) {
+                return;
+            }
+            // Raised before offline is read, and claimed by whichever side sees both: going online writes
+            // offline and then claims the flag, so at least one of the two finds the other's write, and
+            // the claim makes it exactly one. Reading offline first left a window where going online
+            // found no flag yet and this then found the SDK still offline, and neither sent them.
+            hasEventsFromPreviousRun.set(true);
+            if (!offline.get() && !isStopped() && hasEventsFromPreviousRun.compareAndSet(true, false)) {
+                deliverPayload();
+            }
+        });
 
         synchronized (stateLock) {
             updateScheduledTasks(initiallyInBackground, initiallyOffline);
@@ -214,20 +340,28 @@ final class DirectEventProcessor implements EventProcessor {
             if (isStopped() || context == null) {
                 return;
             }
-            Event.FeatureRequest event = new Event.FeatureRequest(System.currentTimeMillis(), flagKey,
-                    context, flagVersion, variation, value, defaultValue, reason, null,
-                    requireFullEvent, debugEventsUntilDate, false);
+            long timestamp = System.currentTimeMillis();
+            boolean debug = shouldDebugEvent(debugEventsUntilDate);
+            // Only built when something is kept beyond the counter. Most flags are not tracked, and for
+            // those an evaluation is a counter increment with nothing left behind for the collector.
             // Built before the lock is taken, so that the critical section is only the writes.
-            Event debugEvent = shouldDebugEvent(debugEventsUntilDate) ? event.toDebugEvent() : null;
+            Event.FeatureRequest event = requireFullEvent || debug
+                    ? new Event.FeatureRequest(timestamp, flagKey, context, flagVersion, variation, value,
+                            defaultValue, reason, null, requireFullEvent, debugEventsUntilDate, false)
+                    : null;
+            Event debugEvent = debug ? event.toDebugEvent() : null;
             boolean contextsExceeded;
             boolean warnContextsExceeded;
+            boolean needsCommit;
             synchronized (recordLock) {
                 if (closed.get()) {
                     return;
                 }
-                contextsExceeded = !buffer.summarize(event);
-                // Claimed under the lock that the delivery resets it under, so the warning belongs to
-                // the run whose summarizer turned this evaluation away rather than to the next one.
+                recordedSequence++;
+                contextsExceeded = !eventBuffer.summarize(timestamp, flagKey, flagVersion, variation,
+                        value, defaultValue, context);
+                // Claimed under the lock that the commit resets it under, so the warning belongs to the
+                // run whose summarizer turned this evaluation away rather than to the next one.
                 warnContextsExceeded = contextsExceeded
                         && summaryContextsExceeded.compareAndSet(false, true);
                 if (requireFullEvent) {
@@ -236,9 +370,16 @@ final class DirectEventProcessor implements EventProcessor {
                 if (debugEvent != null) {
                     addPending(debugEvent);
                 }
+                needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
             }
             if (contextsExceeded) {
                 reportContextsExceeded(warnContextsExceeded);
+            }
+            // Deliberately no commit point. An evaluation is expected to cost what a map lookup costs, and it
+            // is usually the main thread doing it; the store writes these on its own thread once enough of them
+            // have piled up, and the next event recorded at a commit point makes them durable along with itself.
+            if (needsCommit) {
+                scheduleCommitWherePersisting();
             }
         } catch (RuntimeException e) {
             // This runs on the application's thread, usually inside a flag evaluation, and an
@@ -253,7 +394,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        record(new Event.Identify(System.currentTimeMillis(), context));
+        commitAtCommitPoint(record(new Event.Identify(System.currentTimeMillis(), context)));
     }
 
     @Override
@@ -261,36 +402,216 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped() || context == null) {
             return;
         }
-        record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data, metricValue));
+        commitAtCommitPoint(record(new Event.Custom(System.currentTimeMillis(), eventKey, context, data,
+                metricValue)));
     }
 
     /**
-     * Holds an event for the next flush to encode, counting it as dropped if the SDK is already full.
+     * Holds an event for the next commit to encode, counting it as dropped if the SDK is already full.
      * <p>
-     * Capacity is consulted before anything is encoded, so an event that will not be kept is never
-     * encoded.
-     * That ordering is what bounds an application re-evaluating a tracked flag in a render loop: once
-     * the limit is reached the cost of an evaluation falls back to its summary counter, however fast
-     * the loop runs.
+     * Capacity is consulted before anything is encoded, so an event that will not be kept is never encoded.
+     * That ordering is what bounds an application re-evaluating a tracked flag in a render loop: once the
+     * limit is reached the cost of an evaluation falls back to its summary counter, however fast the loop runs.
+     *
+     * @return the recording's sequence number, for the commit point that follows it; 0 if it was refused
      */
-    void record(Event event) {
+    long record(Event event) {
         try {
+            long sequence;
+            boolean needsCommit;
             synchronized (recordLock) {
-                // The close check that decides the outcome, as against the fast path the public record
-                // methods take before building the event. deliverPayload lifts the run out under this
-                // same lock, so testing the flag here orders a record against close()'s final delivery:
-                // either the event is in the list before that delivery takes it, or it is refused.
-                // Tested outside the lock the two interleave, and an event can be left in a list that
-                // nothing will drain again.
+                // The close check that decides the outcome, as against the fast path the public record methods
+                // take before building the event. The commit lifts the run out under this same lock, so testing
+                // the flag here orders a record against close()'s final commit: either the event is in the list
+                // before that commit takes it, or it is refused. Tested outside the lock the two interleave, and
+                // an event can be left in a list that nothing will drain again.
                 if (closed.get()) {
-                    return;
+                    return 0;
                 }
+                sequence = ++recordedSequence;
                 addPending(event);
+                needsCommit = pending.size() >= PENDING_COMMIT_THRESHOLD;
             }
+            if (needsCommit) {
+                scheduleCommitWherePersisting();
+            }
+            return sequence;
         } catch (RuntimeException e) {
             // As in recordEvaluationEvent: on the caller's thread, so a failure is logged, not thrown.
             logUnexpectedError(e);
+            return 0;
         }
+    }
+
+    /**
+     * Commits at a commit point, on the caller's thread or off it as the application asked.
+     * <p>
+     * Committing on the caller's thread is what lets {@code track} promise its event is on disk by the time
+     * it returns. Scheduling it instead keeps the encode and the write off that thread, and the event is
+     * durable a moment later rather than immediately -- which is nothing at all when persistence is off,
+     * since there is no disk for an early commit to reach.
+     *
+     * @param through the last recording the caller needs durable: its own, or for a flush everything so far
+     */
+    private void commitAtCommitPoint(long through) {
+        try {
+            if (commitOnCallerThread) {
+                commitDurablyThrough(through);
+            } else {
+                scheduleCommitWherePersisting();
+            }
+        } catch (RuntimeException e) {
+            // As in recordEvaluationEvent: every commit point is on the caller's thread.
+            logUnexpectedError(e);
+        }
+    }
+
+    /**
+     * Commits unless a finished commit already covers recording {@code through}, checked again once the lock
+     * is held, since the commit a caller waited behind is the one most likely to have covered it.
+     */
+    private void commitDurablyThrough(long through) {
+        if (committedSequence >= through) {
+            return;
+        }
+        synchronized (commitLock) {
+            if (committedSequence >= through) {
+                return;
+            }
+            commitDurably();
+        }
+    }
+
+    /** @return the sequence number of the last recording so far */
+    private long lastRecordedSequence() {
+        synchronized (recordLock) {
+            return recordedSequence;
+        }
+    }
+
+    /**
+     * Queues the commit a full pending run or a commit point asks for, where there is a disk for it to reach.
+     * <p>
+     * Without persistence a commit makes nothing durable. All it would do is move the encode into the
+     * middle of the application's evaluations, where it competes with them for the CPU and splits their
+     * counters across summaries; left alone, the run waits for the flush, which encodes it anyway, and
+     * capacity still bounds how much is held.
+     */
+    private void scheduleCommitWherePersisting() {
+        if (store.isPersisting()) {
+            scheduleCommit();
+        }
+    }
+
+    /** Queues a commit unless one is already queued, so a run of recordings asks for one rather than many. */
+    private void scheduleCommit() {
+        if (commitScheduled.compareAndSet(false, true)) {
+            try {
+                commitExecutor.execute(guarded(this::runScheduledCommit));
+            } catch (RuntimeException e) { // shut down by close(), whose own commit takes these events
+                commitScheduled.set(false);
+            }
+        }
+    }
+
+    /**
+     * Clears the scheduling flag before committing, not after, so events recorded while this runs can queue
+     * a commit of their own rather than waiting for the next one to be triggered.
+     * <p>
+     * Does nothing once closed. {@link #close()} sets the flag before its final commit, which takes
+     * everything recorded up to then, and nothing is recorded after it; a commit reaching here later could
+     * only run against a store that has been released.
+     */
+    private void runScheduledCommit() {
+        commitScheduled.set(false);
+        if (closed.get()) {
+            return;
+        }
+        commitDurably();
+    }
+
+    /**
+     * Encodes everything recorded since the last commit and makes it survive the process.
+     * <p>
+     * This is the only place events are serialized. It runs on the commit executor when the pending run
+     * reaches {@link #PENDING_COMMIT_THRESHOLD}, and on the caller's thread for {@code flush}, where the
+     * caller has asked to wait for exactly this.
+     * <p>
+     * The evaluations counted since the last commit are written too, because a summary is only worth having
+     * if it covers the evaluations that led up to whatever is about to happen.
+     */
+    private void commitDurably() {
+        synchronized (commitLock) {
+            List<Event> run;
+            List<EventSummarizer.EventSummary> summaries;
+            long through;
+            // Both taken at once, so that an evaluation's counter and its full event are staged by the
+            // same commit. Taken separately, a commit landing between the two writes one evaluation makes
+            // stages the counter and leaves the event for the next one -- or, at close, for none at all.
+            synchronized (recordLock) {
+                through = recordedSequence;
+                run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
+                pending.clear();
+                summaries = eventBuffer.takeSummaries();
+                summaryContextsExceeded.set(false);
+                // Reserved in the same critical section the run leaves pending in, so capacity counts
+                // it in one place or the other throughout the encode. Each staged event uses up its
+                // reservation as it arrives, so none is counted twice either.
+                store.reserve(run.size());
+            }
+            try {
+                stageRun(run);
+            } finally {
+                store.releaseReservations();
+            }
+            stageSummaries(summaries);
+            if (eventBuffer.takeSerializationFailure()) {
+                eventsLostSinceLastAnswer.set(true);
+            }
+            store.commit();
+            committedSequence = through;
+        }
+    }
+
+    /**
+     * Encodes a run of events as one run and stages the bytes.
+     * <p>
+     * The run was taken under {@link #recordLock} and is encoded outside it, so recording does not wait on
+     * the encoder. Staging bypasses capacity because the decision to keep these events was already made in
+     * {@link #record}, and refusing them here would drop events the SDK has counted as accepted; the
+     * reservation taken with the run is what keeps them counted until they are staged.
+     * <p>
+     * Requires {@link #commitLock}: two threads staging separate runs would stage them in whichever order
+     * they finished encoding, which is not the order they were recorded in.
+     */
+    private void stageRun(List<Event> run) {
+        for (byte[] serialized : eventBuffer.serializeAll(run)) {
+            if (!store.stageReserved(serialized)) {
+                reportRefusedByStore("event", serialized);
+            }
+        }
+    }
+
+    /**
+     * Turns the evaluation counters already taken into summary events in the store.
+     */
+    private void stageSummaries(List<EventSummarizer.EventSummary> summaries) {
+        for (byte[] summary : eventBuffer.serializeSummaries(summaries)) {
+            // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
+            // counted, and dropping it would lose all of them at once.
+            if (!store.stage(summary, true)) {
+                reportRefusedByStore("summary event", summary);
+            }
+        }
+    }
+
+    /**
+     * Records the loss of something the store would not take. Capacity is bypassed on both paths, so
+     * what is left is a frame too large to store, which no later attempt can fix.
+     */
+    private void reportRefusedByStore(String what, byte[] serialized) {
+        logger.error("Dropping {} of {} bytes, too large to store", what, serialized.length);
+        eventsLostSinceLastAnswer.set(true);
     }
 
     /**
@@ -304,7 +625,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
             return;
         }
-        if (pending.size() >= capacity) {
+        if (pending.size() + store.getPendingEventCount() >= capacity) {
             if (capacityExceeded.compareAndSet(false, true)) {
                 logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
             }
@@ -365,6 +686,10 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return;
         }
+        // A commit point, written on the caller's thread only where the application asked for that.
+        // Otherwise the write is queued ahead of the delivery, so it still happens when the delivery
+        // cannot run because the client is offline.
+        commitAtCommitPoint(lastRecordedSequence());
         queueDelivery(false);
     }
 
@@ -423,11 +748,9 @@ final class DirectEventProcessor implements EventProcessor {
      * Runs one delivery on behalf of every flush request that joined it, and tells them all how it
      * went.
      * <p>
-     * Deliveries run one at a time, so any delivery that was in flight when a caller asked has
-     * finished before this one starts, and has already recorded whether it lost what it took. A
-     * caller who will hear the answer is told no if anything was lost since the last caller was
-     * told, as well as if this delivery fails: an empty buffer is not evidence that the events
-     * which used to be in it arrived.
+     * A caller who will hear the answer is told no if events were dropped for good since the last
+     * caller was told, as well as if this delivery fails: a delivery that finds nothing to send is
+     * not evidence that everything recorded arrived.
      */
     private void runDelivery(LDAwaitFuture<Boolean> result) {
         boolean answersACaller = false;
@@ -440,17 +763,50 @@ final class DirectEventProcessor implements EventProcessor {
                 pendingFlushAnswersACaller = false;
             }
         }
-        boolean delivered = false;
+        DeliveryOutcome outcome;
         try {
-            delivered = deliverPayloadReportingOutcome();
+            outcome = commitAndDeliverReportingOutcome();
         } catch (Throwable t) {
             // Caught here rather than left to guarded(), because a caller is waiting on the future
             // and completing it matters more than the stack reaching the executor.
             logUnexpectedError(t);
+            outcome = DeliveryOutcome.NOT_DELIVERED;
         }
+        if (outcome.retry == null) {
+            answer(result, outcome.delivered, answersACaller);
+        } else {
+            completeWhenRetryEnds(result, outcome.retry, answersACaller);
+        }
+    }
+
+    /**
+     * Answers the waiters when the queued retry does, rather than telling them a batch failed when
+     * it is about to be sent again. Waiting happens on a pooled thread because the retry runs a
+     * second from now on this one, which must be free to take it.
+     */
+    private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, Future<Boolean> retry,
+                                       boolean answersACaller) {
+        LDAwaitFuture<Boolean> retried = LDFutures.fromFuture(retry);
+        retried.addListener(() -> {
+            boolean delivered = false;
+            try {
+                delivered = Boolean.TRUE.equals(retried.get());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+                // Reported as not delivered.
+            }
+            answer(result, delivered, answersACaller);
+        });
+    }
+
+    /**
+     * Completes a delivery's future. A caller who will hear the answer is told no if anything was
+     * lost since the last caller was told, as well as if this delivery failed.
+     */
+    private void answer(LDAwaitFuture<Boolean> result, boolean delivered, boolean answersACaller) {
         if (answersACaller) {
-            delivered &= !eventsLostSinceLastAnswer;
-            eventsLostSinceLastAnswer = false;
+            delivered &= !eventsLostSinceLastAnswer.getAndSet(false);
         }
         result.set(delivered);
     }
@@ -464,62 +820,94 @@ final class DirectEventProcessor implements EventProcessor {
             updateScheduledTasks(inBackground.get(), offline.get());
         }
         // Deliver what is still buffered before we let go of the sender. This waits rather than
-        // firing and forgetting because it is the last chance these events get: nothing is kept
-        // once the processor is gone. While offline that chance is not taken, and whatever is held
-        // is discarded. Offline is the application telling the SDK to stay off the network, and
-        // shutting down does not revoke that.
-        //
-        // Queued directly rather than through flushAsync(), which refuses once closed is set, but
-        // through the same coalescing: a delivery that has not started yet will take these events
-        // too, so there is no reason to queue a second one behind it.
-        try {
-            queueDelivery(false).get(closeBudgetMillis, TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            // Deliberately not canceled. The run has already been drained into a payload, so
-            // interrupting now would make the loss certain, while leaving it to run costs
-            // nothing: the scheduler thread is a daemon, and returning from close() does not
-            // end an Android process. The budget bounds the caller, not the delivery.
-            logger.warn("Gave up waiting for the final event delivery after {}ms;" +
-                    " it continues in the background", closeBudgetMillis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            logUnexpectedError(e.getCause() == null ? e : e.getCause());
+        // firing and forgetting because it is this run's last chance to send them. While offline
+        // that chance is not taken: offline is the application telling the SDK to stay off the
+        // network, and shutting down does not revoke that. The commit ahead of it still writes those
+        // events down where persistence is on, so they go out on a later run; where it is off they
+        // are discarded.
+        final AtomicBoolean finalCommitDone = new AtomicBoolean(false);
+        Callable<DeliveryOutcome> finalDelivery = () -> {
+            commitDurably();
+            finalCommitDone.set(true);
+            return deliverPayloadAndRetryLater();
+        };
+        Future<DeliveryOutcome> delivery = submit(finalDelivery);
+        if (delivery != null) {
+            try {
+                awaitDelivery(delivery, TimeUnit.MILLISECONDS.toNanos(closeBudgetMillis));
+            } catch (TimeoutException e) {
+                // Deliberately not canceled. The run has already been drained into a payload, so
+                // interrupting now would make the loss certain, while leaving it to run costs
+                // nothing: the scheduler thread is a daemon, and returning from close() does not
+                // end an Android process. The budget bounds the caller, not the delivery.
+                logger.warn("Gave up waiting for the final event delivery after {}ms;" +
+                        " it continues in the background", closeBudgetMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+                logUnexpectedError(e.getCause() == null ? e : e.getCause());
+            }
         }
-        // Queued on both of the threads that post through the sender, so that it is released by
-        // whichever of them finishes last. Closing it here instead would pull the HTTP client out
-        // from under a delivery we just decided not to wait for, or out from under a diagnostic post
-        // still in flight. shutdown() then refuses new work while letting what is already queued
-        // finish -- unlike shutdownNow(), which would interrupt those posts and strand the futures of
-        // anything it discarded.
+        // A caller who closed the client and then let the process end has to find those events on the
+        // next run, so the write must have happened by the time close() returns. It normally has, on
+        // the events thread; this writes on the caller's only when that thread never got to it, such
+        // as when it is still stuck on an earlier delivery.
+        if (!finalCommitDone.get()) {
+            try {
+                commitDurably();
+            } catch (RuntimeException e) {
+                // Shutting down must still release everything below, and must not throw at the caller.
+                logUnexpectedError(e);
+            }
+        }
+        // The store and the senders, by contrast, are released on whichever thread uses them, after
+        // whatever is still in flight there. Closing them inline would pull them out from under a
+        // delivery, or a diagnostic post, that we just decided not to wait for. shutdown() then
+        // refuses new work while letting what is already queued finish -- unlike shutdownNow(), which
+        // would interrupt those and strand the futures of anything it discarded.
         //
         // Queueing and shutting down are one step under submitLock, so that a flush cannot land in
-        // between them and put a delivery behind the release, where it would find the sender closed.
+        // between them and put a delivery behind the release, where it would find the store closed.
         synchronized (submitLock) {
             shuttingDown = true;
-            queueSenderRelease(scheduler);
-            queueSenderRelease(diagnosticExecutor);
+            if (pendingRetry != null) {
+                // Not interrupted if it is already posting: it checks shuttingDown before it starts, and
+                // one that got past that runs ahead of the release queued below on the same thread.
+                pendingRetry.cancel(false);
+                pendingRetry = null;
+            }
+            queueRelease(scheduler, this::releaseDeliveryResources);
+            queueRelease(diagnosticExecutor, this::releaseDiagnosticResources);
             scheduler.shutdown();
             diagnosticExecutor.shutdown();
+            // Commits already queued there still run, and find the processor closed.
+            commitExecutor.shutdown();
         }
     }
 
-    /** Queues the release on one of the posting threads, or runs it here if that thread has gone. */
-    private void queueSenderRelease(ExecutorService executor) {
+    /** Queues a release on the thread that owns those resources, or runs it here if that thread has gone. */
+    private void queueRelease(ExecutorService executor, Runnable release) {
         try {
-            executor.submit(guarded(this::releaseSenderWhenLast));
+            executor.submit(guarded(release));
         } catch (RuntimeException e) { // the executor was shut down under us
-            releaseSenderWhenLast(); // so nothing can still be posting on it
+            release.run(); // so nothing can still be using them
         }
     }
 
-    /** Closes the sender once both of the threads that post through it have got this far. */
-    private void releaseSenderWhenLast() {
-        if (sendersStillDraining.decrementAndGet() > 0) {
-            return;
-        }
+    /** What the delivery thread owns: the store it drains and the sender it posts batches through. */
+    private void releaseDeliveryResources() {
+        store.close();
+        closeQuietly(analyticsEventSender);
+    }
+
+    /** What the diagnostics thread owns: the sender nothing else posts through. */
+    private void releaseDiagnosticResources() {
+        closeQuietly(diagnosticEventSender);
+    }
+
+    private void closeQuietly(Closeable closeable) {
         try {
-            eventSender.close();
+            closeable.close();
         } catch (IOException e) {
             logUnexpectedError(e);
         }
@@ -531,75 +919,190 @@ final class DirectEventProcessor implements EventProcessor {
      * before it has finished and these cannot pile up the way requested flushes could.
      */
     private void deliverPayload() {
-        deliverPayloadReportingOutcome();
+        deliverPayloadAndRetryLater();
     }
 
     /**
-     * Delivers as {@link #deliverPayload()} does, and says whether it worked, for the callers of a
-     * requested flush, who are waiting to find out.
+     * Writes everything accepted so far, then delivers. The write comes first because a delivery
+     * refused for being offline returns before writing anything.
+     */
+    private DeliveryOutcome commitAndDeliverReportingOutcome() {
+        commitDurably();
+        return deliverPayloadAndRetryLater();
+    }
+
+    /**
+     * How a delivery went, or the retry that will say, for a caller waiting to find out.
+     */
+    private static final class DeliveryOutcome {
+        static final DeliveryOutcome DELIVERED = new DeliveryOutcome(true, null);
+        static final DeliveryOutcome NOT_DELIVERED = new DeliveryOutcome(false, null);
+
+        final boolean delivered;
+        /** Non-null when a batch failed in a way that may pass, and a retry of every batch is queued. */
+        final Future<Boolean> retry;
+
+        private DeliveryOutcome(boolean delivered, Future<Boolean> retry) {
+            this.delivered = delivered;
+            this.retry = retry;
+        }
+    }
+
+    /**
+     * Waits for a delivery and, when it queued a retry, for that too, within one budget.
+     *
+     * @param timeoutNanos how long to wait in all, or a negative number to wait as long as it takes
+     * @return true if the events reached the service, or if there were none to send
+     */
+    private boolean awaitDelivery(Future<DeliveryOutcome> delivery, long timeoutNanos)
+            throws InterruptedException, ExecutionException, TimeoutException {
+        long deadline = System.nanoTime() + timeoutNanos;
+        DeliveryOutcome outcome = timeoutNanos < 0 ? delivery.get()
+                : delivery.get(timeoutNanos, TimeUnit.NANOSECONDS);
+        if (outcome == null) {
+            return false;
+        }
+        if (outcome.retry == null) {
+            return outcome.delivered;
+        }
+        Boolean retried = timeoutNanos < 0 ? outcome.retry.get()
+                : outcome.retry.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+        return Boolean.TRUE.equals(retried);
+    }
+
+    /**
+     * Closes what has been committed into a batch and delivers every batch waiting, queueing one retry
+     * if a batch failed in a way that may pass.
      * <p>
      * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
      * and the run is taken exactly once per delivery. The run and the counters are taken together
      * under {@link #recordLock}, so an evaluation is never split across two payloads, and encoded
      * outside it, so recording does not wait on the encoder.
-     *
-     * @return true if the events reached the service, or if there were none to send; false if they
-     *   could not be sent, the service did not accept them, or some could not be serialized
      */
-    private boolean deliverPayloadReportingOutcome() {
+    private DeliveryOutcome deliverPayloadAndRetryLater() {
         if (disabled || offline.get()) {
-            // Nothing is taken, so nothing is lost: the events stay buffered for a later delivery.
-            return false;
-        }
-        List<Event> run;
-        List<EventSummarizer.EventSummary> summaries;
-        synchronized (recordLock) {
-            run = pending.isEmpty() ? Collections.<Event>emptyList() : new ArrayList<>(pending);
-            pending.clear();
-            summaries = buffer.takeSummaries();
-            summaryContextsExceeded.set(false);
+            return DeliveryOutcome.NOT_DELIVERED;
         }
 
-        boolean delivered = false;
-        try {
-            delivered = deliverTaken(run, summaries);
-        } finally {
-            // From here the events exist only in this delivery, so not delivering them loses them,
-            // including when something unexpected is thrown on the way.
-            if (!delivered) {
-                eventsLostSinceLastAnswer = true;
-            }
+        commitDurably();
+        store.closeBatch();
+
+        BatchesOutcome outcome = deliverPendingBatches();
+        if (outcome == BatchesOutcome.RETRYABLE) {
+            Future<Boolean> retry = scheduleRetry();
+            return retry == null ? DeliveryOutcome.NOT_DELIVERED : new DeliveryOutcome(false, retry);
         }
-        return delivered;
+        return outcome == BatchesOutcome.DELIVERED ? DeliveryOutcome.DELIVERED : DeliveryOutcome.NOT_DELIVERED;
     }
 
-    private boolean deliverTaken(List<Event> run, List<EventSummarizer.EventSummary> summaries) {
-        OutboundEventBuffer.Payload payload;
+    private enum BatchesOutcome { DELIVERED, FAILED, RETRYABLE }
+
+    /**
+     * Makes one attempt at every batch waiting, oldest first: the others are deliveries an earlier attempt
+     * did not finish, or that a previous run of the application never got to start.
+     * <p>
+     * Stops at the first failure that may pass. The batches behind it would most likely meet the same
+     * network, and the retry takes all of them again.
+     */
+    private BatchesOutcome deliverPendingBatches() {
+        boolean allDelivered = true;
+        for (EventStore.Batch batch : store.pendingBatches()) {
+            if (disabled || offline.get()) {
+                return BatchesOutcome.FAILED;
+            }
+            BatchesOutcome outcome = deliver(batch);
+            if (outcome == BatchesOutcome.RETRYABLE) {
+                return outcome;
+            }
+            allDelivered &= outcome == BatchesOutcome.DELIVERED;
+        }
+        return allDelivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED;
+    }
+
+    /**
+     * Queues the retry on the scheduler rather than sleeping for it there, which would hold every flush,
+     * and close()'s final delivery, behind the wait.
+     *
+     * @return the retry, a retry already queued, or null if the processor is shutting down
+     */
+    private Future<Boolean> scheduleRetry() {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                return null;
+            }
+            if (pendingRetry != null && !pendingRetry.isDone()) {
+                return pendingRetry;
+            }
+            try {
+                pendingRetry = scheduler.schedule(this::retryPendingBatches, RETRY_DELAY_MILLIS,
+                        TimeUnit.MILLISECONDS);
+            } catch (RuntimeException e) { // the executor was shut down under us
+                return null;
+            }
+            logger.warn("Will retry posting events in {}ms after a failure", RETRY_DELAY_MILLIS);
+            return pendingRetry;
+        }
+    }
+
+    /**
+     * The one retry. A failure here is not retried again; the batches wait on disk, or in memory, for the
+     * next flush.
+     */
+    private boolean retryPendingBatches() {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                // close() has queued the release of the store and the sender behind this.
+                return false;
+            }
+        }
+        if (disabled || offline.get()) {
+            return false;
+        }
         try {
-            payload = buffer.encode(run, summaries);
-        } catch (IOException e) {
+            return deliverPendingBatches() == BatchesOutcome.DELIVERED;
+        } catch (RuntimeException e) {
             logUnexpectedError(e);
             return false;
         }
-        if (payload == null) {
-            return true;
-        }
-        if (payload.getEventCount() == 0) {
-            return false; // everything taken was dropped as unserializable
-        }
+    }
 
-        if (diagnosticStore != null) {
-            diagnosticStore.recordEventsInBatch(payload.getEventCount());
-        }
-
+    /**
+     * @return DELIVERED if the batch is no longer the SDK's problem, whether because it arrived or because
+     *   it never can; RETRYABLE if it failed in a way that may pass
+     */
+    private BatchesOutcome deliver(EventStore.Batch batch) {
+        byte[] body;
         try {
-            EventSender.Result result = eventSender.sendAnalyticsEvents(payload.getData(),
-                    payload.getEventCount(), eventsUri);
+            body = store.body(batch);
+        } catch (IOException e) {
+            // Kept: the file is still there, and a read that failed may not fail next time.
+            logger.warn("Could not read stored events: {}", LogValues.exceptionSummary(e));
+            return BatchesOutcome.RETRYABLE;
+        }
+        if (body == null) {
+            // Unreadable, or already delivered by another process of this application. Either way there
+            // is nothing to send and nothing to keep.
+            store.remove(batch);
+            return BatchesOutcome.DELIVERED;
+        }
+        if (diagnosticStore != null) {
+            diagnosticStore.recordEventsInBatch(batch.eventCount);
+        }
+        try {
+            EventSender.Result result = analyticsEventSender.sendBatch(body, batch.eventCount,
+                    batch.payloadId, eventsUri);
             handleResponse(result);
-            return result != null && result.isSuccess() && payload.isComplete();
+            if (result != null && (result.isSuccess() || result.isMustShutDown())) {
+                // Forgotten once the service has either taken the events or told us to stop sending
+                // them. Anything else - a timeout, a 503, no network - leaves the batch where it is, to
+                // be tried again by the retry, the next flush or the next run of the application.
+                store.remove(batch);
+                return result.isSuccess() ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED;
+            }
+            return result == null ? BatchesOutcome.FAILED : BatchesOutcome.RETRYABLE;
         } catch (Exception e) {
             logUnexpectedError(e);
-            return false;
+            return BatchesOutcome.FAILED;
         }
     }
 
@@ -612,7 +1115,7 @@ final class DirectEventProcessor implements EventProcessor {
         try {
             byte[] data = diagnosticEvent.getJsonValue().toJsonString()
                     .getBytes(StandardCharsets.UTF_8);
-            handleResponse(eventSender.sendDiagnosticEvent(data, eventsUri));
+            handleResponse(diagnosticEventSender.sendDiagnosticEvent(data, eventsUri));
             if (isInit) {
                 // Attempted, not delivered. A failed post gives back an unsuccessful Result rather
                 // than throwing, so this marks the init event done either way and the process never
@@ -749,6 +1252,12 @@ final class DirectEventProcessor implements EventProcessor {
         // run after it ends.
         flushTask = enableOrDisableTask(!stopped, flushTask, flushIntervalMillis,
                 this::deliverPayload);
+        // Events a previous run left on disk have already waited out a whole process, so they do not
+        // wait out an interval as well. An application that dies within one interval of every start
+        // would otherwise never deliver them.
+        if (!stopped && !offline && hasEventsFromPreviousRun.compareAndSet(true, false)) {
+            submit(this::deliverPayload);
+        }
         boolean diagnosticsEnabled = !stopped && diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
@@ -816,6 +1325,26 @@ final class DirectEventProcessor implements EventProcessor {
             }
             try {
                 return scheduler.submit(guarded(task));
+            } catch (RuntimeException e) { // the executor was shut down under us
+                return null;
+            }
+        }
+    }
+
+    /**
+     * As {@link #submit(Runnable)}, for the final delivery at close(), whose outcome close() waits
+     * for. Not wrapped in {@link #guarded}, because here the caller is there to receive what
+     * escapes.
+     *
+     * @return the submitted task, or null if the processor is shutting down or already has
+     */
+    private <T> Future<T> submit(Callable<T> task) {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                return null;
+            }
+            try {
+                return scheduler.submit(task);
             } catch (RuntimeException e) { // the executor was shut down under us
                 return null;
             }

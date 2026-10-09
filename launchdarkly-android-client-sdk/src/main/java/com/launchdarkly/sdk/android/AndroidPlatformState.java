@@ -18,8 +18,13 @@ import android.os.Build;
 import android.os.Bundle;
 
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -167,6 +172,40 @@ final class AndroidPlatformState implements PlatformState {
     @Override
     public File getCacheDir() {
         return application.getCacheDir();
+    }
+
+    @Override
+    public File getNoBackupFilesDir() {
+        return application.getNoBackupFilesDir();
+    }
+
+    @Override
+    public String getProcessName() {
+        // Returned as the platform gives it, punctuation and all. Whatever needs a name safe for some
+        // other purpose is responsible for making it so, because only that caller knows what "safe"
+        // means there; see EventStore.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return Application.getProcessName();
+        }
+        // Before API 28 there is no supported way to ask, so the process reads its own command line,
+        // which is where the platform gets the answer from as well.
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(new FileInputStream("/proc/self/cmdline"), Charset.forName("UTF-8")))) {
+            String line = reader.readLine();
+            if (line != null) {
+                // The command line is NUL-terminated, and Java keeps those bytes as characters.
+                int end = line.indexOf(0);
+                String name = end < 0 ? line : line.substring(0, end);
+                if (!name.trim().isEmpty()) {
+                    return name.trim();
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Could not determine the process name: {}", LogValues.exceptionSummary(e));
+        }
+        // A wrong answer here would let two processes share one file, so the fallback is the pid, which
+        // is unique among live processes even though it does not survive a restart.
+        return "pid-" + android.os.Process.myPid();
     }
 
     @Override

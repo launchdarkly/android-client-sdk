@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 import com.launchdarkly.sdk.LDValue;
@@ -118,6 +119,19 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
                 processor.close();
             }
         }
+    }
+
+    @Test
+    public void stagingAnEventDoesNotDrawForSamplingASecondTime() throws Exception {
+        // The processor draws once, as the event is recorded, and hands on only what it kept. A second
+        // draw where the event is serialized would square the odds against anything with a ratio above
+        // one, and would drop it without counting it anywhere. A ratio of 0 stands in for a draw that
+        // comes out against the event, because Sampler.shouldSample refuses it every time.
+        OutboundEventBuffer buffer = makeBuffer();
+        Event sampledOut = evaluation(false, 0);
+
+        assertEquals(1, buffer.serializeAll(Collections.singletonList((Event) sampledOut)).size());
+        assertNotNull(buffer.serialize(sampledOut));
     }
 
     @Test

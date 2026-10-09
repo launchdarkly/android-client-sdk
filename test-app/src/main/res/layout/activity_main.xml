@@ -122,7 +122,7 @@
         android:id="@+id/kill_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_above="@id/identify_button"
+        android:layout_above="@id/over_refresh_row"
         android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
         android:layout_alignParentEnd="true"
@@ -149,6 +149,29 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Eval+Crash now" />
+    </LinearLayout>
+
+    <!--
+        Many evaluations of one flag in a row, timed either side of the event store filling up. See
+        MainActivity#setupOverRefreshButton for what the two numbers mean.
+    -->
+    <LinearLayout
+        android:id="@+id/over_refresh_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/identify_button"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/over_refresh_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Over-Refresh Eval" />
     </LinearLayout>
 
     <Space

@@ -4,6 +4,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
@@ -25,6 +26,7 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
 /**
@@ -105,13 +107,14 @@ abstract class ComponentsImpl {
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
-            EventSender eventSender = new DefaultEventSender(
+            EventSender diagnosticEventSender = new DefaultEventSender(
                     LDUtil.makeHttpProperties(clientContext),
                     StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
                     StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
+            ExecutorService commitExecutor = EventStore.defaultCommitExecutor();
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
@@ -119,19 +122,42 @@ abstract class ComponentsImpl {
                             true, // perContextSummarization - enable for client SDK
                             capacity,
                             clientContext.getBaseLogger()),
-                    eventSender,
+                    makeEventStore(clientContext, clientContextImpl, commitExecutor),
+                    diagnosticEventSender,
+                    new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
+                            clientContext.getBaseLogger()),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
                     capacity,
+                    eventPersistence == EventPersistence.IMMEDIATE,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),
+                    commitExecutor,
                     EventUtil.makeDiagnosticsTaskExecutor(),
                     clientContext.getBaseLogger()
             );
+        }
+
+        /**
+         * Builds the store this environment's events are kept in until LaunchDarkly has them.
+         * <p>
+         * The mobile key and the process are both part of where it writes, so an application configured
+         * for several environments, or running the SDK in several processes, gets one store per
+         * combination and they never touch each other's events.
+         */
+        private EventStore makeEventStore(ClientContext clientContext, ClientContextImpl impl,
+                                          ExecutorService commitExecutor) {
+            return EventStore.create(
+                    impl.getPlatformState(),
+                    clientContext.getMobileKey(),
+                    capacity,
+                    eventPersistence != EventPersistence.DISABLED,
+                    clientContext.getBaseLogger(),
+                    commitExecutor);
         }
 
         @Override
@@ -140,7 +166,6 @@ abstract class ComponentsImpl {
                     .put("allAttributesPrivate", allAttributesPrivate)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsCapacity", capacity)
-                    .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .build();
         }
