@@ -84,6 +84,22 @@ final class StreamingDataSource implements DataSource {
             int initialReconnectDelayMillis,
             boolean streamEvenInBackground
     ) {
+        this(clientContext, context, dataSourceUpdateSink, fetcher, initialReconnectDelayMillis,
+                streamEvenInBackground, EXTENDED_INITIAL_RECONNECT_DELAY_MS,
+                EXTENDED_MAX_RECONNECT_TIME_MS);
+    }
+
+    @VisibleForTesting
+    StreamingDataSource(
+            @NonNull ClientContext clientContext,
+            @NonNull LDContext context,
+            @NonNull DataSourceUpdateSink dataSourceUpdateSink,
+            @NonNull FeatureFetcher fetcher,
+            int initialReconnectDelayMillis,
+            boolean streamEvenInBackground,
+            long extendedInitialReconnectDelayMillis,
+            long extendedMaxReconnectTimeMillis
+    ) {
         this.context = context;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
         this.fetcher = fetcher;
@@ -96,8 +112,8 @@ final class StreamingDataSource implements DataSource {
                 .initialDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
                 .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
         this.extendedRetryDelay = RetryDelayStrategy.defaultStrategy()
-                .initialDelay(EXTENDED_INITIAL_RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS)
-                .maxDelay(EXTENDED_MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS);
+                .initialDelay(extendedInitialReconnectDelayMillis, TimeUnit.MILLISECONDS)
+                .maxDelay(extendedMaxReconnectTimeMillis, TimeUnit.MILLISECONDS);
         this.streamEvenInBackground = streamEvenInBackground;
         this.diagnosticStore = ClientContextImpl.get(clientContext).getDiagnosticStore();
         this.logger = clientContext.getBaseLogger();

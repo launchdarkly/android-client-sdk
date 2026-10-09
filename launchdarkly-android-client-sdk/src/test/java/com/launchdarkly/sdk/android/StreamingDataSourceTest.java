@@ -148,6 +148,17 @@ public class StreamingDataSourceTest {
             MockComponents.MockDataSourceUpdateSink sink,
             boolean evaluationReasons, boolean useReport,
             int initialReconnectDelayMillis) {
+        ClientContext clientContext = makeDataSourceClientContext(
+                streamBaseUri, sink, evaluationReasons, useReport);
+        return (StreamingDataSource) Components.streamingDataSource()
+                .initialReconnectDelayMillis(initialReconnectDelayMillis)
+                .build(clientContext);
+    }
+
+    private ClientContext makeDataSourceClientContext(
+            URI streamBaseUri,
+            MockComponents.MockDataSourceUpdateSink sink,
+            boolean evaluationReasons, boolean useReport) {
         LDConfig.Builder configBuilder = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .serviceEndpoints(Components.serviceEndpoints().streaming(streamBaseUri))
                 .evaluationReasons(evaluationReasons);
@@ -158,11 +169,7 @@ public class StreamingDataSourceTest {
                 configBuilder.build(), MOBILE_KEY, "", perEnvironmentData,
                 makeFeatureFetcher(), CONTEXT,
                 logging.logger, platformState, environmentReporter, taskExecutor);
-        ClientContext clientContext = ClientContextImpl.forDataSource(
-                baseClientContext, sink, CONTEXT, false, false);
-        return (StreamingDataSource) Components.streamingDataSource()
-                .initialReconnectDelayMillis(initialReconnectDelayMillis)
-                .build(clientContext);
+        return ClientContextImpl.forDataSource(baseClientContext, sink, CONTEXT, false, false);
     }
 
     private static String makeSseEvent(String type, String data) {
@@ -795,6 +802,29 @@ public class StreamingDataSourceTest {
 
             // The extended regime waits minutes, so no retry arrives in this window.
             server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    @Test
+    public void unexpectedErrorRetriesAfterTheExtendedDelay() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            ClientContext clientContext = makeDataSourceClientContext(
+                    server.getUri(), dataSourceUpdateSink, false, false);
+            long extendedInitialDelayMillis = 400;
+            long extendedMaxDelayMillis = 800;
+            StreamingDataSource sds = new StreamingDataSource(
+                    clientContext, CONTEXT, dataSourceUpdateSink, makeFeatureFetcher(),
+                    1, false, extendedInitialDelayMillis, extendedMaxDelayMillis);
+            TrackingCallback callback = new TrackingCallback();
+
+            startDataSource(sds, callback);
+            server.getRecorder().requireRequest();
+
+            // Jitter can halve the extended delay, so a retry cannot arrive this soon.
+            server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+
+            // The stream does retry once the extended delay elapses.
+            server.getRecorder().requireRequest();
         }
     }
 
