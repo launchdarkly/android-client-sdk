@@ -27,4 +27,20 @@ public class LDUtilTest {
         Assert.assertEquals("--hello--", LDUtil.sanitizeSpaces("  hello  "));
         Assert.assertEquals("world", LDUtil.sanitizeSpaces("world"));
     }
+
+    @Test
+    public void testIsHttpErrorUnexpected() {
+        // Statuses that are unlikely to resolve on their own.
+        Assert.assertTrue(LDUtil.isHttpErrorUnexpected(401));
+        Assert.assertTrue(LDUtil.isHttpErrorUnexpected(403));
+        Assert.assertTrue(LDUtil.isHttpErrorUnexpected(404));
+        Assert.assertTrue(LDUtil.isHttpErrorUnexpected(405));
+
+        // Statuses that the service is likely to stop returning.
+        Assert.assertFalse(LDUtil.isHttpErrorUnexpected(400));
+        Assert.assertFalse(LDUtil.isHttpErrorUnexpected(408));
+        Assert.assertFalse(LDUtil.isHttpErrorUnexpected(429));
+        Assert.assertFalse(LDUtil.isHttpErrorUnexpected(500));
+        Assert.assertFalse(LDUtil.isHttpErrorUnexpected(503));
+    }
 }

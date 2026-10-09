@@ -38,9 +38,9 @@ public interface ConnectionInformation {
         OFFLINE(false),
 
         /**
-         * The SDK has been explicitly set offline, either in the initial configuration, by
-         * {@link LDClient#setOffline()}, or as a result of failed authentication to LaunchDarkly. The SDK will stay
-         * offline unless {@link LDClient#setOnline()} is called.
+         * The SDK has been explicitly set offline, either in the initial configuration or by
+         * {@link LDClient#setOffline()}. The SDK will stay offline unless
+         * {@link LDClient#setOnline()} is called.
          */
         SET_OFFLINE(false),
 

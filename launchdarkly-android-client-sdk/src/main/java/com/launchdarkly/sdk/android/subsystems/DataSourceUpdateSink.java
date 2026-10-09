@@ -44,12 +44,15 @@ public interface DataSourceUpdateSink {
     void setStatus(@NonNull ConnectionInformation.ConnectionMode connectionMode, @Nullable Throwable failure);
 
     /**
-     * Informs the SDK that the data source is being permanently shut down due to an unrecoverable
-     * problem reported by LaunchDarkly, such as the mobile key being invalid.
+     * Informs the SDK that the data source is permanently shutting down and will send no more
+     * data.
      * <p>
      * This implies that the SDK should also stop other components that communicate with
      * LaunchDarkly, such as the event processor. It also changes the connection mode to
      * {@link com.launchdarkly.sdk.android.ConnectionInformation.ConnectionMode#SHUTDOWN}.
+     * <p>
+     * The data sources in this SDK do not call this method. They retry after a failure instead,
+     * and they wait longer after a failure that is unlikely to correct itself.
      */
     void shutDown();
 }

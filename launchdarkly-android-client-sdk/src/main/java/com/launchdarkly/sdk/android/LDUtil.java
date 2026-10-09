@@ -230,6 +230,15 @@ public class LDUtil {
         return true;
     }
 
+    /**
+     * Tests whether an HTTP error status represents a condition that is unlikely to resolve on its own.
+     * @param statusCode the HTTP status
+     * @return true if the status is unlikely to change, such as a rejected credential; false otherwise
+     */
+    static boolean isHttpErrorUnexpected(int statusCode) {
+        return !isHttpErrorRecoverable(statusCode);
+    }
+
     static void logExceptionAtErrorLevel(LDLogger logger, Throwable ex, String msgFormat, Object... msgArgs) {
         logException(logger, ex, true, msgFormat, msgArgs);
     }

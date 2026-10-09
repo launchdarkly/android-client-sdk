@@ -3,9 +3,7 @@ package com.launchdarkly.sdk.android;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireNoMoreValues;
 import static com.launchdarkly.sdk.android.AssertHelpers.requireValue;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
@@ -22,6 +20,8 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -260,7 +260,6 @@ public class PollingDataSourceTest {
                 50,
                 2, // maximum number of requests is 2
                 clientContext.getFetcher(),
-                clientContext.getPlatformState(),
                 clientContext.getTaskExecutor(),
                 clientContext.getBaseLogger()
         );
@@ -271,8 +270,6 @@ public class PollingDataSourceTest {
 
         try {
             ds.start(LDUtil.noOpCallback());
-            ScheduledFuture pollTask = ds.currentPollTask.get();
-            assertFalse(pollTask.isCancelled());
 
             LDContext context1 = requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
 
@@ -280,7 +277,146 @@ public class PollingDataSourceTest {
 
             // if a third request is sent, this will fail here
             requireNoMoreValues(fetcher.receivedContexts, 200, TimeUnit.MILLISECONDS);
-            assertTrue(pollTask.isCancelled());
+        } finally {
+            ds.stop(LDUtil.noOpCallback());
+        }
+    }
+
+    private PollingDataSource makeDataSource(FeatureFetcher fetcherToUse, TaskExecutor executor,
+                                             long pollIntervalMillis) {
+        return new PollingDataSource(
+                CONTEXT,
+                dataSourceUpdateSink,
+                0,
+                pollIntervalMillis,
+                Long.MAX_VALUE,
+                fetcherToUse,
+                executor,
+                logging.logger
+        );
+    }
+
+    @Test
+    public void pollArmedBeforeStopDoesNotFetchWhenItFires() throws Exception {
+        // Schedules tasks for real, but returns no handle, so stop has nothing to cancel.
+        TaskExecutor executorWithoutCancellation = new TaskExecutor() {
+            @Override
+            public void executeOnMainThread(Runnable action) {
+                taskExecutor.executeOnMainThread(action);
+            }
+
+            @Override
+            public ScheduledFuture<?> scheduleTask(Runnable action, long delayMillis) {
+                taskExecutor.scheduleTask(action, delayMillis);
+                return null;
+            }
+
+            @Override
+            public void close() {}
+        };
+
+        PollingDataSource ds = new PollingDataSource(
+                CONTEXT, dataSourceUpdateSink, 100, 50, Long.MAX_VALUE,
+                fetcher, executorWithoutCancellation, logging.logger);
+        fetcher.setupSuccessResponse("{}");
+
+        // Stop the data source while its first poll waits to run.
+        ds.start(LDUtil.noOpCallback());
+        ds.stop(LDUtil.noOpCallback());
+
+        // A stopped data source sends no request, even from a poll it could not cancel.
+        requireNoMoreValues(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
+    }
+
+    @Test
+    public void fetchResultIsIgnoredWhenStopHappensWhileFetchIsInFlight() throws Exception {
+        BlockingQueue<Callback<String>> heldFetches = new LinkedBlockingQueue<>();
+        FeatureFetcher holdingFetcher = new FeatureFetcher() {
+            @Override
+            public void fetch(LDContext context, Callback<String> callback) {
+                heldFetches.add(callback);
+            }
+
+            @Override
+            public void close() {}
+        };
+
+        PollingDataSource ds = makeDataSource(holdingFetcher, taskExecutor, 50);
+        List<String> results = new ArrayList<>();
+
+        // Start a poll and wait until its request is outstanding.
+        ds.start(new Callback<Boolean>() {
+            @Override
+            public void onSuccess(Boolean result) {
+                results.add("success");
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                results.add("error");
+            }
+        });
+        Callback<String> heldFetch = requireValue(heldFetches, 500, TimeUnit.MILLISECONDS);
+
+        // Stop the data source, then let the outstanding request complete.
+        ds.stop(LDUtil.noOpCallback());
+        heldFetch.onSuccess("{}");
+
+        // A result that arrives after stop does not reach the consumer.
+        assertEquals(0, results.size());
+    }
+
+    @Test
+    public void pollingContinuesWhenResultCallbackThrowsOnSuccess() throws Exception {
+        PollingDataSource ds = makeDataSource(fetcher, taskExecutor, 50);
+
+        fetcher.setupSuccessResponse("{}");
+        fetcher.setupSuccessResponse("{}");
+
+        try {
+            // Throw out of the success callback of every poll.
+            ds.start(new Callback<Boolean>() {
+                @Override
+                public void onSuccess(Boolean result) {
+                    throw new RuntimeException("consumer failure");
+                }
+
+                @Override
+                public void onError(Throwable e) {
+                }
+            });
+            requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
+
+            // A throwing consumer does not end the poll chain.
+            requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
+        } finally {
+            ds.stop(LDUtil.noOpCallback());
+        }
+    }
+
+    @Test
+    public void pollingContinuesWhenResultCallbackThrowsOnError() throws Exception {
+        PollingDataSource ds = makeDataSource(fetcher, taskExecutor, 50);
+
+        fetcher.setupErrorResponse(new LDFailure("network error", LDFailure.FailureType.NETWORK_FAILURE));
+        fetcher.setupSuccessResponse("{}");
+
+        try {
+            // Throw out of the error callback, which the first poll triggers by failing.
+            ds.start(new Callback<Boolean>() {
+                @Override
+                public void onSuccess(Boolean result) {
+                }
+
+                @Override
+                public void onError(Throwable e) {
+                    throw new RuntimeException("consumer failure");
+                }
+            });
+            requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
+
+            // A failed poll whose consumer also throws still leads to the next poll.
+            requireValue(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
         } finally {
             ds.stop(LDUtil.noOpCallback());
         }
