@@ -88,10 +88,12 @@ final class PollingDataSource implements DataSource {
     }
 
     private void schedulePoll(Callback<Boolean> resultCallback, long delayMillis) {
-        if (stopped) {
-            return;
-        }
-        currentPollTask.set(taskExecutor.scheduleTask(() -> poll(resultCallback), delayMillis));
+        currentPollTask.set(taskExecutor.scheduleTask(() -> {
+            if (stopped) {
+                return;
+            }
+            poll(resultCallback);
+        }, delayMillis));
     }
 
     private void poll(Callback<Boolean> resultCallback) {
@@ -105,16 +107,28 @@ final class PollingDataSource implements DataSource {
                 new Callback<Boolean>() {
                     @Override
                     public void onSuccess(Boolean result) {
-                        retryState.recordSuccess();
-                        resultCallback.onSuccess(result);
-                        schedulePoll(resultCallback, retryState.nextDelayMillis());
+                        if (stopped) {
+                            return;
+                        }
+                        try {
+                            retryState.recordSuccess();
+                            resultCallback.onSuccess(result);
+                        } finally {
+                            schedulePoll(resultCallback, retryState.nextDelayMillis());
+                        }
                     }
 
                     @Override
                     public void onError(Throwable e) {
-                        retryState.recordFailure(e);
-                        resultCallback.onError(e);
-                        schedulePoll(resultCallback, retryState.nextDelayMillis());
+                        if (stopped) {
+                            return;
+                        }
+                        try {
+                            retryState.recordFailure(e);
+                            resultCallback.onError(e);
+                        } finally {
+                            schedulePoll(resultCallback, retryState.nextDelayMillis());
+                        }
                     }
                 }, logger);
     }
