@@ -181,7 +181,8 @@ final class StreamingDataSource implements DataSource {
                                 !LDUtil.isHttpErrorRecoverable(((StreamHttpErrorException) t).getCode())) {
                             current.getEventSource()
                                     .activateRetryDelayStrategy(extendedRetryDelay);
-                            logger.info("Classified failure as unexpected. Verify correct Mobile Key and Stream URI. Engaging extended backoff");
+                            logger.error("Encountered unexpected error: {}. Verify correct Mobile Key and Stream URI. Engaging extended backoff",
+                                    ((StreamHttpErrorException) t).getCode());
                         }
                         return ConnectionErrorHandler.Action.PROCEED;
                     })
