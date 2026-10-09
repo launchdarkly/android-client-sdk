@@ -56,7 +56,7 @@ final class PollingRetryState {
     // True for an HTTP status the service is unlikely to stop returning, such as a 401.
     private static boolean isUnexpected(@Nullable Throwable error) {
         return error instanceof LDInvalidResponseCodeFailure
-                && !LDUtil.isHttpErrorRecoverable(
+                && LDUtil.isHttpErrorUnexpected(
                         ((LDInvalidResponseCodeFailure) error).getResponseCode());
     }
 
