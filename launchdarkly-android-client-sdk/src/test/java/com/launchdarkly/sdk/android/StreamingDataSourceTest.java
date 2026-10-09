@@ -768,6 +768,36 @@ public class StreamingDataSourceTest {
         }
     }
 
+    @Test
+    public void recoverableErrorReconnectsWithoutExtendedBackoff() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            StreamingDataSource sds = makeStreamingDataSource(
+                    server.getUri(), dataSourceUpdateSink, false, false, 1);
+            TrackingCallback callback = new TrackingCallback();
+
+            startDataSource(sds, callback);
+
+            // The normal regime starts at the configured 1ms delay, so the retry arrives at once.
+            server.getRecorder().requireRequest();
+            server.getRecorder().requireRequest();
+        }
+    }
+
+    @Test
+    public void unexpectedErrorReconnectsWithExtendedBackoff() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            StreamingDataSource sds = makeStreamingDataSource(
+                    server.getUri(), dataSourceUpdateSink, false, false, 1);
+            TrackingCallback callback = new TrackingCallback();
+
+            startDataSource(sds, callback);
+            server.getRecorder().requireRequest();
+
+            // The extended regime waits minutes, so no retry arrives in this window.
+            server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
+        }
+    }
+
     // --- start(): SSE event processing via HttpServer ---
 
     @Test
