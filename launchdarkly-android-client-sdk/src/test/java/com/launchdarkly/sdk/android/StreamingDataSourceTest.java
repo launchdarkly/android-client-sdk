@@ -748,6 +748,26 @@ public class StreamingDataSourceTest {
         }
     }
 
+    @Test
+    public void startWithHttp401KeepsTheSinkRunning() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            StreamingDataSource sds = makeStreamingDataSource(
+                    server.getUri(), false, false);
+            TrackingCallback callback = new TrackingCallback();
+
+            startDataSource(sds, callback);
+            Throwable error = callback.awaitError();
+
+            // A rejected credential is retryable now, because the stream keeps reconnecting.
+            assertNotNull(error);
+            assertTrue(error instanceof LDInvalidResponseCodeFailure);
+            LDInvalidResponseCodeFailure failure = (LDInvalidResponseCodeFailure) error;
+            assertEquals(401, failure.getResponseCode());
+            assertTrue(failure.isRetryable());
+            assertFalse(dataSourceUpdateSink.shutDownCalled);
+        }
+    }
+
     // --- start(): SSE event processing via HttpServer ---
 
     @Test
