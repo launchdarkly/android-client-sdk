@@ -1940,7 +1940,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
-                char[] data = new char[EventStore.Format.MAX_FRAME_SIZE];
+                char[] data = new char[EventLogFormat.MAX_FRAME_SIZE];
                 Arrays.fill(data, 'x');
                 eventProcessor.recordCustomEvent(CONTEXT, "too-large", LDValue.of(new String(data)), null);
                 eventProcessor.recordCustomEvent(CONTEXT, "fine", LDValue.ofNull(), null);

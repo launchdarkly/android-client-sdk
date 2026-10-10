@@ -133,7 +133,7 @@ public class EventStoreMultiProcessTest {
         dot.stage(event("dot"));
         dot.commit();
 
-        assertNotEquals(EventStore.logNameFor("com.app:remote"), EventStore.logNameFor("com.app.remote"));
+        assertNotEquals(OpenEventLog.nameFor("com.app:remote"), OpenEventLog.nameFor("com.app.remote"));
         assertEquals(2, filesNamed("open-").size());
         assertEquals(Arrays.asList("colon"), visibleKeys(colon));
         assertEquals(Arrays.asList("dot"), visibleKeys(dot));
@@ -143,14 +143,14 @@ public class EventStoreMultiProcessTest {
     public void aLogNameIsStableAcrossRunsOfTheSameProcess() {
         // Stability is what lets a process find the log its previous run left behind, so it must not
         // include anything that changes from run to run.
-        assertEquals(EventStore.logNameFor(MAIN_PROCESS), EventStore.logNameFor(MAIN_PROCESS));
+        assertEquals(OpenEventLog.nameFor(MAIN_PROCESS), OpenEventLog.nameFor(MAIN_PROCESS));
     }
 
     @Test
     public void aProcessNameThePlatformCouldNotDetermineStillYieldsAName() {
-        assertTrue(EventStore.logNameFor("").length() > 0);
-        assertTrue(EventStore.logNameFor(null).length() > 0);
-        assertNotEquals(EventStore.logNameFor(null), EventStore.logNameFor(MAIN_PROCESS));
+        assertTrue(OpenEventLog.nameFor("").length() > 0);
+        assertTrue(OpenEventLog.nameFor(null).length() > 0);
+        assertNotEquals(OpenEventLog.nameFor(null), OpenEventLog.nameFor(MAIN_PROCESS));
     }
 
     // MARK: recovery respects the boundary between processes
@@ -167,7 +167,7 @@ public class EventStoreMultiProcessTest {
         main.recoverInterruptedLog();
 
         assertEquals("the other process's log was taken away", 1,
-                filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).size());
+                filesNamed("open-" + OpenEventLog.nameFor(SERVICE_PROCESS)).size());
         assertTrue("another process's events were claimed as recovered", main.pendingBatches().isEmpty());
 
         // And the service process can still append to it and read back both events.
@@ -191,7 +191,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(1, recovered.get(0).eventCount);
         assertEquals(Arrays.asList("before-the-crash"), visibleKeys(secondRun));
         assertTrue("the recovered log should no longer be open",
-                filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).isEmpty());
+                filesNamed("open-" + OpenEventLog.nameFor(SERVICE_PROCESS)).isEmpty());
     }
 
     @Test
@@ -210,7 +210,7 @@ public class EventStoreMultiProcessTest {
         List<EventStore.Batch> recovered = secondRun.pendingBatches();
         assertEquals(1, recovered.size());
         assertEquals("this run's event was counted as a previous run's", 1, recovered.get(0).eventCount);
-        assertEquals(1, filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).size());
+        assertEquals(1, filesNamed("open-" + OpenEventLog.nameFor(SERVICE_PROCESS)).size());
         assertEquals(Arrays.asList("previous-run", "this-run"), visibleKeys(secondRun));
     }
 
@@ -235,7 +235,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(Arrays.asList(own), withoutPersistence.pendingBatches());
 
         assertEquals(1, filesNamed("ready-").size());
-        assertEquals(1, filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).size());
+        assertEquals(1, filesNamed("open-" + OpenEventLog.nameFor(SERVICE_PROCESS)).size());
 
         // Still there for the next run that has persistence turned on.
         EventStore persistentAgain = storeFor(SERVICE_PROCESS);
@@ -430,7 +430,7 @@ public class EventStoreMultiProcessTest {
         EventStore secondRun = storeWithFailingReads(SERVICE_PROCESS, failing);
         secondRun.recoverInterruptedLog();
         // Moved out from under the name this run appends to, and not deleted.
-        assertTrue(filesNamed("open-" + EventStore.logNameFor(SERVICE_PROCESS)).isEmpty());
+        assertTrue(filesNamed("open-" + OpenEventLog.nameFor(SERVICE_PROCESS)).isEmpty());
         assertEquals(1, filesNamed("ready-").size());
 
         secondRun.stage(event("this-run"));
