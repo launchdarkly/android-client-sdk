@@ -196,6 +196,17 @@ final class OutboundEventBuffer {
     }
 
     /**
+     * Takes the counters and serializes them in one call, for a caller with nothing to coordinate the
+     * take with.
+     * <p>
+     * Not for the commit path. That has to take the counters in the same critical section it takes the
+     * pending events in, or a commit can stage an evaluation's counter and leave its full event behind.
+     */
+    List<byte[]> serializeSummariesAndReset() {
+        return serializeSummaries(takeSummaries());
+    }
+
+    /**
      * Turns summary counters already taken from {@link #takeSummaries} into their summary events.
      * <p>
      * Counters live only in memory, so whatever has not been summarized is what a crash takes with
@@ -216,17 +227,6 @@ final class OutboundEventBuffer {
      * @param summaries the counters taken for this commit
      * @return one JSON object per summary, empty if there was nothing counted or nothing serialized
      */
-    /**
-     * Takes the counters and serializes them in one call, for a caller with nothing to coordinate the
-     * take with.
-     * <p>
-     * Not for the commit path. That has to take the counters in the same critical section it takes the
-     * pending events in, or a commit can stage an evaluation's counter and leave its full event behind.
-     */
-    List<byte[]> serializeSummariesAndReset() {
-        return serializeSummaries(takeSummaries());
-    }
-
     List<byte[]> serializeSummaries(List<EventSummarizer.EventSummary> summaries) {
         if (summaries.isEmpty()) {
             return Collections.emptyList();

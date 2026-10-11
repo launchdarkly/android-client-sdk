@@ -1958,6 +1958,44 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aLossAfterAFlushClosedItsBatchIsReportedToTheNextFlushInstead() throws Exception {
+        // A flush answers for the batch it closed. One that met a retryable failure answers only when
+        // its retry does, which is long enough for a loss to happen in between, and that loss belongs
+        // to the flush that closes the batch after it rather than to this one.
+        char[] data = new char[EventLogFormat.MAX_FRAME_SIZE];
+        Arrays.fill(data, 'x');
+        LDValue tooLarge = LDValue.of(new String(data));
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(503)),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                Future<Boolean> firstFlush = eventProcessor.flushAsync();
+                // The batch is closed and on its way by the time the request lands, so the loss below
+                // happens after this flush took everything it can speak for.
+                assertNotNull(server.getRecorder().requireRequest(5, TimeUnit.SECONDS));
+
+                eventProcessor.recordCustomEvent(CONTEXT, "too-large", tooLarge, null);
+                logging.assertErrorLogged("too large to store");
+                // One permit, not every permit: only this first response is held, and the finally
+                // below has to be able to release it again without overflowing the count.
+                letFirstResponseFinish.release();
+
+                // The retry sends the batch this flush closed, and everything in it arrives.
+                assertTrue("told about a loss that happened after it closed its batch",
+                        Boolean.TRUE.equals(firstFlush.get(10, TimeUnit.SECONDS)));
+                // And the loss is still owed to somebody, so the next caller is the one to hear it.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                letFirstResponseFinish.release();
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void eventsHeldInMemoryWhenAWriteFailsAreDeliveredWithThoseWrittenBeforeIt() throws Exception {
         AtomicInteger writes = new AtomicInteger();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,

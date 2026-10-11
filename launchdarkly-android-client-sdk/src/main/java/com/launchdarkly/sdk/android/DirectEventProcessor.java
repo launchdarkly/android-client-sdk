@@ -254,17 +254,31 @@ final class DirectEventProcessor implements EventProcessor {
     private boolean pendingFlushAnswersACaller;
 
     /**
-     * Set when events the SDK accepted were dropped for good, and cleared once a
-     * {@link #flushAsync()} caller has been told so.
+     * How many events the SDK accepted and then dropped for good.
      * <p>
      * A batch the service refuses in a way that may pass is kept and retried, so it is not a loss.
      * What is lost is what the store never received: an event or a summary that could not be
-     * serialized when it was committed, or that serialized too large to store. A delivery that finds nothing to send cannot tell those
-     * apart from events that arrived, so without this it would report success for them. Atomic
-     * because commits run on the commit executor and on callers' threads, and a caller waiting
-     * behind a retry is answered from a pooled thread.
+     * serialized when it was committed, or that serialized too large to store. A delivery that
+     * finds nothing to send cannot tell those apart from events that arrived, so without this it
+     * would report success for them.
+     * <p>
+     * A count rather than a flag because a delivery can answer long after it ran: one that met a
+     * retryable failure answers only when its retry does, and another delivery can come and go in
+     * between. Each delivery takes the count as it closes its batch and answers only for the losses
+     * up to that mark, so it is never told about a loss that happened after it had taken everything
+     * it could speak for. Only the order of two values ever matters, never the difference between
+     * them, so a failure that lost several events need only move it once.
+     * <p>
+     * Atomic because commits run on the commit executor and on callers' threads, and a caller
+     * waiting behind a retry is answered from a pooled thread.
      */
-    private final AtomicBoolean eventsLostSinceLastAnswer = new AtomicBoolean(false);
+    private final AtomicLong lostEvents = new AtomicLong(0);
+
+    /**
+     * The mark up to which a loss has already been reported to a {@link #flushAsync()} caller, so
+     * that no loss is reported twice and none goes unreported.
+     */
+    private final AtomicLong reportedLostEvents = new AtomicLong(0);
 
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
@@ -566,7 +580,7 @@ final class DirectEventProcessor implements EventProcessor {
             }
             stageSummaries(summaries);
             if (eventBuffer.takeSerializationFailure()) {
-                eventsLostSinceLastAnswer.set(true);
+                lostEvents.incrementAndGet();
             }
             store.commit();
             committedSequence = through;
@@ -611,7 +625,27 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private void reportRefusedByStore(String what, byte[] serialized) {
         logger.error("Dropping {} of {} bytes, too large to store", what, serialized.length);
-        eventsLostSinceLastAnswer.set(true);
+        lostEvents.incrementAndGet();
+    }
+
+    /**
+     * Claims the losses up to a mark on behalf of one {@link #flushAsync()} caller.
+     *
+     * @param mark the loss count as of the close of that caller's batch
+     * @return true if a loss at or before the mark had not yet been reported to anyone, in which
+     *   case this caller is the one reporting it
+     */
+    private boolean takeEventsLost(long mark) {
+        // A loop rather than getAndUpdate, which this SDK cannot use below API 24.
+        while (true) {
+            long reported = reportedLostEvents.get();
+            if (mark <= reported) {
+                return false;
+            }
+            if (reportedLostEvents.compareAndSet(reported, mark)) {
+                return true;
+            }
+        }
     }
 
     /**
@@ -725,7 +759,7 @@ final class DirectEventProcessor implements EventProcessor {
      * the {@code flushAndWait} at shutdown -- waits behind all of them.
      *
      * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
-     *   any events lost since the last answer, and false if the caller discards it
+     *   any events lost up to the batch it closes, and false if the caller discards it
      */
     private Future<Boolean> queueDelivery(boolean answersACaller) {
         synchronized (flushLock) {
@@ -748,9 +782,9 @@ final class DirectEventProcessor implements EventProcessor {
      * Runs one delivery on behalf of every flush request that joined it, and tells them all how it
      * went.
      * <p>
-     * A caller who will hear the answer is told no if events were dropped for good since the last
-     * caller was told, as well as if this delivery fails: a delivery that finds nothing to send is
-     * not evidence that everything recorded arrived.
+     * A caller who will hear the answer is told no if events were dropped for good up to the batch
+     * this delivery closed and nobody has been told yet, as well as if the delivery fails: a
+     * delivery that finds nothing to send is not evidence that everything recorded arrived.
      */
     private void runDelivery(LDAwaitFuture<Boolean> result) {
         boolean answersACaller = false;
@@ -770,12 +804,12 @@ final class DirectEventProcessor implements EventProcessor {
             // Caught here rather than left to guarded(), because a caller is waiting on the future
             // and completing it matters more than the stack reaching the executor.
             logUnexpectedError(t);
-            outcome = DeliveryOutcome.NOT_DELIVERED;
+            outcome = DeliveryOutcome.CLOSED_NOTHING;
         }
         if (outcome.retry == null) {
-            answer(result, outcome.delivered, answersACaller);
+            answer(result, outcome.delivered, answersACaller, outcome.lostEventsMark);
         } else {
-            completeWhenRetryEnds(result, outcome.retry, answersACaller);
+            completeWhenRetryEnds(result, outcome, answersACaller);
         }
     }
 
@@ -784,9 +818,9 @@ final class DirectEventProcessor implements EventProcessor {
      * it is about to be sent again. Waiting happens on a pooled thread because the retry runs a
      * second from now on this one, which must be free to take it.
      */
-    private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, Future<Boolean> retry,
+    private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, DeliveryOutcome outcome,
                                        boolean answersACaller) {
-        LDAwaitFuture<Boolean> retried = LDFutures.fromFuture(retry);
+        LDAwaitFuture<Boolean> retried = LDFutures.fromFuture(outcome.retry);
         retried.addListener(() -> {
             boolean delivered = false;
             try {
@@ -796,17 +830,21 @@ final class DirectEventProcessor implements EventProcessor {
             } catch (ExecutionException e) {
                 // Reported as not delivered.
             }
-            answer(result, delivered, answersACaller);
+            // The mark the delivery took, not one taken now: a loss during the wait belongs to
+            // whichever delivery closes the batch after it, not to this one.
+            answer(result, delivered, answersACaller, outcome.lostEventsMark);
         });
     }
 
     /**
-     * Completes a delivery's future. A caller who will hear the answer is told no if anything was
-     * lost since the last caller was told, as well as if this delivery failed.
+     * Completes a delivery's future. A caller who will hear the answer is told no if this delivery
+     * failed, or if events the SDK accepted were lost for good up to the mark it took and no caller
+     * has been told so yet.
      */
-    private void answer(LDAwaitFuture<Boolean> result, boolean delivered, boolean answersACaller) {
+    private void answer(LDAwaitFuture<Boolean> result, boolean delivered, boolean answersACaller,
+                        long lostEventsMark) {
         if (answersACaller) {
-            delivered &= !eventsLostSinceLastAnswer.getAndSet(false);
+            delivered &= !takeEventsLost(lostEventsMark);
         }
         result.set(delivered);
     }
@@ -935,16 +973,22 @@ final class DirectEventProcessor implements EventProcessor {
      * How a delivery went, or the retry that will say, for a caller waiting to find out.
      */
     private static final class DeliveryOutcome {
-        static final DeliveryOutcome DELIVERED = new DeliveryOutcome(true, null);
-        static final DeliveryOutcome NOT_DELIVERED = new DeliveryOutcome(false, null);
+        /** For a delivery that closed no batch, so there are no losses it can speak for. */
+        static final DeliveryOutcome CLOSED_NOTHING = new DeliveryOutcome(false, null, 0);
 
         final boolean delivered;
         /** Non-null when a batch failed in a way that may pass, and a retry of every batch is queued. */
         final Future<Boolean> retry;
+        /**
+         * The loss count as of the close of this delivery's batch, which is as far as it can answer
+         * for; see {@link #takeEventsLost(long)}.
+         */
+        final long lostEventsMark;
 
-        private DeliveryOutcome(boolean delivered, Future<Boolean> retry) {
+        private DeliveryOutcome(boolean delivered, Future<Boolean> retry, long lostEventsMark) {
             this.delivered = delivered;
             this.retry = retry;
+            this.lostEventsMark = lostEventsMark;
         }
     }
 
@@ -974,25 +1018,46 @@ final class DirectEventProcessor implements EventProcessor {
      * Closes what has been committed into a batch and delivers every batch waiting, queueing one retry
      * if a batch failed in a way that may pass.
      * <p>
-     * Runs on the scheduler thread, which is single-threaded, so only one payload is ever in flight
-     * and the run is taken exactly once per delivery. The run and the counters are taken together
-     * under {@link #recordLock}, so an evaluation is never split across two payloads, and encoded
-     * outside it, so recording does not wait on the encoder.
+     * Runs on the scheduler thread for a requested or periodic delivery, and on the caller's thread
+     * at close. Deliveries can therefore overlap: a retry runs a second behind the delivery that
+     * queued it, and the one at close does not wait for the scheduler. Each closes a batch of its
+     * own under {@link #commitLock}, so no event is committed into two batches, and a batch that two
+     * of them do both post carries the same payload ID both times, which LaunchDarkly discards
+     * rather than counting the events twice.
      */
     private DeliveryOutcome deliverPayloadAndRetryLater() {
         if (disabled || offline.get()) {
-            return DeliveryOutcome.NOT_DELIVERED;
+            return DeliveryOutcome.CLOSED_NOTHING;
         }
 
-        commitDurably();
-        store.closeBatch();
+        long lostEventsMark = commitAndCloseBatch();
 
         BatchesOutcome outcome = deliverPendingBatches();
         if (outcome == BatchesOutcome.RETRYABLE) {
             Future<Boolean> retry = scheduleRetry();
-            return retry == null ? DeliveryOutcome.NOT_DELIVERED : new DeliveryOutcome(false, retry);
+            return new DeliveryOutcome(false, retry, lostEventsMark);
         }
-        return outcome == BatchesOutcome.DELIVERED ? DeliveryOutcome.DELIVERED : DeliveryOutcome.NOT_DELIVERED;
+        return new DeliveryOutcome(outcome == BatchesOutcome.DELIVERED, null, lostEventsMark);
+    }
+
+    /**
+     * Commits everything accepted so far and closes it into a batch to deliver, taking the loss
+     * count as of that close.
+     * <p>
+     * Both under {@link #commitLock}, for two reasons. A commit landing between the two would stage
+     * events into the log this batch is about to close, which splits what one commit staged across
+     * two payloads -- an evaluation's counter in this batch and its event in the next. And the mark
+     * has to be the count as of the close, because that is what this delivery can answer for: a loss
+     * after it is one whose events were never in this batch.
+     *
+     * @return the loss count as of the close, for {@link #takeEventsLost(long)}
+     */
+    private long commitAndCloseBatch() {
+        synchronized (commitLock) {
+            commitDurably();
+            store.closeBatch();
+            return lostEvents.get();
+        }
     }
 
     private enum BatchesOutcome { DELIVERED, FAILED, RETRYABLE }
