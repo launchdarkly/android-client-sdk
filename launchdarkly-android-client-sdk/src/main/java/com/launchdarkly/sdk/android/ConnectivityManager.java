@@ -76,6 +76,10 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final boolean useFDv2ModeResolution;
     private final ModeResolutionTable modeResolutionTable;
     private volatile ConnectionMode currentFDv2Mode;
+    // True when the FDv2 connection mode resolves to OFFLINE (a configured data mode,
+    // versus forced-offline or platform network loss). LD's offline contract holds ALL
+    // event posts while this mode is active, so the event processor must gate on it too.
+    private volatile boolean fdv2ModeOffline;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
     private final long connectionModeStateDebounceMs; // visible for testing
     private final StateDebounceManager stateDebounceManager;
@@ -281,12 +285,14 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
                 ModeDefinition oldDef = fdv2Builder.getModeDefinition(currentFDv2Mode);
                 ModeDefinition newDef = fdv2Builder.getModeDefinition(newMode);
                 if (oldDef != null && oldDef.equals(newDef)) {
+                    setFdv2ModeOffline(newMode == ConnectionMode.OFFLINE);
                     currentFDv2Mode = newMode;
                     onCompletion.onSuccess(null);
                     return false;
                 }
                 mustReinitializeDataSource = true;
             }
+            setFdv2ModeOffline(newMode == ConnectionMode.OFFLINE);
             currentFDv2Mode = newMode;
         }
 
@@ -621,8 +627,23 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     }
 
     private void updateEventProcessor(boolean forceOffline, boolean networkAvailable, boolean foreground) {
-        eventProcessor.setOffline(forceOffline || !networkAvailable);
+        eventProcessor.setOffline(forceOffline || !networkAvailable || fdv2ModeOffline);
         eventProcessor.setInBackground(!foreground);
+    }
+
+    /**
+     * Updates the event processor's offline gate whenever the FDv2 connection mode
+     * resolves to or away from OFFLINE. The configured OFFLINE mode must hold event
+     * posts exactly as force-offline does (LD offline contract), so any mode change
+     * re-evaluates the processor state.
+     */
+    private void setFdv2ModeOffline(boolean modeOffline) {
+        boolean was = fdv2ModeOffline;
+        fdv2ModeOffline = modeOffline;
+        if (modeOffline != was) {
+            updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(),
+                    platformState.isForeground());
+        }
     }
 
     /**
