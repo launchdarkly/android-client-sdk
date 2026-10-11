@@ -80,6 +80,7 @@ public class SdkClientEntity {
     this.logger = LDLogger.withAdapter(logAdapterForTest, params.tag);
     logger.info("Creating client");
     LDConfig config = buildSdkConfig(params.configuration, logAdapterForTest, params.tag);
+
     long startWaitMs = params.configuration.startWaitTimeMs != null ?
             params.configuration.startWaitTimeMs.longValue() : 5000;
     Representations.SdkConfigClientSideParams clientSideParams = params.configuration.clientSide;
@@ -281,10 +282,23 @@ public class SdkClientEntity {
     // because the state of each test is supposed to be independent from the others. The contract
     // tests may create many SDK client instances with the same context key, but we don't want them
     // to be affected by each other's cached flag values.
-    ConfigHelper.configureIsolatedInMemoryPersistence(builder);
+    //
+    // CENTINEL client-lane extension (campaign client-INTERFACE section 5): with an x-cp
+    // storage scope the store is shared per scope (PERSIST.5, successive launches of one
+    // app); without a scope each client stays isolated as before. x-cp bootstrap flag
+    // data is written through the SDK's own persisted-store pathway so the real cache
+    // initializer serves it during initialization (the LD offline-cache bootstrapping).
+    Representations.SdkConfigClientSideParams cs = params.clientSide;
+    com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
+            com.launchdarkly.sdk.android.ConfigHelper.configureInMemoryPersistence(builder,
+            cs == null ? null : cs.xCpStorageScope);
+    if (cs != null && cs.xCpBootstrap != null) {
+      com.launchdarkly.sdk.android.ConfigHelper.preloadBootstrapData(store, params.credential,
+              cs.xCpBootstrap, cs.initialContext);
+    }
 
     if (params.dataSystem != null) {
-      configureDataSystem(builder, params.dataSystem);
+      configureDataSystem(builder, params.dataSystem, cs != null && cs.xCpBootstrap != null);
     } else {
       if (params.polling != null && params.polling.baseUri != null) {
         endpoints.polling(params.polling.baseUri);
@@ -391,7 +405,8 @@ public class SdkClientEntity {
     return builder.build();
   }
 
-  private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem) {
+  private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem,
+          boolean bootstrapDataPresent) {
     if (Boolean.TRUE.equals(dataSystem.useDefaultDataSystem)) {
       builder.dataSystem(Components.dataSystem());
       return;
@@ -412,7 +427,8 @@ public class SdkClientEntity {
       if (hasConnectionModeCustomPipelines(connModeConfig)) {
         for (Map.Entry<String, SdkConfigModeDefinition> entry : connModeConfig.customConnectionModes.entrySet()) {
           ConnectionMode mode = connectionModeFromString(entry.getKey());
-          ConnectionModeBuilder modeBuilder = buildConnectionModeBuilder(entry.getValue());
+          ConnectionModeBuilder modeBuilder = buildConnectionModeBuilder(entry.getValue(),
+                  bootstrapDataPresent);
           dsBuilder.customizeConnectionMode(mode, modeBuilder);
         }
       }
@@ -421,7 +437,8 @@ public class SdkClientEntity {
       topLevel.initializers = dataSystem.initializers;
       topLevel.synchronizers = dataSystem.synchronizers;
       dsBuilder.foregroundConnectionMode(ConnectionMode.STREAMING);
-      dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING, buildConnectionModeBuilder(topLevel));
+      dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING,
+              buildConnectionModeBuilder(topLevel, bootstrapDataPresent));
     }
 
     builder.dataSystem(dsBuilder);
@@ -439,11 +456,18 @@ public class SdkClientEntity {
             && !connModeConfig.customConnectionModes.isEmpty();
   }
 
-  private static ConnectionModeBuilder buildConnectionModeBuilder(SdkConfigModeDefinition modeDef) {
+  private static ConnectionModeBuilder buildConnectionModeBuilder(SdkConfigModeDefinition modeDef,
+          boolean bootstrapDataPresent) {
     ConnectionModeBuilder modeBuilder = DataSystemComponents.customMode();
 
     if (modeDef.initializers != null) {
       List<InitializerEntry> initList = new ArrayList<>();
+      // CENTINEL client-lane extension: with x-cp bootstrap data present, the SDK's own
+      // cache initializer leads the pipeline so the injected boot flags are read through
+      // the SDK's real persisted-store path before any network initializer runs.
+      if (bootstrapDataPresent) {
+        initList.add(DataSystemComponents.cacheInitializer());
+      }
       for (SdkConfigDataInitializer init : modeDef.initializers) {
         if (init.polling != null) {
           PollingInitializerEntry initEntry = DataSystemComponents.pollingInitializer();

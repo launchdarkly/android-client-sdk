@@ -79,6 +79,12 @@ public abstract class Representations {
         boolean evaluationReasons;
         boolean useReport;
         boolean includeEnvironmentAttributes;
+
+        // CENTINEL seat extensions (campaign client-INTERFACE section 5): a blind storage
+        // scope tag whose clients share one local store (PERSIST.5), and bootstrap flag
+        // data in the all-flags-state shape for the SDK's pre-connection serve.
+        @SerializedName("x-cp-storage-scope") String xCpStorageScope;
+        @SerializedName("x-cp-bootstrap") java.util.Map<String, Object> xCpBootstrap;
     }
 
     public static class SdkConfigHookParams {
