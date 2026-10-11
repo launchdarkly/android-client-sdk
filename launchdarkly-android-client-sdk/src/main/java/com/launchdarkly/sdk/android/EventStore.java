@@ -137,10 +137,20 @@ class EventStore implements Closeable {
     // Guarded by ioLock.
     private boolean recoveryDone;
     /**
-     * Batches held in memory because the filesystem would not take them.
+     * Guards {@link #inMemoryBatches}.
+     * <p>
+     * Its own lock rather than {@code ioLock}, so that a store the application told to keep off the disk -
+     * where held batches are the only ones there are - never waits on the lock disk I/O is serialized
+     * under. Taken inside {@code ioLock} where there is a disk, never the other way round.
+     */
+    private final Object heldLock = new Object();
+    /**
+     * Batches held in memory because the filesystem would not take them, or because it was never asked.
      * <p>
      * Persistence failing should cost durability and nothing else, so the store falls back to what the
      * SDK did before it existed: hold the events, deliver them, lose them only if the process dies.
+     * <p>
+     * Only to be used while holding {@link #heldLock}.
      */
     private final Map<String, HeldBatch> inMemoryBatches = new LinkedHashMap<>();
 
@@ -436,6 +446,11 @@ class EventStore implements Closeable {
      *   null when there is nothing to send
      */
     Batch closeBatch() {
+        // Where the application asked for no disk there is no log to close, and so nothing to close it
+        // alongside.
+        if (!usesDisk) {
+            return closeInMemoryBatch();
+        }
         synchronized (ioLock) {
             commitHoldingIoLock();
 
@@ -449,7 +464,7 @@ class EventStore implements Closeable {
             Batch fromLog = events > 0 ? closeOpenLogHoldingIoLock(events) : null;
             // Only reachable once persistence has been given up on; a healthy commit leaves nothing
             // staged behind. Closed after the log, so the older events are delivered first.
-            Batch fromMemory = stillBuffered > 0 ? closeInMemoryBatchHoldingIoLock() : null;
+            Batch fromMemory = stillBuffered > 0 ? closeInMemoryBatch() : null;
             return fromLog != null ? fromLog : fromMemory;
         }
     }
@@ -478,8 +493,13 @@ class EventStore implements Closeable {
         return new Batch(payloadId, events);
     }
 
-    /** Requires {@code ioLock}. */
-    private Batch closeInMemoryBatchHoldingIoLock() {
+    /**
+     * Closes whatever is staged into a batch that never reaches a file.
+     * <p>
+     * Called under {@code ioLock} where there is a disk, so that it and the log are closed as one step,
+     * and on its own where there is not.
+     */
+    private Batch closeInMemoryBatch() {
         byte[] frames;
         int events;
         synchronized (bufferLock) {
@@ -493,7 +513,9 @@ class EventStore implements Closeable {
             return null;
         }
         String payloadId = UUID.randomUUID().toString();
-        inMemoryBatches.put(payloadId, new HeldBatch(body, events));
+        synchronized (heldLock) {
+            inMemoryBatches.put(payloadId, new HeldBatch(body, events));
+        }
         synchronized (bufferLock) {
             closedEvents += events;
         }
@@ -515,65 +537,91 @@ class EventStore implements Closeable {
      * @return batches awaiting delivery, oldest first, including any left by a previous run
      */
     List<Batch> pendingBatches() {
-        synchronized (ioLock) {
-            List<Batch> batches = new ArrayList<>();
-            if (usesDisk) {
-                for (File file : readyFilesOldestFirstHoldingIoLock()) {
-                    String payloadId = file.getName().substring(BATCH_PREFIX.length());
-                    // Reading is only for a batch this process has not counted: one a previous run left
-                    // behind, or one belonging to another process sharing the environment.
-                    Integer counted = eventCounts.get(payloadId);
-                    int events;
-                    if (counted != null) {
-                        events = counted;
-                    } else {
-                        byte[] log;
-                        try {
-                            log = readFile(file);
-                        } catch (IOException e) {
-                            // Left for a later listing rather than deleted: the read may pass, and the
-                            // events in it may be intact. Without a count it cannot be delivered now.
-                            logger.warn("Could not read stored events, will try again later: {}",
-                                    LogValues.exceptionSummary(e));
-                            continue;
-                        }
-                        if (log == null) {
-                            // Delivered and removed by another process since the listing.
-                            continue;
-                        }
-                        events = EventLogFormat.eventCount(log);
-                    }
-                    if (events < 0) {
-                        // Written by a version whose format this one does not read, or damaged beyond
-                        // what the torn-tail recovery tolerates. Either way it can never be delivered.
-                        deleteQuietly(file);
-                        continue;
-                    }
-                    eventCounts.put(payloadId, events);
-                    batches.add(new Batch(payloadId, events));
-                }
+        // Listed in one critical section where there is a disk, so that the files and what is held cannot
+        // be counted either side of a close that moves events between them.
+        List<Batch> batches;
+        if (usesDisk) {
+            synchronized (ioLock) {
+                batches = batchesOnDiskHoldingIoLock();
+                addHeldBatches(batches);
             }
+        } else {
+            batches = new ArrayList<>();
+            addHeldBatches(batches);
+        }
 
-            // A batch that left the directory without going through remove() would otherwise keep its
-            // count for the rest of the session.
-            Set<String> listed = new HashSet<>();
-            for (Batch batch : batches) {
-                listed.add(batch.payloadId);
-            }
-            eventCounts.keySet().retainAll(listed);
+        int total = 0;
+        for (Batch batch : batches) {
+            total += batch.eventCount;
+        }
+        synchronized (bufferLock) {
+            closedEvents = total;
+        }
+        return batches;
+    }
+
+    /**
+     * The batches the filesystem would not take, after the files: anything held was closed by this run and
+     * so is newer than whatever a previous run left on the disk.
+     */
+    private void addHeldBatches(List<Batch> batches) {
+        synchronized (heldLock) {
             for (Map.Entry<String, HeldBatch> held : inMemoryBatches.entrySet()) {
                 batches.add(new Batch(held.getKey(), held.getValue().eventCount));
             }
-
-            int total = 0;
-            for (Batch batch : batches) {
-                total += batch.eventCount;
-            }
-            synchronized (bufferLock) {
-                closedEvents = total;
-            }
-            return batches;
         }
+    }
+
+    /**
+     * Requires {@code ioLock}.
+     *
+     * @return the batches the directory holds, oldest first
+     */
+    private List<Batch> batchesOnDiskHoldingIoLock() {
+        List<Batch> batches = new ArrayList<>();
+        for (File file : readyFilesOldestFirstHoldingIoLock()) {
+            String payloadId = file.getName().substring(BATCH_PREFIX.length());
+            // Reading is only for a batch this process has not counted: one a previous run left behind,
+            // or one belonging to another process sharing the environment.
+            Integer counted = eventCounts.get(payloadId);
+            int events;
+            if (counted != null) {
+                events = counted;
+            } else {
+                byte[] log;
+                try {
+                    log = readFile(file);
+                } catch (IOException e) {
+                    // Left for a later listing rather than deleted: the read may pass, and the events in
+                    // it may be intact. Without a count it cannot be delivered now.
+                    logger.warn("Could not read stored events, will try again later: {}",
+                            LogValues.exceptionSummary(e));
+                    continue;
+                }
+                if (log == null) {
+                    // Delivered and removed by another process since the listing.
+                    continue;
+                }
+                events = EventLogFormat.eventCount(log);
+            }
+            if (events < 0) {
+                // Written by a version whose format this one does not read, or damaged beyond what the
+                // torn-tail recovery tolerates. Either way it can never be delivered.
+                deleteQuietly(file);
+                continue;
+            }
+            eventCounts.put(payloadId, events);
+            batches.add(new Batch(payloadId, events));
+        }
+
+        // A batch that left the directory without going through remove() would otherwise keep its count
+        // for the rest of the session.
+        Set<String> listed = new HashSet<>();
+        for (Batch batch : batches) {
+            listed.add(batch.payloadId);
+        }
+        eventCounts.keySet().retainAll(listed);
+        return batches;
     }
 
     /**
@@ -582,11 +630,20 @@ class EventStore implements Closeable {
      * @throws IOException if the batch is there but could not be read this time
      */
     byte[] body(Batch batch) throws IOException {
-        synchronized (ioLock) {
+        synchronized (heldLock) {
             HeldBatch held = inMemoryBatches.get(batch.payloadId);
             if (held != null) {
                 return held.body;
             }
+        }
+
+        // A batch is either held or on the disk, never both and never moved between them, so a batch that
+        // is not held in a store with no disk does not exist.
+        if (!usesDisk) {
+            return null;
+        }
+
+        synchronized (ioLock) {
             return EventLogFormat.assembleBody(readFile(batchFile(batch.payloadId)));
         }
     }
@@ -595,14 +652,20 @@ class EventStore implements Closeable {
      * Forgets a batch, which is only correct once LaunchDarkly has accepted it or permanently refused it.
      */
     void remove(Batch batch) {
-        synchronized (ioLock) {
-            if (inMemoryBatches.remove(batch.payloadId) == null) {
+        boolean wasHeld;
+        synchronized (heldLock) {
+            wasHeld = inMemoryBatches.remove(batch.payloadId) != null;
+        }
+
+        if (!wasHeld && usesDisk) {
+            synchronized (ioLock) {
                 deleteQuietly(batchFile(batch.payloadId));
                 eventCounts.remove(batch.payloadId);
             }
-            synchronized (bufferLock) {
-                closedEvents = Math.max(0, closedEvents - batch.eventCount);
-            }
+        }
+
+        synchronized (bufferLock) {
+            closedEvents = Math.max(0, closedEvents - batch.eventCount);
         }
     }
 
@@ -900,9 +963,10 @@ class EventStore implements Closeable {
      */
     List<byte[]> pendingEventPayloads() {
         commit();
-        synchronized (ioLock) {
-            List<byte[]> logs = new ArrayList<>();
-            if (usesDisk) {
+
+        List<byte[]> logs = new ArrayList<>();
+        if (usesDisk) {
+            synchronized (ioLock) {
                 for (File file : readyFilesOldestFirstHoldingIoLock()) {
                     logs.add(readFileOrNull(file));
                 }
@@ -910,17 +974,17 @@ class EventStore implements Closeable {
                     logs.add(readFileOrNull(openLog().file()));
                 }
             }
-            synchronized (bufferLock) {
-                if (bufferedEventCount > 0) {
-                    logs.add(EventLogFormat.withFileHeader(bufferData.toByteArray()));
-                }
-            }
-
-            List<byte[]> payloads = new ArrayList<>();
-            for (byte[] log : logs) {
-                payloads.addAll(EventLogFormat.eventPayloads(log));
-            }
-            return payloads;
         }
+        synchronized (bufferLock) {
+            if (bufferedEventCount > 0) {
+                logs.add(EventLogFormat.withFileHeader(bufferData.toByteArray()));
+            }
+        }
+
+        List<byte[]> payloads = new ArrayList<>();
+        for (byte[] log : logs) {
+            payloads.addAll(EventLogFormat.eventPayloads(log));
+        }
+        return payloads;
     }
 }

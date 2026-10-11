@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -27,10 +28,12 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The event store's behavior when an application runs the SDK in more than one process.
@@ -241,6 +244,37 @@ public class EventStoreMultiProcessTest {
         EventStore persistentAgain = storeFor(SERVICE_PROCESS);
         persistentAgain.recoverInterruptedLog();
         assertEquals(2, persistentAgain.pendingBatches().size());
+    }
+
+    @Test
+    public void aStoreWithoutPersistenceAsksTheFilesystemNothingEvenAboutABatchItDoesNotHold()
+            throws IOException {
+        AtomicInteger reads = new AtomicInteger();
+        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, false, logger,
+                inline) {
+            @Override
+            InputStream openForReading(File file) throws IOException {
+                reads.incrementAndGet();
+                return super.openForReading(file);
+            }
+        };
+
+        store.stage(event("held"));
+        EventStore.Batch held = store.closeBatch();
+        assertNotNull(held);
+        assertEquals(Arrays.asList(held), store.pendingBatches());
+        assertEquals(LDValue.of("held"),
+                LDValue.parse(new String(store.body(held), Charset.forName("UTF-8"))).get(0).get("key"));
+        store.remove(held);
+
+        // A batch this store never closed, which is what sends the paths that form a file name down the
+        // branch that would otherwise ask the filesystem about it.
+        EventStore.Batch stranger = new EventStore.Batch(UUID.randomUUID().toString(), 1);
+        assertNull(store.body(stranger));
+        store.remove(stranger);
+
+        assertEquals(0, reads.get());
+        assertFalse("a store without persistence created its directory", sharedDirectory().exists());
     }
 
     @Test
