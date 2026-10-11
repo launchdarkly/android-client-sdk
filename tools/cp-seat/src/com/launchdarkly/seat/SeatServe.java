@@ -67,11 +67,12 @@ public final class SeatServe {
       // default Gson would strip them, folding them into "<absent>". serializeNulls keeps
       // the SDK's value shape verbatim (the runner treats explicit nulls as omitted).
       .serializeNulls()
-      // The response reason rides the client-side wire spellings (isExperiment /
-      // prereqKey — N0 client corpus; reasons.yml's own parameters; the doc grammar);
-      // the decode path dual-accepts both spellings (the SDK adapter), the encode
-      // normalizes to the wire. JsonSerializable would otherwise emit model names.
-      .registerTypeAdapter(com.launchdarkly.sdk.EvaluationReason.class, new ReasonWireJson())
+      // No EvaluationReason re-encode: the seat's response arm serves the SDK's own
+      // serialization verbatim — the plain reflective Gson off the public java-core's
+      // field names (inExperiment / prerequisiteKey), which is exactly what the
+      // unmodified upstream android contract-test arm emits (SdkClientEntity resp.reason
+      // through this same reflective path). The bank rows asserting the wire spellings
+      // ride the campaign's contested register (R6-EVAL-UNCHANGED evidence fork).
       .create();
 
   private final ConcurrentHashMap<String, SdkClientEntity> clients = new ConcurrentHashMap<>();
