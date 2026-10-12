@@ -1229,6 +1229,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (diagnosticStore != null) {
             diagnosticStore.recordEventsInBatch(batch.eventCount);
         }
+        store.startedSending(batch);
         try {
             EventSender.Result result = analyticsEventSender.sendBatch(body, batch.eventCount,
                     batch.payloadId, eventsUri);
@@ -1244,6 +1245,9 @@ final class DirectEventProcessor implements EventProcessor {
         } catch (Exception e) {
             logUnexpectedError(e);
             return BatchesOutcome.FAILED;
+        } finally {
+            // Counted again unless the batch was removed above.
+            store.stoppedSending(batch);
         }
     }
 

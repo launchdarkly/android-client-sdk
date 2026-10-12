@@ -125,6 +125,12 @@ class EventStore implements Closeable {
      */
     private int closedEvents;
     /**
+     * Closed batches whose request is out, by payload ID, and the events in them. Every one is also in
+     * {@link #closedEvents}, and leaves both in the same critical section.
+     */
+    private final Map<String, Integer> sendingBatches = new HashMap<>();
+    private int sendingEvents;
+    /**
      * Events a caller has taken to encode and promised to stage, counted against capacity until each is
      * staged. Staging one moves it from here to {@link #bufferedEventCount} under one lock, so an event
      * on its way in is counted exactly once throughout.
@@ -317,8 +323,14 @@ class EventStore implements Closeable {
     // MARK: recording
 
     /**
-     * @return serialized events recorded but not yet accepted by LaunchDarkly, whether staged in
-     *   memory, on their way out of it, written to the open log, or sitting in a closed batch
+     * A batch being sent is left out so that a flush makes room as soon as it sends, as it did when events
+     * were only held in memory; otherwise an event recorded while the request is out is refused for a batch
+     * LaunchDarkly may already have. A send that fails puts the batch back, so a full store can briefly
+     * hold capacity plus that batch.
+     *
+     * @return serialized events counted against capacity: those recorded and not yet accepted by
+     *   LaunchDarkly, whether staged in memory, on their way out of it, written to the open log, or sitting
+     *   in a closed batch - except a batch whose request is out
      */
     int getPendingEventCount() {
         synchronized (bufferLock) {
@@ -331,7 +343,10 @@ class EventStore implements Closeable {
      * reader can miss one of them. Requires {@link #bufferLock}.
      */
     private int countedEventsHoldingBufferLock() {
-        return bufferedEventCount + inTransitEvents + committedEvents + closedEvents + reservedEvents;
+        // Clamped because a batch another process delivered can be marked as sending after a listing
+        // stopped counting it.
+        return bufferedEventCount + inTransitEvents + committedEvents
+                + Math.max(0, closedEvents - sendingEvents) + reservedEvents;
     }
 
     /**
@@ -599,11 +614,19 @@ class EventStore implements Closeable {
                 batches.add(new Batch(held.getKey(), held.getValue().eventCount));
             }
             int total = 0;
+            Set<String> listed = new HashSet<>();
             for (Batch batch : batches) {
                 total += batch.eventCount;
+                listed.add(batch.payloadId);
             }
             synchronized (bufferLock) {
                 closedEvents = total;
+                // One no longer listed is no longer counted, so it cannot be left out of the count either.
+                for (String payloadId : new ArrayList<>(sendingBatches.keySet())) {
+                    if (!listed.contains(payloadId)) {
+                        forgetSendingHoldingBufferLock(payloadId);
+                    }
+                }
             }
         }
     }
@@ -695,21 +718,60 @@ class EventStore implements Closeable {
             if (held != null) {
                 synchronized (bufferLock) {
                     closedEvents -= held.eventCount;
+                    forgetSendingHoldingBufferLock(batch.payloadId);
                 }
                 return;
             }
         }
 
-        if (usesDisk) {
-            synchronized (ioLock) {
-                deleteQuietly(batchFile(batch.payloadId));
-                Integer counted = eventCounts.remove(batch.payloadId);
-                if (counted != null) {
-                    synchronized (bufferLock) {
-                        closedEvents -= counted;
-                    }
-                }
+        if (!usesDisk) {
+            synchronized (bufferLock) {
+                forgetSendingHoldingBufferLock(batch.payloadId);
             }
+            return;
+        }
+        synchronized (ioLock) {
+            deleteQuietly(batchFile(batch.payloadId));
+            Integer counted = eventCounts.remove(batch.payloadId);
+            synchronized (bufferLock) {
+                if (counted != null) {
+                    closedEvents -= counted;
+                }
+                forgetSendingHoldingBufferLock(batch.payloadId);
+            }
+        }
+    }
+
+    /**
+     * Stops counting a batch against capacity while its request is out. Ended by {@link #remove} or
+     * {@link #stoppedSending}.
+     */
+    void startedSending(Batch batch) {
+        synchronized (bufferLock) {
+            if (!sendingBatches.containsKey(batch.payloadId)) {
+                sendingBatches.put(batch.payloadId, batch.eventCount);
+                sendingEvents += batch.eventCount;
+            }
+        }
+    }
+
+    /**
+     * Counts a batch against capacity again, after a send that did not end with it removed. Does nothing
+     * for a batch {@link #remove} already forgot.
+     */
+    void stoppedSending(Batch batch) {
+        synchronized (bufferLock) {
+            forgetSendingHoldingBufferLock(batch.payloadId);
+        }
+    }
+
+    /**
+     * Requires {@link #bufferLock}.
+     */
+    private void forgetSendingHoldingBufferLock(String payloadId) {
+        Integer events = sendingBatches.remove(payloadId);
+        if (events != null) {
+            sendingEvents -= events;
         }
     }
 

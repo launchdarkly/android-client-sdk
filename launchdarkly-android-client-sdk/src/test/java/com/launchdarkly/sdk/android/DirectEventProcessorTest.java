@@ -965,6 +965,88 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         assertEquals(0, pendingEventsInStoreAfterAFullRun(store));
     }
 
+    @Test
+    public void aBatchDoesNotCountWhileItsRequestIsOutAndCountsAgainIfTheSendIsToBeRetried()
+            throws Exception {
+        for (boolean persistEvents : new boolean[] { true, false }) {
+            EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, persistEvents,
+                    logging.logger, Runnable::run);
+            assertTrue(store.stage(serialized("first")));
+            EventStore.Batch batch = store.closeBatch();
+
+            store.startedSending(batch);
+            assertEquals(0, store.getPendingEventCount());
+            assertTrue(store.stage(serialized("while-sending")));
+
+            store.stoppedSending(batch);
+            assertEquals(2, store.getPendingEventCount());
+            assertFalse(store.stage(serialized("after-retryable")));
+        }
+    }
+
+    @Test
+    public void aSentBatchLeavesTheCountOnlyOnceWhenItIsDelivered() throws Exception {
+        for (boolean persistEvents : new boolean[] { true, false }) {
+            EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, persistEvents,
+                    logging.logger, Runnable::run);
+            assertTrue(store.stage(serialized("first")));
+            EventStore.Batch batch = store.closeBatch();
+            assertTrue(store.stage(serialized("second")));
+
+            store.startedSending(batch);
+            store.remove(batch);
+            assertEquals(1, store.getPendingEventCount());
+            store.stoppedSending(batch);
+            assertEquals(1, store.getPendingEventCount());
+            store.pendingBatches();
+            assertEquals(1, store.getPendingEventCount());
+        }
+    }
+
+    /**
+     * What the contract tests' "buffer is reset after flush" does: they have the payload as soon as it is
+     * sent, and record the next event before the SDK has heard back.
+     */
+    @Test
+    public void aFullStoreMakesRoomAsSoonAsItsBatchIsSent() throws Exception {
+        CountDownLatch received = new CountDownLatch(1);
+        CountDownLatch respond = new CountDownLatch(1);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                context -> {
+                    received.countDown();
+                    awaitQuietly(respond, 5, TimeUnit.SECONDS);
+                    context.setStatus(202);
+                },
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, 2);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                eventProcessor.recordCustomEvent(CONTEXT, "second", LDValue.ofNull(), null);
+                eventProcessor.flush();
+                assertTrue("the first batch was never sent", received.await(5, TimeUnit.SECONDS));
+
+                eventProcessor.recordCustomEvent(CONTEXT, "one-more", LDValue.ofNull(), null);
+                respond.countDown();
+                eventProcessor.flush();
+
+                List<String> keys = new ArrayList<>();
+                for (int i = 0; i < 2; i++) {
+                    RequestInfo request = server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
+                    for (LDValue event : LDValue.parse(request.getBody()).values()) {
+                        keys.add(event.get("key").stringValue());
+                    }
+                }
+                assertEquals(Arrays.asList("first", "second", "one-more"), keys);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    private static byte[] serialized(String key) {
+        return ("{\"kind\":\"custom\",\"key\":\"" + key + "\"}").getBytes(StandardCharsets.UTF_8);
+    }
+
     /**
      * Records more tracked evaluations than a pending run holds, lets the commit thread run whatever that
      * queued, and reports how many events reached the store.
