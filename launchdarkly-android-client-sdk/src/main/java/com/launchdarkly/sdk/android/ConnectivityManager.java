@@ -82,8 +82,10 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
 
     private final AtomicReference<LDContext> currentContext = new AtomicReference<>();
     private volatile ContextDataManager.ContextDataManagerView currentView;
-    @Nullable private volatile Callback<Void> pendingStartupCallback;
+    @Nullable private Callback<Void> pendingStartupCallback;
     private final PendingStartupCallbackHandler pendingStartupCallbackHandler = new PendingStartupCallbackHandler();
+    // The callback waiting on the data source that updateDataSource most recently created.
+    @Nullable private Callback<Void> pendingDataSourceCallback;
 
     // The DataSourceUpdateSinkImpl receives flag updates and status updates from the DataSource.
     // Data operations (init, upsert, apply) are routed through a ContextDataManager.ContextDataManagerView
@@ -147,7 +149,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private class PendingStartupCallbackHandler implements Callback<Void> {
         @Override
         public void onSuccess(Void result) {
-            clearPendingStartupCallback(result);
+            clearPendingStartupCallback();
         }
 
         @Override
@@ -220,20 +222,31 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         platformState.addForegroundChangeListener(foregroundListener);
     }
 
-    private synchronized void clearPendingStartupCallback(Void result) {
-        if (pendingStartupCallback == null) {
+    private synchronized void clearPendingStartupCallback() {
+        Callback<Void> callback = pendingStartupCallback;
+        if (callback == null) {
             return;
         }
-        pendingStartupCallback.onSuccess(result);
         pendingStartupCallback = null;
+        callback.onSuccess(null);
+    }
+
+    private synchronized void clearPendingDataSourceCallback() {
+        Callback<Void> callback = pendingDataSourceCallback;
+        if (callback == null) {
+            return;
+        }
+        pendingDataSourceCallback = null;
+        callback.onSuccess(null);
     }
 
     private synchronized void clearPendingStartupCallback(Throwable error) {
-        if (pendingStartupCallback == null) {
+        Callback<Void> callback = pendingStartupCallback;
+        if (callback == null) {
             return;
         }
-        pendingStartupCallback.onError(error);
         pendingStartupCallback = null;
+        callback.onError(error);
     }
 
     @Override
@@ -361,7 +374,8 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             DataSource oldDataSource = currentDataSource.getAndSet(null);
             if (oldDataSource != null) {
                 logger.debug("Stopping current data source");
-                clearPendingStartupCallback((Void) null);
+                clearPendingDataSourceCallback();
+                clearPendingStartupCallback();
                 oldDataSource.stop(LDUtil.noOpCallback());
             }
         }
@@ -395,19 +409,20 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         DataSource dataSource = dataSourceFactory.build(clientContext);
         currentDataSource.set(dataSource);
         previousModeState.set(newState);
+        pendingDataSourceCallback = onCompletion;
 
         dataSource.start(new Callback<Boolean>() {
             @Override
             public void onSuccess(Boolean result) {
                 initialized = true;
                 updateConnectionInfoForSuccess(connectionInformation.getConnectionMode());
-                onCompletion.onSuccess(null);
+                clearPendingDataSourceCallback();
             }
 
             @Override
             public void onError(Throwable error) {
                 updateConnectionInfoForError(connectionInformation.getConnectionMode(), error);
-                onCompletion.onSuccess(null);
+                clearPendingDataSourceCallback();
             }
         });
 
@@ -614,7 +629,8 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
      * is being closed, or if we receive an error that indicates the mobile key is invalid.
      */
     void shutDown() {
-        clearPendingStartupCallback((Void) null);
+        clearPendingDataSourceCallback();
+        clearPendingStartupCallback();
         if (closed.getAndSet(true)) {
             return;
         }

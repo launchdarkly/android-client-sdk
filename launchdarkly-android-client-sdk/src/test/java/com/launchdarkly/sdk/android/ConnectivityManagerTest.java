@@ -1043,6 +1043,106 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         identifyCallback.await(5000);
     }
 
+    /**
+     * Completes startup with a reporting data source, then builds data sources that accept their
+     * start callback and never report, so an identify that creates one stays pending.
+     */
+    private ComponentConfigurer<DataSource> makeSuccessfulThenSilentDataSourceFactory() {
+        AtomicInteger builds = new AtomicInteger();
+        return clientContext -> {
+            if (builds.getAndIncrement() == 0) {
+                return makeSuccessfulDataSource(clientContext);
+            }
+            receivedClientContexts.add(clientContext);
+            return new DataSource() {
+                @Override
+                public void start(@NonNull Callback<Boolean> resultCallback) {
+                }
+
+                @Override
+                public void stop(@NonNull Callback<Void> completionCallback) {
+                    completionCallback.onSuccess(null);
+                }
+
+                @Override
+                public boolean needsRefresh(boolean newInBackground, LDContext newEvaluationContext) {
+                    return true;
+                }
+            };
+        };
+    }
+
+    @Test
+    public void identifyCallbackIsInvokedWhenAStateChangeDiscardsItsDataSource() throws Exception {
+        // One pair for startup's context change.
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulThenSilentDataSourceFactory());
+        awaitStartUp();
+
+        // One pair for the identify's context change, then one for going offline.
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        // Identify, then go offline, which discards the data source the identify waits on.
+        AwaitableCallback<Void> identifyCallback = new AwaitableCallback<>();
+        contextDataManager.switchToContext(LDContext.create("other-context"), false, identifyCallback);
+        connectivityManager.setForceOffline(true);
+
+        // The identify completes, because no data source will ever report for it.
+        identifyCallback.await(5000);
+    }
+
+    @Test
+    public void identifyCallbackIsInvokedWhenASecondIdentifySupersedesIt() throws Exception {
+        // One pair per context change: startup, then each of the two identifies.
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulThenSilentDataSourceFactory());
+        awaitStartUp();
+
+        // A second identify discards the data source the first one waits on.
+        AwaitableCallback<Void> firstIdentify = new AwaitableCallback<>();
+        contextDataManager.switchToContext(LDContext.create("context-b"), false, firstIdentify);
+        contextDataManager.switchToContext(LDContext.create("context-c"), false, new AwaitableCallback<>());
+
+        // The superseded identify completes rather than waiting forever.
+        firstIdentify.await(5000);
+    }
+
+    @Test
+    public void identifyCallbackIsInvokedWhenTheClientIsClosedDuringIdentify() throws Exception {
+        // One pair per context change: startup, then the identify.
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulThenSilentDataSourceFactory());
+        awaitStartUp();
+
+        // Close while the identify's request is still outstanding.
+        AwaitableCallback<Void> identifyCallback = new AwaitableCallback<>();
+        contextDataManager.switchToContext(LDContext.create("other-context"), false, identifyCallback);
+        connectivityManager.shutDown();
+
+        // The identify completes, because the data source is gone and will never report.
+        identifyCallback.await(5000);
+    }
+
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {
         return clientContext -> makeSuccessfulDataSource(clientContext);
     }
