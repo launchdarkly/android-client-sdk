@@ -90,7 +90,8 @@ final class DirectEventProcessor implements EventProcessor {
     /** How long a delivery that failed in a way that may pass waits for its one retry, as the other SDKs do. */
     static final long RETRY_DELAY_MILLIS = 1_000;
 
-    private final OutboundEventBuffer eventBuffer;
+    // Set in the constructor and never changed.
+
     private final EventStore store;
     private final EventSender diagnosticEventSender;
     private final AnalyticsEventSender analyticsEventSender;
@@ -111,51 +112,17 @@ final class DirectEventProcessor implements EventProcessor {
     private final ExecutorService diagnosticExecutor;
     private final LDLogger logger;
 
-    private final AtomicBoolean inBackground;
-    private final AtomicBoolean offline;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
-    // Set when the service tells us to stop, e.g. because the mobile key is invalid.
-    private volatile boolean disabled = false;
-    private volatile boolean diagnosticInitSent = false;
-    private final AtomicLong lastKnownPastTime = new AtomicLong(0);
     /**
-     * Whether a previous run of the application left events behind.
-     * <p>
-     * Those events are already as old as whatever happened to that run, so they are sent as soon as the
-     * SDK is allowed to send anything rather than at the next interval. The application in front of the
-     * user has moved on; an error report about a crash is not worth much thirty seconds late, and the
-     * process might not live that long either.
+     * How many events the SDK will hold in total, across {@link #pending} and the store.
      */
-    private final AtomicBoolean hasEventsFromPreviousRun = new AtomicBoolean(false);
-
-    private final Object stateLock = new Object();
-    private ScheduledFuture<?> flushTask;
-    private ScheduledFuture<?> diagnosticTask;
+    private final int capacity;
 
     /**
-     * Full events recorded but not yet encoded, guarded by {@link #recordLock}.
-     * <p>
-     * Held rather than serialized because serializing early would not make them durable: the store stages
-     * bytes into memory too, and only {@link EventStore#commit()} reaches the file. Both forms are equally
-     * lost to a crash, so the encode may as well happen where it is cheapest.
+     * Whether a commit point encodes and writes before returning, rather than queueing that work.
      */
-    private final List<Event> pending = new ArrayList<>();
+    private final boolean commitOnCallerThread;
 
-    /**
-     * Guards everything one recording writes: {@link #pending} and the summary counters behind
-     * {@link #buffer}.
-     * <p>
-     * One evaluation can produce a counter, a full event and a debug event, and the three have to
-     * land together. Taken separately, a flush landing between them splits one evaluation across two
-     * payloads, and a {@link #close()} landing between them delivers the counter and then refuses the
-     * full event -- leaving a summary that says an evaluation happened and no event to go with it.
-     * <p>
-     * Held for the appends and the handover of the run, never across the encode. Recording runs on
-     * whichever thread evaluated a flag, which on Android is usually the main one. The worst it may
-     * wait for is another thread's memory operation; if the encoder ran under this lock, an
-     * evaluation would instead wait on the dominant cost of the whole path.
-     */
-    private final Object recordLock = new Object();
+    // Guarded by commitLock.
 
     /**
      * Held for the whole of a commit, so that only one runs at a time.
@@ -171,12 +138,6 @@ final class DirectEventProcessor implements EventProcessor {
     private final Object commitLock = new Object();
 
     /**
-     * Numbers every recording, guarded by {@link #recordLock}, so a caller at a commit point can tell whether
-     * a commit has already covered it.
-     */
-    private long recordedSequence;
-
-    /**
      * The last recording a finished commit covered. Written under {@link #commitLock}, and read outside it
      * so that a caller whose recording is already durable does not queue for the lock at all.
      * <p>
@@ -188,34 +149,59 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private volatile long committedSequence;
 
-    /**
-     * Whether a commit is already queued, so a run of recordings past the threshold submits one task rather
-     * than one per event.
-     */
-    private final AtomicBoolean commitScheduled = new AtomicBoolean(false);
+    // Guarded by recordLock.
 
     /**
-     * How many events the SDK will hold in total, across {@link #pending} and the store.
+     * Guards everything one recording writes: {@link #pending} and the summary counters behind
+     * {@link #eventBuffer}.
+     * <p>
+     * One evaluation can produce a counter, a full event and a debug event, and the three have to
+     * land together. Taken separately, a flush landing between them splits one evaluation across two
+     * payloads, and a {@link #close()} landing between them delivers the counter and then refuses the
+     * full event -- leaving a summary that says an evaluation happened and no event to go with it.
+     * <p>
+     * Held for the appends and the handover of the run, never across the encode. Recording runs on
+     * whichever thread evaluated a flag, which on Android is usually the main one. The worst it may
+     * wait for is another thread's memory operation; if the encoder ran under this lock, an
+     * evaluation would instead wait on the dominant cost of the whole path.
      */
-    private final int capacity;
-
-    private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
-
-    /** Whether the summarizer being full has already been reported, so it is logged once per run. */
-    private final AtomicBoolean summaryContextsExceeded = new AtomicBoolean(false);
-
-    private final AtomicLong droppedEvents = new AtomicLong(0);
+    private final Object recordLock = new Object();
 
     /**
-     * Whether a commit point encodes and writes before returning, rather than queueing that work.
+     * Full events recorded but not yet encoded, guarded by {@link #recordLock}.
+     * <p>
+     * Held rather than serialized because serializing early would not make them durable: the store stages
+     * bytes into memory too, and only {@link EventStore#commit()} reaches the file. Both forms are equally
+     * lost to a crash, so the encode may as well happen where it is cheapest.
      */
-    private final boolean commitOnCallerThread;
+    private final List<Event> pending = new ArrayList<>();
 
     /**
-     * True while a diagnostic event is on its way to the service, so that a later one is dropped
-     * rather than queued behind it.
+     * Numbers every recording, guarded by {@link #recordLock}, so a caller at a commit point can tell whether
+     * a commit has already covered it.
      */
-    private final AtomicBoolean diagnosticPostInFlight = new AtomicBoolean(false);
+    private long recordedSequence;
+
+    /**
+     * Its summary counters are guarded by {@link #recordLock}. Its serializer is reached only under
+     * {@link #commitLock}.
+     */
+    private final OutboundEventBuffer eventBuffer;
+
+    // Guarded by stateLock.
+
+    /**
+     * Guards {@link #flushTask} and {@link #diagnosticTask}, and every change to {@link #inBackground}
+     * and {@link #offline}, so the tasks are rescheduled in the order the changes happen. Those two
+     * are atomic so they can be read without it.
+     */
+    private final Object stateLock = new Object();
+    private ScheduledFuture<?> flushTask;
+    private ScheduledFuture<?> diagnosticTask;
+    private final AtomicBoolean inBackground;
+    private final AtomicBoolean offline;
+
+    // Guarded by submitLock.
 
     /**
      * Guards the handover from running to shut down: held for the length of a submit, and by
@@ -232,6 +218,8 @@ final class DirectEventProcessor implements EventProcessor {
      * One at a time: it retries every batch still waiting, so a second would only repeat it.
      */
     private ScheduledFuture<Boolean> pendingRetry;
+
+    // Guarded by flushLock.
 
     /**
      * Guards {@link #pendingFlush} and {@link #pendingFlushAnswersACaller}. Taken on a caller's
@@ -252,6 +240,42 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link #pendingFlush}, as opposed to only callers that discard it.
      */
     private boolean pendingFlushAnswersACaller;
+
+    // Atomic or volatile, so read and written without a lock.
+
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+    // Set when the service tells us to stop, e.g. because the mobile key is invalid.
+    private volatile boolean disabled = false;
+    private volatile boolean diagnosticInitSent = false;
+    private final AtomicLong lastKnownPastTime = new AtomicLong(0);
+    /**
+     * Whether a previous run of the application left events behind.
+     * <p>
+     * Those events are already as old as whatever happened to that run, so they are sent as soon as the
+     * SDK is allowed to send anything rather than at the next interval. The application in front of the
+     * user has moved on; an error report about a crash is not worth much thirty seconds late, and the
+     * process might not live that long either.
+     */
+    private final AtomicBoolean hasEventsFromPreviousRun = new AtomicBoolean(false);
+
+    /**
+     * Whether a commit is already queued, so a run of recordings past the threshold submits one task rather
+     * than one per event.
+     */
+    private final AtomicBoolean commitScheduled = new AtomicBoolean(false);
+
+    private final AtomicBoolean capacityExceeded = new AtomicBoolean(false);
+
+    /** Whether the summarizer being full has already been reported, so it is logged once per run. */
+    private final AtomicBoolean summaryContextsExceeded = new AtomicBoolean(false);
+
+    private final AtomicLong droppedEvents = new AtomicLong(0);
+
+    /**
+     * True while a diagnostic event is on its way to the service, so that a later one is dropped
+     * rather than queued behind it.
+     */
+    private final AtomicBoolean diagnosticPostInFlight = new AtomicBoolean(false);
 
     /**
      * How many events the SDK accepted and then dropped for good.
