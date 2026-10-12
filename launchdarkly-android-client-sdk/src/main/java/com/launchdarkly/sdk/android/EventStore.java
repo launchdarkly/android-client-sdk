@@ -110,6 +110,13 @@ class EventStore implements Closeable {
     // Guarded by bufferLock.
     private final ByteArrayOutputStream bufferData = new ByteArrayOutputStream();
     private int bufferedEventCount;
+    /**
+     * Events taken out of the buffer to be written to the log, or assembled into a batch held in
+     * memory, and not yet counted where they land. Both happen outside this lock, and for as long as
+     * they take the events are in neither place; without this they would be counted nowhere, and
+     * capacity would admit that many more.
+     */
+    private int inTransitEvents;
     private int committedEvents;
     private int closedEvents;
     /**
@@ -305,12 +312,20 @@ class EventStore implements Closeable {
 
     /**
      * @return serialized events recorded but not yet accepted by LaunchDarkly, whether staged in
-     *   memory, written to the open log, or sitting in a closed batch
+     *   memory, on their way out of it, written to the open log, or sitting in a closed batch
      */
     int getPendingEventCount() {
         synchronized (bufferLock) {
-            return bufferedEventCount + committedEvents + closedEvents + reservedEvents;
+            return countedEventsHoldingBufferLock();
         }
+    }
+
+    /**
+     * Every event counted against capacity. The one place the counters are added up, so that neither
+     * reader can miss one of them. Requires {@link #bufferLock}.
+     */
+    private int countedEventsHoldingBufferLock() {
+        return bufferedEventCount + inTransitEvents + committedEvents + closedEvents + reservedEvents;
     }
 
     /**
@@ -375,8 +390,7 @@ class EventStore implements Closeable {
 
         boolean needsCommit;
         synchronized (bufferLock) {
-            if (!bypassingCapacity && bufferedEventCount + committedEvents + closedEvents
-                    + reservedEvents >= capacity) {
+            if (!bypassingCapacity && countedEventsHoldingBufferLock() >= capacity) {
                 return false;
             }
             EventLogFormat.writeFrame(bufferData, serializedEvent);
@@ -507,17 +521,28 @@ class EventStore implements Closeable {
             events = bufferedEventCount;
             bufferData.reset();
             bufferedEventCount = 0;
-        }
-        byte[] body = EventLogFormat.assembleBody(EventLogFormat.withFileHeader(frames));
-        if (body == null) {
-            return null;
+            inTransitEvents += events;
         }
         String payloadId = UUID.randomUUID().toString();
-        synchronized (heldLock) {
-            inMemoryBatches.put(payloadId, new HeldBatch(body, events));
-        }
-        synchronized (bufferLock) {
-            closedEvents += events;
+        boolean held = false;
+        try {
+            // Outside bufferLock, because it copies every staged frame; inTransitEvents is what keeps
+            // them counted meanwhile.
+            byte[] body = EventLogFormat.assembleBody(EventLogFormat.withFileHeader(frames));
+            if (body == null) {
+                return null;
+            }
+            synchronized (heldLock) {
+                inMemoryBatches.put(payloadId, new HeldBatch(body, events));
+            }
+            held = true;
+        } finally {
+            synchronized (bufferLock) {
+                inTransitEvents -= events;
+                if (held) {
+                    closedEvents += events;
+                }
+            }
         }
         return new Batch(payloadId, events);
     }
@@ -743,20 +768,27 @@ class EventStore implements Closeable {
             events = bufferedEventCount;
             bufferData.reset();
             bufferedEventCount = 0;
+            inTransitEvents += events;
         }
 
-        if (append(bytes)) {
+        boolean written = false;
+        try {
+            written = append(bytes);
+        } finally {
+            // Counted where they landed in the same critical section that stops counting them in
+            // transit, so a capacity check never sees them in both places or in neither.
             synchronized (bufferLock) {
-                committedEvents += events;
-            }
-        } else {
-            // Put back, to be delivered from memory rather than lost.
-            synchronized (bufferLock) {
-                byte[] laterFrames = bufferData.toByteArray();
-                bufferData.reset();
-                writeQuietly(bufferData, bytes);
-                writeQuietly(bufferData, laterFrames);
-                bufferedEventCount += events;
+                inTransitEvents -= events;
+                if (written) {
+                    committedEvents += events;
+                } else {
+                    // Put back, to be delivered from memory rather than lost.
+                    byte[] laterFrames = bufferData.toByteArray();
+                    bufferData.reset();
+                    writeQuietly(bufferData, bytes);
+                    writeQuietly(bufferData, laterFrames);
+                    bufferedEventCount += events;
+                }
             }
         }
     }

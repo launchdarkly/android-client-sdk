@@ -502,6 +502,45 @@ public class EventStoreMultiProcessTest {
         };
     }
 
+    @Test
+    public void eventsBeingWrittenStillCountAgainstCapacity() throws Exception {
+        // A commit takes the staged events out of the buffer and writes them outside the buffer's lock.
+        // They used to be counted nowhere until the write returned, and capacity admitted that many more.
+        CountDownLatch writing = new CountDownLatch(1);
+        CountDownLatch letWriteFinish = new CountDownLatch(1);
+        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, 2, true, logger, inline) {
+            @Override
+            FileOutputStream openForAppending(File log) throws IOException {
+                writing.countDown();
+                try {
+                    letWriteFinish.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return super.openForAppending(log);
+            }
+        };
+        assertTrue(store.stage(event("first"), false));
+        assertTrue(store.stage(event("second"), false));
+
+        Thread committer = new Thread(store::commit);
+        committer.start();
+        try {
+            assertTrue("the commit never reached the disk", writing.await(5, TimeUnit.SECONDS));
+
+            assertEquals(2, store.getPendingEventCount());
+            assertFalse("admitted past capacity while the write was under way",
+                    store.stage(event("third"), false));
+        } finally {
+            letWriteFinish.countDown();
+            committer.join(5_000);
+        }
+
+        assertEquals(2, store.getPendingEventCount());
+        assertFalse(store.stage(event("third"), false));
+        assertEquals(Arrays.asList("first", "second"), visibleKeys(store));
+    }
+
     private List<String> keysIn(byte[] body) {
         List<String> keys = new ArrayList<>();
         for (LDValue event : LDValue.parse(new String(body, Charset.forName("UTF-8"))).values()) {
