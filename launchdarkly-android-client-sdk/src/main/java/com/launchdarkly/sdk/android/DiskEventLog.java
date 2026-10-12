@@ -8,7 +8,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 
 /**
- * The log this process appends to.
+ * The file of events on disk this process appends to, not to be confused with diagnostic logging.
  * <p>
  * One per process rather than one per directory, so that only one process ever writes a given log and
  * recovery only ever touches its own. With one shared log, a second process starting up would close
@@ -20,7 +20,7 @@ import java.io.IOException;
  * in so that each call can check it is held, rather than this taking a lock of its own that would have
  * to be ordered against the store's.
  */
-final class OpenEventLog {
+final class DiskEventLog {
     /** Names a log a single process appends to; the rest of the name is that process. */
     static final String PREFIX = "open-";
 
@@ -37,7 +37,7 @@ final class OpenEventLog {
     // Guarded by ioLock.
     private FileOutputStream output;
 
-    OpenEventLog(File directory, String processName, Object ioLock, Opener opener, LDLogger logger) {
+    DiskEventLog(File directory, String processName, Object ioLock, Opener opener, LDLogger logger) {
         this.directory = directory;
         this.file = new File(directory, PREFIX + nameFor(processName));
         this.ioLock = ioLock;

@@ -58,7 +58,7 @@ import java.util.concurrent.ThreadFactory;
  * payload ID rather than counting the events twice.
  * <p>
  * What a log looks like on disk is {@link EventLogFormat}; the log this process appends to is
- * {@link OpenEventLog}. This class is what decides when events move between memory, that log, and the
+ * {@link DiskEventLog}. This class is what decides when events move between memory, that log, and the
  * batches closed off for delivery, and what counts them against capacity on the way.
  */
 class EventStore implements Closeable {
@@ -84,7 +84,7 @@ class EventStore implements Closeable {
     private final Location location;
     // Guarded by ioLock, and null until resolveLocationHoldingIoLock has run.
     private File directory;
-    private OpenEventLog openLog;
+    private DiskEventLog diskLog;
     private final int capacity;
     private final LDLogger logger;
     /**
@@ -472,9 +472,9 @@ class EventStore implements Closeable {
     /** Requires {@code ioLock}. */
     private Batch closeOpenLogHoldingIoLock(int events) {
         String payloadId = UUID.randomUUID().toString();
-        if (!openLog().closeMovingTo(batchFile(payloadId))) {
+        if (!diskLog().closeMovingTo(batchFile(payloadId))) {
             logger.warn("Could not close the event log for delivery");
-            if (!openLog().exists()) {
+            if (!diskLog().exists()) {
                 // The log itself is gone, so its events are too. They have to stop counting against
                 // capacity or the store would refuse events for the rest of the session.
                 synchronized (bufferLock) {
@@ -694,7 +694,7 @@ class EventStore implements Closeable {
             return;
         }
         recoveryDone = true;
-        File log = openLog().file();
+        File log = diskLog().file();
         if (!log.exists()) {
             return;
         }
@@ -775,11 +775,11 @@ class EventStore implements Closeable {
         // Before the log is opened, because it may still be the one a previous run died writing. A commit
         // on the caller's thread can get here before the processor's queued startup task has recovered it,
         // and appended to, this run's events would sit behind that run's torn last frame.
-        if (!openLog().isOpen()) {
+        if (!diskLog().isOpen()) {
             recoverInterruptedLogHoldingIoLock();
         }
         try {
-            openLog().append(bytes);
+            diskLog().append(bytes);
             return true;
         } catch (IOException | RuntimeException e) {
             // Never let a full disk take the application down. The SDK gives up on persistence for the
@@ -802,10 +802,10 @@ class EventStore implements Closeable {
     public void close() {
         synchronized (ioLock) {
             commitHoldingIoLock();
-            // Not openLog(): a store that never wrote has never asked the platform where it lives, and
+            // Not diskLog(): a store that never wrote has never asked the platform where it lives, and
             // shutting down is no reason to start.
-            if (openLog != null) {
-                openLog.closeOutput();
+            if (diskLog != null) {
+                diskLog.closeOutput();
             }
         }
     }
@@ -814,7 +814,7 @@ class EventStore implements Closeable {
     private void resolveLocationHoldingIoLock() {
         if (directory == null) {
             File resolved = location.directory();
-            openLog = new OpenEventLog(resolved, location.processName(), ioLock, this::openForAppending,
+            diskLog = new DiskEventLog(resolved, location.processName(), ioLock, this::openForAppending,
                     logger);
             directory = resolved;
         }
@@ -827,9 +827,9 @@ class EventStore implements Closeable {
     }
 
     /** Requires {@code ioLock}. */
-    private OpenEventLog openLog() {
+    private DiskEventLog diskLog() {
         resolveLocationHoldingIoLock();
-        return openLog;
+        return diskLog;
     }
 
     /** Requires {@code ioLock}. */
@@ -970,8 +970,8 @@ class EventStore implements Closeable {
                 for (File file : readyFilesOldestFirstHoldingIoLock()) {
                     logs.add(readFileOrNull(file));
                 }
-                if (openLog().exists()) {
-                    logs.add(readFileOrNull(openLog().file()));
+                if (diskLog().exists()) {
+                    logs.add(readFileOrNull(diskLog().file()));
                 }
             }
         }
