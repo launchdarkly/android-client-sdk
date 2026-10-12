@@ -857,45 +857,38 @@ final class DirectEventProcessor implements EventProcessor {
         synchronized (stateLock) {
             updateScheduledTasks(inBackground.get(), offline.get());
         }
-        // Deliver what is still buffered before we let go of the sender. This waits rather than
-        // firing and forgetting because it is this run's last chance to send them. While offline
-        // that chance is not taken: offline is the application telling the SDK to stay off the
-        // network, and shutting down does not revoke that. The commit ahead of it still writes those
-        // events down where persistence is on, so they go out on a later run; where it is off they
-        // are discarded.
-        final AtomicBoolean finalCommitDone = new AtomicBoolean(false);
-        Callable<DeliveryOutcome> finalDelivery = () -> {
-            commitDurably();
-            finalCommitDone.set(true);
-            return deliverPayloadAndRetryLater();
-        };
+        // One budget for the whole of close(), which runs on the caller's thread -- for an application
+        // shutting down, usually the main one -- so it has to stay well inside the five seconds Android
+        // allows before an unanswered input event becomes an ANR. The budget bounds the caller, not
+        // the work: whatever outlasts it is left to finish on its own thread.
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(closeBudgetMillis);
+
+        // Staging and writing come first, and get the budget first. A caller who closed the client and
+        // then let the process end has to find those events on the next run, and that is worth more
+        // than the post below: a batch on disk is delivered next run, while an event never staged is
+        // gone whether or not the post would have succeeded.
+        Future<?> finalCommit = commitWithinBudget(deadlineNanos);
+
+        // Then deliver what is buffered, with whatever is left. This waits rather than firing and
+        // forgetting because it is this run's last chance to send them. While offline that chance is
+        // not taken: offline is the application telling the SDK to stay off the network, and shutting
+        // down does not revoke that. The commit above has written those events down where persistence
+        // is on, so they go out on a later run; where it is off they are discarded.
+        Callable<DeliveryOutcome> finalDelivery = this::deliverPayloadAndRetryLater;
         Future<DeliveryOutcome> delivery = submit(finalDelivery);
         if (delivery != null) {
             try {
-                awaitDelivery(delivery, TimeUnit.MILLISECONDS.toNanos(closeBudgetMillis));
+                awaitDelivery(delivery, Math.max(0, deadlineNanos - System.nanoTime()));
             } catch (TimeoutException e) {
-                // Deliberately not canceled. The run has already been drained into a payload, so
-                // interrupting now would make the loss certain, while leaving it to run costs
-                // nothing: the scheduler thread is a daemon, and returning from close() does not
-                // end an Android process. The budget bounds the caller, not the delivery.
+                // Deliberately not canceled. The batch is closed and on its way, so interrupting now
+                // would make the loss certain, while leaving it to run costs nothing: the scheduler
+                // thread is a daemon, and returning from close() does not end an Android process.
                 logger.warn("Gave up waiting for the final event delivery after {}ms;" +
                         " it continues in the background", closeBudgetMillis);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (ExecutionException e) {
                 logUnexpectedError(e.getCause() == null ? e : e.getCause());
-            }
-        }
-        // A caller who closed the client and then let the process end has to find those events on the
-        // next run, so the write must have happened by the time close() returns. It normally has, on
-        // the events thread; this writes on the caller's only when that thread never got to it, such
-        // as when it is still stuck on an earlier delivery.
-        if (!finalCommitDone.get()) {
-            try {
-                commitDurably();
-            } catch (RuntimeException e) {
-                // Shutting down must still release everything below, and must not throw at the caller.
-                logUnexpectedError(e);
             }
         }
         // The store and the senders, by contrast, are released on whichever thread uses them, after
@@ -914,12 +907,71 @@ final class DirectEventProcessor implements EventProcessor {
                 pendingRetry.cancel(false);
                 pendingRetry = null;
             }
-            queueRelease(scheduler, this::releaseDeliveryResources);
+            // The store is released only once the final commit is through with it, which may be after
+            // the budget if the disk stalled. That waits here, on the scheduler thread, and never on the
+            // caller's.
+            try {
+                scheduler.submit(guarded(() -> {
+                    awaitQuietly(finalCommit);
+                    releaseDeliveryResources();
+                }));
+            } catch (RuntimeException e) { // the executor was shut down under us
+                releaseDeliveryResources();
+            }
             queueRelease(diagnosticExecutor, this::releaseDiagnosticResources);
             scheduler.shutdown();
             diagnosticExecutor.shutdown();
             // Commits already queued there still run, and find the processor closed.
             commitExecutor.shutdown();
+        }
+    }
+
+    /**
+     * Commits everything recorded so far for close(), waiting for it no longer than the budget allows.
+     * <p>
+     * On the commit executor rather than the caller's thread, because each step of a commit can block
+     * for as long as the device takes: {@link #commitLock} may be held by a commit or a delivery that
+     * stalled on the disk, the store's I/O lock by the write it stalled on, and the write this one
+     * makes is disk I/O too. Committing on the caller's thread was bounded by none of them, so a
+     * stalled flash write turned into an ANR on the main thread.
+     * <p>
+     * A commit that outlasts the budget is left to finish, for the same reason as the delivery:
+     * the executor thread is a daemon, returning from close() does not end the process, and a write
+     * cut off partway leaves a torn frame that the next run reads past, not events lost.
+     *
+     * @return the commit, for the store's release to wait on, or null if it could not be queued
+     */
+    private Future<?> commitWithinBudget(long deadlineNanos) {
+        Future<?> commit;
+        try {
+            commit = commitExecutor.submit(guarded(this::commitDurably));
+        } catch (RuntimeException e) { // shut down under us; the final delivery still commits first
+            return null;
+        }
+        try {
+            commit.get(Math.max(0, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            logger.warn("Gave up waiting for the final event commit after {}ms;" +
+                    " it continues in the background", closeBudgetMillis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            logUnexpectedError(e.getCause() == null ? e : e.getCause());
+        }
+        return commit;
+    }
+
+    /** Waits for a task to finish however it ends. Only for threads that are not the caller's. */
+    private static void awaitQuietly(Future<?> task) {
+        if (task == null) {
+            return;
+        }
+        try {
+            task.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            // Logged where it ran.
         }
     }
 

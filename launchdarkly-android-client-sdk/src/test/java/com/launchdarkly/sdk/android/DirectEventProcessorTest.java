@@ -41,6 +41,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -986,14 +987,17 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void closeStillWritesWhenTheEventsThreadNeverGetsToIt() throws Exception {
-        // The events thread is single-threaded, so a delivery that hangs holds the final commit behind it
-        // for longer than close() waits. The write is close()'s promise, so it falls to the caller.
-        Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
+        // The events thread is single-threaded, so a delivery that hangs would hold a final commit queued
+        // there for longer than close() waits. The write is close()'s promise, so it does not run there.
+        AtomicBoolean closing = new AtomicBoolean(false);
+        Queue<Thread> committedDuringClose = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
                 logging.logger, Runnable::run) {
             @Override
             void commit() {
-                committedOn.add(Thread.currentThread());
+                if (closing.get()) {
+                    committedDuringClose.add(Thread.currentThread());
+                }
                 super.commit();
             }
         };
@@ -1005,13 +1009,23 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
                 scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
         try {
+            Thread[] eventsThread = new Thread[1];
+            CountDownLatch eventsThreadHeld = new CountDownLatch(1);
+            scheduler.submit(() -> {
+                eventsThread[0] = Thread.currentThread();
+                eventsThreadHeld.countDown();
+                awaitQuietly(releaseEventsThread, 5, TimeUnit.SECONDS);
+            });
+            assertTrue(eventsThreadHeld.await(5, TimeUnit.SECONDS));
             eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
-            scheduler.submit(() -> awaitQuietly(releaseEventsThread, 5, TimeUnit.SECONDS));
 
+            closing.set(true);
             eventProcessor.close();
 
-            assertTrue("close() returned without writing the event down",
-                    committedOn.contains(Thread.currentThread()));
+            assertFalse("close() returned without writing the event down",
+                    committedDuringClose.isEmpty());
+            assertFalse("the final commit waited on the events thread",
+                    committedDuringClose.contains(eventsThread[0]));
             assertEquals(1, store.getPendingEventCount());
         } finally {
             releaseEventsThread.countDown();
@@ -1445,6 +1459,64 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 letResponseFinish.release(Integer.MAX_VALUE);
                 scheduler.shutdownNow();
             }
+        }
+    }
+
+    @Test
+    public void closeGivesUpWaitingOnAStalledDiskWrite() throws Exception {
+        // A commit stalled on the disk holds commitLock, and the store's I/O lock, for as long as the
+        // write takes. close() used to fall back to committing on the caller's thread once its budget
+        // ran out, which then waited on those locks with no bound at all.
+        CountDownLatch writeStarted = new CountDownLatch(1);
+        Semaphore letWriteFinish = new Semaphore(0);
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+                logging.logger, Runnable::run) {
+            @Override
+            FileOutputStream openForAppending(File log) throws IOException {
+                writeStarted.countDown();
+                awaitQuietly(letWriteFinish);
+                return super.openForAppending(log);
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, false);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            // A commit point, so a commit is queued and stalls on the disk, holding the locks.
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            assertTrue("the commit never reached the disk", writeStarted.await(5, TimeUnit.SECONDS));
+
+            long startedAtNanos = System.nanoTime();
+            // On a thread of its own, so that a close() that does hang fails this test rather than
+            // hanging the suite.
+            Future<?> closing = caller.submit(() -> {
+                eventProcessor.close();
+                return null;
+            });
+            closing.get(CLOSE_BUDGET_MILLIS * 5, TimeUnit.MILLISECONDS);
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+
+            assertTrue("close() waited " + elapsedMillis + "ms on a budget of "
+                    + CLOSE_BUDGET_MILLIS + "ms", elapsedMillis < CLOSE_BUDGET_MILLIS * 3);
+            logging.assertWarnLogged("Gave up waiting for the final event commit");
+        } finally {
+            letWriteFinish.release(Integer.MAX_VALUE);
+            caller.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    private static void awaitQuietly(Semaphore semaphore) {
+        try {
+            if (semaphore.tryAcquire(30, TimeUnit.SECONDS)) {
+                semaphore.release();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
