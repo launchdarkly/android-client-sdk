@@ -118,6 +118,11 @@ class EventStore implements Closeable {
      */
     private int inTransitEvents;
     private int committedEvents;
+    /**
+     * Events in closed batches: the sum of {@link #eventCounts} and {@link #inMemoryBatches}. Changed only
+     * in the critical section that changes one of those, so that it cannot drift from them; a total
+     * worked out from them and written afterwards would overwrite a close or a removal in between.
+     */
     private int closedEvents;
     /**
      * Events a caller has taken to encode and promised to stage, counted against capacity until each is
@@ -148,7 +153,8 @@ class EventStore implements Closeable {
      * <p>
      * Its own lock rather than {@code ioLock}, so that a store the application told to keep off the disk -
      * where held batches are the only ones there are - never waits on the lock disk I/O is serialized
-     * under. Taken inside {@code ioLock} where there is a disk, never the other way round.
+     * under. Taken inside {@code ioLock} where there is a disk, never the other way round, and taken
+     * before {@code bufferLock}, never after it.
      */
     private final Object heldLock = new Object();
     /**
@@ -534,13 +540,16 @@ class EventStore implements Closeable {
             }
             synchronized (heldLock) {
                 inMemoryBatches.put(payloadId, new HeldBatch(body, events));
+                synchronized (bufferLock) {
+                    inTransitEvents -= events;
+                    closedEvents += events;
+                }
             }
             held = true;
         } finally {
-            synchronized (bufferLock) {
-                inTransitEvents -= events;
-                if (held) {
-                    closedEvents += events;
+            if (!held) {
+                synchronized (bufferLock) {
+                    inTransitEvents -= events;
                 }
             }
         }
@@ -568,31 +577,33 @@ class EventStore implements Closeable {
         if (usesDisk) {
             synchronized (ioLock) {
                 batches = batchesOnDiskHoldingIoLock();
-                addHeldBatches(batches);
+                addHeldBatchesAndRecount(batches);
             }
         } else {
             batches = new ArrayList<>();
-            addHeldBatches(batches);
-        }
-
-        int total = 0;
-        for (Batch batch : batches) {
-            total += batch.eventCount;
-        }
-        synchronized (bufferLock) {
-            closedEvents = total;
+            addHeldBatchesAndRecount(batches);
         }
         return batches;
     }
 
     /**
-     * The batches the filesystem would not take, after the files: anything held was closed by this run and
-     * so is newer than whatever a previous run left on the disk.
+     * Adds the batches the filesystem would not take, after the files: anything held was closed by this run
+     * and so is newer than whatever a previous run left on the disk. Then counts everything listed as
+     * closed, which is how batches another process closed or delivered come to be counted or not.
+     * <p>
+     * Requires {@code ioLock} where there is a disk, so that the count is of the listing as it stands.
      */
-    private void addHeldBatches(List<Batch> batches) {
+    private void addHeldBatchesAndRecount(List<Batch> batches) {
         synchronized (heldLock) {
             for (Map.Entry<String, HeldBatch> held : inMemoryBatches.entrySet()) {
                 batches.add(new Batch(held.getKey(), held.getValue().eventCount));
+            }
+            int total = 0;
+            for (Batch batch : batches) {
+                total += batch.eventCount;
+            }
+            synchronized (bufferLock) {
+                closedEvents = total;
             }
         }
     }
@@ -677,20 +688,28 @@ class EventStore implements Closeable {
      * Forgets a batch, which is only correct once LaunchDarkly has accepted it or permanently refused it.
      */
     void remove(Batch batch) {
-        boolean wasHeld;
+        // Only a count this call takes away stops counting. Two deliveries can both get to the same batch,
+        // and a listing drops a batch another process delivered before this one gets to remove it.
         synchronized (heldLock) {
-            wasHeld = inMemoryBatches.remove(batch.payloadId) != null;
-        }
-
-        if (!wasHeld && usesDisk) {
-            synchronized (ioLock) {
-                deleteQuietly(batchFile(batch.payloadId));
-                eventCounts.remove(batch.payloadId);
+            HeldBatch held = inMemoryBatches.remove(batch.payloadId);
+            if (held != null) {
+                synchronized (bufferLock) {
+                    closedEvents -= held.eventCount;
+                }
+                return;
             }
         }
 
-        synchronized (bufferLock) {
-            closedEvents = Math.max(0, closedEvents - batch.eventCount);
+        if (usesDisk) {
+            synchronized (ioLock) {
+                deleteQuietly(batchFile(batch.payloadId));
+                Integer counted = eventCounts.remove(batch.payloadId);
+                if (counted != null) {
+                    synchronized (bufferLock) {
+                        closedEvents -= counted;
+                    }
+                }
+            }
         }
     }
 
@@ -747,6 +766,9 @@ class EventStore implements Closeable {
         String payloadId = UUID.randomUUID().toString();
         if (log.renameTo(batchFile(payloadId))) {
             eventCounts.put(payloadId, events);
+            synchronized (bufferLock) {
+                closedEvents += events;
+            }
             logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
                     events);
         }

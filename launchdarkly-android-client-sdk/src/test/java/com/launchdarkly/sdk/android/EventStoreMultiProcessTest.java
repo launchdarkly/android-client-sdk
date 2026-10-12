@@ -541,6 +541,71 @@ public class EventStoreMultiProcessTest {
         assertEquals(Arrays.asList("first", "second"), visibleKeys(store));
     }
 
+    @Test
+    public void removingABatchTwiceStopsCountingItOnce() {
+        // Deliveries can overlap, and two of them can both get to the same batch.
+        for (boolean persist : new boolean[] {true, false}) {
+            EventStore store = new EventStore(new File(sharedDirectory(), "persist-" + persist),
+                    MAIN_PROCESS, CAPACITY, persist, logger, inline);
+            store.stage(event("first"));
+            EventStore.Batch first = store.closeBatch();
+            store.stage(event("second"));
+            store.closeBatch();
+            store.pendingBatches();
+
+            store.remove(first);
+            store.remove(first);
+
+            assertEquals("persisting: " + persist, 1, store.getPendingEventCount());
+        }
+    }
+
+    @Test
+    public void aBatchAnotherProcessDeliveredStopsCountingOnce() {
+        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore service = storeFor(SERVICE_PROCESS);
+        main.stage(event("first"));
+        EventStore.Batch first = main.closeBatch();
+        main.stage(event("second"));
+        main.closeBatch();
+
+        // The other process delivers it, and this one lists again before its own delivery of it finishes.
+        service.remove(first);
+        main.pendingBatches();
+        main.remove(first);
+
+        assertEquals(1, main.getPendingEventCount());
+    }
+
+    @Test
+    public void aListingDoesNotLoseOrDoubleABatchClosedWhileItRuns() throws Exception {
+        for (boolean persist : new boolean[] {true, false}) {
+            EventStore store = new EventStore(new File(sharedDirectory(), "persist-" + persist),
+                    MAIN_PROCESS, 100_000, persist, logger, inline);
+            AtomicBoolean done = new AtomicBoolean();
+            Thread lister = new Thread(() -> {
+                while (!done.get()) {
+                    store.pendingBatches();
+                    // Without it the listings can hold the locks so continuously that the closes starve.
+                    Thread.yield();
+                }
+            });
+            lister.start();
+            try {
+                // Checked after every close, because the next listing would correct a miscount before
+                // the end of the loop could see it.
+                for (int i = 1; i <= 150; i++) {
+                    store.stage(event("event-" + i));
+                    store.closeBatch();
+                    assertEquals("persisting: " + persist, i, store.getPendingEventCount());
+                }
+            } finally {
+                done.set(true);
+                lister.join(5_000);
+            }
+        }
+    }
+
     private List<String> keysIn(byte[] body) {
         List<String> keys = new ArrayList<>();
         for (LDValue event : LDValue.parse(new String(body, Charset.forName("UTF-8"))).values()) {
