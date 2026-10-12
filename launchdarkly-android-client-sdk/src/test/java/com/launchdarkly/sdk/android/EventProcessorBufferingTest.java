@@ -236,6 +236,7 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
 
     @Test
     public void aCommitPointMakesRoomInTheSummarizer() throws Exception {
+        assumePersisting();
         // Counters are materialized into summary events and reset at every commit point, so the
         // summarizer only ever holds the contexts seen since the last one. That reset is what keeps
         // the cardinality limit from binding: without it an application identifying its way through

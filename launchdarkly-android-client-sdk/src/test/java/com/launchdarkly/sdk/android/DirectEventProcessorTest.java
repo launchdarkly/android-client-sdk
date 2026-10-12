@@ -138,6 +138,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void flushPersistsFeatureAndSummaryEventsSynchronouslyWhileOffline() throws Exception {
+        assumePersisting();
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
@@ -1869,6 +1870,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aBatchStillRefusedAtCloseIsDeliveredByTheNextRun() throws Exception {
+        assumePersisting();
         String payloadId;
         try (HttpServer refusing = HttpServer.start(Handlers.status(503))) {
             EventProcessor eventProcessor = makeEventProcessor(refusing, DEFAULT_CAPACITY);
@@ -1990,6 +1992,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aBatchAPreviousRunLeftIsTriedOnceAtStartAndThenWaitsWhileStillRefused() throws Exception {
+        assumePersisting();
         try (HttpServer refusing = HttpServer.start(Handlers.status(503))) {
             EventProcessor eventProcessor = makeEventProcessor(refusing, DEFAULT_CAPACITY);
             eventProcessor.recordCustomEvent(CONTEXT, "kept-event", LDValue.ofNull(), null);
@@ -2113,6 +2116,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aLossAfterAFlushClosedItsBatchIsReportedToTheNextFlushInstead() throws Exception {
+        assumePersisting();
         // A flush answers for the batch it closed. One that met a retryable failure answers only when
         // its retry does, which is long enough for a loss to happen in between, and that loss belongs
         // to the flush that closes the batch after it rather than to this one.

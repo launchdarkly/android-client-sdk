@@ -16,6 +16,7 @@ import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
@@ -75,13 +76,24 @@ public abstract class EventProcessorTestBase {
      *   tests that need to configure something else on top such as private attributes
      */
     protected EventProcessorBuilder eventsBuilder(int capacity) {
-        // Persistence is off by default for applications, so the tests that exercise it have to ask.
-        // IMMEDIATE is also what lets a test assert on the store straight after a track. Tests covering the
-        // default are in DirectEventProcessorTest.
         return Components.sendEvents()
                 .capacity(capacity)
-                .eventPersistence(EventPersistence.IMMEDIATE)
+                .eventPersistence(persistence())
                 .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS);
+    }
+
+    /**
+     * The persistence {@link #eventsBuilder} configures. IMMEDIATE here, which is what lets a test
+     * assert on the store straight after a track; each suite also runs as a subclass that answers
+     * DISABLED, because that is what an application gets unless it asks.
+     */
+    protected EventPersistence persistence() {
+        return EventPersistence.IMMEDIATE;
+    }
+
+    /** Skips a test whose subject is the disk, in the subclasses that run a suite without one. */
+    protected void assumePersisting() {
+        Assume.assumeTrue("needs a disk", persistence() != EventPersistence.DISABLED);
     }
 
     protected EventProcessor makeEventProcessor(HttpServer server, EventProcessorBuilder events,
