@@ -270,9 +270,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aDeferredFlushThatWaitsReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
-        // As above, where the application asked for the write to be queued rather than made on its own
-        // thread: the queue it goes on is the commit executor, so a held events thread still does not
-        // keep the flush's events off the disk.
+        // As above, where the application asked for writes to be queued rather than made on its own
+        // thread: a flush writes on the caller's thread regardless, so the events are on disk by the
+        // time it returns rather than whenever the commit executor gets to them.
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
                 DEFAULT_CAPACITY, true, logging.logger);
@@ -287,14 +287,34 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertFalse("the delivery answered even though the events thread was held",
                     awaitFlush(eventProcessor, 0, TimeUnit.MILLISECONDS));
 
-            long deadline = System.currentTimeMillis() + 5_000;
-            while (kindsOnDisk("feature") == 0 && System.currentTimeMillis() < deadline) {
-                Thread.sleep(10);
-            }
             assertEquals(1, kindsOnDisk("feature"));
             assertEquals(1, kindsOnDisk("summary"));
         } finally {
             deliveryAnswers.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
+    public void aDeferredFlushWritesWithoutWaitingForTheQueueATrackedEventsWriteGoesTo() throws Exception {
+        // A flush is what an application calls before ending the process on purpose, so at DEFERRED it
+        // writes on its own thread rather than queueing the write the way track does. Holding the commit
+        // executor keeps a queued write off the disk, so only a write on this thread can pass.
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY,
+                EventUtil.makeEventsTaskExecutor());
+        CountDownLatch commitsResume = new CountDownLatch(1);
+        try {
+            lastCommitExecutor.submit(() -> awaitQuietly(commitsResume, 10, TimeUnit.SECONDS));
+            eventProcessor.recordCustomEvent(CONTEXT, "before-exit", null, null);
+            assertEquals(0, kindsOnDisk("custom"));
+
+            eventProcessor.flush();
+
+            assertEquals(1, kindsOnDisk("custom"));
+        } finally {
+            commitsResume.countDown();
             eventProcessor.close();
         }
     }
@@ -987,7 +1007,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void deferredPersistenceNeverWritesOnTheCallersThread() throws Exception {
+    public void deferredPersistenceWritesOnTheCallersThreadOnlyForAFlush() throws Exception {
         Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
                 logging.logger, Runnable::run) {
@@ -1001,16 +1021,20 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
         try {
             eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
-            eventProcessor.flush();
             eventProcessor.recordCustomEvent(CONTEXT, "another", LDValue.ofNull(), null);
-            eventProcessor.blockingFlush();
-            awaitFlush(eventProcessor, 2, TimeUnit.SECONDS);
-            eventProcessor.close();
+            lastCommitExecutor.submit(() -> { }).get(2, TimeUnit.SECONDS);
 
             assertFalse("nothing was ever committed, so this proves nothing", committedOn.isEmpty());
-            assertFalse("a commit ran on the caller's thread",
+            assertFalse("a track committed on the caller's thread",
+                    committedOn.contains(Thread.currentThread()));
+
+            eventProcessor.recordCustomEvent(CONTEXT, "before-exit", LDValue.ofNull(), null);
+            eventProcessor.flush();
+
+            assertTrue("a flush left its commit to another thread",
                     committedOn.contains(Thread.currentThread()));
         } finally {
+            eventProcessor.close();
             scheduler.shutdownNow();
         }
     }

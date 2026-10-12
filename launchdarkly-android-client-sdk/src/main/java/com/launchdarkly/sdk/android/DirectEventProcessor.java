@@ -776,17 +776,25 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * The commit point every flush starts with, before anything is handed to the events thread.
      * <p>
-     * Written on the caller's thread only where the application asked for that. Otherwise the write is
-     * queued ahead of the delivery, so it still happens when the delivery cannot run because the client
-     * is offline.
+     * Written on the caller's thread wherever events persist, not only where the application asked for
+     * that as it does for {@code track} and {@code identify}. A flush is what an application calls when it
+     * is about to end the process on purpose, and a write it only queued is one the process may end
+     * before. Where nothing persists, a commit makes nothing durable, and is left to the delivery.
      * <p>
-     * Either way it does not wait for the events thread, which can be held by a post or by a retry long
-     * after a caller with a deadline has stopped waiting. The delivery commits again when it runs, but
-     * that is too late to be the only commit: {@code flushAndWait} exists for the caller that is about
-     * to be killed, and a timed-out wait must still leave the events durable.
+     * It does not wait for the events thread, which can be held by a post or by a retry long after a
+     * caller with a deadline has stopped waiting. The delivery commits again when it runs, but that is
+     * too late to be the only commit: {@code flushAndWait} exists for the caller that is about to be
+     * killed, and a timed-out wait must still leave the events durable.
      */
     private void commitBeforeDelivery() {
-        commitAtCommitPoint(lastRecordedSequence());
+        try {
+            if (commitOnCallerThread || store.isPersisting()) {
+                commitDurablyThrough(lastRecordedSequence());
+            }
+        } catch (RuntimeException e) {
+            // As in recordEvaluationEvent: every commit point is on the caller's thread.
+            logUnexpectedError(e);
+        }
     }
 
     /**

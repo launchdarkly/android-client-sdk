@@ -150,11 +150,11 @@ public interface LDClientInterface extends Closeable {
      * com.launchdarkly.sdk.android.integrations.EventPersistence)} is on,
      * events are written in runs, so one recorded shortly before the process ends may never have been
      * written at all; this call writes everything recorded so far, and the events then survive whether or
-     * not the delivery does. With {@link com.launchdarkly.sdk.android.integrations.EventPersistence#IMMEDIATE}
-     * that write happens before this returns; otherwise it is queued on the SDK's own thread, so that
-     * calling this from the main thread never touches the disk there, and {@link #flushAndWait(long, TimeUnit)}
-     * is the way to wait for it. Where persistence is off, events live in memory only and nothing survives
-     * the process, whether or not this was called.
+     * not the delivery does. That write happens on the calling thread before this returns, at
+     * {@link com.launchdarkly.sdk.android.integrations.EventPersistence#DEFERRED} as well as at
+     * {@link com.launchdarkly.sdk.android.integrations.EventPersistence#IMMEDIATE}, so a call from the main
+     * thread touches the disk there. Where persistence is off, events live in memory only and nothing
+     * survives the process, whether or not this was called.
      * <p>
      * That is what makes it worth calling where the process is about to end. An application that reports
      * errors to LaunchDarkly and then crashes should flush from its uncaught exception handler, which runs

@@ -21,8 +21,15 @@ public enum EventPersistence {
     /**
      * Events are written to disk, off the thread that recorded them.
      * <p>
-     * Recording stays as cheap as it is without persistence, and an event becomes durable a moment after it
-     * was recorded rather than immediately. A process that dies inside that window still loses it.
+     * Recording stays as cheap as it is without persistence. An event from {@code track} or {@code identify}
+     * becomes durable a moment after it was recorded rather than immediately, and a process that dies inside
+     * that window still loses it. Evaluating a flag does not schedule a write of its own: its events wait in
+     * memory until enough of them have built up, or until the next {@code track}, {@code identify}, flush or
+     * delivery writes them.
+     * <p>
+     * A flush is the exception. It writes on the calling thread, as {@link #IMMEDIATE} does, so that an
+     * application ending the process on purpose can rely on it. A flush on the main thread with
+     * {@link android.os.StrictMode} detecting disk writes therefore sees a violation.
      */
     DEFERRED,
 
