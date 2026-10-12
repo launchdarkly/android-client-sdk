@@ -89,17 +89,36 @@ final class OpenEventLog {
      * <p>
      * Requires {@code ioLock}.
      *
-     * @throws IOException if the log could not be opened or written to; the log is then closed, so the
-     *   next append starts from a fresh open
+     * @throws IOException if the log could not be opened or written to; none of {@code bytes} is then left
+     *   in the log, and the log is closed, so the next append starts from a fresh open
      */
     void append(byte[] bytes) throws IOException {
         assert Thread.holdsLock(ioLock);
         FileOutputStream stream = outputForAppending();
+        long start = -1;
         try {
+            start = stream.getChannel().size();
             stream.write(bytes);
         } catch (IOException | RuntimeException e) {
+            // A write that fails partway can leave whole frames behind. The caller keeps every one of
+            // the bytes in memory to deliver from there, so frames left here as well would be sent
+            // twice: beside the memory copy when the log is closed this session, or by recovery on the
+            // next launch.
+            if (start >= 0) {
+                cutBack(stream, start);
+            }
             closeOutput();
             throw e;
+        }
+    }
+
+    /** Cuts the log back to {@code length}, where a failed write left it longer. */
+    private void cutBack(FileOutputStream stream, long length) {
+        try {
+            stream.getChannel().truncate(length);
+        } catch (IOException | RuntimeException e) {
+            logger.debug("Could not cut back a failed write to the event log: {}",
+                    LogValues.exceptionSummary(e));
         }
     }
 

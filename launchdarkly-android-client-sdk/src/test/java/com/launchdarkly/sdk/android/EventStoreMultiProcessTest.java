@@ -476,6 +476,81 @@ public class EventStoreMultiProcessTest {
         assertEquals(Arrays.asList("before-the-crash", "this-run"), visibleKeys(secondRun));
     }
 
+    // MARK: a write that fails partway
+
+    /**
+     * A store whose writes land whole until {@code whole} of them have, after which each gets all but
+     * the last few bytes onto the disk and fails, as one does when the device fills mid-write.
+     */
+    private EventStore storeFailingPartwayAfter(int whole) {
+        AtomicInteger writes = new AtomicInteger();
+        return new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, true, logger, inline) {
+            @Override
+            FileOutputStream openForAppending(File log) throws IOException {
+                return new FileOutputStream(log, true) {
+                    @Override
+                    public void write(byte[] bytes) throws IOException {
+                        if (writes.incrementAndGet() <= whole) {
+                            super.write(bytes);
+                            return;
+                        }
+                        super.write(bytes, 0, bytes.length - 3);
+                        throw new IOException("No space left on device");
+                    }
+                };
+            }
+        };
+    }
+
+    private List<String> keysIn(byte[] body) {
+        List<String> keys = new ArrayList<>();
+        for (LDValue event : LDValue.parse(new String(body, Charset.forName("UTF-8"))).values()) {
+            keys.add(event.get("key").stringValue());
+        }
+        return keys;
+    }
+
+    @Test
+    public void framesAWriteLandedBeforeItFailedAreSentOnceNotFromTheLogAndMemoryBoth()
+            throws IOException {
+        // The file header and the first event land. The next write gets a whole frame and part of
+        // another onto the disk before the device is full.
+        EventStore store = storeFailingPartwayAfter(2);
+
+        store.stage(event("written"));
+        store.commit();
+        store.stage(event("landed"));
+        store.stage(event("torn"));
+        store.commit();
+        assertFalse(store.isPersisting());
+
+        store.closeBatch();
+
+        List<List<String>> bodies = new ArrayList<>();
+        for (EventStore.Batch batch : store.pendingBatches()) {
+            bodies.add(keysIn(store.body(batch)));
+        }
+        assertEquals(Arrays.asList(Arrays.asList("written"), Arrays.asList("landed", "torn")), bodies);
+    }
+
+    @Test
+    public void theNextRunHasNothingToRecoverFromAFirstWriteThatFailedPartway() throws IOException {
+        // The file header lands, and then a whole frame and part of another before the device is full.
+        EventStore store = storeFailingPartwayAfter(1);
+
+        store.stage(event("landed"));
+        store.stage(event("torn"));
+        store.commit();
+        EventStore.Batch fromMemory = store.closeBatch();
+        assertNotNull(fromMemory);
+        assertEquals(Arrays.asList("landed", "torn"), keysIn(store.body(fromMemory)));
+
+        // Delivered from memory this run, so the next must not find any of it again in the log.
+        EventStore nextRun = storeFor(MAIN_PROCESS);
+        nextRun.recoverInterruptedLog();
+        assertEquals(0, nextRun.pendingBatches().size());
+    }
+
     // MARK: the two together
 
     @Test
