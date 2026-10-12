@@ -64,7 +64,7 @@ final class DiskEventLog {
             char c = name.charAt(i);
             safe.append(Character.isLetterOrDigit(c) || c == '-' || c == '_' ? c : '_');
         }
-        return safe.append('-').append(EventStore.hexDigest(name, 4)).toString();
+        return safe.append('-').append(EventDirectory.hexDigest(name, 4)).toString();
     }
 
     /** Where the log is, whether or not it exists yet. */
