@@ -744,10 +744,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return;
         }
-        // A commit point, written on the caller's thread only where the application asked for that.
-        // Otherwise the write is queued ahead of the delivery, so it still happens when the delivery
-        // cannot run because the client is offline.
-        commitAtCommitPoint(lastRecordedSequence());
+        commitBeforeDelivery();
         queueDelivery(false);
     }
 
@@ -756,6 +753,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return;
         }
+        commitBeforeDelivery();
         Future<Boolean> delivery = queueDelivery(false);
         try {
             delivery.get();
@@ -771,7 +769,24 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return new LDSuccessFuture<>(false);
         }
+        commitBeforeDelivery();
         return queueDelivery(true);
+    }
+
+    /**
+     * The commit point every flush starts with, before anything is handed to the events thread.
+     * <p>
+     * Written on the caller's thread only where the application asked for that. Otherwise the write is
+     * queued ahead of the delivery, so it still happens when the delivery cannot run because the client
+     * is offline.
+     * <p>
+     * Either way it does not wait for the events thread, which can be held by a post or by a retry long
+     * after a caller with a deadline has stopped waiting. The delivery commits again when it runs, but
+     * that is too late to be the only commit: {@code flushAndWait} exists for the caller that is about
+     * to be killed, and a timed-out wait must still leave the events durable.
+     */
+    private void commitBeforeDelivery() {
+        commitAtCommitPoint(lastRecordedSequence());
     }
 
     /**

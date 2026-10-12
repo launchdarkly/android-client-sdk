@@ -234,6 +234,72 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlushThatWaitsWritesOnItsOwnThreadWhileADeliveryHoldsTheEventsThread() throws Exception {
+        // An evaluation is not a commit point, so a flush is what makes one durable. flushAsync hands
+        // the delivery to the events thread, which a post or a retry can hold for longer than the
+        // caller's timeout -- and flushAndWait is what an application calls when it is about to be
+        // killed, so the write cannot be left to that thread.
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+        CountDownLatch deliveryAnswers = new CountDownLatch(1);
+        try {
+            eventProcessor.setOffline(false);
+            // Stands in for a post to a network that does not answer, which holds the events thread for
+            // as long as its timeouts allow.
+            scheduler.submit(() -> awaitQuietly(deliveryAnswers, 10, TimeUnit.SECONDS));
+            eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                    FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, true, null);
+
+            assertFalse("the delivery answered even though the events thread was held",
+                    awaitFlush(eventProcessor, 0, TimeUnit.MILLISECONDS));
+
+            // Read with nothing waited on: the commit ran on the flushing thread, not the events one.
+            assertEquals(1, kindsOnDisk("feature"));
+            assertEquals(1, kindsOnDisk("summary"));
+        } finally {
+            deliveryAnswers.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
+    public void aDeferredFlushThatWaitsReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
+        // As above, where the application asked for the write to be queued rather than made on its own
+        // thread: the queue it goes on is the commit executor, so a held events thread still does not
+        // keep the flush's events off the disk.
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        CountDownLatch deliveryAnswers = new CountDownLatch(1);
+        try {
+            eventProcessor.setOffline(false);
+            scheduler.submit(() -> awaitQuietly(deliveryAnswers, 10, TimeUnit.SECONDS));
+            eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                    FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, true, null);
+
+            assertFalse("the delivery answered even though the events thread was held",
+                    awaitFlush(eventProcessor, 0, TimeUnit.MILLISECONDS));
+
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (kindsOnDisk("feature") == 0 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals(1, kindsOnDisk("feature"));
+            assertEquals(1, kindsOnDisk("summary"));
+        } finally {
+            deliveryAnswers.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
     public void aFailedDeliveryIsRetriedOnceUnderTheSamePayloadId() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
                 Handlers.status(202)))) {
