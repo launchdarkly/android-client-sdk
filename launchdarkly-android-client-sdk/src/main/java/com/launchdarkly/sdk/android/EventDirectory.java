@@ -82,6 +82,21 @@ class EventDirectory {
      */
     private final Map<String, Integer> eventCounts = new HashMap<>();
 
+    /**
+     * Batches LaunchDarkly has accepted whose file the filesystem would not let go of.
+     * <p>
+     * Left out of every listing, because a batch that is delivered and merely still on the disk would otherwise
+     * be found again by the next delivery, and the one after that, and sent each time. The delete is tried once
+     * more on each listing, so a directory that stops being read-only clears itself.
+     * <p>
+     * Only for this session: a later run, which may well be able to delete the file, treats it as it would any
+     * other batch a previous run left behind. LaunchDarkly discards a repeated payload ID, so the cost of that is
+     * a wasted request rather than events counted twice.
+     * <p>
+     * Only to be used while holding {@code ioLock}.
+     */
+    private final Set<String> deliveredButUndeleted = new HashSet<>();
+
     EventDirectory(Location location, Object ioLock, LDLogger logger, Reader reader,
                    DiskEventLog.Opener opener) {
         this.location = location;
@@ -225,6 +240,9 @@ class EventDirectory {
         List<EventStore.Batch> batches = new ArrayList<>();
         for (File file : readyFilesOldestFirst()) {
             String payloadId = file.getName().substring(BATCH_PREFIX.length());
+            if (isDeliveredButUndeleted(payloadId, file)) {
+                continue;
+            }
             // Reading is only for a batch this process has not counted: one a previous run left behind, or
             // one belonging to another process sharing the environment.
             Integer counted = eventCounts.get(payloadId);
@@ -269,6 +287,23 @@ class EventDirectory {
     }
 
     /**
+     * Whether a batch has already been delivered and only its file is left, trying the delete that failed once
+     * more on the way.
+     * <p>
+     * Requires {@code ioLock}.
+     */
+    private boolean isDeliveredButUndeleted(String payloadId, File file) {
+        if (!deliveredButUndeleted.contains(payloadId)) {
+            return false;
+        }
+        deleteQuietly(file);
+        if (!file.exists()) {
+            deliveredButUndeleted.remove(payloadId);
+        }
+        return true;
+    }
+
+    /**
      * Requires {@code ioLock}.
      *
      * @return the JSON request body for a batch, or null if it is gone or holds nothing this version can
@@ -288,7 +323,14 @@ class EventDirectory {
      */
     int remove(String payloadId) {
         assert Thread.holdsLock(ioLock);
-        deleteQuietly(batchFile(payloadId));
+        File file = batchFile(payloadId);
+        deleteQuietly(file);
+        if (file.exists()) {
+            // Its events stop counting all the same: LaunchDarkly has them, and holding capacity for a file this
+            // process may never be allowed to delete would cost the session events it could still have recorded.
+            logger.debug("Could not delete a delivered batch; it will not be sent again this session");
+            deliveredButUndeleted.add(payloadId);
+        }
         Integer counted = eventCounts.remove(payloadId);
         return counted == null ? 0 : counted;
     }

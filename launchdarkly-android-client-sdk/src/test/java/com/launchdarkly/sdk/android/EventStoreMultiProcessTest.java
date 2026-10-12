@@ -561,6 +561,36 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
+    public void aDeliveredBatchWhoseFileWillNotDeleteIsNotListedAgain() {
+        EventStore store = storeFor(MAIN_PROCESS);
+        store.stage(event("first"));
+        EventStore.Batch first = store.closeBatch();
+        store.stage(event("second"));
+        EventStore.Batch second = store.closeBatch();
+        assertNotNull(first);
+        assertNotNull(second);
+
+        File directory = sharedDirectory();
+        // A directory with no write permission is one its entries cannot be unlinked from, which is what the
+        // filesystem refusing a delete looks like from here.
+        assertTrue("could not make the directory read-only", directory.setWritable(false));
+        try {
+            store.remove(first);
+
+            // Delivered, so it neither counts against capacity nor comes back for another delivery, even
+            // though its file is still sitting there.
+            assertEquals(Arrays.asList(second), store.pendingBatches());
+            assertEquals(1, store.getPendingEventCount());
+        } finally {
+            assertTrue("could not make the directory writable again", directory.setWritable(true));
+        }
+
+        // The listing that can delete it does, rather than leaving it for a run that would send it again.
+        store.pendingBatches();
+        assertFalse(new File(directory, "ready-" + first.payloadId).exists());
+    }
+
+    @Test
     public void aBatchAnotherProcessDeliveredStopsCountingOnce() {
         EventStore main = storeFor(MAIN_PROCESS);
         EventStore service = storeFor(SERVICE_PROCESS);
