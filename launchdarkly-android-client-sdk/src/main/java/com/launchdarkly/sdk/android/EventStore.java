@@ -19,10 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 
 /**
  * A crash-durable append log of serialized analytics events.
@@ -59,14 +55,6 @@ import java.util.concurrent.ThreadFactory;
  */
 class EventStore implements Closeable {
     /**
-     * How many staged bytes may accumulate before one of them pays for a write.
-     * <p>
-     * This is what keeps a syscall off most recordings while bounding what a crash can take with it,
-     * for an application that only evaluates flags and so never reaches a commit point of its own.
-     */
-    private static final int STAGING_THRESHOLD = 16 * 1024;
-
-    /**
      * Where the events are kept, or null where the application asked for them to be kept off the disk.
      * <p>
      * Everything about the filesystem is behind this, so that the store itself is the buffer, the capacity
@@ -76,14 +64,6 @@ class EventStore implements Closeable {
     private final EventDirectory disk;
     private final int capacity;
     private final LDLogger logger;
-    /**
-     * Where a commit runs when no caller is waiting on it.
-     * <p>
-     * Evaluating a flag must not put a write on whichever thread evaluated it, and that thread is
-     * usually the main one. A caller at a commit point still commits on its own thread, because for
-     * them having returned is the guarantee.
-     */
-    private final Executor commitExecutor;
 
     /**
      * Guards the buffer and the counters. Held for a copy and never across a write, so an
@@ -133,7 +113,6 @@ class EventStore implements Closeable {
      * every {@code track} asks, and a commit takes that lock once for each event it stages.
      */
     private volatile boolean persistEvents;
-    private boolean commitScheduled;
 
     /**
      * Guards {@link #inMemoryBatches}.
@@ -155,7 +134,7 @@ class EventStore implements Closeable {
     private final Map<String, HeldBatch> inMemoryBatches = new LinkedHashMap<>();
 
     EventStore(final File directory, final String processName, int capacity, boolean persistEvents,
-               LDLogger logger, Executor commitExecutor) {
+               LDLogger logger) {
         this(new EventDirectory.Location() {
             @Override
             public File directory() {
@@ -166,14 +145,13 @@ class EventStore implements Closeable {
             public String processName() {
                 return processName;
             }
-        }, capacity, persistEvents, logger, commitExecutor);
+        }, capacity, persistEvents, logger);
     }
 
     private EventStore(EventDirectory.Location location, int capacity, boolean persistEvents,
-                       LDLogger logger, Executor commitExecutor) {
+                       LDLogger logger) {
         this.capacity = capacity >= 0 ? capacity : 1;
         this.logger = logger;
-        this.commitExecutor = commitExecutor;
         // An application that has not asked for persistence gets the same store running the same way it
         // runs once a write has failed: events are held, delivered, and lost only if the process dies.
         // It also skips every read, so batches a run with persistence turned on left behind stay on disk
@@ -201,7 +179,7 @@ class EventStore implements Closeable {
             LDLogger logger
     ) {
         return new EventStore(EventDirectory.defaultDirectory(noBackupFilesDir, mobileKey), processName,
-                capacity, persistEvents, logger, defaultCommitExecutor());
+                capacity, persistEvents, logger);
     }
 
     /**
@@ -211,16 +189,13 @@ class EventStore implements Closeable {
      * @param platformState where the no-backup directory and the process name come from
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
      * @param persistEvents whether the application asked for events to outlive the process
-     * @param commitExecutor where a commit no caller waits on runs, shared with whatever else commits
-     *   to this store so that writes queue behind one another rather than behind a delivery
      */
     static EventStore create(
             final PlatformState platformState,
             String mobileKey,
             int capacity,
             boolean persistEvents,
-            LDLogger logger,
-            Executor commitExecutor
+            LDLogger logger
     ) {
         EventDirectory.Location location = new EventDirectory.Location() {
             @Override
@@ -233,19 +208,7 @@ class EventStore implements Closeable {
                 return platformState.getProcessName();
             }
         };
-        return new EventStore(location, capacity, persistEvents, logger, commitExecutor);
-    }
-
-    /** The single daemon thread a store's commits run on when no caller is waiting for them. */
-    static ExecutorService defaultCommitExecutor() {
-        return Executors.newSingleThreadExecutor(new ThreadFactory() {
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread thread = new Thread(r, "LaunchDarkly-event-store");
-                thread.setDaemon(true);
-                return thread;
-            }
-        });
+        return new EventStore(location, capacity, persistEvents, logger);
     }
 
     // MARK: recording
@@ -308,7 +271,8 @@ class EventStore implements Closeable {
     /**
      * Stages an already serialized event.
      * <p>
-     * Staging is a copy into a buffer; {@link #commit()} is what makes the event outlive the process.
+     * Staging is a copy into a buffer and never writes, however much accumulates; {@link #commit()} is what
+     * makes the event outlive the process, so how many bytes one write carries is the caller's decision.
      *
      * @return false if the event was dropped because capacity is reached
      */
@@ -337,7 +301,6 @@ class EventStore implements Closeable {
             return false;
         }
 
-        boolean needsCommit;
         synchronized (bufferLock) {
             if (!bypassingCapacity && countedEventsHoldingBufferLock() >= capacity) {
                 return false;
@@ -347,36 +310,8 @@ class EventStore implements Closeable {
             if (reserved && reservedEvents > 0) {
                 reservedEvents--;
             }
-            needsCommit = persistEvents && bufferData.size() >= STAGING_THRESHOLD && !commitScheduled;
-            if (needsCommit) {
-                commitScheduled = true;
-            }
-        }
-
-        // Handed to another thread rather than done here. Recording an event is something a flag
-        // evaluation does, and an evaluation is expected to be a memory operation: the caller is usually
-        // the main thread, where a write that happens to find a busy filesystem is a stall the
-        // application can do nothing about.
-        if (needsCommit) {
-            try {
-                commitExecutor.execute(this::commitScheduled);
-            } catch (RuntimeException e) {
-                // A rejected commit only means these bytes wait for the next one.
-                synchronized (bufferLock) {
-                    commitScheduled = false;
-                }
-            }
         }
         return true;
-    }
-
-    private void commitScheduled() {
-        // Cleared before the commit rather than after, so an event staged while this write is in flight
-        // asks for another one instead of finding a commit apparently already on its way.
-        synchronized (bufferLock) {
-            commitScheduled = false;
-        }
-        commit();
     }
 
     /**
@@ -576,7 +511,7 @@ class EventStore implements Closeable {
         }
 
         synchronized (ioLock) {
-            return disk.body(batch.payloadId);
+            return disk.body(batch.payloadId, batch.eventCount);
         }
     }
 
@@ -604,7 +539,7 @@ class EventStore implements Closeable {
             return;
         }
         synchronized (ioLock) {
-            int counted = disk.remove(batch.payloadId);
+            int counted = disk.remove(batch.payloadId, batch.eventCount);
             synchronized (bufferLock) {
                 closedEvents -= counted;
                 forgetSendingHoldingBufferLock(batch.payloadId);

@@ -43,6 +43,15 @@ abstract class EventUtil {
                 makeThreadFactory("LaunchDarkly-DiagnosticEventPoster-%d"));
     }
 
+    /**
+     * A thread of its own for the event commits no caller waits on, kept apart from the one that
+     * delivers, so that a write never queues behind a request held open by a slow network.
+     */
+    static ExecutorService makeEventsCommitExecutor() {
+        return Executors.newSingleThreadExecutor(
+                makeThreadFactory("LaunchDarkly-event-store-%d"));
+    }
+
     private static ThreadFactory makeThreadFactory(String nameFormat) {
         return new ThreadFactory() {
             final AtomicLong count = new AtomicLong(0);

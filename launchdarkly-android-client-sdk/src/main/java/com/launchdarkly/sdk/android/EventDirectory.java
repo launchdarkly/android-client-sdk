@@ -41,7 +41,17 @@ import java.util.UUID;
  * rather than each level taking a lock of its own that would have to be ordered against the others.
  */
 class EventDirectory {
-    /** Names a log closed off for delivery; the rest of the name is the batch's payload ID. */
+    /**
+     * Names a log closed off for delivery. The rest of the name is the batch's payload ID and how many
+     * events are in it, {@code ready-<payloadId>-<count>}.
+     * <p>
+     * The count is in the name so that listing a batch this process did not close costs a directory entry
+     * rather than a read of the whole file. That is what every batch is at startup: the ones a previous run
+     * left behind, and the ones belonging to another process sharing the environment. Reading them all is
+     * done holding {@code ioLock}, which a commit at a commit point then waits behind.
+     * <p>
+     * A batch is never appended to once it is closed, so the count is as good as the file is.
+     */
     private static final String BATCH_PREFIX = "ready-";
     private static final String DIRECTORY_NAME = "com.launchdarkly.events";
 
@@ -71,16 +81,27 @@ class EventDirectory {
     private boolean recoveryDone;
 
     /**
-     * How many events are in each batch this process closed or recovered, so that listing them does not have
-     * to read them back.
+     * What this process knows about each batch in the directory, by payload ID, which is how everything
+     * outside this class names one.
      * <p>
-     * A batch is never appended to once it is closed, so a count taken at the close holds until the batch is
-     * delivered. Without this, listing reads every batch file in full while holding {@code ioLock}, and a
-     * commit at a commit point can end up waiting behind those reads.
+     * The file is remembered rather than composed from the payload ID, because the count is part of the name
+     * and a batch closed by a version that did not write one has no count to compose. The count is
+     * remembered so that such a batch is read at most once.
      * <p>
      * Only to be used while holding {@code ioLock}.
      */
-    private final Map<String, Integer> eventCounts = new HashMap<>();
+    private final Map<String, Stored> stored = new HashMap<>();
+
+    /** A batch in the directory: the file it is, and how many events it holds. */
+    private static final class Stored {
+        final File file;
+        final int events;
+
+        Stored(File file, int events) {
+            this.file = file;
+            this.events = events;
+        }
+    }
 
     /**
      * Batches LaunchDarkly has accepted whose file the filesystem would not let go of.
@@ -137,9 +158,54 @@ class EventDirectory {
      * directory and the same batch as it was closed are one thing.
      * <p>
      * Requires {@code ioLock}.
+     *
+     * @param events what the caller holding the batch knows it to contain, which is what names it where
+     *   this process has neither closed nor listed it - as when it delivers a batch another process closed
      */
-    private File batchFile(String payloadId) {
-        return new File(directory(), BATCH_PREFIX + payloadId);
+    private File batchFile(String payloadId, int events) {
+        Stored known = stored.get(payloadId);
+        return known == null ? newBatchFile(payloadId, events) : known.file;
+    }
+
+    /** Requires {@code ioLock}. */
+    private File newBatchFile(String payloadId, int events) {
+        return new File(directory(), BATCH_PREFIX + payloadId + "-" + events);
+    }
+
+    /**
+     * A batch as its filename gives it: everything between the prefix and the count is the payload ID.
+     *
+     * @return the count the name ends with, or -1 where it has none, which is how a version that did not
+     *   write one named its batches. A payload ID cannot be mistaken for a count: it is a UUID, whose
+     *   last group is twelve characters, and twelve digits are more than an {@code int} holds.
+     */
+    private static int eventsInName(String fileName) {
+        int split = fileName.lastIndexOf('-');
+        if (split < BATCH_PREFIX.length()) {
+            return -1;
+        }
+        String suffix = fileName.substring(split + 1);
+        if (suffix.isEmpty()) {
+            return -1;
+        }
+        for (int i = 0; i < suffix.length(); i++) {
+            char c = suffix.charAt(i);
+            if (c < '0' || c > '9') {
+                return -1;
+            }
+        }
+        try {
+            return Integer.parseInt(suffix);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** The payload ID a filename carries, given what {@link #eventsInName} made of it. */
+    private static String payloadIdInName(String fileName, int events) {
+        return events < 0
+                ? fileName.substring(BATCH_PREFIX.length())
+                : fileName.substring(BATCH_PREFIX.length(), fileName.lastIndexOf('-'));
     }
 
     // MARK: writing
@@ -209,12 +275,13 @@ class EventDirectory {
     LogClose closeLog(int events) {
         assert Thread.holdsLock(ioLock);
         String payloadId = UUID.randomUUID().toString();
-        if (!diskLog().closeMovingTo(batchFile(payloadId))) {
+        File file = newBatchFile(payloadId, events);
+        if (!diskLog().closeMovingTo(file)) {
             logger.warn("Could not close the event log for delivery");
             return new LogClose(null, diskLog().exists());
         }
 
-        eventCounts.put(payloadId, events);
+        stored.put(payloadId, new Stored(file, events));
         return new LogClose(new EventStore.Batch(payloadId, events), true);
     }
 
@@ -239,40 +306,42 @@ class EventDirectory {
         assert Thread.holdsLock(ioLock);
         List<EventStore.Batch> batches = new ArrayList<>();
         for (File file : readyFilesOldestFirst()) {
-            String payloadId = file.getName().substring(BATCH_PREFIX.length());
+            int events = eventsInName(file.getName());
+            String payloadId = payloadIdInName(file.getName(), events);
             if (isDeliveredButUndeleted(payloadId, file)) {
                 continue;
             }
-            // Reading is only for a batch this process has not counted: one a previous run left behind, or
-            // one belonging to another process sharing the environment.
-            Integer counted = eventCounts.get(payloadId);
-            int events;
-            if (counted != null) {
-                events = counted;
-            } else {
-                byte[] log;
-                try {
-                    log = readFile(file);
-                } catch (IOException e) {
-                    // Left for a later listing rather than deleted: the read may pass, and the events in
-                    // it may be intact. Without a count it cannot be delivered now.
-                    logger.warn("Could not read stored events, will try again later: {}",
-                            LogValues.exceptionSummary(e));
-                    continue;
-                }
-                if (log == null) {
-                    // Delivered and removed by another process since the listing.
-                    continue;
-                }
-                events = EventLogFormat.eventCount(log);
-            }
+            // Reading is only for a batch whose name does not count it, which a version that named them
+            // without a count may have left behind, and then only the once.
             if (events < 0) {
-                // Written by a version whose format this one does not read, or damaged beyond what the
-                // torn-tail recovery tolerates. Either way it can never be delivered.
-                deleteQuietly(file);
-                continue;
+                Stored known = stored.get(payloadId);
+                if (known != null) {
+                    events = known.events;
+                } else {
+                    byte[] log;
+                    try {
+                        log = readFile(file);
+                    } catch (IOException e) {
+                        // Left for a later listing rather than deleted: the read may pass, and the events in
+                        // it may be intact. Without a count it cannot be delivered now.
+                        logger.warn("Could not read stored events, will try again later: {}",
+                                LogValues.exceptionSummary(e));
+                        continue;
+                    }
+                    if (log == null) {
+                        // Delivered and removed by another process since the listing.
+                        continue;
+                    }
+                    events = EventLogFormat.eventCount(log);
+                }
+                if (events < 0) {
+                    // Written by a version whose format this one does not read, or damaged beyond what the
+                    // torn-tail recovery tolerates. Either way it can never be delivered.
+                    deleteQuietly(file);
+                    continue;
+                }
             }
-            eventCounts.put(payloadId, events);
+            stored.put(payloadId, new Stored(file, events));
             batches.add(new EventStore.Batch(payloadId, events));
         }
 
@@ -282,7 +351,7 @@ class EventDirectory {
         for (EventStore.Batch batch : batches) {
             listed.add(batch.payloadId);
         }
-        eventCounts.keySet().retainAll(listed);
+        stored.keySet().retainAll(listed);
         return batches;
     }
 
@@ -310,9 +379,9 @@ class EventDirectory {
      *   send, neither of which a later attempt changes
      * @throws IOException if the batch is there but could not be read this time
      */
-    byte[] body(String payloadId) throws IOException {
+    byte[] body(String payloadId, int events) throws IOException {
         assert Thread.holdsLock(ioLock);
-        return EventLogFormat.assembleBody(readFile(batchFile(payloadId)));
+        return EventLogFormat.assembleBody(readFile(batchFile(payloadId, events)));
     }
 
     /**
@@ -321,9 +390,9 @@ class EventDirectory {
      * @return the events it stopped counting, which is zero for a batch that was already gone - one another
      *   process delivered, say, which a listing has stopped counting already
      */
-    int remove(String payloadId) {
+    int remove(String payloadId, int events) {
         assert Thread.holdsLock(ioLock);
-        File file = batchFile(payloadId);
+        File file = batchFile(payloadId, events);
         deleteQuietly(file);
         if (file.exists()) {
             // Its events stop counting all the same: LaunchDarkly has them, and holding capacity for a file this
@@ -331,8 +400,8 @@ class EventDirectory {
             logger.debug("Could not delete a delivered batch; it will not be sent again this session");
             deliveredButUndeleted.add(payloadId);
         }
-        Integer counted = eventCounts.remove(payloadId);
-        return counted == null ? 0 : counted;
+        Stored removed = stored.remove(payloadId);
+        return removed == null ? 0 : removed.events;
     }
 
     /**
@@ -455,7 +524,9 @@ class EventDirectory {
             // and counted by whichever listing first manages to.
             logger.warn("Could not read events from a previous run, will try again later: {}",
                     LogValues.exceptionSummary(e));
-            log.renameTo(batchFile(UUID.randomUUID().toString()));
+            // Named without a count, which is what a batch whose events have never been counted is: the
+            // listing that first manages to read it is what counts it.
+            log.renameTo(new File(directory(), BATCH_PREFIX + UUID.randomUUID()));
             return 0;
         }
         if (events < 0) {
@@ -468,10 +539,11 @@ class EventDirectory {
             return 0;
         }
         String payloadId = UUID.randomUUID().toString();
-        if (!log.renameTo(batchFile(payloadId))) {
+        File file = newBatchFile(payloadId, events);
+        if (!log.renameTo(file)) {
             return 0;
         }
-        eventCounts.put(payloadId, events);
+        stored.put(payloadId, new Stored(file, events));
         logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
                 events);
         return events;

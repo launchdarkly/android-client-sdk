@@ -803,7 +803,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         CountDownLatch releaseStaging = new CountDownLatch(1);
         // Persisting, since without it a commit point queues no commit at all.
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {
                 staging.countDown();
@@ -837,7 +837,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         CountDownLatch releaseCommit = new CountDownLatch(1);
         // Persisting, for the reason the test above is.
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {
                 boolean result = super.stageReserved(serializedEvent);
@@ -941,7 +941,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         Queue<String> durable = new ConcurrentLinkedQueue<>();
         AtomicInteger commits = new AtomicInteger();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {
                 staged.add(new String(serializedEvent, StandardCharsets.UTF_8));
@@ -1010,7 +1010,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void deferredPersistenceWritesOnTheCallersThreadOnlyForAFlush() throws Exception {
         Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             void commit() {
                 committedOn.add(Thread.currentThread());
@@ -1042,7 +1042,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aFullPendingRunIsCommittedWherePersistenceIsOn() throws Exception {
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run);
+                logging.logger);
 
         assertTrue("the run was never committed", pendingEventsInStoreAfterAFullRun(store) > 0);
     }
@@ -1051,7 +1051,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aFullPendingRunWaitsForTheFlushWherePersistenceIsOff() throws Exception {
         // Committing it would make nothing durable, and would put the encode in among the evaluations.
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, false,
-                logging.logger, Runnable::run);
+                logging.logger);
 
         assertEquals(0, pendingEventsInStoreAfterAFullRun(store));
     }
@@ -1061,7 +1061,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             throws Exception {
         for (boolean persistEvents : new boolean[] { true, false }) {
             EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, persistEvents,
-                    logging.logger, Runnable::run);
+                    logging.logger);
             assertTrue(store.stage(serialized("first")));
             EventStore.Batch batch = store.closeBatch();
 
@@ -1079,7 +1079,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aSentBatchLeavesTheCountOnlyOnceWhenItIsDelivered() throws Exception {
         for (boolean persistEvents : new boolean[] { true, false }) {
             EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, persistEvents,
-                    logging.logger, Runnable::run);
+                    logging.logger);
             assertTrue(store.stage(serialized("first")));
             EventStore.Batch batch = store.closeBatch();
             assertTrue(store.stage(serialized("second")));
@@ -1165,7 +1165,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         AtomicBoolean closing = new AtomicBoolean(false);
         Queue<Thread> committedDuringClose = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             void commit() {
                 if (closing.get()) {
@@ -1392,7 +1392,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         for (int trial = 0; trial < SPLIT_TRIALS; trial++) {
             List<List<LDValue>> commits = new ArrayList<>();
             EventStore store = new EventStore(eventsDirectory.newFolder(), "test", NO_DROP_CAPACITY,
-                    false, logging.logger, Runnable::run) {
+                    false, logging.logger) {
                 private List<LDValue> staged = new ArrayList<>();
 
                 @Override
@@ -1578,7 +1578,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // With IMMEDIATE the commit runs inside track, identify and flush, after record() has
         // returned, so it needs its own guard.
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             void commit() {
                 throw new IllegalStateException("simulated commit failure");
@@ -1643,7 +1643,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         CountDownLatch writeStarted = new CountDownLatch(1);
         Semaphore letWriteFinish = new Semaphore(0);
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
                 writeStarted.countDown();
@@ -2247,7 +2247,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void eventsHeldInMemoryWhenAWriteFailsAreDeliveredWithThoseWrittenBeforeIt() throws Exception {
         AtomicInteger writes = new AtomicInteger();
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
                 return new FileOutputStream(log, true) {
@@ -2295,7 +2295,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aBatchThatCannotBeReadIsKeptAndDeliveredOnceItCanBe() throws Exception {
         AtomicBoolean failing = new AtomicBoolean(false);
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
-                logging.logger, Runnable::run) {
+                logging.logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
                 if (failing.get()) {
@@ -2692,7 +2692,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     EventStore store,
                                                     int capacity,
                                                     boolean commitOnCallerThread) {
-        ExecutorService commitExecutor = EventStore.defaultCommitExecutor();
+        ExecutorService commitExecutor = EventUtil.makeEventsCommitExecutor();
         diagnosticExecutors.add(commitExecutor);
         lastCommitExecutor = commitExecutor;
         return new DirectEventProcessor(

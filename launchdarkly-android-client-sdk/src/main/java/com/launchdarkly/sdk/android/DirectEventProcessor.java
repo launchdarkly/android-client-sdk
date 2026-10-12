@@ -56,8 +56,9 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * How many full events may be held unencoded before one of them pays for a commit.
      * <p>
-     * It replaces the store's staged-byte threshold, which cannot apply here because there are no bytes
-     * until the commit runs, and it sets two things at once.
+     * It counts events rather than bytes because there are no bytes until the commit runs. Each commit is one
+     * write of everything it encoded, so this, with the commit points, is what decides how large a write is.
+     * It sets two things at once.
      * <p>
      * The first is how many evaluations a termination can take. That is narrower than everything a crash
      * could take: an uncaught exception runs the application's handler while the process is still alive, and
@@ -102,7 +103,7 @@ final class DirectEventProcessor implements EventProcessor {
     private final long closeBudgetMillis;
     private final ScheduledExecutorService scheduler;
     /**
-     * Where a commit no caller waits for runs: the store's write thread, not {@link #scheduler}.
+     * Where a commit no caller waits for runs: a thread of its own, not {@link #scheduler}.
      * <p>
      * The scheduler also delivers, and one delivery can hold it for as long as two network timeouts. A
      * commit queued behind that would leave a {@code DEFERRED} {@code track} in memory for all of it, and

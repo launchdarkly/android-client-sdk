@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,8 +56,6 @@ public class EventStoreMultiProcessTest {
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     private final LDLogger logger = LDLogger.withAdapter(Logs.none(), "");
-    /** Commits run inline, so a test never waits on another thread to make an assertion true. */
-    private final Executor inline = Runnable::run;
 
     private File sharedDirectory() {
         return new File(tempFolder.getRoot(), "events");
@@ -69,7 +66,7 @@ public class EventStoreMultiProcessTest {
     }
 
     private EventStore storeFor(String processName, int capacity) {
-        return new EventStore(sharedDirectory(), processName, capacity, true, logger, inline);
+        return new EventStore(sharedDirectory(), processName, capacity, true, logger);
     }
 
     private byte[] event(String key) {
@@ -226,7 +223,7 @@ public class EventStoreMultiProcessTest {
         persistentRun.commit();
 
         EventStore withoutPersistence =
-                new EventStore(sharedDirectory(), SERVICE_PROCESS, CAPACITY, false, logger, inline);
+                new EventStore(sharedDirectory(), SERVICE_PROCESS, CAPACITY, false, logger);
         withoutPersistence.recoverInterruptedLog();
         assertTrue("a store without persistence picked up a previous run's events",
                 withoutPersistence.pendingBatches().isEmpty());
@@ -250,8 +247,7 @@ public class EventStoreMultiProcessTest {
     public void aStoreWithoutPersistenceAsksTheFilesystemNothingEvenAboutABatchItDoesNotHold()
             throws IOException {
         AtomicInteger reads = new AtomicInteger();
-        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, false, logger,
-                inline) {
+        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, false, logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
                 reads.incrementAndGet();
@@ -325,27 +321,75 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
-    public void aBatchThisProcessClosedIsCountedWithoutReadingItBack() throws IOException {
+    public void aClosedBatchIsCountedFromItsNameWithoutReadingItBack() throws IOException {
         EventStore main = storeFor(MAIN_PROCESS);
         main.stage(event("first"));
         main.stage(event("second"));
         EventStore.Batch batch = main.closeBatch();
         assertNotNull(batch);
 
-        // Nothing appends to a batch once it is closed, so the count taken at the close still holds and
+        // Nothing appends to a batch once it is closed, so the count its name carries still holds and
         // listing it has no reason to go to the disk. Damaging the file is how the test tells the two
-        // apart: a listing that read would refuse this batch, which is what the other process does.
+        // apart: a listing that read would refuse this batch.
         List<File> ready = filesNamed("ready-");
         assertEquals(1, ready.size());
+        assertEquals("ready-" + batch.payloadId + "-2", ready.get(0).getName());
         overwrite(ready.get(0), "not an event log".getBytes(Charset.forName("UTF-8")));
+
+        // The process that closed it and one that did not both count it from the name alone.
+        for (EventStore store : Arrays.asList(main, storeFor(SERVICE_PROCESS))) {
+            List<EventStore.Batch> pending = store.pendingBatches();
+            assertEquals(1, pending.size());
+            assertEquals(batch.payloadId, pending.get(0).payloadId);
+            assertEquals(2, pending.get(0).eventCount);
+        }
+
+        // The damage is found where the batch is read to be sent, and reads as nothing to send rather
+        // than as a failure to retry, so the delivery removes it instead of trying it forever.
+        assertNull(main.body(batch));
+    }
+
+    /**
+     * Renames a batch to the name a version that did not count them in the name gave it, which is what
+     * such a version leaves behind for this one to deliver.
+     */
+    private File asUncountedName(File batch) {
+        String name = batch.getName();
+        File renamed = new File(batch.getParentFile(), name.substring(0, name.lastIndexOf('-')));
+        assertTrue("could not rename " + name, batch.renameTo(renamed));
+        return renamed;
+    }
+
+    @Test
+    public void aBatchNamedWithoutACountIsReadOnceAndThenRemembered() throws IOException {
+        EventStore previousVersion = storeFor(SERVICE_PROCESS);
+        previousVersion.stage(event("left-by-a-previous-version"));
+        assertNotNull(previousVersion.closeBatch());
+        assertEquals(1, filesNamed("ready-").size());
+        asUncountedName(filesNamed("ready-").get(0));
+
+        AtomicInteger reads = new AtomicInteger();
+        EventStore main = new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, true, logger) {
+            @Override
+            InputStream openForReading(File file) throws IOException {
+                reads.incrementAndGet();
+                return super.openForReading(file);
+            }
+        };
 
         List<EventStore.Batch> pending = main.pendingBatches();
         assertEquals(1, pending.size());
-        assertEquals(batch.payloadId, pending.get(0).payloadId);
-        assertEquals(2, pending.get(0).eventCount);
+        assertEquals(1, pending.get(0).eventCount);
+        assertEquals("a batch with no count in its name was not read", 1, reads.get());
 
-        // A process that did not close it has no count to go on, so it reads, and finds the damage.
-        assertTrue(storeFor(SERVICE_PROCESS).pendingBatches().isEmpty());
+        // Counted once and remembered, rather than read again by every listing for the rest of the session.
+        assertEquals(pending, main.pendingBatches());
+        assertEquals(1, reads.get());
+
+        // And still deliverable under the name it has, which is not the one its count would give it.
+        assertNotNull(main.body(pending.get(0)));
+        main.remove(pending.get(0));
+        assertTrue(filesNamed("ready-").isEmpty());
     }
 
     @Test
@@ -402,7 +446,7 @@ public class EventStoreMultiProcessTest {
      * out of file descriptors: the files are intact and readable again once some are freed.
      */
     private EventStore storeWithFailingReads(String processName, AtomicBoolean failing) {
-        return new EventStore(sharedDirectory(), processName, CAPACITY, true, logger, inline) {
+        return new EventStore(sharedDirectory(), processName, CAPACITY, true, logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
                 if (failing.get()) {
@@ -414,10 +458,11 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
-    public void aBatchThatCannotBeReadIsLeftForALaterListing() {
+    public void aBatchNamedWithoutACountThatCannotBeReadIsLeftForALaterListing() {
         EventStore service = storeFor(SERVICE_PROCESS);
         service.stage(event("recorded-by-the-service"));
         assertNotNull(service.closeBatch());
+        asUncountedName(filesNamed("ready-").get(0));
 
         AtomicBoolean failing = new AtomicBoolean(true);
         EventStore main = storeWithFailingReads(MAIN_PROCESS, failing);
@@ -428,6 +473,28 @@ public class EventStoreMultiProcessTest {
         List<EventStore.Batch> pending = main.pendingBatches();
         assertEquals(1, pending.size());
         assertEquals(1, pending.get(0).eventCount);
+    }
+
+    @Test
+    public void aBatchCountedByItsNameIsListedEvenWhileReadsAreFailing() {
+        EventStore service = storeFor(SERVICE_PROCESS);
+        service.stage(event("recorded-by-the-service"));
+        assertNotNull(service.closeBatch());
+
+        // The read a listing used to need is the one a process out of file descriptors cannot make. With
+        // the count in the name there is nothing to read until the batch is sent, and a body that cannot
+        // be read is a delivery to retry rather than a batch that is invisible until it can be.
+        AtomicBoolean failing = new AtomicBoolean(true);
+        EventStore main = storeWithFailingReads(MAIN_PROCESS, failing);
+        List<EventStore.Batch> pending = main.pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(1, pending.get(0).eventCount);
+        try {
+            main.body(pending.get(0));
+            fail("a batch that could not be read was reported as having nothing to send");
+        } catch (IOException expected) {
+            // what the processor retries on
+        }
     }
 
     @Test
@@ -484,7 +551,7 @@ public class EventStoreMultiProcessTest {
      */
     private EventStore storeFailingPartwayAfter(int whole) {
         AtomicInteger writes = new AtomicInteger();
-        return new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, true, logger, inline) {
+        return new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, true, logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
                 return new FileOutputStream(log, true) {
@@ -508,7 +575,7 @@ public class EventStoreMultiProcessTest {
         // They used to be counted nowhere until the write returned, and capacity admitted that many more.
         CountDownLatch writing = new CountDownLatch(1);
         CountDownLatch letWriteFinish = new CountDownLatch(1);
-        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, 2, true, logger, inline) {
+        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, 2, true, logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
                 writing.countDown();
@@ -546,7 +613,7 @@ public class EventStoreMultiProcessTest {
         // Deliveries can overlap, and two of them can both get to the same batch.
         for (boolean persist : new boolean[] {true, false}) {
             EventStore store = new EventStore(new File(sharedDirectory(), "persist-" + persist),
-                    MAIN_PROCESS, CAPACITY, persist, logger, inline);
+                    MAIN_PROCESS, CAPACITY, persist, logger);
             store.stage(event("first"));
             EventStore.Batch first = store.closeBatch();
             store.stage(event("second"));
@@ -587,7 +654,7 @@ public class EventStoreMultiProcessTest {
 
         // The listing that can delete it does, rather than leaving it for a run that would send it again.
         store.pendingBatches();
-        assertFalse(new File(directory, "ready-" + first.payloadId).exists());
+        assertTrue(filesNamed("ready-" + first.payloadId).isEmpty());
     }
 
     @Test
@@ -611,7 +678,7 @@ public class EventStoreMultiProcessTest {
     public void aListingDoesNotLoseOrDoubleABatchClosedWhileItRuns() throws Exception {
         for (boolean persist : new boolean[] {true, false}) {
             EventStore store = new EventStore(new File(sharedDirectory(), "persist-" + persist),
-                    MAIN_PROCESS, 100_000, persist, logger, inline);
+                    MAIN_PROCESS, 100_000, persist, logger);
             AtomicBoolean done = new AtomicBoolean();
             Thread lister = new Thread(() -> {
                 while (!done.get()) {

@@ -26,7 +26,6 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
 /**
@@ -114,7 +113,6 @@ abstract class ComponentsImpl {
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
-            ExecutorService commitExecutor = EventStore.defaultCommitExecutor();
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
@@ -122,7 +120,7 @@ abstract class ComponentsImpl {
                             true, // perContextSummarization - enable for client SDK
                             capacity,
                             clientContext.getBaseLogger()),
-                    makeEventStore(clientContext, clientContextImpl, commitExecutor),
+                    makeEventStore(clientContext, clientContextImpl),
                     diagnosticEventSender,
                     new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
                             clientContext.getBaseLogger()),
@@ -136,7 +134,7 @@ abstract class ComponentsImpl {
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),
-                    commitExecutor,
+                    EventUtil.makeEventsCommitExecutor(),
                     EventUtil.makeDiagnosticsTaskExecutor(),
                     clientContext.getBaseLogger()
             );
@@ -149,15 +147,13 @@ abstract class ComponentsImpl {
          * for several environments, or running the SDK in several processes, gets one store per
          * combination and they never touch each other's events.
          */
-        private EventStore makeEventStore(ClientContext clientContext, ClientContextImpl impl,
-                                          ExecutorService commitExecutor) {
+        private EventStore makeEventStore(ClientContext clientContext, ClientContextImpl impl) {
             return EventStore.create(
                     impl.getPlatformState(),
                     clientContext.getMobileKey(),
                     capacity,
                     eventPersistence != EventPersistence.DISABLED,
-                    clientContext.getBaseLogger(),
-                    commitExecutor);
+                    clientContext.getBaseLogger());
         }
 
         @Override
