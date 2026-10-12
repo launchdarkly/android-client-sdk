@@ -58,6 +58,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -867,6 +868,179 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         AwaitableCallback<Void> callback = new AwaitableCallback<>();
         connectivityManager.startUp(contextDataManager, callback);
         callback.await();
+    }
+
+    /**
+     * A data source that accepts its start callback and never reports a result, so only something
+     * other than the data source itself can complete startup.
+     */
+    private ComponentConfigurer<DataSource> makeSilentDataSourceFactory(
+            BlockingQueue<Callback<Boolean>> startCallbacks
+    ) {
+        return clientContext -> {
+            receivedClientContexts.add(clientContext);
+            return new DataSource() {
+                @Override
+                public void start(@NonNull Callback<Boolean> resultCallback) {
+                    startCallbacks.add(resultCallback);
+                }
+
+                @Override
+                public void stop(@NonNull Callback<Void> completionCallback) {
+                    completionCallback.onSuccess(null);
+                }
+
+                @Override
+                public boolean needsRefresh(boolean newInBackground, LDContext newEvaluationContext) {
+                    return true;
+                }
+            };
+        };
+    }
+
+    @Test
+    public void startupCallbackIsInvokedWhenAStateChangeReplacesTheFirstDataSource() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        BlockingQueue<Callback<Boolean>> startCallbacks = new LinkedBlockingQueue<>();
+        createTestManager(defaultTestConfig(false, false), makeSilentDataSourceFactory(startCallbacks));
+
+        AwaitableCallback<Void> startupCallback = new AwaitableCallback<>();
+        connectivityManager.startUp(contextDataManager, startupCallback);
+        requireValue(startCallbacks, 1, TimeUnit.SECONDS, "data source start");
+
+        resetAll();
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(true);
+        eventProcessor.flush();
+        replayAll();
+
+        // Moving to the background replaces the data source before it ever reports.
+        mockPlatformState.setAndNotifyForegroundChangeListeners(false);
+
+        // Startup completes, because no data source will ever report for it.
+        startupCallback.await(5000);
+    }
+
+    @Test
+    public void startupCallbackIsInvokedWhenTheClientIsClosedDuringStartup() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        BlockingQueue<Callback<Boolean>> startCallbacks = new LinkedBlockingQueue<>();
+        createTestManager(defaultTestConfig(false, false), makeSilentDataSourceFactory(startCallbacks));
+
+        AwaitableCallback<Void> startupCallback = new AwaitableCallback<>();
+        connectivityManager.startUp(contextDataManager, startupCallback);
+        requireValue(startCallbacks, 1, TimeUnit.SECONDS, "data source start");
+
+        // Close while the first request is still outstanding.
+        connectivityManager.shutDown();
+
+        // Startup completes, because the data source is gone and will never report.
+        startupCallback.await(5000);
+    }
+
+    @Test
+    public void startupCallbackIsInvokedWhenTheManagerHasAlreadyStarted() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+
+        // A second startUp is refused, but its caller is still waiting on a callback.
+        AwaitableCallback<Void> secondStartupCallback = new AwaitableCallback<>();
+        connectivityManager.startUp(contextDataManager, secondStartupCallback);
+
+        secondStartupCallback.await(5000);
+    }
+
+    @Test
+    public void startupCallbackIsInvokedWhenTheManagerHasAlreadyBeenClosed() throws Exception {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        connectivityManager.shutDown();
+
+        // Starting a closed manager is refused, but its caller is still waiting on a callback.
+        AwaitableCallback<Void> startupCallback = new AwaitableCallback<>();
+        connectivityManager.startUp(contextDataManager, startupCallback);
+
+        startupCallback.await(5000);
+    }
+
+    @Test
+    public void startupCallbackIsInvokedOnlyOnceWhenTheDataSourceReportsRepeatedly() {
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        // A polling data source reports the result of every poll on the same callback.
+        ComponentConfigurer<DataSource> repeatedlyReportingDataSource = clientContext -> {
+            receivedClientContexts.add(clientContext);
+            return new DataSource() {
+                @Override
+                public void start(@NonNull Callback<Boolean> resultCallback) {
+                    clientContext.getDataSourceUpdateSink()
+                            .setStatus(ConnectionMode.POLLING, null);
+                    resultCallback.onSuccess(true);
+                    resultCallback.onSuccess(true);
+                    resultCallback.onSuccess(true);
+                }
+
+                @Override
+                public void stop(@NonNull Callback<Void> completionCallback) {
+                    completionCallback.onSuccess(null);
+                }
+
+                @Override
+                public boolean needsRefresh(boolean newInBackground, LDContext newEvaluationContext) {
+                    return true;
+                }
+            };
+        };
+        createTestManager(defaultTestConfig(false, false), repeatedlyReportingDataSource);
+
+        AtomicInteger completions = new AtomicInteger();
+        connectivityManager.startUp(contextDataManager, new Callback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                completions.incrementAndGet();
+            }
+
+            @Override
+            public void onError(Throwable e) {
+            }
+        });
+
+        // LDClient counts these to decide when init is done, so an extra call resolves init early.
+        assertEquals(1, completions.get());
+    }
+
+    @Test
+    public void identifyCallbackIsInvokedAfterStartup() throws Exception {
+        // One pair per context change: startup, then the switch below.
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(false);
+        eventProcessor.setInBackground(false);
+        replayAll();
+
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory());
+        awaitStartUp();
+
+        // A context switch after startup runs the identify path rather than the startup path.
+        AwaitableCallback<Void> identifyCallback = new AwaitableCallback<>();
+        contextDataManager.switchToContext(LDContext.create("other-context"), false, identifyCallback);
+
+        identifyCallback.await(5000);
     }
 
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {
