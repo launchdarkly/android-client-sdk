@@ -29,7 +29,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     /**
      * The default value for {@link #capacity(int)}.
      */
-    public static final int DEFAULT_CAPACITY = 1000;
+    public static final int DEFAULT_CAPACITY = 2000;
 
     /**
      * The default value for {@link #diagnosticRecordingIntervalMillis(int)}: 15 minutes.
@@ -102,6 +102,9 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * The client buffers up to this many events in memory before flushing. If the capacity is exceeded before
      * the buffer is flushed (see {@link #flushIntervalMillis(int)}, events will be discarded. Increasing the
      * capacity means that events are less likely to be discarded, at the cost of consuming more memory.
+     * <p>
+     * The same number bounds how many distinct contexts flag evaluations are summarized for between two
+     * flushes. Evaluations for contexts beyond it are not counted until the next flush.
      * <p>
      * The default value is {@link #DEFAULT_CAPACITY}. A capacity below one is treated as one; to
      * stop sending events altogether, use {@link Components#noEvents()} instead.

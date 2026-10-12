@@ -73,7 +73,7 @@ public class DiagnosticConfigTest {
                 .events(
                         Components.sendEvents()
                                 .allAttributesPrivate(true)
-                                .capacity(2000)
+                                .capacity(3000)
                                 .diagnosticRecordingIntervalMillis(1_800_000)
                                 .flushIntervalMillis(60_000)
                 )
@@ -83,7 +83,7 @@ public class DiagnosticConfigTest {
         ObjectBuilder expected = makeExpectedDefaults();
         expected.put("allAttributesPrivate", true);
         expected.put("diagnosticRecordingIntervalMillis", 1_800_000);
-        expected.put("eventsCapacity", 2000);
+        expected.put("eventsCapacity", 3000);
         expected.put("eventsFlushIntervalMillis",60_000);
         Assert.assertEquals(expected.build(), diagnosticJson);
     }
