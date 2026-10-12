@@ -15,7 +15,6 @@ import com.launchdarkly.sdk.internal.events.SameContextPerContextEventSummarizer
 
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -44,9 +43,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 final class OutboundEventBuffer {
     private static final int INITIAL_OUTPUT_BUFFER_SIZE = 2000;
-    private static final Event[] NO_EVENTS = new Event[0];
-    private static final byte[] NO_DATA = new byte[0];
-    private static final List<EventSummarizer.EventSummary> NO_SUMMARIES = Collections.emptyList();
 
     private final EventOutputFormatter formatter;
     private final EventSummarizerInterface summarizer;
@@ -181,9 +177,10 @@ final class OutboundEventBuffer {
      * because one that reset the counters alone would spend the cardinality limit on contexts whose
      * counters had already gone out, and the limit would never lift.
      * <p>
-     * Separate from {@link #encode} so that the caller can take the counters in the same critical
-     * section it lifts the full events in. An evaluation writes a counter and a full event, and a
-     * flush that took the two at different moments could split one evaluation across two payloads.
+     * Separate from {@link #serializeSummaries} so that the caller can take the counters in the same
+     * critical section it lifts the full events in. An evaluation writes a counter and a full event,
+     * and a commit that took the two at different moments could split one evaluation across two
+     * payloads.
      * Not synchronized, for the reason {@link #summarize(Event.FeatureRequest)} is not.
      */
     List<EventSummarizer.EventSummary> takeSummaries() {
@@ -343,221 +340,4 @@ final class OutboundEventBuffer {
     private static String describe(Event[] events) {
         return events.length == 0 ? "summary event"
                 : "event of type " + events[0].getClass().getSimpleName();
-    }
-
-    /**
-     * Serializes a run of events, together with the evaluations counted beside it, into the payload
-     * they will be sent as.
-     * <p>
-     * Deliberately takes no lock. The caller has already taken both the run and the counters, so
-     * there is nothing left here to protect, and the encode is the dominant cost on this path --
-     * holding a lock across it would make a thread recording an event wait for it. Recording happens
-     * on whichever thread evaluated a flag, which on Android is usually the main one.
-     * <p>
-     * A run that cannot be serialized as a whole is retried per event and per summary. Anything that
-     * still fails is dropped and logged; the rest is sent. Everything the encoder can fail on is a
-     * property of the data it was handed -- the output stream is a byte array and cannot fail
-     * transiently -- so putting a failed item back would only make every later flush fail too.
-     *
-     * @param run the full events to send, in the order they were recorded
-     * @param summaries the counters taken alongside that run
-     * @return the payload to send, or null if there was nothing to send; a payload that had to drop
-     *   something says so through {@link Payload#isComplete()}, and may then hold no events at all
-     * @throws IOException if the events could not be serialized
-     */
-    Payload encode(List<Event> run, List<EventSummarizer.EventSummary> summaries) throws IOException {
-        if (run.isEmpty() && summaries.isEmpty()) {
-            return null;
-        }
-        try {
-            return encodeAll(run, summaries);
-        } catch (Exception e) {
-            logger.error("Dropping unserializable analytics event(s): {}",
-                    LogValues.exceptionSummary(e));
-            logger.debug("{}", LogValues.exceptionTrace(e));
-            return encodeSkippingFailures(run, summaries);
-        }
-    }
-
-    private Payload encodeAll(List<Event> run, List<EventSummarizer.EventSummary> summaries)
-            throws IOException {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
-        int outputEventCount = write(run.toArray(NO_EVENTS), summaries, buffer);
-        if (outputEventCount == 0) {
-            return null;
-        }
-        return new Payload(buffer.toByteArray(), outputEventCount, true);
-    }
-
-    private Payload encodeSkippingFailures(List<Event> run,
-                                           List<EventSummarizer.EventSummary> summaries) {
-        List<byte[]> objects = new ArrayList<>();
-        int outputEventCount = 0;
-        boolean dropped = false;
-        for (Event event : run) {
-            EncodedPiece piece = tryEncode(new Event[] { event }, NO_SUMMARIES);
-            if (piece == null) {
-                logger.error("Dropping unserializable event of type {}", event.getClass().getSimpleName());
-                dropped = true;
-                continue;
-            }
-            if (piece != EncodedPiece.NOTHING) {
-                objects.add(piece.jsonObject);
-                outputEventCount += piece.eventCount;
-            }
-        }
-        for (EventSummarizer.EventSummary summary : summaries) {
-            EncodedPiece piece = tryEncode(NO_EVENTS, Collections.singletonList(summary));
-            if (piece == null) {
-                logger.error("Dropping unserializable summary event");
-                dropped = true;
-                continue;
-            }
-            if (piece != EncodedPiece.NOTHING) {
-                objects.add(piece.jsonObject);
-                outputEventCount += piece.eventCount;
-            }
-        }
-        if (objects.isEmpty()) {
-            return dropped ? new Payload(NO_DATA, 0, false) : null;
-        }
-        return new Payload(joinObjects(objects), outputEventCount, !dropped);
-    }
-
-    /**
-     * @return the piece, {@link EncodedPiece#NOTHING} if the formatter had nothing to write for it,
-     *   or null if it could not be serialized
-     */
-    private EncodedPiece tryEncode(Event[] events, List<EventSummarizer.EventSummary> summaries) {
-        try {
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream(INITIAL_OUTPUT_BUFFER_SIZE);
-            int count = write(events, summaries, buffer);
-            if (count == 0) {
-                // An empty summary, which the formatter skips. Nothing is lost by leaving it out.
-                return EncodedPiece.NOTHING;
-            }
-            byte[] jsonObject = objectFromArray(buffer.toByteArray());
-            if (jsonObject == null) {
-                return null;
-            }
-            return new EncodedPiece(jsonObject, count);
-        } catch (Exception e) {
-            logger.debug("{}", LogValues.exceptionTrace(e));
-            return null;
-        }
-    }
-
-    private int write(Event[] events, List<EventSummarizer.EventSummary> summaries,
-                      ByteArrayOutputStream buffer) throws IOException {
-        Writer writer = new BufferedWriter(
-                new OutputStreamWriter(buffer, StandardCharsets.UTF_8), INITIAL_OUTPUT_BUFFER_SIZE);
-        int outputEventCount = formatter.writeOutputEvents(events, summaries, writer);
-        writer.flush();
-        return outputEventCount;
-    }
-
-    /**
-     * {@code EventOutputFormatter} always writes a JSON array. For a single successful event that
-     * is {@code [{...}]}, and the payload we are assembling needs the object in the middle.
-     */
-    static byte[] objectFromArray(byte[] arrayJson) {
-        int start = 0;
-        int end = arrayJson.length - 1;
-        while (start <= end && arrayJson[start] <= ' ') {
-            start++;
-        }
-        while (end >= start && arrayJson[end] <= ' ') {
-            end--;
-        }
-        if (start > end || arrayJson[start] != '[' || arrayJson[end] != ']') {
-            return null;
-        }
-        start++;
-        end--;
-        while (start <= end && arrayJson[start] <= ' ') {
-            start++;
-        }
-        while (end >= start && arrayJson[end] <= ' ') {
-            end--;
-        }
-        if (start > end || arrayJson[start] != '{') {
-            return null;
-        }
-        int length = end - start + 1;
-        byte[] object = new byte[length];
-        System.arraycopy(arrayJson, start, object, 0, length);
-        return object;
-    }
-
-    private static byte[] joinObjects(List<byte[]> objects) {
-        int size = 2;
-        for (int i = 0; i < objects.size(); i++) {
-            if (i > 0) {
-                size++;
-            }
-            size += objects.get(i).length;
-        }
-        byte[] out = new byte[size];
-        int offset = 0;
-        out[offset++] = '[';
-        for (int i = 0; i < objects.size(); i++) {
-            if (i > 0) {
-                out[offset++] = ',';
-            }
-            byte[] object = objects.get(i);
-            System.arraycopy(object, 0, out, offset, object.length);
-            offset += object.length;
-        }
-        out[offset] = ']';
-        return out;
-    }
-
-    private static final class EncodedPiece {
-        static final EncodedPiece NOTHING = new EncodedPiece(NO_DATA, 0);
-
-        final byte[] jsonObject;
-        final int eventCount;
-
-        EncodedPiece(byte[] jsonObject, int eventCount) {
-            this.jsonObject = jsonObject;
-            this.eventCount = eventCount;
-        }
-    }
-
-    /**
-     * A serialized batch of analytics events.
-     */
-    static final class Payload {
-        private final byte[] data;
-        private final int eventCount;
-        private final boolean complete;
-
-        Payload(byte[] data, int eventCount, boolean complete) {
-            this.data = data;
-            this.eventCount = eventCount;
-            this.complete = complete;
-        }
-
-        /**
-         * @return the JSON request body
-         */
-        byte[] getData() {
-            return data;
-        }
-
-        /**
-         * @return how many events the body represents, including summaries
-         */
-        int getEventCount() {
-            return eventCount;
-        }
-
-        /**
-         * @return false if something handed to the encoder could not be serialized and was dropped,
-         *   so that even a successful post of this body leaves those events undelivered
-         */
-        boolean isComplete() {
-            return complete;
-        }
-    }
-}
+    }}

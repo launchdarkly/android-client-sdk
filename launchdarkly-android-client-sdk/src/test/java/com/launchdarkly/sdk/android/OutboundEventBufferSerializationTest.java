@@ -10,9 +10,14 @@ import com.launchdarkly.logging.Logs;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.internal.events.Event;
+import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
+import com.launchdarkly.sdk.internal.events.EventSummarizer;
+import com.launchdarkly.sdk.internal.events.EventsConfiguration;
 
 import org.junit.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.StringWriter;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collections;
@@ -136,21 +141,27 @@ public class OutboundEventBufferSerializationTest {
     }
 
     @Test
-    public void framesJoinIntoTheSamePayloadTheBufferWouldHaveSent() throws Exception {
-        OutboundEventBuffer staged = makeBuffer();
-        byte[] first = staged.serialize(new Event.Custom(1000, "first", CONTEXT, LDValue.ofNull(), null));
-        byte[] second = staged.serialize(new Event.Custom(1001, "second", CONTEXT, LDValue.ofNull(), null));
-
-        // Assembled the way the log assembles a request body out of its frames.
-        String body = "[" + new String(first, Charset.forName("UTF-8")) + ","
-                + new String(second, Charset.forName("UTF-8")) + "]";
-
-        OutboundEventBuffer drained = makeBuffer();
-        String expected = new String(drained.encode(Arrays.asList(
+    public void framesAssembleIntoTheSamePayloadTheFormatterWritesForTheWholeRun() throws Exception {
+        Event[] run = {
                 new Event.Custom(1000, "first", CONTEXT, LDValue.ofNull(), null),
                 new Event.Custom(1001, "second", CONTEXT, LDValue.ofNull(), null)
-        ), drained.takeSummaries()).getData(), Charset.forName("UTF-8"));
+        };
 
-        assertEquals(LDValue.parse(expected), LDValue.parse(body));
+        ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        for (byte[] serialized : makeBuffer().serializeAll(Arrays.asList(run))) {
+            EventLogFormat.writeFrame(frames, serialized);
+        }
+        byte[] body = EventLogFormat.assembleBody(EventLogFormat.withFileHeader(frames.toByteArray()));
+
+        // Configured as makeBuffer() configures the formatter it wraps, so any difference is the
+        // framing's and not the configuration's.
+        EventOutputFormatter formatter = new EventOutputFormatter(new EventsConfiguration(false, 0,
+                null, 0, null, null, 1, null, 0, false, false, Collections.emptyList(), true));
+        StringWriter expected = new StringWriter();
+        assertEquals(run.length, formatter.writeOutputEvents(run,
+                Collections.<EventSummarizer.EventSummary>emptyList(), expected));
+
+        assertNotNull(body);
+        assertEquals(LDValue.parse(expected.toString()), parse(body));
     }
 }

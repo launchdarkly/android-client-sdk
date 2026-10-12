@@ -2,7 +2,7 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.internal.events.Event;
@@ -10,7 +10,6 @@ import com.launchdarkly.testhelpers.httptest.HttpServer;
 
 import org.junit.Test;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,19 +52,18 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
     // Far more than any test here records, so that capacity can never be what discarded an event.
     private static final int CAPACITY = 100;
 
-    private static final List<Event> NO_EVENTS = Collections.emptyList();
-
     @Test
-    public void anEvaluationExcludedFromSummariesIsNotCounted() throws IOException {
+    public void anEvaluationExcludedFromSummariesIsNotCounted() {
         OutboundEventBuffer buffer = makeBuffer();
 
         buffer.summarize(evaluation(true));
 
-        assertNull("an excluded evaluation should leave nothing to send", encodeAll(buffer));
+        assertTrue("an excluded evaluation should leave nothing to send",
+                drainToEvents(buffer).isEmpty());
     }
 
     @Test
-    public void anEvaluationNotExcludedFromSummariesIsCounted() throws IOException {
+    public void anEvaluationNotExcludedFromSummariesIsCounted() {
         OutboundEventBuffer buffer = makeBuffer();
 
         buffer.summarize(evaluation(false));
@@ -74,7 +72,7 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void excludingOneEvaluationLeavesTheOthersCounted() throws IOException {
+    public void excludingOneEvaluationLeavesTheOthersCounted() {
         OutboundEventBuffer buffer = makeBuffer();
 
         buffer.summarize(evaluation(false));
@@ -168,19 +166,10 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
                 excludeFromSummaries);
     }
 
-    private OutboundEventBuffer.Payload encodeAll(OutboundEventBuffer buffer) throws IOException {
-        return buffer.encode(NO_EVENTS, buffer.takeSummaries());
-    }
-
-    private List<LDValue> drainToEvents(OutboundEventBuffer buffer) throws IOException {
-        OutboundEventBuffer.Payload payload = encodeAll(buffer);
-        if (payload == null) {
-            return Collections.emptyList();
-        }
+    private List<LDValue> drainToEvents(OutboundEventBuffer buffer) {
         List<LDValue> events = new ArrayList<>();
-        for (LDValue event : LDValue.parse(new String(payload.getData(), StandardCharsets.UTF_8))
-                .values()) {
-            events.add(event);
+        for (byte[] summary : buffer.serializeSummariesAndReset()) {
+            events.add(LDValue.parse(new String(summary, StandardCharsets.UTF_8)));
         }
         return events;
     }
