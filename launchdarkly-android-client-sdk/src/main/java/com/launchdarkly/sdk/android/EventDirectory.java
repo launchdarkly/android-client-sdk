@@ -375,13 +375,23 @@ class EventDirectory {
     /**
      * Requires {@code ioLock}.
      *
-     * @return the JSON request body for a batch, or null if it is gone or holds nothing this version can
-     *   send, neither of which a later attempt changes
+     * @return the JSON request body for a batch, or null if it is gone or holds no events
+     * @throws EventStore.UnreadableBatchException if the batch is there but holds nothing this version can
+     *   send
      * @throws IOException if the batch is there but could not be read this time
      */
     byte[] body(String payloadId, int events) throws IOException {
         assert Thread.holdsLock(ioLock);
-        return EventLogFormat.assembleBody(readFile(batchFile(payloadId, events)));
+        byte[] log = readFile(batchFile(payloadId, events));
+        if (log == null) {
+            return null;
+        }
+        byte[] body = EventLogFormat.assembleBody(log);
+        // A log this version reads that holds no events has nothing to lose.
+        if (body == null && EventLogFormat.eventCount(log) != 0) {
+            throw new EventStore.UnreadableBatchException(payloadId);
+        }
+        return body;
     }
 
     /**

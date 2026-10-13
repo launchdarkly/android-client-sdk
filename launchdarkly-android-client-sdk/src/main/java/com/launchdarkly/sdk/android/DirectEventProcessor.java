@@ -1061,8 +1061,13 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Writes everything accepted so far, then delivers. The write comes first because a delivery
-     * refused for being offline returns before writing anything.
+     * Writes everything accepted so far, then delivers.
+     * <p>
+     * This commit looks redundant with the one in {@link #commitAndCloseBatch()}, and online it is: the
+     * second finds nothing pending and returns. It is kept for the case where it is the only one. A
+     * delivery refused for being offline or disabled returns before {@code commitAndCloseBatch}, so
+     * without this a flush while offline would leave everything recorded in memory, and a process that
+     * then died would lose it -- the case persistence exists for.
      */
     private DeliveryOutcome commitAndDeliverReportingOutcome() {
         commitDurably();
@@ -1149,6 +1154,11 @@ final class DirectEventProcessor implements EventProcessor {
      * two payloads -- an evaluation's counter in this batch and its event in the next. And the mark
      * has to be the count as of the close, because that is what this delivery can answer for: a loss
      * after it is one whose events were never in this batch.
+     * <p>
+     * A requested flush has usually just committed in {@link #commitAndDeliverReportingOutcome()}, so this
+     * commit often finds nothing to do. It cannot be the one left out: the periodic delivery, the one
+     * going online starts, the one recovery starts, and the final one at close all reach here without
+     * that earlier commit.
      *
      * @return the loss count as of the close, for {@link #takeEventsLost(long)}
      */
@@ -1239,14 +1249,20 @@ final class DirectEventProcessor implements EventProcessor {
         byte[] body;
         try {
             body = store.body(batch);
+        } catch (EventStore.UnreadableBatchException e) {
+            // Lost like a refused batch: nothing will ever send it, so it is removed, the rest are still
+            // attempted, and the caller hears that this pass lost events.
+            logger.error("Dropping {} stored event(s) this version cannot read", batch.eventCount);
+            store.remove(batch);
+            return BatchesOutcome.FAILED;
         } catch (IOException e) {
             // Kept: the file is still there, and a read that failed may not fail next time.
             logger.warn("Could not read stored events: {}", LogValues.exceptionSummary(e));
             return BatchesOutcome.RETRYABLE;
         }
         if (body == null) {
-            // Unreadable, or already delivered by another process of this application. Either way there
-            // is nothing to send and nothing to keep.
+            // Already delivered by another process of this application, or holding no events. Either way
+            // nothing is lost and there is nothing to keep.
             store.remove(batch);
             return BatchesOutcome.DELIVERED;
         }

@@ -373,6 +373,68 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void aStoredBatchThisVersionCannotReadIsDroppedAndReportedWhileTheRestAreDelivered() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(202))) {
+            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                    DEFAULT_CAPACITY, true, logging.logger);
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    EventUtil.makeEventsTaskExecutor(), diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                // Online before the batch exists, so the flush below is the delivery that finds it rather
+                // than the one coming online starts, which nobody waits on.
+                eventProcessor.setOffline(false);
+                store.stage("{\"kind\":\"custom\",\"key\":\"damaged\"}".getBytes(StandardCharsets.UTF_8));
+                EventStore.Batch damaged = closeOne(store);
+                assertNotNull(damaged);
+                // Its name still counts it, so it is listed without being read; the damage is only found on
+                // sending.
+                File damagedFile = findFile(eventsDirectory.getRoot(), "ready-" + damaged.payloadId + "-1");
+                assertNotNull(damagedFile);
+                java.nio.file.Files.write(damagedFile.toPath(),
+                        "not an event log".getBytes(StandardCharsets.UTF_8));
+                eventProcessor.recordCustomEvent(CONTEXT, "intact", LDValue.ofNull(), null);
+
+                assertFalse("a flush that lost a batch reported success",
+                        awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                RequestInfo sent = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                assertTrue(sent.getBody().contains("intact"));
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+                assertFalse(damagedFile.exists());
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    /** Closes what a test expects to be exactly one batch, as anything short of a failed write leaves. */
+    private static EventStore.Batch closeOne(EventStore store) {
+        List<EventStore.Batch> closed = store.closeBatch();
+        assertEquals(1, closed.size());
+        return closed.get(0);
+    }
+
+    private static File findFile(File directory, String name) {
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return null;
+        }
+        for (File file : files) {
+            if (file.getName().equals(name)) {
+                return file;
+            }
+            File found = file.isDirectory() ? findFile(file, name) : null;
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
     /** @return how many events of this kind the store holds, read as another process would read it */
     private int kindsOnDisk(String kind) throws Exception {
         EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
@@ -1063,7 +1125,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, persistEvents,
                     logging.logger);
             assertTrue(store.stage(serialized("first")));
-            EventStore.Batch batch = store.closeBatch();
+            EventStore.Batch batch = closeOne(store);
 
             store.startedSending(batch);
             assertEquals(0, store.getPendingEventCount());
@@ -1081,7 +1143,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, persistEvents,
                     logging.logger);
             assertTrue(store.stage(serialized("first")));
-            EventStore.Batch batch = store.closeBatch();
+            EventStore.Batch batch = closeOne(store);
             assertTrue(store.stage(serialized("second")));
 
             store.startedSending(batch);

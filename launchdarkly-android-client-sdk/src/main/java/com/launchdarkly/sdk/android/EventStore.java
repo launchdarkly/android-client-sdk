@@ -340,14 +340,16 @@ class EventStore implements Closeable {
      * persistence with those earlier events in the log and the failed ones back in memory, and closing
      * only the log would leave the rest for a delivery that reports success without them.
      *
-     * @return the batch closed from the log, or the one closed from memory where the log had nothing;
-     *   null when there is nothing to send
+     * @return every batch this closed, oldest first: the one from the log, then the one from memory, so
+     *   at most two and usually one; empty when there is nothing to send
      */
-    Batch closeBatch() {
+    List<Batch> closeBatch() {
+        List<Batch> closed = new ArrayList<>(1);
         // Where the application asked for no disk there is no log to close, and so nothing to close it
         // alongside.
         if (disk == null) {
-            return closeInMemoryBatch();
+            addIfClosed(closed, closeInMemoryBatch());
+            return closed;
         }
         synchronized (ioLock) {
             commitHoldingIoLock();
@@ -359,11 +361,21 @@ class EventStore implements Closeable {
                 stillBuffered = bufferedEventCount;
             }
 
-            Batch fromLog = events > 0 ? closeOpenLogHoldingIoLock(events) : null;
+            if (events > 0) {
+                addIfClosed(closed, closeOpenLogHoldingIoLock(events));
+            }
             // Only reachable once persistence has been given up on; a healthy commit leaves nothing
             // staged behind. Closed after the log, so the older events are delivered first.
-            Batch fromMemory = stillBuffered > 0 ? closeInMemoryBatch() : null;
-            return fromLog != null ? fromLog : fromMemory;
+            if (stillBuffered > 0) {
+                addIfClosed(closed, closeInMemoryBatch());
+            }
+            return closed;
+        }
+    }
+
+    private static void addIfClosed(List<Batch> closed, Batch batch) {
+        if (batch != null) {
+            closed.add(batch);
         }
     }
 
@@ -492,9 +504,22 @@ class EventStore implements Closeable {
     }
 
     /**
-     * @return the JSON request body for a batch, or null if it is gone or holds nothing this version can
-     *   send, neither of which a later attempt changes
-     * @throws IOException if the batch is there but could not be read this time
+     * A batch that is there to read and holds nothing this version can send: damaged, or written in a
+     * format it does not read. Unlike a batch that is gone, its events are lost, and unlike any other
+     * {@link IOException}, no later attempt changes that.
+     */
+    static final class UnreadableBatchException extends IOException {
+        UnreadableBatchException(String payloadId) {
+            super("batch " + payloadId + " holds nothing this version can send");
+        }
+    }
+
+    /**
+     * @return the JSON request body for a batch, or null if it is gone or holds no events, neither of which
+     *   loses anything
+     * @throws UnreadableBatchException if the batch is there but holds nothing this version can send
+     * @throws IOException if the batch is there but could not be read this time, which a later attempt may
+     *   manage
      */
     byte[] body(Batch batch) throws IOException {
         synchronized (heldLock) {
