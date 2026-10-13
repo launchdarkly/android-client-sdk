@@ -1,8 +1,11 @@
 package com.launchdarkly.sdk.testapp;
 
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -24,8 +27,10 @@ import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
 import com.launchdarkly.sdk.android.integrations.EventPersistence;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.LDCrashHandler;
 
+import java.io.IOException;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
@@ -47,11 +52,15 @@ public class MainActivity extends AppCompatActivity {
     /** How long startup blocks waiting for the first flags to arrive. */
     private static final int INIT_WAIT_SECONDS = 10;
 
+    private static final String PREFERENCES_NAME = "LaunchDarkly-testapp";
+    private static final String PERSISTENCE_PREFERENCE = "eventPersistence";
+    private static final EventPersistence DEFAULT_PERSISTENCE = EventPersistence.IMMEDIATE;
+
     /**
      * The default of {@code LDConfig.Builder#events} capacity. Past this the event store is full until a
      * flush empties it, so every further full event is dropped.
      */
-    private static final int EVENT_CAPACITY = 1000;
+    private static final int EVENT_CAPACITY = EventProcessorBuilder.DEFAULT_CAPACITY;
 
     /**
      * Enough evaluations past capacity for the average to settle, and few enough that even a slow device
@@ -59,7 +68,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private static final int OVER_CAPACITY_EVALUATIONS = 2000;
 
-    private LDClient ldClient;
+    /** Null while a persistence change restarts the client, which makes every button a no-op meanwhile. */
+    private volatile LDClient ldClient;
+    private EventPersistence eventPersistence;
     private LDStatusListener ldStatusListener;
     private LDAllFlagsListener allFlagsListener;
 
@@ -121,6 +132,7 @@ public class MainActivity extends AppCompatActivity {
         setupCrashNowButton();
         setupOverRefreshButton();
         setupOfflineSwitch();
+        setupPersistenceSpinner();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
         // makes the pair worth pressing.
         LDCrashHandler.install(2, TimeUnit.SECONDS);
@@ -134,6 +146,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        ldClient = startClient(eventPersistence);
+    }
+
+    /**
+     * Blocks for up to {@link #INIT_WAIT_SECONDS} waiting for flags, and returns the client either way: if
+     * they have not arrived by then, it is usable with whatever it has cached.
+     */
+    private LDClient startClient(EventPersistence persistence) {
         LDConfig.Builder configBuilder = new LDConfig.Builder(AutoEnvAttributes.Enabled)
                 .mobileKey(BuildConfig.MOBILE_KEY)
                 .http(
@@ -141,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
                 )
                 .events(
-                        Components.sendEvents().eventPersistence(EventPersistence.IMMEDIATE)
+                        Components.sendEvents().eventPersistence(persistence)
                 )
                 .hooks(
                         // Same shape a customer uses for any hook: wrap it at registration. Each
@@ -166,12 +186,90 @@ public class MainActivity extends AppCompatActivity {
                 .set("email", "fake@example.com")
                 .build();
 
-        // Returns the client either way: if the flags have not arrived within the wait, it is usable
-        // with whatever it has cached.
-        ldClient = LDClient.init(this.getApplication(), ldConfig, context, INIT_WAIT_SECONDS);
-        updateStatusString(ldClient.getConnectionInformation());
-        ldClient.registerStatusListener(ldStatusListener);
-        ldClient.registerAllFlagsListener(allFlagsListener);
+        LDClient client = LDClient.init(this.getApplication(), ldConfig, context, INIT_WAIT_SECONDS);
+        Timber.i("client started with event persistence %s", persistence);
+        updateStatusString(client.getConnectionInformation());
+        client.registerStatusListener(ldStatusListener);
+        client.registerAllFlagsListener(allFlagsListener);
+        return client;
+    }
+
+    /**
+     * The choice is saved rather than held in memory, because the kill and crash buttons are only
+     * answered on the next launch, and that launch has to read the disk the same way: under
+     * {@link EventPersistence#DISABLED} the events the dead process left there are not delivered.
+     */
+    private void setupPersistenceSpinner() {
+        final SharedPreferences preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE);
+        eventPersistence = parsePersistence(preferences.getString(PERSISTENCE_PREFERENCE, null));
+
+        final Spinner spinner = findViewById(R.id.persistence_spinner);
+        ArrayAdapter<EventPersistence> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, EventPersistence.values());
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(eventPersistence.ordinal(), false);
+
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                EventPersistence chosen = (EventPersistence) parent.getItemAtPosition(position);
+                if (chosen == eventPersistence) {
+                    return;
+                }
+                eventPersistence = chosen;
+                preferences.edit().putString(PERSISTENCE_PREFERENCE, chosen.name()).apply();
+                restartClient(spinner, chosen);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+    }
+
+    private static EventPersistence parsePersistence(String name) {
+        if (name != null) {
+            try {
+                return EventPersistence.valueOf(name);
+            } catch (IllegalArgumentException e) {
+                Timber.w("ignoring saved event persistence %s", name);
+            }
+        }
+        return DEFAULT_PERSISTENCE;
+    }
+
+    /**
+     * Off the main thread, because closing waits on the event store and starting waits for flags. The
+     * spinner stays disabled until it is done, so restarts never overlap.
+     */
+    private void restartClient(final Spinner spinner, final EventPersistence persistence) {
+        if (BuildConfig.MOBILE_KEY.isEmpty()) {
+            return;
+        }
+        final LDClient previous = ldClient;
+        ldClient = null;
+        spinner.setEnabled(false);
+        new Thread(() -> {
+            if (previous != null) {
+                previous.unregisterStatusListener(ldStatusListener);
+                previous.unregisterAllFlagsListener(allFlagsListener);
+                try {
+                    previous.close();
+                } catch (IOException e) {
+                    Timber.w(e, "closing the client for a persistence change");
+                }
+            }
+            LDClient restarted = startClient(persistence);
+            new Handler(getMainLooper()).post(() -> {
+                ldClient = restarted;
+                spinner.setEnabled(true);
+                if (((Switch) findViewById(R.id.offlineSwitch)).isChecked()) {
+                    restarted.setOffline();
+                }
+                Toast.makeText(this, "Restarted with " + persistence, Toast.LENGTH_SHORT).show();
+            });
+        }, "testapp-restart-client").start();
     }
 
     private void setupListeners() {
@@ -186,7 +284,7 @@ public class MainActivity extends AppCompatActivity {
                 new Handler(MainActivity.this.getMainLooper()).post(() -> {
                     Toast.makeText(MainActivity.this, ldFailure.toString(), Toast.LENGTH_SHORT).show();
                 });
-                updateStatusString(ldClient.getConnectionInformation());
+                MainActivity.this.doSafeClientAction(() -> updateStatusString(ldClient.getConnectionInformation()));
             }
         };
 
@@ -198,7 +296,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
             });
-            updateStatusString(ldClient.getConnectionInformation());
+            MainActivity.this.doSafeClientAction(() -> updateStatusString(ldClient.getConnectionInformation()));
         };
     }
 
