@@ -58,7 +58,11 @@ public final class SeatServe {
       "client-event-source-http-errors",
       "evaluation-hooks",
       "fdv1-fallback",
-      "track-hooks"
+      "track-hooks",
+      "flag-change-listeners",
+      "wrapper",
+      "x-cp-storage-scope",
+      "inline-context"
   };
 
   static final Gson gson = new GsonBuilder()
@@ -189,6 +193,35 @@ public final class SeatServe {
       bus.err(idEl, op == null ? "null" : op, 400, "unknown op");
     }
   }
+
+  /**
+   * Posts a flag-change listener notification (service_spec L745, payload
+   * {listenerId, flagKey} only — no old/new value for the general listener).
+   * The SDK's main thread never blocks on the callback round-trip: the
+   * envelope leaves the seat's own callback poster thread (a notification
+   * completes no SDK-side call, so CP-SPEC 7.2's completion rule does not
+   * gate the poster).
+   */
+  public static void postListenerNotification(java.net.URI callbackUri,
+      String listenerId, String flagKey) {
+    CpCallbackBus cb = callbackBus;
+    if (cb == null) {
+      throw new IllegalStateException("cp-callback requested before the seat bus was armed");
+    }
+    JsonObject payload = new JsonObject();
+    payload.addProperty("listenerId", listenerId);
+    payload.addProperty("flagKey", flagKey);
+    CALLBACK_POSTS.submit(() -> cb.post(callbackUri.getHost(), callbackUri, null, payload));
+  }
+
+  /** The notification poster's own single-thread executor (daemon; posts are
+   * fire-and-forget from the caller's thread). */
+  private static final ExecutorService CALLBACK_POSTS =
+      Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "seat-callback-posts");
+        t.setDaemon(true);
+        return t;
+      });
 
   /** Static hook the harness adapter calls for cp-callback:// URIs (worker thread). */
   public static void postCallback(URI uri, Object params) {

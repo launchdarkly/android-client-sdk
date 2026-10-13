@@ -14,6 +14,7 @@ import com.launchdarkly.sdk.android.DataSystemComponents;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
+import com.launchdarkly.sdk.android.LDAllFlagsListener;
 
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
@@ -74,6 +75,11 @@ import java.util.concurrent.TimeoutException;
 public class SdkClientEntity {
   private final LDClient client;
   private final LDLogger logger;
+  /** listenerId -> the general flag-change listener registered for it
+   * (service_spec L706: removed by unregisterListener; notifications ride
+   * the flagChangeListener callback channel with {listenerId, flagKey}). */
+  private final java.util.concurrent.ConcurrentHashMap<String, LDAllFlagsListener>
+          flagChangeListeners = new java.util.concurrent.ConcurrentHashMap<>();
 
   public SdkClientEntity(Application application, CreateInstanceParams params, LDLogAdapter logAdapter) {
     LDLogAdapter logAdapterForTest = new PrefixedLogAdapter(logAdapter, "test");
@@ -129,6 +135,12 @@ public class SdkClientEntity {
         return doContextBuild(params.contextBuild);
       case "contextConvert":
         return doContextConvert(params.contextConvert);
+      case "registerFlagChangeListener":
+        doRegisterFlagChangeListener(params.registerFlagChangeListener);
+        return null;
+      case "unregisterListener":
+        doUnregisterListener(params.unregisterListener);
+        return null;
       default:
         throw new TestService.BadRequestException("unknown command: " + params.command);
     }
@@ -218,6 +230,43 @@ public class SdkClientEntity {
     } else {
       client.trackMetric(params.eventKey, params.data, params.metricValue.doubleValue());
     }
+  }
+
+  private void doRegisterFlagChangeListener(
+      Representations.RegisterFlagChangeListenerParams params) {
+    if (params.listenerId == null || params.listenerId.isEmpty() || params.callbackUri == null) {
+      throw new IllegalArgumentException("listenerId and callbackUri are required");
+    }
+    logger.info("registering flag change listener {}", params.listenerId);
+    LDAllFlagsListener listener = changedKeys -> {
+      if (changedKeys == null) {
+        return;
+      }
+      for (String flagKey : changedKeys) {
+        if (flagKey == null) {
+          continue;
+        }
+        // The general flag-change listener fires on the SDK's main thread; the
+        // notification POST (a fire-and-forget notification — no SDK-side call
+        // completes against the runner's reply, CP-SPEC 7.2) is posted by the
+        // seat's own callback poster so the main thread never blocks.
+        com.launchdarkly.seat.SeatServe.postListenerNotification(params.callbackUri,
+                params.listenerId, flagKey);
+      }
+    };
+    client.registerAllFlagsListener(listener);
+    flagChangeListeners.put(params.listenerId, listener);
+  }
+
+  private void doUnregisterListener(Representations.UnregisterListenerParams params) {
+    if (params.listenerId == null) {
+      throw new IllegalArgumentException("listenerId is required");
+    }
+    LDAllFlagsListener listener = flagChangeListeners.remove(params.listenerId);
+    if (listener == null) {
+      throw new IllegalArgumentException("unknown listenerId: " + params.listenerId);
+    }
+    client.unregisterAllFlagsListener(listener);
   }
 
   private ContextBuildResponse doContextBuild(ContextBuildParams params) {
@@ -342,9 +391,12 @@ public class SdkClientEntity {
     }
 
     builder.evaluationReasons(params.clientSide.evaluationReasons);
-    builder.http(
-            Components.httpConfiguration().useReport(params.clientSide.useReport)
-    );
+    com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder httpBuilder =
+            Components.httpConfiguration().useReport(params.clientSide.useReport);
+    if (params.wrapper != null) {
+      httpBuilder.wrapper(params.wrapper.name, params.wrapper.version);
+    }
+    builder.http(httpBuilder);
 
     if (params.tags != null) {
       ApplicationInfoBuilder ab = Components.applicationInfo();
@@ -526,6 +578,7 @@ public class SdkClientEntity {
   }
 
   public void close() {
+    flagChangeListeners.clear();
     try {
       client.close();
       logger.info("Closed LDClient");

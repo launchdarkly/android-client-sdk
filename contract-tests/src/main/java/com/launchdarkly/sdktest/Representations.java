@@ -40,6 +40,7 @@ public abstract class Representations {
         SdkConfigServiceEndpointParams serviceEndpoints;
         SdkConfigHookParams hooks;
         SdkConfigDataSystemParams dataSystem;
+        SdkConfigWrapperParams wrapper;
     }
 
     public static class SdkConfigStreamParams {
@@ -72,6 +73,14 @@ public abstract class Representations {
         String streaming;
         String polling;
         String events;
+    }
+
+    /** cp.schema sdkConfiguration/properties/wrapper (v3:L384): the
+     * X-LaunchDarkly-Wrapper header config. Declared under the
+     * `wrapper` capability. */
+    public static class SdkConfigWrapperParams {
+        String name;
+        String version;
     }
 
     public static class SdkConfigClientSideParams {
@@ -143,6 +152,19 @@ public abstract class Representations {
         CustomEventParams customEvent;
         ContextBuildParams contextBuild;
         ContextConvertParams contextConvert;
+        RegisterFlagChangeListenerParams registerFlagChangeListener;
+        UnregisterListenerParams unregisterListener;
+    }
+
+    /** service_spec listener command params (L706/L754): the seat echoes
+     * listenerId in every notification for the listener. */
+    public static class RegisterFlagChangeListenerParams {
+        String listenerId;
+        URI callbackUri;
+    }
+
+    public static class UnregisterListenerParams {
+        String listenerId;
     }
 
     public static class EvaluateFlagParams {
