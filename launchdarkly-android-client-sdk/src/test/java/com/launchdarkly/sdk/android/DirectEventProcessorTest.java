@@ -380,13 +380,16 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                     DEFAULT_CAPACITY, true, logging.logger);
             ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
             diagnosticExecutors.add(diagnosticExecutor);
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
             DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
                     server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
-                    EventUtil.makeEventsTaskExecutor(), diagnosticExecutor, store, DEFAULT_CAPACITY);
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
             try {
-                // Online before the batch exists, so the flush below is the delivery that finds it rather
-                // than the one coming online starts, which nobody waits on.
+                // Online, and past the startup listing, before the batch exists, so the flush below is the
+                // delivery that finds it rather than one that recovery or coming online starts, which
+                // nobody waits on.
                 eventProcessor.setOffline(false);
+                scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
                 store.stage("{\"kind\":\"custom\",\"key\":\"damaged\"}".getBytes(StandardCharsets.UTF_8));
                 EventStore.Batch damaged = closeOne(store);
                 assertNotNull(damaged);
