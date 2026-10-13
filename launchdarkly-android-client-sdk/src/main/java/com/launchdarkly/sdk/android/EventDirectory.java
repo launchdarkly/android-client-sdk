@@ -177,7 +177,8 @@ class EventDirectory {
      *
      * @return the count the name ends with, or -1 where it has none, which is how a version that did not
      *   write one named its batches. A payload ID cannot be mistaken for a count: it is a UUID, whose
-     *   last group is twelve characters, and twelve digits are more than an {@code int} holds.
+     *   last group is twelve characters. Twelve digits are more than an {@code int} holds unless they
+     *   start with a zero, which a count never does.
      */
     private static int eventsInName(String fileName) {
         int split = fileName.lastIndexOf('-');
@@ -185,7 +186,7 @@ class EventDirectory {
             return -1;
         }
         String suffix = fileName.substring(split + 1);
-        if (suffix.isEmpty()) {
+        if (suffix.isEmpty() || (suffix.length() > 1 && suffix.charAt(0) == '0')) {
             return -1;
         }
         for (int i = 0; i < suffix.length(); i++) {

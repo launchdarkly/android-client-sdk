@@ -398,6 +398,22 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
+    public void aPayloadIdEndingInZeroLedDigitsIsNotTakenForACount() {
+        EventStore previousVersion = storeFor(SERVICE_PROCESS);
+        previousVersion.stage(event("left-by-a-previous-version"));
+        closeOne(previousVersion);
+        File batch = filesNamed("ready-").get(0);
+        // Its last group fits an int once the leading zeros are dropped.
+        String payloadId = "6F9619FF-8B86-D011-B42D-000012345678";
+        assertTrue(batch.renameTo(new File(batch.getParentFile(), "ready-" + payloadId)));
+
+        List<EventStore.Batch> pending = storeFor(MAIN_PROCESS).pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(payloadId, pending.get(0).payloadId);
+        assertEquals(1, pending.get(0).eventCount);
+    }
+
+    @Test
     public void aBatchTheOtherProcessAlreadyDeliveredReadsAsNothingToSend() throws IOException {
         EventStore service = storeFor(SERVICE_PROCESS);
         service.stage(event("delivered-once"));
