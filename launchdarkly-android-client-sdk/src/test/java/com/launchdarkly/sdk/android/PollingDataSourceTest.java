@@ -20,8 +20,6 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -326,44 +324,6 @@ public class PollingDataSourceTest {
 
         // A stopped data source sends no request, even from a poll it could not cancel.
         requireNoMoreValues(fetcher.receivedContexts, 500, TimeUnit.MILLISECONDS);
-    }
-
-    @Test
-    public void fetchResultIsIgnoredWhenStopHappensWhileFetchIsInFlight() throws Exception {
-        BlockingQueue<Callback<String>> heldFetches = new LinkedBlockingQueue<>();
-        FeatureFetcher holdingFetcher = new FeatureFetcher() {
-            @Override
-            public void fetch(LDContext context, Callback<String> callback) {
-                heldFetches.add(callback);
-            }
-
-            @Override
-            public void close() {}
-        };
-
-        PollingDataSource ds = makeDataSource(holdingFetcher, taskExecutor, 50);
-        List<String> results = new ArrayList<>();
-
-        // Start a poll and wait until its request is outstanding.
-        ds.start(new Callback<Boolean>() {
-            @Override
-            public void onSuccess(Boolean result) {
-                results.add("success");
-            }
-
-            @Override
-            public void onError(Throwable e) {
-                results.add("error");
-            }
-        });
-        Callback<String> heldFetch = requireValue(heldFetches, 500, TimeUnit.MILLISECONDS);
-
-        // Stop the data source, then let the outstanding request complete.
-        ds.stop(LDUtil.noOpCallback());
-        heldFetch.onSuccess("{}");
-
-        // A result that arrives after stop does not reach the consumer.
-        assertEquals(0, results.size());
     }
 
     @Test

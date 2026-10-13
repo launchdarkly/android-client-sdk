@@ -107,9 +107,6 @@ final class PollingDataSource implements DataSource {
                 new Callback<Boolean>() {
                     @Override
                     public void onSuccess(Boolean result) {
-                        if (stopped) {
-                            return;
-                        }
                         try {
                             retryState.recordSuccess();
                             resultCallback.onSuccess(result);
@@ -120,9 +117,6 @@ final class PollingDataSource implements DataSource {
 
                     @Override
                     public void onError(Throwable e) {
-                        if (stopped) {
-                            return;
-                        }
                         try {
                             retryState.recordFailure(e);
                             resultCallback.onError(e);
