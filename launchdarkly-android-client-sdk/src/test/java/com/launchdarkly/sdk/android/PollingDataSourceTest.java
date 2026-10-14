@@ -295,6 +295,31 @@ public class PollingDataSourceTest {
     }
 
     @Test
+    public void resultArrivingAfterTheExecutorShutsDownDoesNotScheduleAnotherPoll() throws Exception {
+        BlockingQueue<Callback<String>> heldFetches = new LinkedBlockingQueue<>();
+        FeatureFetcher holdingFetcher = new FeatureFetcher() {
+            @Override
+            public void fetch(LDContext context, Callback<String> callback) {
+                heldFetches.add(callback);
+            }
+
+            @Override
+            public void close() {}
+        };
+
+        PollingDataSource ds = makeDataSource(holdingFetcher, taskExecutor, 50);
+
+        // Start a poll, then shut everything down while its request is still outstanding.
+        ds.start(LDUtil.noOpCallback());
+        Callback<String> heldFetch = requireValue(heldFetches, 500, TimeUnit.MILLISECONDS);
+        ds.stop(LDUtil.noOpCallback());
+        taskExecutor.close();
+
+        // Scheduling onto a closed executor throws, so the failed request must not reschedule.
+        heldFetch.onError(new LDFailure("network error", LDFailure.FailureType.NETWORK_FAILURE));
+    }
+
+    @Test
     public void pollArmedBeforeStopDoesNotFetchWhenItFires() throws Exception {
         // Schedules tasks for real, but returns no handle, so stop has nothing to cancel.
         TaskExecutor executorWithoutCancellation = new TaskExecutor() {

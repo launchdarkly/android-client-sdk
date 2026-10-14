@@ -88,6 +88,9 @@ final class PollingDataSource implements DataSource {
     }
 
     private void schedulePoll(Callback<Boolean> resultCallback, long delayMillis) {
+        if (stopped) {
+            return;
+        }
         currentPollTask.set(taskExecutor.scheduleTask(() -> {
             if (stopped) {
                 return;
