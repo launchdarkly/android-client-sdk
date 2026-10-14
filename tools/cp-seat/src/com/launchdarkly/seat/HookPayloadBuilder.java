@@ -50,7 +50,59 @@ final class HookPayloadBuilder {
       }
       Object trackCtx = readField(params, "trackSeriesContext");
       if (trackCtx != null) {
-        o.add("trackSeriesContext", SeatServe.gson.toJsonTree(trackCtx));
+        // The cp.schema trackSeriesContext arm: {key (required), context,
+        // data, metricValue} — never the evaluation shape.
+        com.google.gson.JsonObject t = new com.google.gson.JsonObject();
+        Object tkey = readField(trackCtx, "key");
+        t.addProperty("key", tkey == null ? JsonNull.INSTANCE.toString() : String.valueOf(tkey));
+        Object tctx = readField(trackCtx, "context");
+        if (tctx != null) {
+          t.add("context", SeatServe.gson.toJsonTree(tctx));
+        } else {
+          t.add("context", JsonNull.INSTANCE);
+        }
+        Object tdata = readField(trackCtx, "data");
+        t.add("data", tdata == null ? JsonNull.INSTANCE : SeatServe.gson.toJsonTree(tdata));
+        Object tmv = readField(trackCtx, "metricValue");
+        if (tmv instanceof Number) {
+          t.addProperty("metricValue", (Number) tmv);
+        } else {
+          t.add("metricValue", JsonNull.INSTANCE);
+        }
+        Object envId = readField(trackCtx, "environmentId");
+        if (envId != null) {
+          t.addProperty("environmentId", String.valueOf(envId));
+        }
+        o.add("trackSeriesContext", t);
+      }
+      Object idCtx = readField(params, "identifySeriesContext");
+      if (idCtx != null) {
+        com.google.gson.JsonObject ic = new com.google.gson.JsonObject();
+        Object ilctx = readField(idCtx, "context");
+        if (ilctx != null) {
+          ic.add("context", SeatServe.gson.toJsonTree(ilctx));
+        } else {
+          ic.add("context", JsonNull.INSTANCE);
+        }
+        o.add("identifySeriesContext", ic);
+      }
+      Object idData = readField(params, "identifySeriesData");
+      if (idData != null) {
+        o.add("identifySeriesData", SeatServe.gson.toJsonTree(idData));
+      }
+      Object idResult = readField(params, "identifyResult");
+      if (idResult != null) {
+        com.google.gson.JsonObject ir = new com.google.gson.JsonObject();
+        try {
+          Object status = readField(idResult, "status");
+          if (status != null) {
+            ir.add("status", SeatServe.gson.toJsonTree(status));
+          }
+        } catch (Exception ignored) {
+        }
+        if (ir.size() > 0) {
+          o.add("identifyResult", ir);
+        }
       }
     } catch (Exception e) {
       throw new IllegalStateException("hook payload build failed: " + SeatServe.describe(e), e);
@@ -62,13 +114,13 @@ final class HookPayloadBuilder {
     com.google.gson.JsonObject c = new com.google.gson.JsonObject();
     try {
       Object method = readField(ctx, "method");
-      if (method != null) c.addProperty("method", String.valueOf(method));
+      if (method != null) c.addProperty("method", methodName(String.valueOf(method)));
       Object flagKey = readField(ctx, "flagKey");
       if (flagKey != null) c.addProperty("flagKey", String.valueOf(flagKey));
       Object lctx = readField(ctx, "context");
-      if (lctx instanceof LDContext) {
-        c.add("context", SeatServe.gson.toJsonTree(JsonSerialization.serialize((LDContext) lctx)));
-      } else if (lctx != null) {
+      if (lctx != null) {
+        // cp.schema hookPayload: `context` rides an ldContext OBJECT (v3:L211),
+        // never the serialized string.
         c.add("context", SeatServe.gson.toJsonTree(lctx));
       } else {
         c.add("context", JsonNull.INSTANCE);
@@ -112,6 +164,32 @@ final class HookPayloadBuilder {
       throw new IllegalStateException("evaluationDetail build: " + SeatServe.describe(e), e);
     }
     return d;
+  }
+
+  /** Harness method spelling: `LDClient.stringVariationDetail` -> `string_variation_detail`
+   * (the v3 hook spec's `method` field names the EVALUATED method in the python-style
+   * snake; the bank rows pin this shape). */
+  static String methodName(String sdkMethod) {
+    String s = sdkMethod;
+    int dot = s.lastIndexOf('.');
+    if (dot >= 0) {
+      s = s.substring(dot + 1);
+    }
+    if (s.startsWith("jsonValue")) {
+      // the harness's own method spelling: jsonValueVariationDetail ->
+      // json_variation_detail (the Value segment is dropped, the python
+      // family's own method name the rows pin)
+      return "json_variation_detail";
+    }
+    StringBuilder b = new StringBuilder();
+    for (int i = 0; i < s.length(); i++) {
+      char ch = s.charAt(i);
+      if (Character.isUpperCase(ch) && i > 0) {
+        b.append('_');
+      }
+      b.append(Character.toLowerCase(ch));
+    }
+    return b.toString();
   }
 
   private static Object readField(Object owner, String name) {

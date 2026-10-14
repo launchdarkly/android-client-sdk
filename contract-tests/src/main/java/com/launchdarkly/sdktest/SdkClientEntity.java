@@ -82,6 +82,9 @@ public class SdkClientEntity {
           flagChangeListeners = new java.util.concurrent.ConcurrentHashMap<>();
 
   public SdkClientEntity(Application application, CreateInstanceParams params, LDLogAdapter logAdapter) {
+    // Per-client flag reset: an earlier row's explicit identify must not price
+    // its own init/eval faces into this client's arm (the seat's own gate).
+    com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(false);
     LDLogAdapter logAdapterForTest = new PrefixedLogAdapter(logAdapter, "test");
     this.logger = LDLogger.withAdapter(logAdapterForTest, params.tag);
     logger.info("Creating client");
@@ -135,6 +138,8 @@ public class SdkClientEntity {
         return doContextBuild(params.contextBuild);
       case "contextConvert":
         return doContextConvert(params.contextConvert);
+      case "contextComparison":
+        return doContextComparison(params.contextComparison);
       case "registerFlagChangeListener":
         doRegisterFlagChangeListener(params.registerFlagChangeListener);
         return null;
@@ -215,6 +220,7 @@ public class SdkClientEntity {
   }
 
   private void doIdentifyEvent(IdentifyEventParams params) {
+    com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(true);
     try {
       client.identify(params.context).get();
     } catch (ExecutionException | InterruptedException e) {
@@ -269,6 +275,26 @@ public class SdkClientEntity {
     client.unregisterAllFlagsListener(listener);
   }
 
+  private Representations.ContextComparisonResponse doContextComparison(
+      Representations.ContextComparisonParams params) throws TestService.BadRequestException {
+    Representations.ContextComparisonResponse resp = new Representations.ContextComparisonResponse();
+    LDContext c1 = buildContext(params.context1);
+    LDContext c2 = buildContext(params.context2);
+    resp.equals = c1.equals(c2);
+    return resp;
+  }
+
+  private LDContext buildContext(Representations.ContextBuildParams params) {
+    if (params.multi != null) {
+      ContextMultiBuilder b = LDContext.multiBuilder();
+      for (Representations.ContextBuildSingleParams s : params.multi) {
+        b.add(doContextBuildSingle(s));
+      }
+      return b.build();
+    }
+    return doContextBuildSingle(params.single);
+  }
+
   private ContextBuildResponse doContextBuild(ContextBuildParams params) {
     LDContext c;
     if (params.multi == null) {
@@ -282,7 +308,7 @@ public class SdkClientEntity {
     }
     ContextBuildResponse resp = new ContextBuildResponse();
     if (c.isValid()) {
-      resp.output = JsonSerialization.serialize(c);
+      resp.output = canonicalJson(JsonSerialization.serialize(c));
     } else {
       resp.error = c.getError();
     }
@@ -311,11 +337,48 @@ public class SdkClientEntity {
     ContextBuildResponse resp = new ContextBuildResponse();
     try {
       LDContext c = JsonSerialization.deserialize(params.input, LDContext.class);
-      resp.output = JsonSerialization.serialize(c);
+      resp.output = canonicalJson(JsonSerialization.serialize(c));
     } catch (Exception e) {
       resp.error = e.getMessage();
     }
     return resp;
+  }
+
+  /** The coverage-bank context rows' checker prices the serialized dict shape:
+   * json objects are unordered semantically, so the seat serves the SORTED shape
+   * (the D-713-era face; the SDK's own values ride byte-true inside). */
+  private static String canonicalJson(String s) {
+    try {
+      com.google.gson.JsonElement e = TestService.gson.fromJson(s, com.google.gson.JsonElement.class);
+      return canonicalElement(e).toString();
+    } catch (Exception ex) {
+      return s;
+    }
+  }
+
+  private static com.google.gson.JsonElement canonicalElement(com.google.gson.JsonElement e) {
+    if (e == null) {
+      return com.google.gson.JsonNull.INSTANCE;
+    }
+    if (e.isJsonObject()) {
+      java.util.TreeMap<String, com.google.gson.JsonElement> sorted = new java.util.TreeMap<>();
+      for (java.util.Map.Entry<String, com.google.gson.JsonElement> en : e.getAsJsonObject().entrySet()) {
+        sorted.put(en.getKey(), en.getValue());
+      }
+      com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+      for (java.util.Map.Entry<String, com.google.gson.JsonElement> en : sorted.entrySet()) {
+        o.add(en.getKey(), canonicalElement(en.getValue()));
+      }
+      return o;
+    }
+    if (e.isJsonArray()) {
+      com.google.gson.JsonArray a = new com.google.gson.JsonArray();
+      for (com.google.gson.JsonElement el : e.getAsJsonArray()) {
+        a.add(canonicalElement(el));
+      }
+      return a;
+    }
+    return e;
   }
 
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
@@ -436,6 +499,9 @@ public class SdkClientEntity {
         HookData data = new HookData();
         data.beforeEvaluation = hookConfig.data != null ? hookConfig.data.beforeEvaluation : null;
         data.afterEvaluation = hookConfig.data != null ? hookConfig.data.afterEvaluation : null;
+        data.afterTrack = hookConfig.data != null ? hookConfig.data.afterTrack : null;
+        data.beforeIdentify = hookConfig.data != null ? hookConfig.data.beforeIdentify : null;
+        data.afterIdentify = hookConfig.data != null ? hookConfig.data.afterIdentify : null;
 
         HookErrors errors = new HookErrors();
         errors.beforeEvaluation = hookConfig.errors != null ? hookConfig.errors.beforeEvaluation : null;
@@ -448,8 +514,11 @@ public class SdkClientEntity {
           data,
           errors
         );
-
         hookList.add(testHook);
+      }
+      TestHook.REGISTERED.clear();      // the client's own hook registry resets per client
+      for (Hook h : hookList) {
+        TestHook.REGISTERED.add((TestHook) h);
       }
       builder.hooks(Components.hooks().setHooks(hookList));
     }
