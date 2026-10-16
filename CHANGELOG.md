@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.17.0](https://github.com/launchdarkly/android-client-sdk/compare/5.16.1...5.17.0) (2026-10-15)
+
+
+### Features
+
+* Retry FDv1 data sources after unexpected errors instead of stopping ([#407](https://github.com/launchdarkly/android-client-sdk/issues/407)) ([ec803d0](https://github.com/launchdarkly/android-client-sdk/commit/ec803d0a0f6d8d6b4f28f12b5bd7abfb47d4e097))
+
 ## [5.16.1](https://github.com/launchdarkly/android-client-sdk/compare/5.16.0...5.16.1) (2026-09-25)
 
 
