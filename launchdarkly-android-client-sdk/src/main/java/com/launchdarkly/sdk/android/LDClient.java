@@ -6,6 +6,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
+import com.launchdarkly.logging.LDLogLevel;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.EvaluationDetail;
@@ -37,6 +38,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -83,6 +86,13 @@ public class LDClient implements LDClientInterface, Closeable {
     private volatile EnvironmentMetadata environmentMetadata;
     // If 15 seconds or more is passed as a timeout to init, we will log a warning.
     private static final int EXCESSIVE_INIT_WAIT_SECONDS = 15;
+
+    // Flags already reported unknown at info level. An application can poll a flag that does not exist
+    // on every redraw, and each of those would otherwise write to logcat. Bounded because the keys come
+    // from the application; past the bound an unknown flag is reported at debug only.
+    private static final int MAX_UNKNOWN_FLAGS_REPORTED = 100;
+    private final Set<String> unknownFlagsReported =
+            Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     // Shared by both registration paths, so that a plugin failing during init and the same plugin
     // failing under registerPlugin are reported identically.
@@ -641,7 +651,11 @@ public class LDClient implements LDClientInterface, Closeable {
         EvaluationDetail<LDValue> result;
 
         if (flag == null) {
-            logger.info("Unknown feature flag \"{}\"; returning default value", key);
+            if (unknownFlagsReported.size() < MAX_UNKNOWN_FLAGS_REPORTED && unknownFlagsReported.add(key)) {
+                logger.info("Unknown feature flag \"{}\"; returning default value", key);
+            } else {
+                logger.debug("Unknown feature flag \"{}\"; returning default value", key);
+            }
             eventProcessor.recordEvaluationEvent(context, key,
                     EventProcessor.NO_VERSION, EvaluationDetail.NO_VARIATION, defaultValue,
                     null, defaultValue, false, null);
@@ -700,7 +714,11 @@ public class LDClient implements LDClientInterface, Closeable {
             );
         }
 
-        logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
+        // Checked first: three arguments go through the varargs overload, which builds its array whether
+        // or not debug logging is on.
+        if (logger.isEnabled(LDLogLevel.DEBUG)) {
+            logger.debug("returning variation: {} flagKey: {} context key: {}", result, key, context.getKey());
+        }
         return result;
     }
 
@@ -777,6 +795,55 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void flushInternal() {
         eventProcessor.flush();
+    }
+
+    @Override
+    public boolean flushAndWait(long timeout, TimeUnit unit) {
+        // Clamped because toNanos saturates: a timeout at Long.MIN_VALUE nanos would make the
+        // remaining time below underflow, and wrap round to a wait with no bound at all.
+        long deadline = System.nanoTime() + Math.max(0, unit.toNanos(timeout));
+        Map<String, LDClient> clients = getInstancesIfTheyIncludeThisClient();
+        if (clients.isEmpty()) {
+            // This client has been closed, or replaced by a later init; either way it can deliver
+            // nothing, and saying otherwise would tell the caller its events were safe.
+            return false;
+        }
+        // Every environment is started before any of them is waited on. Each has its own event
+        // processor and its own thread, so waiting on one before starting the next would spend the
+        // caller's budget on deliveries that could have been running all along.
+        List<Future<Boolean>> deliveries = new ArrayList<>(clients.size());
+        for (LDClient client : clients.values()) {
+            deliveries.add(client.eventProcessor.flushAsync());
+        }
+        boolean delivered = true;
+        for (Future<Boolean> delivery : deliveries) {
+            // Each wait gets what is left of the one budget rather than a fresh copy of it, so that
+            // the timeout the caller asked for is the time this call can take.
+            delivered &= awaitDelivery(delivery, Math.max(0, deadline - System.nanoTime()));
+        }
+        return delivered;
+    }
+
+    private boolean awaitDelivery(Future<Boolean> delivery, long remainingNanos) {
+        try {
+            return Boolean.TRUE.equals(delivery.get(remainingNanos, TimeUnit.NANOSECONDS));
+        } catch (TimeoutException e) {
+            // Left running rather than canceled: the events have been taken out of the buffer by
+            // now, so interrupting the delivery would only make losing them certain.
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (CancellationException e) {
+            // Not something the SDK's own processor does, but a custom one can hand back a future
+            // that is canceled, and that must not escape a call whose answer is a boolean.
+            return false;
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            logger.error("Exception caught when flushing events: {}", LogValues.exceptionSummary(cause));
+            logger.debug("{}", LogValues.exceptionTrace(cause));
+            return false;
+        }
     }
 
     @VisibleForTesting

@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -78,6 +79,28 @@ public final class LDFutures {
                 result.set(future.get());
             } catch (Throwable t) {
                 result.setException(t instanceof ExecutionException && t.getCause() != null ? t.getCause() : t);
+            }
+        });
+        return result;
+    }
+
+    /**
+     * Runs a blocking call on a pooled daemon thread and reports its result as a future.
+     * <p>
+     * Use this where a caller has a deadline but the work it is waiting for has no way to take one.
+     * The call is left running if the caller stops waiting; nothing interrupts it.
+     *
+     * @param task the blocking call
+     * @param <T>  result type
+     * @return a future that completes with the call's result, or with whatever it threw
+     */
+    public static <T> Future<T> fromBlockingCall(Callable<T> task) {
+        LDAwaitFuture<T> result = new LDAwaitFuture<>();
+        getBridgeExecutor().execute(() -> {
+            try {
+                result.set(task.call());
+            } catch (Throwable t) {
+                result.setException(t);
             }
         });
         return result;
