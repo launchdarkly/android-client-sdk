@@ -329,7 +329,9 @@ public class SdkClientEntity {
 
     builder.evaluationReasons(params.clientSide.evaluationReasons);
     builder.http(
-            Components.httpConfiguration().useReport(params.clientSide.useReport)
+            Components.httpConfiguration()
+                    .useReport(params.clientSide.useReport)
+                    .usePost(params.clientSide.usePost)
     );
 
     if (params.tags != null) {

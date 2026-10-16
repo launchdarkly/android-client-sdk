@@ -37,7 +37,7 @@ public class DefaultFDv2RequestorTest {
     private static final LDContext CONTEXT = LDContext.create("test-context-key");
     // Bogus paths used by tests — deliberately not the real production paths.
     private static final String GET_REQUEST_PATH = "/fake-poll-get";
-    private static final String REPORT_REQUEST_PATH = "/fake-poll-report";
+    private static final String POST_REQUEST_PATH = "/fake-poll-post";
     private static final LDLogger LOGGER = LDLogger.none();
 
     private static HttpProperties httpProperties() {
@@ -49,14 +49,14 @@ public class DefaultFDv2RequestorTest {
                 null, null);
     }
 
-    private static DefaultFDv2Requestor makeRequestor(HttpServer server, boolean useReport, boolean evaluationReasons, String payloadFilter) {
+    private static DefaultFDv2Requestor makeRequestor(HttpServer server, boolean usePost, boolean evaluationReasons, String payloadFilter) {
         return new DefaultFDv2Requestor(
                 CONTEXT,
                 server.getUri(),
                 GET_REQUEST_PATH,
-                REPORT_REQUEST_PATH,
+                POST_REQUEST_PATH,
                 httpProperties(),
-                useReport,
+                usePost,
                 evaluationReasons,
                 payloadFilter,
                 LOGGER);
@@ -358,7 +358,7 @@ public class DefaultFDv2RequestorTest {
                     CONTEXT,
                     uri,
                     GET_REQUEST_PATH,
-                    REPORT_REQUEST_PATH,
+                    POST_REQUEST_PATH,
                     httpProperties(),
                     false,
                     false,
@@ -506,16 +506,16 @@ public class DefaultFDv2RequestorTest {
     }
 
     @Test
-    public void useReportMethod() throws Exception {
+    public void usePostMethod() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.bodyJson(EMPTY_EVENTS_JSON))) {
             try (DefaultFDv2Requestor requestor = makeRequestor(server, true, false, null)) {
                 requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
 
                 RequestInfo req = server.getRecorder().requireRequest();
-                assertEquals("REPORT", req.getMethod());
-                // Context should be in the request body, not the URL path
-                assertTrue("path should use REPORT path without context segment",
-                        req.getPath().startsWith(REPORT_REQUEST_PATH));
+                assertEquals("POST", req.getMethod());
+                // Context goes in the request body, not the URL path
+                assertTrue("path should use POST path without context segment",
+                        req.getPath().startsWith(POST_REQUEST_PATH));
                 assertFalse("path should not contain GET context segment",
                         req.getPath().startsWith(GET_REQUEST_PATH));
                 assertNotNull("body should contain serialized context", req.getBody());
@@ -526,23 +526,23 @@ public class DefaultFDv2RequestorTest {
     }
 
     @Test
-    public void useReportMethodDoesNotUseEtag() throws Exception {
-        // ETag caching is disabled for REPORT requests since the context is in the body
+    public void usePostMethodDoesNotUseEtag() throws Exception {
+        // ETag caching only runs for GET requests, where the context is in the URL
         Handler etagResp = Handlers.all(
                 Handlers.header("ETag", "some-etag"),
                 Handlers.bodyJson(EMPTY_EVENTS_JSON));
 
         try (HttpServer server = HttpServer.start(etagResp)) {
             try (DefaultFDv2Requestor requestor = makeRequestor(server, true, false, null)) {
-                // First REPORT request — server returns an ETag, but it should not be cached
+                // First POST request; the server returns an ETag, which is not cached
                 requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
                 RequestInfo req1 = server.getRecorder().requireRequest();
-                assertNull("REPORT request should not send If-None-Match", req1.getHeader("If-None-Match"));
+                assertNull("POST request should not send If-None-Match", req1.getHeader("If-None-Match"));
 
-                // Second REPORT request — still no If-None-Match because ETag was never stored
+                // Second POST request; still no If-None-Match because the ETag was never stored
                 requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
                 RequestInfo req2 = server.getRecorder().requireRequest();
-                assertNull("REPORT request should never send If-None-Match", req2.getHeader("If-None-Match"));
+                assertNull("POST request should never send If-None-Match", req2.getHeader("If-None-Match"));
             }
         }
     }
@@ -551,7 +551,7 @@ public class DefaultFDv2RequestorTest {
     public void http400LogsProguardWarning() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(400))) {
             try (DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
-                    CONTEXT, server.getUri(), GET_REQUEST_PATH, REPORT_REQUEST_PATH,
+                    CONTEXT, server.getUri(), GET_REQUEST_PATH, POST_REQUEST_PATH,
                     httpProperties(), false, false, null, logging.logger)) {
 
                 Future<FDv2Requestor.FDv2PayloadResponse> future = requestor.poll(Selector.EMPTY);
@@ -569,7 +569,7 @@ public class DefaultFDv2RequestorTest {
     public void networkFailureThrowsException() throws Exception {
         try (DefaultFDv2Requestor requestor = new DefaultFDv2Requestor(
                 CONTEXT, URI.create("http://localhost:1"),
-                GET_REQUEST_PATH, REPORT_REQUEST_PATH,
+                GET_REQUEST_PATH, POST_REQUEST_PATH,
                 httpProperties(), false, false, null, LOGGER)) {
             requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
         }
