@@ -78,6 +78,7 @@ public abstract class Representations {
         LDContext initialContext;
         boolean evaluationReasons;
         boolean useReport;
+        boolean usePost;
         boolean includeEnvironmentAttributes;
     }
 

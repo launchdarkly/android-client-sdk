@@ -233,7 +233,8 @@ abstract class ComponentsImpl {
                     connectTimeoutMillis,
                     headers,
                     headerTransform,
-                    useReport
+                    useReport,
+                    usePost
             );
         }
 
