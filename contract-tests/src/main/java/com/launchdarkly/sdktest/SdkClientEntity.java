@@ -351,12 +351,32 @@ public class SdkClientEntity {
    * assert_requests faces price the fdv2-streaming request count after the flip). */
   private Object doSetStreaming(Representations.SetStreamingParams xcp) {
     Boolean state = xcp == null ? null : xcp.state;
-    for (com.launchdarkly.sdk.android.LDClient instance : com.launchdarkly.sdk.android.LDClient.getInstancesIfTheyIncludeThisClient().values()) {
-      instance.getConnectivityManagerForSeat().setStreamingOverride(state);
-    }
+    driveStreamingOverride(client, state);
     java.util.Map<String, Object> out = new java.util.HashMap<>();
     out.put("ok", true);
     return out;
+  }
+
+  /** CENTINEL seat face (the lane's own reflection coupling — HookPayloadBuilder:198's
+   * idiom, the same seam the hook payload arms use): reaches LDClient's package-private
+   * ConnectivityManager field through the SDK's own class package, so the harness module
+   * drives the override seam WITHOUT growing the SDK's public API surface (the manager
+   * class stays package-private per its own "not a public API" javadoc; the arm's
+   * SDK-side state rides the entity's OWN client handle — the seat prices one entity's
+   * client, never the static instances map). */
+  private static void driveStreamingOverride(com.launchdarkly.sdk.android.LDClient target, Boolean state) {
+    try {
+      java.lang.reflect.Field cmField = com.launchdarkly.sdk.android.LDClient.class
+          .getDeclaredField("connectivityManager");
+      cmField.setAccessible(true);
+      Object cm = cmField.get(target);
+      java.lang.reflect.Method m = cm.getClass()
+          .getDeclaredMethod("setStreamingOverride", Boolean.class);
+      m.setAccessible(true);
+      m.invoke(cm, state);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("x-cp-set-streaming: the SDK override seam is not armed on this build: " + e, e);
+    }
   }
 
   private java.util.Map<String, Object> doXcpDataSourceStatus() {
