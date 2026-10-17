@@ -85,10 +85,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     // versus forced-offline or platform network loss). LD's offline contract holds ALL
     // event posts while this mode is active, so the event processor must gate on it too.
     private volatile boolean fdv2ModeOffline;
-    // The event processor's own offline gate remembers its last computed value, so the
-    // setForceOffline drive and the FDv2-OFFLINE mode-resolution drive within one face
-    // never double-price the processor (the updateEventProcessor gate fires on changes).
-    private volatile Boolean lastEventGate = null;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
     private final long connectionModeStateDebounceMs; // visible for testing
     private final StateDebounceManager stateDebounceManager;
