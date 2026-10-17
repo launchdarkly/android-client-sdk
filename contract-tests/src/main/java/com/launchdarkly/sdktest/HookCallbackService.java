@@ -21,7 +21,7 @@ public class HookCallbackService {
         // SDK-side call completes. Any other scheme keeps the harness's own
         // HTTP receiver arm (used when the seat runs under CP/http on a device).
         if (serviceUri != null && "cp-callback".equals(serviceUri.getScheme())) {
-            com.launchdarkly.seat.SeatServe.postCallback(serviceUri, params);
+            SdkClientEntity.seatPostCallbackHTTPFace(serviceUri, params);
             return;
         }
         RequestBody body = RequestBody.create(

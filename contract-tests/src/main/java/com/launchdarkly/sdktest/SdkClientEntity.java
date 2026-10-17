@@ -315,8 +315,8 @@ public class SdkClientEntity {
         // notification POST (a fire-and-forget notification — no SDK-side call
         // completes against the runner's reply, CP-SPEC 7.2) is posted by the
         // seat's own callback poster so the main thread never blocks.
-        com.launchdarkly.seat.SeatServe.postListenerNotification(params.callbackUri,
-                params.listenerId, flagKey);
+        seatPostReflective("postListenerNotification", new Object[]{ params.callbackUri,
+                params.listenerId, flagKey });;
       }
     };
     client.registerAllFlagsListener(listener);
@@ -364,6 +364,51 @@ public class SdkClientEntity {
    * class stays package-private per its own "not a public API" javadoc; the arm's
    * SDK-side state rides the entity's OWN client handle — the seat prices one entity's
    * client, never the static instances map). */
+  /** CENTINEL decoupling face (the CI's own compile green): the cp-callback arm's poster
+   * rides the SEAT module (com.launchdarkly.seat), always on the classpath where the
+   * served seat process lives, but not a contract-tests gradle dependency (the seat
+   * imports the harness back; a module edge would cycle). Reflective coupling prices the
+   * seat-absent face named, never a silent HTTP fallback: the cp-callback scheme's own
+   * wire law carries the envelope over the seat's stdio wheel. */
+  static void seatPostCallbackHTTPFace(java.net.URI uri, Object params) {
+    reflectSeat("postCallback", new Object[]{ uri, params });
+  }
+
+  private static void seatPostCallback(java.net.URI uri, Object params) {
+    reflectSeat("postCallback", new Object[]{ uri, params });
+  }
+
+  private static void seatPostReflective(String method, Object[] args) {
+    reflectSeat(method, args);
+  }
+
+  private static void reflectSeat(String method, Object... args) {
+    Class<?> seat;
+    try {
+      seat = Class.forName("com.launchdarkly.seat.SeatServe");
+    } catch (ClassNotFoundException e) {
+      if (SEAT_ABSENCE_NAMED.compareAndSet(false, true)) {
+        System.err.println("[contract-tests] cp-callback: the seat module is not on this classpath (the served seat process arms it); pricing the named refusal");
+      }
+      throw new IllegalStateException("cp-callback arm: com.launchdarkly.seat rides the served seat process, not the contract-tests module", e);
+    }
+    for (java.lang.reflect.Method m : seat.getDeclaredMethods()) {
+      if (m.getName().equals(method)) {
+        m.setAccessible(true);
+        try {
+          m.invoke(null, args);
+          return;
+        } catch (ReflectiveOperationException e) {
+          throw new IllegalStateException("cp-callback " + method + " failed: " + e, e);
+        }
+      }
+    }
+    throw new IllegalStateException("cp-callback " + method + ": no seat method on com.launchdarkly.seat.SeatServe");
+  }
+
+  private static final java.util.concurrent.atomic.AtomicBoolean SEAT_ABSENCE_NAMED
+      = new java.util.concurrent.atomic.AtomicBoolean(false);
+
   private static void driveStreamingOverride(com.launchdarkly.sdk.android.LDClient target, Boolean state) {
     try {
       java.lang.reflect.Field cmField = com.launchdarkly.sdk.android.LDClient.class
