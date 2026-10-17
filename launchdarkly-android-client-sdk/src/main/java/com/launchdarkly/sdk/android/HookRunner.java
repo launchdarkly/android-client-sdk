@@ -119,10 +119,14 @@ public class HookRunner {
         List<Map<String, Object>> seriesDataList = new ArrayList<>(hooks.size());
         EvaluationSeriesContext seriesContext =
                 new EvaluationSeriesContext(method, key, context, defaultValue, exposureKeySupplier, flag);
+        // The harness HOOK 1.2.x series chain: each hook prices the shared
+        // accumulated series map (the previous hooks' own merges ride along).
+        Map<String, Object> accumulatedBefore = Collections.unmodifiableMap(Collections.emptyMap());
         for (int i = 0; i < hooks.size(); i++) {
             Hook currentHook = hooks.get(i);
             try {
-                Map<String, Object> seriesData = currentHook.beforeEvaluation(seriesContext, Collections.unmodifiableMap(Collections.emptyMap()));
+                Map<String, Object> seriesData = currentHook.beforeEvaluation(seriesContext, accumulatedBefore);
+                accumulatedBefore = Collections.unmodifiableMap(seriesData);
                 seriesDataList.add(Collections.unmodifiableMap(seriesData));
             } catch (Exception e) {
                 seriesDataList.add(Collections.unmodifiableMap(Collections.emptyMap()));
@@ -133,10 +137,15 @@ public class HookRunner {
         EvaluationDetail<LDValue> result = evalMethod.evaluate();
 
         // Invoke hooks in reverse order and give them back the series data they gave us.
+        // The after arm's own initial state = the before stage's own final chain
+        // map (HOOK 1.2.2.2: the after stage continues the series state).
+        Map<String, Object> accumulatedAfter = seriesDataList.get(seriesDataList.size() - 1);
         for (int i = hooks.size() - 1; i >= 0; i--) {
             Hook currentHook = hooks.get(i);
             try {
-                currentHook.afterEvaluation(seriesContext, seriesDataList.get(i), result);
+                Map<String, Object> returned = currentHook.afterEvaluation(seriesContext, accumulatedAfter, result);
+                accumulatedAfter = Collections.unmodifiableMap(returned == null
+                        ? accumulatedAfter : returned);
             } catch (Exception e) {
                 logger.error("During evaluation of flag \"{}\". Stage \"afterEvaluation\" of hook \"{}\" reported error: {}", key, getHookName(currentHook), e.toString());
             }
@@ -156,10 +165,13 @@ public class HookRunner {
 
         List<Map<String, Object>> seriesDataList = new ArrayList<>(hooks.size());
         IdentifySeriesContext seriesContext = new IdentifySeriesContext(context, timeout);
+        // The harness HOOK 1.4.x series chain: hooks price the accumulated map.
+        Map<String, Object> accumulatedIdentify = Collections.unmodifiableMap(Collections.emptyMap());
         for (int i = 0; i < hooks.size(); i++) {
             Hook currentHook = hooks.get(i);
             try {
-                Map<String, Object> seriesData = currentHook.beforeIdentify(seriesContext, Collections.unmodifiableMap(Collections.emptyMap()));
+                Map<String, Object> seriesData = currentHook.beforeIdentify(seriesContext, accumulatedIdentify);
+                accumulatedIdentify = Collections.unmodifiableMap(seriesData);
                 seriesDataList.add(Collections.unmodifiableMap(seriesData));
             } catch (Exception e) {
                 seriesDataList.add(Collections.unmodifiableMap(Collections.emptyMap()));
@@ -168,11 +180,15 @@ public class HookRunner {
         }
 
         return (IdentifySeriesResult result) -> {
-            // Invoke hooks in reverse order and give them back the series data they gave us.
+            // The reverse chain: each hook's after prices the accumulated map
+            // (its own afterData merge rides the series' shared face).
+            Map<String, Object> accumulatedIdentifyAfter = seriesDataList.get(seriesDataList.size() - 1);
             for (int i = hooks.size() - 1; i >= 0; i--) {
                 Hook currentHook = hooks.get(i);
                 try {
-                    currentHook.afterIdentify(seriesContext, seriesDataList.get(i), result);
+                    Map<String, Object> returned = currentHook.afterIdentify(seriesContext, accumulatedIdentifyAfter, result);
+                    accumulatedIdentifyAfter = Collections.unmodifiableMap(returned == null
+                            ? accumulatedIdentifyAfter : returned);
                 } catch (Exception e) {
                     logger.error("During identify with context \"{}\". Stage \"afterIdentify\" of hook \"{}\" reported error: {}", context.getKey(), getHookName(currentHook), e.toString());
                 }

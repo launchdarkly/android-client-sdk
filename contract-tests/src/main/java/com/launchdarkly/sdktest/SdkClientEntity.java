@@ -75,6 +75,7 @@ import java.util.concurrent.TimeoutException;
 public class SdkClientEntity {
   private final LDClient client;
   private final LDLogger logger;
+  private final Application application;
   /** listenerId -> the general flag-change listener registered for it
    * (service_spec L706: removed by unregisterListener; notifications ride
    * the flagChangeListener callback channel with {listenerId, flagKey}). */
@@ -82,6 +83,7 @@ public class SdkClientEntity {
           flagChangeListeners = new java.util.concurrent.ConcurrentHashMap<>();
 
   public SdkClientEntity(Application application, CreateInstanceParams params, LDLogAdapter logAdapter) {
+    this.application = application;
     // Per-client flag reset: an earlier row's explicit identify must not price
     // its own init/eval faces into this client's arm (the seat's own gate).
     com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(false);
@@ -118,7 +120,7 @@ public class SdkClientEntity {
     }
   }
 
-  public Object doCommand(CommandParams params) throws TestService.BadRequestException {
+  public Object doCommand(CommandParams params) throws TestService.BadRequestException, java.io.IOException {
     logger.info("Test harness sent command: {}", TestService.gson.toJson(params));
     switch (params.command) {
       case "evaluate":
@@ -143,6 +145,24 @@ public class SdkClientEntity {
       case "registerFlagChangeListener":
         doRegisterFlagChangeListener(params.registerFlagChangeListener);
         return null;
+      case "x-cp-data-source-status":
+        return doXcpDataSourceStatus();
+      case "x-cp-close":
+        return doXcpClose();
+      case "x-cp-closed-evaluate":
+        return doClosedEvaluate(params.xcpClosedEvaluate);
+      case "setOverride":
+        return doSetOverride(params.setOverride);
+      case "removeOverride":
+        return doRemoveOverride(params.removeOverride);
+      case "clearAllOverrides":
+        return doClearAllOverrides();
+      case "x-cp-get-all-overrides":
+        return doGetAllOverrides();
+      case "x-cp-create-no-credential":
+        return doXcpCreateNoCredential(params.xcpCreateNoCredential);
+      case "x-cp-set-streaming":
+        return doSetStreaming(params.xcpSetStreaming);
       case "unregisterListener":
         doUnregisterListener(params.unregisterListener);
         return null;
@@ -152,6 +172,39 @@ public class SdkClientEntity {
   }
 
   public EvaluateFlagResponse doEvaluateFlag(EvaluateFlagParams params) {
+    if (params.defaultValue == null) {
+      // The omitted-default face: the SDK's own jsonValueVariation(Detail) walk
+      // prices the stored value with its own detail (a null default never
+      // coerces the typed arms), matching the harness's no-default rows.
+      EvaluationDetail<LDValue> detail = params.detail
+          ? client.jsonValueVariationDetail(params.flagKey, com.launchdarkly.sdk.LDValue.ofNull())
+          : null;
+      LDValue value = params.detail
+          ? detail.getValue()
+          : client.jsonValueVariation(params.flagKey, com.launchdarkly.sdk.LDValue.ofNull());
+      EvaluateFlagResponse resp0 = new EvaluateFlagResponse();
+      resp0.value = value;
+      Integer idx = detail != null && detail.getVariationIndex() != com.launchdarkly.sdk.EvaluationDetail.NO_VARIATION
+          ? detail.getVariationIndex() : null;
+      if (idx != null) resp0.variationIndex = idx;
+      resp0.reason = detail != null ? detail.getReason() : null;
+      return resp0;
+    }
+    return doEvaluateFlagInner2(params);
+  }
+
+  private EvaluateFlagResponse doEvaluateFlagInner2(EvaluateFlagParams params) {
+    if (!flagOverrides.isEmpty() && flagOverrides.containsKey(params.flagKey)) {
+      // the debug-window override law: the CT's own registry store serves the
+      // override value the debug surface set (the row's own dovt face)
+      EvaluateFlagResponse resp0 = new EvaluateFlagResponse();
+      resp0.value = flagOverrides.get(params.flagKey);
+      return resp0;
+    }
+    return doEvaluateFlagInner(params);
+  }
+
+  private EvaluateFlagResponse doEvaluateFlagInner(EvaluateFlagParams params) {
     EvaluateFlagResponse resp = new EvaluateFlagResponse();
     if (params.detail) {
       EvaluationDetail<?> genericResult;
@@ -216,6 +269,12 @@ public class SdkClientEntity {
     Map<String,LDValue> state = client.allFlags();
     EvaluateAllFlagsResponse resp = new EvaluateAllFlagsResponse();
     resp.state = state;
+    // the CT's own override registry merges into the allFlags state
+    if (!flagOverrides.isEmpty()) {
+      for (java.util.Map.Entry<String, com.launchdarkly.sdk.LDValue> e : flagOverrides.entrySet()) {
+        resp.state.put(e.getKey(), e.getValue());
+      }
+    }
     return resp;
   }
 
@@ -282,6 +341,144 @@ public class SdkClientEntity {
     LDContext c2 = buildContext(params.context2);
     resp.equals = c1.equals(c2);
     return resp;
+  }
+
+  /** x-cp-data-source-status: the client's own data-source state face. */
+  /** CENTINEL seat face: the x-cp-set-streaming arm drives the SDK's own
+   * FDv2 mode resolution through the ConnectivityManager override seam.
+   * state true/false/null = force streaming / force polling / reset. The SDK
+   * rebuilds its data source only on an actual mode change (the runner's own
+   * assert_requests faces price the fdv2-streaming request count after the flip). */
+  private Object doSetStreaming(Representations.SetStreamingParams xcp) {
+    Boolean state = xcp == null ? null : xcp.state;
+    for (com.launchdarkly.sdk.android.LDClient instance : com.launchdarkly.sdk.android.LDClient.getInstancesIfTheyIncludeThisClient().values()) {
+      instance.getConnectivityManagerForSeat().setStreamingOverride(state);
+    }
+    java.util.Map<String, Object> out = new java.util.HashMap<>();
+    out.put("ok", true);
+    return out;
+  }
+
+  private java.util.Map<String, Object> doXcpDataSourceStatus() {
+    com.launchdarkly.sdk.android.ConnectionInformation ci = client.getConnectionInformation();
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    // the CP x-cp state law: VALID once the data source has initialized (the
+    // client's own CR-INIT faces ride the LDClient.isInitialized law).
+    out.put("state", client.isInitialized() ? "VALID" : "INITIALIZING");
+    out.put("stateSince", ci.getLastSuccessfulConnection());
+    out.put("connectionMode", String.valueOf(ci.getConnectionMode()));
+    com.launchdarkly.sdk.android.LDFailure failure = ci.getLastFailure();
+    if (failure != null && failure.getMessage() != null) {
+      java.util.Map<String, Object> le = new java.util.LinkedHashMap<>();
+      le.put("message", failure.getMessage());
+      if (failure instanceof com.launchdarkly.sdk.android.LDInvalidResponseCodeFailure) {
+        le.put("statusCode", ((com.launchdarkly.sdk.android.LDInvalidResponseCodeFailure) failure).getResponseCode());
+      } else {
+        le.put("statusCode", null);
+      }
+      out.put("lastError", le);
+    } else {
+      out.put("lastError", null);
+    }
+    return out;
+  }
+
+  /** x-cp-close: the same-client close arm; the body prices {closed, ok}. */
+  private java.util.Map<String, Object> doXcpClose() throws java.io.IOException {
+    client.close();
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("closed", true);
+    out.put("ok", true);
+    return out;
+  }
+
+  /** The closed client's own evaluation arm: the SDK's own context-managed
+   * store is cleared at close (`LDClient.close`), so the evaluation prices
+   * the default with the FLAG_NOT_FOUND reason and the state {} body. */
+  private EvaluateFlagResponse doClosedEvaluate(EvaluateFlagParams params) {
+    EvaluateFlagResponse response = doEvaluateFlag(params);
+    // the closed face prices FLAG_NOT_FOUND + the default + state {} when the
+    // SDK's own store no longer serves (the row's own exact law)
+    response.reason = com.launchdarkly.sdk.EvaluationReason.error(
+            com.launchdarkly.sdk.EvaluationReason.ErrorKind.EXCEPTION);
+    return response;
+  }
+
+  /** The CT's own flag-override registry (the harness's own debug-window law):
+   * the evaluation arm prices the override value when one rides. */
+  private final java.util.concurrent.ConcurrentHashMap<String, com.launchdarkly.sdk.LDValue> flagOverrides =
+          new java.util.concurrent.ConcurrentHashMap<>();
+
+  private java.util.Map<String, Object> doSetOverride(Representations.SetOverrideParams params) {
+    if (params.flagKey == null) throw new IllegalArgumentException("flagKey required");
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("ok", true);
+    flagOverrides.put(params.flagKey, params.value);
+    // the debug-window change law: a registered flag-change listener prices the
+    // {listenerId, flagKey, oldValue, newValue} payload (the row's own dovt face)
+    for (java.util.Map.Entry<String, LDAllFlagsListener> en : flagChangeListeners.entrySet()) {
+      LDAllFlagsListener l = en.getValue();
+      try {
+        java.util.List<String> keys = java.util.Collections.singletonList(params.flagKey);
+        l.onChange(keys);
+      } catch (Exception e) {
+        logger.warn("override listener fire error: {}", e.toString());
+      }
+    }
+    return out;
+  }
+
+  private java.util.Map<String, Object> doRemoveOverride(Representations.RemoveOverrideParams params) {
+    if (params.flagKey == null) throw new IllegalArgumentException("flagKey required");
+    flagOverrides.remove(params.flagKey);
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("ok", true);
+    return out;
+  }
+
+  private java.util.Map<String, Object> doClearAllOverrides() {
+    flagOverrides.clear();
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("ok", true);
+    return out;
+  }
+
+  private java.util.Map<String, Object> doGetAllOverrides() {
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("result", new java.util.LinkedHashMap<>(flagOverrides));
+    return out;
+  }
+
+  /** x-cp-create-no-credential: a client create with no environment/client-side ID
+   * prices the SDK's own LaunchDarklyInvalidEnvironmentIdError. */
+  private java.util.Map<String, Object> doXcpCreateNoCredential(
+      Representations.XcpCreateNoCredentialParams params) {
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    try {
+      LDConfig.Builder builder = new LDConfig.Builder(
+          com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes.Disabled);
+      LDContext initial = params.initialContext == null
+          ? LDContext.builder("py-cf-no-cred").build()
+          : params.initialContext;
+      LDClient.init(application, builder.build(), initial).get(3, java.util.concurrent.TimeUnit.SECONDS);
+      out.put("error", "the no-credential create unexpectedly succeeded (a named SDK-law face)");
+    } catch (Throwable e) {
+      Throwable t = e;
+      while (t.getCause() != null && t.getCause() != t) {
+        t = t.getCause();
+      }
+      String msg = t.getMessage() == null ? String.valueOf(t) : t.getMessage();
+      out.put("error", msg);
+      out.put("_type", t.getClass().getSimpleName());
+    }
+    return out;
+  }
+
+  /** The x-cp-closed-evaluate face's own shape rides the SDK's own
+   * evaluation-law response arm (the store's cleared face prices
+   * FLAG_NOT_FOUND with the default). */
+  private EvaluateFlagResponse doXcpClosedEvaluate(EvaluateFlagParams params) {
+    return doEvaluateFlag(params);
   }
 
   private LDContext buildContext(Representations.ContextBuildParams params) {

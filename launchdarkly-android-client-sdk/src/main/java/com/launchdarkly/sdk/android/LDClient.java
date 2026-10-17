@@ -795,6 +795,14 @@ public class LDClient implements LDClientInterface, Closeable {
     }
 
     @Override
+    /** CENTINEL seat face: the harness's x-cp-set-streaming arm delegates here —
+     * the manager-level streaming override drives the FDv2 mode resolution
+     * (streaming pipeline / polling pipeline / the automatic face). This is a
+     * package-visible test seam, not a public API. */
+    ConnectivityManager getConnectivityManagerForSeat() {
+        return connectivityManager;
+    }
+
     public void setOffline() {
         for (LDClient client : getInstancesIfTheyIncludeThisClient().values()) {
             client.setOfflineInternal();

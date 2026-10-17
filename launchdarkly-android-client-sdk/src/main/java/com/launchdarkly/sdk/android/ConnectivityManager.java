@@ -67,6 +67,11 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
 
     private final AtomicBoolean forcedOffline = new AtomicBoolean();
+    // CENTINEL client-lane seam (the seat's own x-cp-set-streaming face): the harness's
+    // streaming override arm drives the FDv2 mode resolution directly - state=true rides
+    // STREAMING's synchronizer, state=false POLLING, null returns the automatic
+    // resolution. Priced by the C-PY-CF-STREAM-POLICY rows' set-streaming faces.
+    private volatile Boolean streamingOverride = null;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
@@ -626,6 +631,18 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         return forcedOffline.get();
     }
 
+    /** CENTINEL seat face: the x-cp-set-streaming override arm. true forces the
+     * STREAMING mode pipeline, false forces POLLING, null resets to the automatic
+     * resolution. The current data source rebuilds only on an actual mode change
+     * (the updateDataSource mode-compare face prices the no-flip no-op). */
+    void setStreamingOverride(Boolean state) {
+        Boolean was = streamingOverride;
+        streamingOverride = state;
+        if (!java.util.Objects.equals(state, was)) {
+            handleStateChange();
+        }
+    }
+
     private void updateEventProcessor(boolean forceOffline, boolean networkAvailable, boolean foreground) {
         eventProcessor.setOffline(forceOffline || !networkAvailable || fdv2ModeOffline);
         eventProcessor.setInBackground(!foreground);
@@ -712,6 +729,12 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private ConnectionMode resolveMode(ModeState state) {
         if (forcedOffline.get()) {
             return ConnectionMode.OFFLINE;
+        }
+        Boolean overrideState = streamingOverride;
+        if (overrideState != null) {
+            // CENTINEL x-cp-set-streaming face: the override arm precedes the
+            // automatic resolution (js index.js's setStreaming law; null resets).
+            return overrideState.booleanValue() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
         }
         return modeResolutionTable.resolve(state);
     }

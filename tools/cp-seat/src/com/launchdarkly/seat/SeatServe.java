@@ -296,7 +296,10 @@ public final class SeatServe {
           return;
         }
         entity.close();
-        bus.ok(idEl, "closeClient", JsonNull.INSTANCE);
+        JsonObject closed = new JsonObject();
+        closed.addProperty("closed", true);
+        closed.addProperty("ok", true);
+        bus.ok(idEl, "closeClient", closed);
       } catch (Throwable t) {
         System.err.println("[cp-seat] closeClient failed: " + t);
         t.printStackTrace();

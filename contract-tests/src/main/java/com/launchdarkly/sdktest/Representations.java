@@ -158,6 +158,32 @@ public abstract class Representations {
         RegisterFlagChangeListenerParams registerFlagChangeListener;
         UnregisterListenerParams unregisterListener;
         ContextComparisonParams contextComparison;
+        @com.google.gson.annotations.SerializedName("x-cp-create-no-credential") XcpCreateNoCredentialParams xcpCreateNoCredential;
+        SetOverrideParams setOverride;
+        RemoveOverrideParams removeOverride;
+        @com.google.gson.annotations.SerializedName("x-cp-closed-evaluate") EvaluateFlagParams xcpClosedEvaluate;
+        @com.google.gson.annotations.SerializedName("x-cp-set-streaming") SetStreamingParams xcpSetStreaming;
+    }
+
+    /** x-cp-set-streaming arm params (cp.schema x-cp-set-streaming: `state`
+     * boolean|null — true forces streaming, false forces polling, null resets
+     * the SDK's automatic mode resolution). */
+    public static class SetStreamingParams {
+        Boolean state;
+    }
+
+    public static class SetOverrideParams {
+        String flagKey;
+        LDValue value;
+    }
+
+    public static class RemoveOverrideParams {
+        String flagKey;
+    }
+
+    /** x-cp-create-no-credential request arm (the harness's own x-cp face). */
+    public static class XcpCreateNoCredentialParams {
+        LDContext initialContext;
     }
 
     /** The context-comparison response (spec): `equals` prices the SDK's own
