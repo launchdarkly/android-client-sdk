@@ -143,9 +143,16 @@ public class HookRunner {
         for (int i = hooks.size() - 1; i >= 0; i--) {
             Hook currentHook = hooks.get(i);
             try {
-                Map<String, Object> returned = currentHook.afterEvaluation(seriesContext, accumulatedAfter, result);
+                Map<String, Object> ownSlot = seriesDataList.get(i);
+                Object ownMarker = ownSlot.get("com.launchdarkly.sdk.android.DedupingHook.suppressed");
+                Map<String, Object> incoming = accumulatedAfter;
+                if (ownMarker != null) {
+                    incoming = ownSlot;
+                }
+                Map<String, Object> returned = currentHook.afterEvaluation(seriesContext, incoming, result);
                 accumulatedAfter = Collections.unmodifiableMap(returned == null
                         ? accumulatedAfter : returned);
+                // no-op: the accumulated ride continues
             } catch (Exception e) {
                 logger.error("During evaluation of flag \"{}\". Stage \"afterEvaluation\" of hook \"{}\" reported error: {}", key, getHookName(currentHook), e.toString());
             }

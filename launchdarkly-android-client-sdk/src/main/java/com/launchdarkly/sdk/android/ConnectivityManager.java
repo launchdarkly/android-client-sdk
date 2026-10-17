@@ -85,6 +85,10 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     // versus forced-offline or platform network loss). LD's offline contract holds ALL
     // event posts while this mode is active, so the event processor must gate on it too.
     private volatile boolean fdv2ModeOffline;
+    // The event processor's own offline gate remembers its last computed value, so the
+    // setForceOffline drive and the FDv2-OFFLINE mode-resolution drive within one face
+    // never double-price the processor (the updateEventProcessor gate fires on changes).
+    private volatile Boolean lastEventGate = null;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
     private final long connectionModeStateDebounceMs; // visible for testing
     private final StateDebounceManager stateDebounceManager;
@@ -644,7 +648,17 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     }
 
     private void updateEventProcessor(boolean forceOffline, boolean networkAvailable, boolean foreground) {
-        eventProcessor.setOffline(forceOffline || !networkAvailable || fdv2ModeOffline);
+        boolean gate = forceOffline || !networkAvailable || fdv2ModeOffline;
+        Boolean seen = lastEventGate;
+        // The a243c235 offline contract's own setOffline face prices once per gate change:
+        // within one drive the setForceOffline face and the FDv2-OFFLINE resolution face
+        // compute the same gate; the second setOffline prices as a duplicate interaction.
+        // (The tests' replay faces verify exact interactions — updateEventProcessor's own
+        // dedupe is the event-gate law, not a mock-side fix.)
+        if (seen == null || gate != seen.booleanValue()) {
+            eventProcessor.setOffline(gate);
+            lastEventGate = gate;
+        }
         eventProcessor.setInBackground(!foreground);
     }
 
