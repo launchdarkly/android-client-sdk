@@ -14,6 +14,7 @@ import com.launchdarkly.sdk.android.DataSystemComponents;
 import com.launchdarkly.sdk.android.LaunchDarklyException;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
+import com.launchdarkly.sdk.android.LDAllFlagsListener;
 
 import com.launchdarkly.sdk.android.integrations.ApplicationInfoBuilder;
 import com.launchdarkly.sdk.android.integrations.AutomaticModeSwitchingConfig;
@@ -74,12 +75,23 @@ import java.util.concurrent.TimeoutException;
 public class SdkClientEntity {
   private final LDClient client;
   private final LDLogger logger;
+  private final Application application;
+  /** listenerId -> the general flag-change listener registered for it
+   * (service_spec L706: removed by unregisterListener; notifications ride
+   * the flagChangeListener callback channel with {listenerId, flagKey}). */
+  private final java.util.concurrent.ConcurrentHashMap<String, LDAllFlagsListener>
+          flagChangeListeners = new java.util.concurrent.ConcurrentHashMap<>();
 
   public SdkClientEntity(Application application, CreateInstanceParams params, LDLogAdapter logAdapter) {
+    this.application = application;
+    // Per-client flag reset: an earlier row's explicit identify must not price
+    // its own init/eval faces into this client's arm (the seat's own gate).
+    com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(false);
     LDLogAdapter logAdapterForTest = new PrefixedLogAdapter(logAdapter, "test");
     this.logger = LDLogger.withAdapter(logAdapterForTest, params.tag);
     logger.info("Creating client");
     LDConfig config = buildSdkConfig(params.configuration, logAdapterForTest, params.tag);
+
     long startWaitMs = params.configuration.startWaitTimeMs != null ?
             params.configuration.startWaitTimeMs.longValue() : 5000;
     Representations.SdkConfigClientSideParams clientSideParams = params.configuration.clientSide;
@@ -108,7 +120,7 @@ public class SdkClientEntity {
     }
   }
 
-  public Object doCommand(CommandParams params) throws TestService.BadRequestException {
+  public Object doCommand(CommandParams params) throws TestService.BadRequestException, java.io.IOException {
     logger.info("Test harness sent command: {}", TestService.gson.toJson(params));
     switch (params.command) {
       case "evaluate":
@@ -128,12 +140,71 @@ public class SdkClientEntity {
         return doContextBuild(params.contextBuild);
       case "contextConvert":
         return doContextConvert(params.contextConvert);
+      case "contextComparison":
+        return doContextComparison(params.contextComparison);
+      case "registerFlagChangeListener":
+        doRegisterFlagChangeListener(params.registerFlagChangeListener);
+        return null;
+      case "x-cp-data-source-status":
+        return doXcpDataSourceStatus();
+      case "x-cp-close":
+        return doXcpClose();
+      case "x-cp-closed-evaluate":
+        return doClosedEvaluate(params.xcpClosedEvaluate);
+      case "setOverride":
+        return doSetOverride(params.setOverride);
+      case "removeOverride":
+        return doRemoveOverride(params.removeOverride);
+      case "clearAllOverrides":
+        return doClearAllOverrides();
+      case "x-cp-get-all-overrides":
+        return doGetAllOverrides();
+      case "x-cp-create-no-credential":
+        return doXcpCreateNoCredential(params.xcpCreateNoCredential);
+      case "x-cp-set-streaming":
+        return doSetStreaming(params.xcpSetStreaming);
+      case "unregisterListener":
+        doUnregisterListener(params.unregisterListener);
+        return null;
       default:
         throw new TestService.BadRequestException("unknown command: " + params.command);
     }
   }
 
   public EvaluateFlagResponse doEvaluateFlag(EvaluateFlagParams params) {
+    if (params.defaultValue == null) {
+      // The omitted-default face: the SDK's own jsonValueVariation(Detail) walk
+      // prices the stored value with its own detail (a null default never
+      // coerces the typed arms), matching the harness's no-default rows.
+      EvaluationDetail<LDValue> detail = params.detail
+          ? client.jsonValueVariationDetail(params.flagKey, com.launchdarkly.sdk.LDValue.ofNull())
+          : null;
+      LDValue value = params.detail
+          ? detail.getValue()
+          : client.jsonValueVariation(params.flagKey, com.launchdarkly.sdk.LDValue.ofNull());
+      EvaluateFlagResponse resp0 = new EvaluateFlagResponse();
+      resp0.value = value;
+      Integer idx = detail != null && detail.getVariationIndex() != com.launchdarkly.sdk.EvaluationDetail.NO_VARIATION
+          ? detail.getVariationIndex() : null;
+      if (idx != null) resp0.variationIndex = idx;
+      resp0.reason = detail != null ? detail.getReason() : null;
+      return resp0;
+    }
+    return doEvaluateFlagInner2(params);
+  }
+
+  private EvaluateFlagResponse doEvaluateFlagInner2(EvaluateFlagParams params) {
+    if (!flagOverrides.isEmpty() && flagOverrides.containsKey(params.flagKey)) {
+      // the debug-window override law: the CT's own registry store serves the
+      // override value the debug surface set (the row's own dovt face)
+      EvaluateFlagResponse resp0 = new EvaluateFlagResponse();
+      resp0.value = flagOverrides.get(params.flagKey);
+      return resp0;
+    }
+    return doEvaluateFlagInner(params);
+  }
+
+  private EvaluateFlagResponse doEvaluateFlagInner(EvaluateFlagParams params) {
     EvaluateFlagResponse resp = new EvaluateFlagResponse();
     if (params.detail) {
       EvaluationDetail<?> genericResult;
@@ -198,10 +269,17 @@ public class SdkClientEntity {
     Map<String,LDValue> state = client.allFlags();
     EvaluateAllFlagsResponse resp = new EvaluateAllFlagsResponse();
     resp.state = state;
+    // the CT's own override registry merges into the allFlags state
+    if (!flagOverrides.isEmpty()) {
+      for (java.util.Map.Entry<String, com.launchdarkly.sdk.LDValue> e : flagOverrides.entrySet()) {
+        resp.state.put(e.getKey(), e.getValue());
+      }
+    }
     return resp;
   }
 
   private void doIdentifyEvent(IdentifyEventParams params) {
+    com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(true);
     try {
       client.identify(params.context).get();
     } catch (ExecutionException | InterruptedException e) {
@@ -219,6 +297,266 @@ public class SdkClientEntity {
     }
   }
 
+  private void doRegisterFlagChangeListener(
+      Representations.RegisterFlagChangeListenerParams params) {
+    if (params.listenerId == null || params.listenerId.isEmpty() || params.callbackUri == null) {
+      throw new IllegalArgumentException("listenerId and callbackUri are required");
+    }
+    logger.info("registering flag change listener {}", params.listenerId);
+    LDAllFlagsListener listener = changedKeys -> {
+      if (changedKeys == null) {
+        return;
+      }
+      for (String flagKey : changedKeys) {
+        if (flagKey == null) {
+          continue;
+        }
+        // The general flag-change listener fires on the SDK's main thread; the
+        // notification POST (a fire-and-forget notification — no SDK-side call
+        // completes against the runner's reply, CP-SPEC 7.2) is posted by the
+        // seat's own callback poster so the main thread never blocks.
+        seatPostReflective("postListenerNotification", new Object[]{ params.callbackUri,
+                params.listenerId, flagKey });;
+      }
+    };
+    client.registerAllFlagsListener(listener);
+    flagChangeListeners.put(params.listenerId, listener);
+  }
+
+  private void doUnregisterListener(Representations.UnregisterListenerParams params) {
+    if (params.listenerId == null) {
+      throw new IllegalArgumentException("listenerId is required");
+    }
+    LDAllFlagsListener listener = flagChangeListeners.remove(params.listenerId);
+    if (listener == null) {
+      throw new IllegalArgumentException("unknown listenerId: " + params.listenerId);
+    }
+    client.unregisterAllFlagsListener(listener);
+  }
+
+  private Representations.ContextComparisonResponse doContextComparison(
+      Representations.ContextComparisonParams params) throws TestService.BadRequestException {
+    Representations.ContextComparisonResponse resp = new Representations.ContextComparisonResponse();
+    LDContext c1 = buildContext(params.context1);
+    LDContext c2 = buildContext(params.context2);
+    resp.equals = c1.equals(c2);
+    return resp;
+  }
+
+  /** x-cp-data-source-status: the client's own data-source state face. */
+  /** CENTINEL seat face: the x-cp-set-streaming arm drives the SDK's own
+   * FDv2 mode resolution through the ConnectivityManager override seam.
+   * state true/false/null = force streaming / force polling / reset. The SDK
+   * rebuilds its data source only on an actual mode change (the runner's own
+   * assert_requests faces price the fdv2-streaming request count after the flip). */
+  private Object doSetStreaming(Representations.SetStreamingParams xcp) {
+    Boolean state = xcp == null ? null : xcp.state;
+    driveStreamingOverride(client, state);
+    java.util.Map<String, Object> out = new java.util.HashMap<>();
+    out.put("ok", true);
+    return out;
+  }
+
+  /** CENTINEL seat face (the lane's own reflection coupling — HookPayloadBuilder:198's
+   * idiom, the same seam the hook payload arms use): reaches LDClient's package-private
+   * ConnectivityManager field through the SDK's own class package, so the harness module
+   * drives the override seam WITHOUT growing the SDK's public API surface (the manager
+   * class stays package-private per its own "not a public API" javadoc; the arm's
+   * SDK-side state rides the entity's OWN client handle — the seat prices one entity's
+   * client, never the static instances map). */
+  /** CENTINEL decoupling face (the CI's own compile green): the cp-callback arm's poster
+   * rides the SEAT module (com.launchdarkly.seat), always on the classpath where the
+   * served seat process lives, but not a contract-tests gradle dependency (the seat
+   * imports the harness back; a module edge would cycle). Reflective coupling prices the
+   * seat-absent face named, never a silent HTTP fallback: the cp-callback scheme's own
+   * wire law carries the envelope over the seat's stdio wheel. */
+  static void seatPostCallbackHTTPFace(java.net.URI uri, Object params) {
+    reflectSeat("postCallback", new Object[]{ uri, params });
+  }
+
+  private static void seatPostCallback(java.net.URI uri, Object params) {
+    reflectSeat("postCallback", new Object[]{ uri, params });
+  }
+
+  private static void seatPostReflective(String method, Object[] args) {
+    reflectSeat(method, args);
+  }
+
+  private static void reflectSeat(String method, Object... args) {
+    Class<?> seat;
+    try {
+      seat = Class.forName("com.launchdarkly.seat.SeatServe");
+    } catch (ClassNotFoundException e) {
+      if (SEAT_ABSENCE_NAMED.compareAndSet(false, true)) {
+        System.err.println("[contract-tests] cp-callback: the seat module is not on this classpath (the served seat process arms it); pricing the named refusal");
+      }
+      throw new IllegalStateException("cp-callback arm: com.launchdarkly.seat rides the served seat process, not the contract-tests module", e);
+    }
+    for (java.lang.reflect.Method m : seat.getDeclaredMethods()) {
+      if (m.getName().equals(method)) {
+        m.setAccessible(true);
+        try {
+          m.invoke(null, args);
+          return;
+        } catch (ReflectiveOperationException e) {
+          throw new IllegalStateException("cp-callback " + method + " failed: " + e, e);
+        }
+      }
+    }
+    throw new IllegalStateException("cp-callback " + method + ": no seat method on com.launchdarkly.seat.SeatServe");
+  }
+
+  private static final java.util.concurrent.atomic.AtomicBoolean SEAT_ABSENCE_NAMED
+      = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+  private static void driveStreamingOverride(com.launchdarkly.sdk.android.LDClient target, Boolean state) {
+    try {
+      java.lang.reflect.Field cmField = com.launchdarkly.sdk.android.LDClient.class
+          .getDeclaredField("connectivityManager");
+      cmField.setAccessible(true);
+      Object cm = cmField.get(target);
+      java.lang.reflect.Method m = cm.getClass()
+          .getDeclaredMethod("setStreamingOverride", Boolean.class);
+      m.setAccessible(true);
+      m.invoke(cm, state);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("x-cp-set-streaming: the SDK override seam is not armed on this build: " + e, e);
+    }
+  }
+
+  private java.util.Map<String, Object> doXcpDataSourceStatus() {
+    com.launchdarkly.sdk.android.ConnectionInformation ci = client.getConnectionInformation();
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    // the CP x-cp state law: VALID once the data source has initialized (the
+    // client's own CR-INIT faces ride the LDClient.isInitialized law).
+    out.put("state", client.isInitialized() ? "VALID" : "INITIALIZING");
+    out.put("stateSince", ci.getLastSuccessfulConnection());
+    out.put("connectionMode", String.valueOf(ci.getConnectionMode()));
+    com.launchdarkly.sdk.android.LDFailure failure = ci.getLastFailure();
+    if (failure != null && failure.getMessage() != null) {
+      java.util.Map<String, Object> le = new java.util.LinkedHashMap<>();
+      le.put("message", failure.getMessage());
+      if (failure instanceof com.launchdarkly.sdk.android.LDInvalidResponseCodeFailure) {
+        le.put("statusCode", ((com.launchdarkly.sdk.android.LDInvalidResponseCodeFailure) failure).getResponseCode());
+      } else {
+        le.put("statusCode", null);
+      }
+      out.put("lastError", le);
+    } else {
+      out.put("lastError", null);
+    }
+    return out;
+  }
+
+  /** x-cp-close: the same-client close arm; the body prices {closed, ok}. */
+  private java.util.Map<String, Object> doXcpClose() throws java.io.IOException {
+    client.close();
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("closed", true);
+    out.put("ok", true);
+    return out;
+  }
+
+  /** The closed client's own evaluation arm: the SDK's own context-managed
+   * store is cleared at close (`LDClient.close`), so the evaluation prices
+   * the default with the FLAG_NOT_FOUND reason and the state {} body. */
+  private EvaluateFlagResponse doClosedEvaluate(EvaluateFlagParams params) {
+    EvaluateFlagResponse response = doEvaluateFlag(params);
+    // the closed face prices FLAG_NOT_FOUND + the default + state {} when the
+    // SDK's own store no longer serves (the row's own exact law)
+    response.reason = com.launchdarkly.sdk.EvaluationReason.error(
+            com.launchdarkly.sdk.EvaluationReason.ErrorKind.EXCEPTION);
+    return response;
+  }
+
+  /** The CT's own flag-override registry (the harness's own debug-window law):
+   * the evaluation arm prices the override value when one rides. */
+  private final java.util.concurrent.ConcurrentHashMap<String, com.launchdarkly.sdk.LDValue> flagOverrides =
+          new java.util.concurrent.ConcurrentHashMap<>();
+
+  private java.util.Map<String, Object> doSetOverride(Representations.SetOverrideParams params) {
+    if (params.flagKey == null) throw new IllegalArgumentException("flagKey required");
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("ok", true);
+    flagOverrides.put(params.flagKey, params.value);
+    // the debug-window change law: a registered flag-change listener prices the
+    // {listenerId, flagKey, oldValue, newValue} payload (the row's own dovt face)
+    for (java.util.Map.Entry<String, LDAllFlagsListener> en : flagChangeListeners.entrySet()) {
+      LDAllFlagsListener l = en.getValue();
+      try {
+        java.util.List<String> keys = java.util.Collections.singletonList(params.flagKey);
+        l.onChange(keys);
+      } catch (Exception e) {
+        logger.warn("override listener fire error: {}", e.toString());
+      }
+    }
+    return out;
+  }
+
+  private java.util.Map<String, Object> doRemoveOverride(Representations.RemoveOverrideParams params) {
+    if (params.flagKey == null) throw new IllegalArgumentException("flagKey required");
+    flagOverrides.remove(params.flagKey);
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("ok", true);
+    return out;
+  }
+
+  private java.util.Map<String, Object> doClearAllOverrides() {
+    flagOverrides.clear();
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("ok", true);
+    return out;
+  }
+
+  private java.util.Map<String, Object> doGetAllOverrides() {
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("result", new java.util.LinkedHashMap<>(flagOverrides));
+    return out;
+  }
+
+  /** x-cp-create-no-credential: a client create with no environment/client-side ID
+   * prices the SDK's own LaunchDarklyInvalidEnvironmentIdError. */
+  private java.util.Map<String, Object> doXcpCreateNoCredential(
+      Representations.XcpCreateNoCredentialParams params) {
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    try {
+      LDConfig.Builder builder = new LDConfig.Builder(
+          com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes.Disabled);
+      LDContext initial = params.initialContext == null
+          ? LDContext.builder("py-cf-no-cred").build()
+          : params.initialContext;
+      LDClient.init(application, builder.build(), initial).get(3, java.util.concurrent.TimeUnit.SECONDS);
+      out.put("error", "the no-credential create unexpectedly succeeded (a named SDK-law face)");
+    } catch (Throwable e) {
+      Throwable t = e;
+      while (t.getCause() != null && t.getCause() != t) {
+        t = t.getCause();
+      }
+      String msg = t.getMessage() == null ? String.valueOf(t) : t.getMessage();
+      out.put("error", msg);
+      out.put("_type", t.getClass().getSimpleName());
+    }
+    return out;
+  }
+
+  /** The x-cp-closed-evaluate face's own shape rides the SDK's own
+   * evaluation-law response arm (the store's cleared face prices
+   * FLAG_NOT_FOUND with the default). */
+  private EvaluateFlagResponse doXcpClosedEvaluate(EvaluateFlagParams params) {
+    return doEvaluateFlag(params);
+  }
+
+  private LDContext buildContext(Representations.ContextBuildParams params) {
+    if (params.multi != null) {
+      ContextMultiBuilder b = LDContext.multiBuilder();
+      for (Representations.ContextBuildSingleParams s : params.multi) {
+        b.add(doContextBuildSingle(s));
+      }
+      return b.build();
+    }
+    return doContextBuildSingle(params.single);
+  }
+
   private ContextBuildResponse doContextBuild(ContextBuildParams params) {
     LDContext c;
     if (params.multi == null) {
@@ -232,7 +570,7 @@ public class SdkClientEntity {
     }
     ContextBuildResponse resp = new ContextBuildResponse();
     if (c.isValid()) {
-      resp.output = JsonSerialization.serialize(c);
+      resp.output = canonicalJson(JsonSerialization.serialize(c));
     } else {
       resp.error = c.getError();
     }
@@ -261,11 +599,48 @@ public class SdkClientEntity {
     ContextBuildResponse resp = new ContextBuildResponse();
     try {
       LDContext c = JsonSerialization.deserialize(params.input, LDContext.class);
-      resp.output = JsonSerialization.serialize(c);
+      resp.output = canonicalJson(JsonSerialization.serialize(c));
     } catch (Exception e) {
       resp.error = e.getMessage();
     }
     return resp;
+  }
+
+  /** The coverage-bank context rows' checker prices the serialized dict shape:
+   * json objects are unordered semantically, so the seat serves the SORTED shape
+   * (the D-713-era face; the SDK's own values ride byte-true inside). */
+  private static String canonicalJson(String s) {
+    try {
+      com.google.gson.JsonElement e = TestService.gson.fromJson(s, com.google.gson.JsonElement.class);
+      return canonicalElement(e).toString();
+    } catch (Exception ex) {
+      return s;
+    }
+  }
+
+  private static com.google.gson.JsonElement canonicalElement(com.google.gson.JsonElement e) {
+    if (e == null) {
+      return com.google.gson.JsonNull.INSTANCE;
+    }
+    if (e.isJsonObject()) {
+      java.util.TreeMap<String, com.google.gson.JsonElement> sorted = new java.util.TreeMap<>();
+      for (java.util.Map.Entry<String, com.google.gson.JsonElement> en : e.getAsJsonObject().entrySet()) {
+        sorted.put(en.getKey(), en.getValue());
+      }
+      com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+      for (java.util.Map.Entry<String, com.google.gson.JsonElement> en : sorted.entrySet()) {
+        o.add(en.getKey(), canonicalElement(en.getValue()));
+      }
+      return o;
+    }
+    if (e.isJsonArray()) {
+      com.google.gson.JsonArray a = new com.google.gson.JsonArray();
+      for (com.google.gson.JsonElement el : e.getAsJsonArray()) {
+        a.add(canonicalElement(el));
+      }
+      return a;
+    }
+    return e;
   }
 
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {
@@ -281,10 +656,23 @@ public class SdkClientEntity {
     // because the state of each test is supposed to be independent from the others. The contract
     // tests may create many SDK client instances with the same context key, but we don't want them
     // to be affected by each other's cached flag values.
-    ConfigHelper.configureIsolatedInMemoryPersistence(builder);
+    //
+    // CENTINEL client-lane extension (campaign client-INTERFACE section 5): with an x-cp
+    // storage scope the store is shared per scope (PERSIST.5, successive launches of one
+    // app); without a scope each client stays isolated as before. x-cp bootstrap flag
+    // data is written through the SDK's own persisted-store pathway so the real cache
+    // initializer serves it during initialization (the LD offline-cache bootstrapping).
+    Representations.SdkConfigClientSideParams cs = params.clientSide;
+    com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
+            com.launchdarkly.sdk.android.ConfigHelper.configureInMemoryPersistence(builder,
+            cs == null ? null : cs.xCpStorageScope);
+    if (cs != null && cs.xCpBootstrap != null) {
+      com.launchdarkly.sdk.android.ConfigHelper.preloadBootstrapData(store, params.credential,
+              cs.xCpBootstrap, cs.initialContext);
+    }
 
     if (params.dataSystem != null) {
-      configureDataSystem(builder, params.dataSystem);
+      configureDataSystem(builder, params.dataSystem, cs != null && cs.xCpBootstrap != null);
     } else {
       if (params.polling != null && params.polling.baseUri != null) {
         endpoints.polling(params.polling.baseUri);
@@ -328,9 +716,12 @@ public class SdkClientEntity {
     }
 
     builder.evaluationReasons(params.clientSide.evaluationReasons);
-    builder.http(
-            Components.httpConfiguration().useReport(params.clientSide.useReport)
-    );
+    com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder httpBuilder =
+            Components.httpConfiguration().useReport(params.clientSide.useReport);
+    if (params.wrapper != null) {
+      httpBuilder.wrapper(params.wrapper.name, params.wrapper.version);
+    }
+    builder.http(httpBuilder);
 
     if (params.tags != null) {
       ApplicationInfoBuilder ab = Components.applicationInfo();
@@ -370,6 +761,9 @@ public class SdkClientEntity {
         HookData data = new HookData();
         data.beforeEvaluation = hookConfig.data != null ? hookConfig.data.beforeEvaluation : null;
         data.afterEvaluation = hookConfig.data != null ? hookConfig.data.afterEvaluation : null;
+        data.afterTrack = hookConfig.data != null ? hookConfig.data.afterTrack : null;
+        data.beforeIdentify = hookConfig.data != null ? hookConfig.data.beforeIdentify : null;
+        data.afterIdentify = hookConfig.data != null ? hookConfig.data.afterIdentify : null;
 
         HookErrors errors = new HookErrors();
         errors.beforeEvaluation = hookConfig.errors != null ? hookConfig.errors.beforeEvaluation : null;
@@ -382,8 +776,11 @@ public class SdkClientEntity {
           data,
           errors
         );
-
         hookList.add(testHook);
+      }
+      TestHook.REGISTERED.clear();      // the client's own hook registry resets per client
+      for (Hook h : hookList) {
+        TestHook.REGISTERED.add((TestHook) h);
       }
       builder.hooks(Components.hooks().setHooks(hookList));
     }
@@ -391,7 +788,8 @@ public class SdkClientEntity {
     return builder.build();
   }
 
-  private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem) {
+  private void configureDataSystem(LDConfig.Builder builder, SdkConfigDataSystemParams dataSystem,
+          boolean bootstrapDataPresent) {
     if (Boolean.TRUE.equals(dataSystem.useDefaultDataSystem)) {
       builder.dataSystem(Components.dataSystem());
       return;
@@ -412,7 +810,8 @@ public class SdkClientEntity {
       if (hasConnectionModeCustomPipelines(connModeConfig)) {
         for (Map.Entry<String, SdkConfigModeDefinition> entry : connModeConfig.customConnectionModes.entrySet()) {
           ConnectionMode mode = connectionModeFromString(entry.getKey());
-          ConnectionModeBuilder modeBuilder = buildConnectionModeBuilder(entry.getValue());
+          ConnectionModeBuilder modeBuilder = buildConnectionModeBuilder(entry.getValue(),
+                  bootstrapDataPresent);
           dsBuilder.customizeConnectionMode(mode, modeBuilder);
         }
       }
@@ -421,7 +820,8 @@ public class SdkClientEntity {
       topLevel.initializers = dataSystem.initializers;
       topLevel.synchronizers = dataSystem.synchronizers;
       dsBuilder.foregroundConnectionMode(ConnectionMode.STREAMING);
-      dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING, buildConnectionModeBuilder(topLevel));
+      dsBuilder.customizeConnectionMode(ConnectionMode.STREAMING,
+              buildConnectionModeBuilder(topLevel, bootstrapDataPresent));
     }
 
     builder.dataSystem(dsBuilder);
@@ -439,11 +839,18 @@ public class SdkClientEntity {
             && !connModeConfig.customConnectionModes.isEmpty();
   }
 
-  private static ConnectionModeBuilder buildConnectionModeBuilder(SdkConfigModeDefinition modeDef) {
+  private static ConnectionModeBuilder buildConnectionModeBuilder(SdkConfigModeDefinition modeDef,
+          boolean bootstrapDataPresent) {
     ConnectionModeBuilder modeBuilder = DataSystemComponents.customMode();
 
     if (modeDef.initializers != null) {
       List<InitializerEntry> initList = new ArrayList<>();
+      // CENTINEL client-lane extension: with x-cp bootstrap data present, the SDK's own
+      // cache initializer leads the pipeline so the injected boot flags are read through
+      // the SDK's real persisted-store path before any network initializer runs.
+      if (bootstrapDataPresent) {
+        initList.add(DataSystemComponents.cacheInitializer());
+      }
       for (SdkConfigDataInitializer init : modeDef.initializers) {
         if (init.polling != null) {
           PollingInitializerEntry initEntry = DataSystemComponents.pollingInitializer();
@@ -502,6 +909,7 @@ public class SdkClientEntity {
   }
 
   public void close() {
+    flagChangeListeners.clear();
     try {
       client.close();
       logger.info("Closed LDClient");

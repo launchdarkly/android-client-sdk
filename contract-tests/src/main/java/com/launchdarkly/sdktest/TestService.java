@@ -143,6 +143,10 @@ public class TestService extends NanoHTTPD {
                     Response.Status.ACCEPTED,
                     MIME_JSON,
                     resp != null ? gson.toJson(resp) : null);
+        } catch (java.io.IOException e) {
+            return newFixedLengthResponse(
+                    Response.Status.INTERNAL_ERROR,
+                    NanoHTTPD.MIME_PLAINTEXT, String.valueOf(e.getMessage() == null ? e : e.getMessage()) + "\n");
         } catch (BadRequestException e) {
             return newFixedLengthResponse(
                     Response.Status.BAD_REQUEST,
