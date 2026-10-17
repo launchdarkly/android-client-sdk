@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -22,17 +23,37 @@ import java.util.concurrent.atomic.AtomicLong;
 
 abstract class EventUtil {
     static ScheduledExecutorService makeEventsTaskExecutor() {
-        return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+        return Executors.newSingleThreadScheduledExecutor(
+                makeThreadFactory("LaunchDarkly-DefaultEventProcessor-%d"));
+    }
+
+    /**
+     * A thread of its own for posting diagnostic events, kept apart from the one that delivers
+     * analytics events.
+     * <p>
+     * A diagnostic post is an HTTP request like any other and can hold its thread for tens of seconds
+     * against a network that accepts connections and never answers. Sharing a thread with analytics
+     * delivery would let that stall the flushes, and an event buffer that is not being drained fills
+     * up and starts dropping what the application asked to send. This mirrors the separation
+     * {@code DefaultEventProcessor} has, where analytics go out on dedicated delivery workers and
+     * diagnostics on the shared executor.
+     */
+    static ExecutorService makeDiagnosticsTaskExecutor() {
+        return Executors.newSingleThreadExecutor(
+                makeThreadFactory("LaunchDarkly-DiagnosticEventPoster-%d"));
+    }
+
+    private static ThreadFactory makeThreadFactory(String nameFormat) {
+        return new ThreadFactory() {
             final AtomicLong count = new AtomicLong(0);
             @Override
             public Thread newThread(@NonNull Runnable r) {
                 Thread thread = Executors.defaultThreadFactory().newThread(r);
-                thread.setName(String.format(Locale.ROOT, "LaunchDarkly-DefaultEventProcessor-%d",
-                        count.getAndIncrement()));
+                thread.setName(String.format(Locale.ROOT, nameFormat, count.getAndIncrement()));
                 thread.setDaemon(true);
                 return thread;
             }
-        });
+        };
     }
 
     static DiagnosticStore.SdkDiagnosticParams makeDiagnosticParams(ClientContext clientContext) {
