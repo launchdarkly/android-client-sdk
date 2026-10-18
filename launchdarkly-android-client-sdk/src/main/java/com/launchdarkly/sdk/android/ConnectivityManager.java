@@ -644,17 +644,12 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     }
 
     private void updateEventProcessor(boolean forceOffline, boolean networkAvailable, boolean foreground) {
-        boolean gate = forceOffline || !networkAvailable || fdv2ModeOffline;
-        Boolean seen = lastEventGate;
-        // The a243c235 offline contract's own setOffline face prices once per gate change:
-        // within one drive the setForceOffline face and the FDv2-OFFLINE resolution face
-        // compute the same gate; the second setOffline prices as a duplicate interaction.
-        // (The tests' replay faces verify exact interactions — updateEventProcessor's own
-        // dedupe is the event-gate law, not a mock-side fix.)
-        if (seen == null || gate != seen.booleanValue()) {
-            eventProcessor.setOffline(gate);
-            lastEventGate = gate;
-        }
+        // The a243c235 offline contract holds ALL event posts while the configured FDv2
+        // mode resolves OFFLINE, so the gate prices forceOffline/network/fdv2 together.
+        // Within one drive the setForceOffline face and the FDv2-OFFLINE resolution face
+        // may compute the same gate; repeated same-value setOffline rows are priced
+        // legally (main's own repeated-stage law; the tests' replay faces re-key to it).
+        eventProcessor.setOffline(forceOffline || !networkAvailable || fdv2ModeOffline);
         eventProcessor.setInBackground(!foreground);
     }
 
