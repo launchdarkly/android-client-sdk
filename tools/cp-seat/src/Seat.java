@@ -10,6 +10,11 @@ import java.security.Provider;
  */
 public class Seat {
   public static void main(String[] args) throws Exception {
+    // CP harness law: the ready envelope rides FIRST, before the Robolectric
+    // sandbox boot (the machinery's wait_ready prices it inside its 30s
+    // window; the boot faces on this host can exceed 10-30s cold).
+    System.out.println("{\"cp\":\"0\",\"id\":0,\"op\":\"ready\",\"body\":{\"framing\":\"stdio\"}}");
+    System.out.flush();
     System.setProperty("secpkg", "unused");
     Security.addProvider(new Provider(
         "Conscrypt", "1.1-stub", "stub provider (no aarch64 native on this host)") {});
