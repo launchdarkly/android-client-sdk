@@ -158,11 +158,11 @@ public final class DedupingHook extends HookDecorator {
     @Override
     public Map<String, Object> afterEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData,
                                                EvaluationDetail<LDValue> evaluationDetail) {
-        if (seriesData != null && seriesData.containsKey(SUPPRESSED)) {
-            // Own marker: the wrapper suppressed this series itself (the before stage
-            // declined), so its after stays silent. An upstream marker: the series was
-            // suppressed before this wrapper saw it — its own stages must stay silent and
-            // the marker rides the chain unchanged for the upstream instance's own check.
+        // Only THIS instance's own before-stage marker keeps its after silent. A
+        // shared-window sibling's or an upstream wrapper's marker rides the chain
+        // map this stage receives; suppressing on it would swallow the wrapped
+        // hook's own after stage (the shared and nested deduper faces).
+        if (seriesData != null && seriesData.get(SUPPRESSED) == this) {
             return seriesData;
         }
         return super.afterEvaluation(seriesContext, seriesData, evaluationDetail);
