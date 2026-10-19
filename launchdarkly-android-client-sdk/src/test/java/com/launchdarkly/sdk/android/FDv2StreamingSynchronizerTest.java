@@ -1245,7 +1245,7 @@ public class FDv2StreamingSynchronizerTest {
             FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
 
             assertTrue(result.isFdv1Fallback());
-            assertEquals(120, result.getFdv1FallbackTtlSeconds());
+            assertEquals(120, result.getFdv1Fallback().getSeconds());
 
             sync.close();
         }
@@ -1265,7 +1265,7 @@ public class FDv2StreamingSynchronizerTest {
 
             assertEquals(SourceSignal.GOODBYE, result.getStatus().getState());
             assertTrue(result.isFdv1Fallback());
-            assertEquals(90, result.getFdv1FallbackTtlSeconds());
+            assertEquals(90, result.getFdv1Fallback().getSeconds());
 
             sync.close();
         }

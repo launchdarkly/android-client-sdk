@@ -453,7 +453,7 @@ public class DefaultFDv2RequestorTest {
             try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
                 FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
                 assertTrue(response.isFdv1Fallback());
-                assertEquals(120, response.getFdv1FallbackTtlSeconds());
+                assertEquals(120, response.getFdv1Fallback().getSeconds());
             }
         }
     }
@@ -467,7 +467,8 @@ public class DefaultFDv2RequestorTest {
             try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
                 FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
                 assertTrue(response.isFdv1Fallback());
-                assertEquals(0, response.getFdv1FallbackTtlSeconds());
+                long seconds = response.getFdv1Fallback().getSeconds();
+                assertTrue(seconds >= 1800 && seconds <= 3600);
             }
         }
     }

@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.DataModel;
+import com.launchdarkly.sdk.android.FDv1FallbackTTL;
 import com.launchdarkly.sdk.fdv2.ChangeSet;
 import com.launchdarkly.sdk.fdv2.SourceResultType;
 import com.launchdarkly.sdk.fdv2.SourceSignal;
@@ -74,63 +75,61 @@ public final class FDv2SourceResult {
     private final ChangeSet<Map<String, DataModel.Flag>> changeSet;
     @Nullable
     private final Status status;
-    private final boolean fdv1Fallback;
-    private final long fdv1FallbackTtlSeconds;
+    @Nullable
+    private final FDv1FallbackTTL fdv1Fallback;
 
     private FDv2SourceResult(@NonNull SourceResultType resultType,
                              @Nullable ChangeSet<Map<String, DataModel.Flag>> changeSet,
                              @Nullable Status status,
-                             boolean fdv1Fallback,
-                             long fdv1FallbackTtlSeconds) {
+                             @Nullable FDv1FallbackTTL fdv1Fallback) {
         this.resultType = resultType;
         this.changeSet = changeSet;
         this.status = status;
         this.fdv1Fallback = fdv1Fallback;
-        this.fdv1FallbackTtlSeconds = fdv1FallbackTtlSeconds;
     }
 
+    /**
+     * Creates a change set result. If {@code fdv1Fallback} is true, the fallback uses
+     * {@link FDv1FallbackTTL#defaultTTL()}.
+     */
     @NonNull
     public static FDv2SourceResult changeSet(@NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet, boolean fdv1Fallback) {
-        return changeSet(changeSet, fdv1Fallback, 0);
+        return changeSet(changeSet, fdv1Fallback ? FDv1FallbackTTL.defaultTTL() : null);
     }
 
     /**
      * Creates a change set result.
      *
-     * @param changeSet              the change set
-     * @param fdv1Fallback           true if the server directed the SDK to fall back to FDv1
-     * @param fdv1FallbackTtlSeconds the fallback TTL supplied by the server, in seconds, or 0 if
-     *                               none was supplied
+     * @param changeSet    the change set
+     * @param fdv1Fallback the TTL of the server's FDv1 fallback directive, or null if there is none
      * @return the result
      */
     @NonNull
     public static FDv2SourceResult changeSet(
             @NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet,
-            boolean fdv1Fallback,
-            long fdv1FallbackTtlSeconds) {
-        return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null, fdv1Fallback, fdv1FallbackTtlSeconds);
+            @Nullable FDv1FallbackTTL fdv1Fallback) {
+        return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null, fdv1Fallback);
     }
 
+    /**
+     * Creates a status result. If {@code fdv1Fallback} is true, the fallback uses
+     * {@link FDv1FallbackTTL#defaultTTL()}.
+     */
     @NonNull
     public static FDv2SourceResult status(@NonNull Status status, boolean fdv1Fallback) {
-        return status(status, fdv1Fallback, 0);
+        return status(status, fdv1Fallback ? FDv1FallbackTTL.defaultTTL() : null);
     }
 
     /**
      * Creates a status result.
      *
-     * @param status                 the status
-     * @param fdv1Fallback           true if the server directed the SDK to fall back to FDv1
-     * @param fdv1FallbackTtlSeconds the fallback TTL supplied by the server, in seconds, or 0 if
-     *                               none was supplied
+     * @param status       the status
+     * @param fdv1Fallback the TTL of the server's FDv1 fallback directive, or null if there is none
      * @return the result
      */
     @NonNull
-    public static FDv2SourceResult status(
-            @NonNull Status status,
-            boolean fdv1Fallback,
-            long fdv1FallbackTtlSeconds) {
-        return new FDv2SourceResult(SourceResultType.STATUS, null, status, fdv1Fallback, fdv1FallbackTtlSeconds);
+    public static FDv2SourceResult status(@NonNull Status status, @Nullable FDv1FallbackTTL fdv1Fallback) {
+        return new FDv2SourceResult(SourceResultType.STATUS, null, status, fdv1Fallback);
     }
 
     @NonNull
@@ -153,15 +152,15 @@ public final class FDv2SourceResult {
      * via the {@code x-ld-fd-fallback} response header or a goodbye event.
      */
     public boolean isFdv1Fallback() {
-        return fdv1Fallback;
+        return fdv1Fallback != null;
     }
 
     /**
-     * The fallback TTL supplied by the server, in seconds, via the {@code x-ld-fd-fallback-ttl}
-     * response header or a goodbye event's {@code protocolFallbackTTL}. This is the raw value; 0
-     * means none was supplied. It is only meaningful when {@link #isFdv1Fallback()} is true.
+     * The TTL of the server's FDv1 fallback directive, or null if {@link #isFdv1Fallback()} is
+     * false.
      */
-    public long getFdv1FallbackTtlSeconds() {
-        return fdv1FallbackTtlSeconds;
+    @Nullable
+    public FDv1FallbackTTL getFdv1Fallback() {
+        return fdv1Fallback;
     }
 }

@@ -482,7 +482,7 @@ final class FDv2DataSource implements DataSource {
      * FDv2 when the directive's TTL elapses. The fallback is never indefinite.
      */
     private void fallBackToFdv1(@NonNull FDv2SourceResult result) {
-        long ttlSeconds = FDv1FallbackTtl.resolveSeconds(result.getFdv1FallbackTtlSeconds());
+        long ttlSeconds = result.getFdv1Fallback().getSeconds();
         logger.info(FDV1_FALLBACK_MESSAGE, ttlSeconds);
         scheduleFdv2Recovery(ttlSeconds);
         sourceManager.fdv1Fallback();
@@ -708,7 +708,7 @@ final class FDv2DataSource implements DataSource {
                                 if (sourceManager.isCurrentSynchronizerFDv1Fallback()) {
                                     // Already on FDv1: a newer directive only replaces the TTL.
                                     scheduleFdv2Recovery(
-                                            FDv1FallbackTtl.resolveSeconds(result.getFdv1FallbackTtlSeconds()));
+                                            result.getFdv1Fallback().getSeconds());
                                 } else {
                                     fallBackToFdv1(result);
                                     running = false;
