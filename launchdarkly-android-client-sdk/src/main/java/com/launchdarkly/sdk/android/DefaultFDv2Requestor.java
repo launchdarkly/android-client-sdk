@@ -187,7 +187,9 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             @NonNull LDAwaitFuture<FDv2PayloadResponse> future) {
         try {
             int code = response.code();
-            boolean fdv1Fallback = isFdv1Fallback(response);
+            FDv1FallbackTTL fdv1Fallback = isFdv1Fallback(response)
+                    ? FDv1FallbackTTL.fromHeader(response.header(HeaderConstants.FDV1_FALLBACK_TTL_HEADER))
+                    : null;
 
             if (code == 304) {
                 logger.debug("FDv2 polling: 304 Not Modified");

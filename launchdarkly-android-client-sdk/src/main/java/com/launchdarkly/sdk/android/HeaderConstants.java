@@ -5,4 +5,5 @@ package com.launchdarkly.sdk.android;
  */
 abstract class HeaderConstants {
     static final String FDV1_FALLBACK_HEADER = "x-ld-fd-fallback";
+    static final String FDV1_FALLBACK_TTL_HEADER = "x-ld-fd-fallback-ttl";
 }
