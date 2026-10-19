@@ -188,10 +188,12 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
         try {
             int code = response.code();
             boolean fdv1Fallback = isFdv1Fallback(response);
+            long fdv1FallbackTtlSeconds = FDv1FallbackTtl.parseHeader(
+                    response.header(HeaderConstants.FDV1_FALLBACK_TTL_HEADER));
 
             if (code == 304) {
                 logger.debug("FDv2 polling: 304 Not Modified");
-                future.set(FDv2PayloadResponse.notModified(fdv1Fallback));
+                future.set(FDv2PayloadResponse.notModified(fdv1Fallback, fdv1FallbackTtlSeconds));
                 return;
             }
 
@@ -203,7 +205,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                 } else {
                     logger.warn("Polling request failed with HTTP {}", code);
                 }
-                future.set(FDv2PayloadResponse.failure(code, fdv1Fallback));
+                future.set(FDv2PayloadResponse.failure(code, fdv1Fallback, fdv1FallbackTtlSeconds));
                 return;
             }
 
@@ -222,7 +224,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             String bodyStr = body.string();
             logger.debug("Polling response received");
             List<FDv2Event> events = FDv2Event.parseEventsArray(bodyStr);
-            future.set(FDv2PayloadResponse.success(events, code, fdv1Fallback));
+            future.set(FDv2PayloadResponse.success(events, code, fdv1Fallback, fdv1FallbackTtlSeconds));
 
         } catch (Exception e) {
             future.setException(e);

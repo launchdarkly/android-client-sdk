@@ -7,6 +7,7 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -30,6 +31,9 @@ final class SourceManager implements Closeable {
     private int initializerIndex = -1;
 
     private SynchronizerFactoryWithState currentSynchronizerFactory;
+
+    /** Synchronizers blocked by {@link #fdv1Fallback()}, to be unblocked on recovery. */
+    private final List<SynchronizerFactoryWithState> blockedByFdv1Fallback = new ArrayList<>();
 
     SourceManager(
             @NonNull List<SynchronizerFactoryWithState> synchronizerFactories,
@@ -69,10 +73,39 @@ final class SourceManager implements Closeable {
             for (SynchronizerFactoryWithState s : synchronizerFactories) {
                 if (s.isFDv1Fallback()) {
                     s.unblock();
-                } else {
+                } else if (s.getState() == SynchronizerFactoryWithState.State.Available) {
+                    s.block();
+                    blockedByFdv1Fallback.add(s);
+                }
+            }
+            synchronizerIndex = -1;
+        }
+    }
+
+    /**
+     * Reverses {@link #fdv1Fallback()}: blocks the FDv1 fallback synchronizer and makes the FDv2
+     * synchronizers that the fallback blocked available again. Synchronizers blocked for other
+     * reasons (e.g. TERMINAL_ERROR) stay blocked. The next synchronizer returned is the first
+     * available one.
+     */
+    /** True if {@link #fdv1Fallback()} has blocked FDv2 synchronizers that recovery would restore. */
+    boolean isInFdv1Fallback() {
+        synchronized (activeSourceLock) {
+            return !blockedByFdv1Fallback.isEmpty();
+        }
+    }
+
+    void recoverFromFdv1Fallback() {
+        synchronized (activeSourceLock) {
+            for (SynchronizerFactoryWithState s : synchronizerFactories) {
+                if (s.isFDv1Fallback()) {
                     s.block();
                 }
             }
+            for (SynchronizerFactoryWithState s : blockedByFdv1Fallback) {
+                s.unblock();
+            }
+            blockedByFdv1Fallback.clear();
             synchronizerIndex = -1;
         }
     }
@@ -111,8 +144,7 @@ final class SourceManager implements Closeable {
             while (tried < limit) {
                 SynchronizerFactoryWithState factoryWithState = getNextAvailableSynchronizer();
                 if (factoryWithState == null) {
-                    currentSynchronizerFactory = null;
-                    return null;
+                    break;
                 }
                 tried++;
                 Synchronizer synchronizer = factoryWithState.build();
@@ -126,7 +158,10 @@ final class SourceManager implements Closeable {
                 activeSource = synchronizer;
                 return synchronizer;
             }
+            // Nothing can replace the active source, so stop it rather than leave it running.
             currentSynchronizerFactory = null;
+            safeClose(activeSource);
+            activeSource = null;
             return null;
         }
     }

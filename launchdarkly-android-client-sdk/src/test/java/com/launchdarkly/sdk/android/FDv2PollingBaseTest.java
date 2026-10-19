@@ -67,6 +67,10 @@ public class FDv2PollingBaseTest {
     private static final String GOODBYE_JSON =
             "{\"events\": [{\"event\": \"goodbye\", \"data\": {\"reason\": \"test-reason\", \"silent\": false}}]}";
 
+    /** Goodbye event carrying an FDv1 fallback directive. */
+    private static final String GOODBYE_WITH_FALLBACK_TTL_JSON =
+            "{\"events\": [{\"event\": \"goodbye\", \"data\": {\"reason\": \"test-reason\", \"protocolFallbackTTL\": 90}}]}";
+
     /** Server error event. */
     private static final String ERROR_EVENT_JSON =
             "{\"events\": [{\"event\": \"error\", \"data\": {\"id\": \"err1\", \"reason\": \"test-server-error\"}}]}";
@@ -455,5 +459,41 @@ public class FDv2PollingBaseTest {
         assertEquals(SourceResultType.STATUS, result.getResultType());
         assertEquals(SourceSignal.GOODBYE, result.getStatus().getState());
         assertTrue(result.isFdv1Fallback());
+    }
+
+    @Test
+    public void goodbyeWithProtocolFallbackTtlIsFdv1Fallback() {
+        MockFDv2Requestor requestor = new MockFDv2Requestor();
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
+                parseEvents(GOODBYE_WITH_FALLBACK_TTL_JSON), 200, false));
+
+        FDv2SourceResult result = doPoll(requestor, false);
+
+        assertEquals(SourceSignal.GOODBYE, result.getStatus().getState());
+        assertTrue(result.isFdv1Fallback());
+        assertEquals(90, result.getFdv1FallbackTtlSeconds());
+    }
+
+    @Test
+    public void goodbyeWithoutProtocolFallbackTtlIsNotFdv1Fallback() {
+        MockFDv2Requestor requestor = new MockFDv2Requestor();
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.success(
+                parseEvents(GOODBYE_JSON), 200, false));
+
+        FDv2SourceResult result = doPoll(requestor, false);
+
+        assertEquals(SourceSignal.GOODBYE, result.getStatus().getState());
+        assertFalse(result.isFdv1Fallback());
+    }
+
+    @Test
+    public void fdv1FallbackTtlPropagatedFromHeader() {
+        MockFDv2Requestor requestor = new MockFDv2Requestor();
+        requestor.queueResponse(FDv2Requestor.FDv2PayloadResponse.failure(500, true, 120));
+
+        FDv2SourceResult result = doPoll(requestor, false);
+
+        assertTrue(result.isFdv1Fallback());
+        assertEquals(120, result.getFdv1FallbackTtlSeconds());
     }
 }

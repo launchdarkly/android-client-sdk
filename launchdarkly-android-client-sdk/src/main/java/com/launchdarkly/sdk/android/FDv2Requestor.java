@@ -28,21 +28,32 @@ interface FDv2Requestor extends Closeable {
         private final boolean successful;
         private final int statusCode;
         private final boolean fdv1Fallback;
+        private final long fdv1FallbackTtlSeconds;
 
         private FDv2PayloadResponse(
                 @Nullable List<FDv2Event> events,
                 boolean successful,
                 int statusCode,
-                boolean fdv1Fallback) {
+                boolean fdv1Fallback,
+                long fdv1FallbackTtlSeconds) {
             this.events = events;
             this.successful = successful;
             this.statusCode = statusCode;
             this.fdv1Fallback = fdv1Fallback;
+            this.fdv1FallbackTtlSeconds = fdv1FallbackTtlSeconds;
         }
 
         /** Creates a successful response with parsed events. */
         static FDv2PayloadResponse success(@NonNull List<FDv2Event> events, int statusCode, boolean fdv1Fallback) {
-            return new FDv2PayloadResponse(events, true, statusCode, fdv1Fallback);
+            return success(events, statusCode, fdv1Fallback, 0);
+        }
+
+        static FDv2PayloadResponse success(
+                @NonNull List<FDv2Event> events,
+                int statusCode,
+                boolean fdv1Fallback,
+                long fdv1FallbackTtlSeconds) {
+            return new FDv2PayloadResponse(events, true, statusCode, fdv1Fallback, fdv1FallbackTtlSeconds);
         }
 
         /**
@@ -50,12 +61,20 @@ interface FDv2Requestor extends Closeable {
          * last request.
          */
         static FDv2PayloadResponse notModified(boolean fdv1Fallback) {
-            return new FDv2PayloadResponse(null, true, 304, fdv1Fallback);
+            return notModified(fdv1Fallback, 0);
+        }
+
+        static FDv2PayloadResponse notModified(boolean fdv1Fallback, long fdv1FallbackTtlSeconds) {
+            return new FDv2PayloadResponse(null, true, 304, fdv1Fallback, fdv1FallbackTtlSeconds);
         }
 
         /** Creates an unsuccessful response with the HTTP status code. */
         static FDv2PayloadResponse failure(int statusCode, boolean fdv1Fallback) {
-            return new FDv2PayloadResponse(null, false, statusCode, fdv1Fallback);
+            return failure(statusCode, fdv1Fallback, 0);
+        }
+
+        static FDv2PayloadResponse failure(int statusCode, boolean fdv1Fallback, long fdv1FallbackTtlSeconds) {
+            return new FDv2PayloadResponse(null, false, statusCode, fdv1Fallback, fdv1FallbackTtlSeconds);
         }
 
         /** The parsed FDv2 events; null for 304 or unsuccessful responses. */
@@ -80,6 +99,14 @@ interface FDv2Requestor extends Closeable {
          */
         public boolean isFdv1Fallback() {
             return fdv1Fallback;
+        }
+
+        /**
+         * The value of the {@code x-ld-fd-fallback-ttl} header in seconds, or 0 if the header
+         * was absent or malformed.
+         */
+        public long getFdv1FallbackTtlSeconds() {
+            return fdv1FallbackTtlSeconds;
         }
     }
 
