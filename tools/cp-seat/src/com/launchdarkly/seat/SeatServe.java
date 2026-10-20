@@ -44,6 +44,8 @@ public final class SeatServe {
   static final String[] CAPABILITIES = {
       "client-side",
       "mobile",
+      "all-flags-client-side-only",
+      "context-type",
       "service-endpoints",
       "singleton",
       "strongly-typed",

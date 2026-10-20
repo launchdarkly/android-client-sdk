@@ -2,7 +2,7 @@
 # CENTINEL CP/stdio test-service launcher for the LaunchDarkly Android client SDK
 # (`verify.py conform --kind client --service "<this script>"`).
 #
-# Boots the REAL SDK (v5.16.1 source, LaunchDarkly) under Robolectric 4.14.1 inside a
+# Boots the REAL SDK (v5.17.0 source, LaunchDarkly) under Robolectric 4.14.1 inside a
 # JVM on this Linux aarch64 host, and serves the CP envelope protocol on stdin/stdout.
 # All SDK logs go to stderr; stdout carries only CP envelope lines (CP-SPEC 5.1).
 #
