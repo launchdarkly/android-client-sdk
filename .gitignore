@@ -12,3 +12,13 @@ build
 .project
 .settings/
 .vscode/
+
+# CENTINEL seat lane (local branches; never pushed upstream): build outputs and probe leftovers
+/gen/
+/sdk-classes/
+/seat-classes/
+/sdk.jar
+tools/seat-test/classes/
+tools/seat-test/extracted-cons/
+tools/seat-test/stub-src/
+tools/seat-test/stub-src-tmp/

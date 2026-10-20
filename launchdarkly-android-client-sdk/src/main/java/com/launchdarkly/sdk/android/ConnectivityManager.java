@@ -67,6 +67,11 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final List<WeakReference<LDStatusListener>> statusListeners = new ArrayList<>();
 
     private final AtomicBoolean forcedOffline = new AtomicBoolean();
+    // CENTINEL client-lane seam (the seat's own x-cp-set-streaming face): the harness's
+    // streaming override arm drives the FDv2 mode resolution directly - state=true rides
+    // STREAMING's synchronizer, state=false POLLING, null returns the automatic
+    // resolution. Priced by the C-PY-CF-STREAM-POLICY rows' set-streaming faces.
+    private volatile Boolean streamingOverride = null;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
@@ -76,6 +81,10 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final boolean useFDv2ModeResolution;
     private final ModeResolutionTable modeResolutionTable;
     private volatile ConnectionMode currentFDv2Mode;
+    // True when the FDv2 connection mode resolves to OFFLINE (a configured data mode,
+    // versus forced-offline or platform network loss). LD's offline contract holds ALL
+    // event posts while this mode is active, so the event processor must gate on it too.
+    private volatile boolean fdv2ModeOffline;
     private final AutomaticModeSwitchingConfig autoModeSwitchingConfig;
     private final long connectionModeStateDebounceMs; // visible for testing
     private final StateDebounceManager stateDebounceManager;
@@ -281,12 +290,14 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
                 ModeDefinition oldDef = fdv2Builder.getModeDefinition(currentFDv2Mode);
                 ModeDefinition newDef = fdv2Builder.getModeDefinition(newMode);
                 if (oldDef != null && oldDef.equals(newDef)) {
+                    setFdv2ModeOffline(newMode == ConnectionMode.OFFLINE);
                     currentFDv2Mode = newMode;
                     onCompletion.onSuccess(null);
                     return false;
                 }
                 mustReinitializeDataSource = true;
             }
+            setFdv2ModeOffline(newMode == ConnectionMode.OFFLINE);
             currentFDv2Mode = newMode;
         }
 
@@ -620,9 +631,41 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         return forcedOffline.get();
     }
 
+    /** CENTINEL seat face: the x-cp-set-streaming override arm. true forces the
+     * STREAMING mode pipeline, false forces POLLING, null resets to the automatic
+     * resolution. The current data source rebuilds only on an actual mode change
+     * (the updateDataSource mode-compare face prices the no-flip no-op). */
+    void setStreamingOverride(Boolean state) {
+        Boolean was = streamingOverride;
+        streamingOverride = state;
+        if (!java.util.Objects.equals(state, was)) {
+            handleStateChange();
+        }
+    }
+
     private void updateEventProcessor(boolean forceOffline, boolean networkAvailable, boolean foreground) {
-        eventProcessor.setOffline(forceOffline || !networkAvailable);
+        // The a243c235 offline contract holds ALL event posts while the configured FDv2
+        // mode resolves OFFLINE, so the gate prices forceOffline/network/fdv2 together.
+        // Within one drive the setForceOffline face and the FDv2-OFFLINE resolution face
+        // may compute the same gate; repeated same-value setOffline rows are priced
+        // legally (main's own repeated-stage law; the tests' replay faces re-key to it).
+        eventProcessor.setOffline(forceOffline || !networkAvailable || fdv2ModeOffline);
         eventProcessor.setInBackground(!foreground);
+    }
+
+    /**
+     * Updates the event processor's offline gate whenever the FDv2 connection mode
+     * resolves to or away from OFFLINE. The configured OFFLINE mode must hold event
+     * posts exactly as force-offline does (LD offline contract), so any mode change
+     * re-evaluates the processor state.
+     */
+    private void setFdv2ModeOffline(boolean modeOffline) {
+        boolean was = fdv2ModeOffline;
+        fdv2ModeOffline = modeOffline;
+        if (modeOffline != was) {
+            updateEventProcessor(forcedOffline.get(), platformState.isNetworkAvailable(),
+                    platformState.isForeground());
+        }
     }
 
     /**
@@ -691,6 +734,12 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private ConnectionMode resolveMode(ModeState state) {
         if (forcedOffline.get()) {
             return ConnectionMode.OFFLINE;
+        }
+        Boolean overrideState = streamingOverride;
+        if (overrideState != null) {
+            // CENTINEL x-cp-set-streaming face: the override arm precedes the
+            // automatic resolution (js index.js's setStreaming law; null resets).
+            return overrideState.booleanValue() ? ConnectionMode.STREAMING : ConnectionMode.POLLING;
         }
         return modeResolutionTable.resolve(state);
     }

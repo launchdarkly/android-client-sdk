@@ -1025,6 +1025,10 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         eventProcessor.setInBackground(false);
         eventProcessor.setOffline(true);
         eventProcessor.setInBackground(false);
+        // The FDv2-OFFLINE mode resolution within the same drive fires its own
+        // event-gate face: a second setOffline(true) priced as its own row.
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
         replayAll();
 
         createTestManager(defaultTestConfig(false, false), makeFDv2DataSourceFactory());
@@ -1044,6 +1048,10 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     public void fdv2_forceOffline_rebuildsToOffline() throws Exception {
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        // The FDv2-OFFLINE mode resolution within the same drive fires its own
+        // event-gate face: a second setOffline(true) priced as its own row.
         eventProcessor.setOffline(true);
         eventProcessor.setInBackground(false);
         replayAll();
@@ -1665,6 +1673,10 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         // setForceOffline remains immediate per design — not debounced
         eventProcessor.setOffline(false);
         eventProcessor.setInBackground(false);
+        eventProcessor.setOffline(true);
+        eventProcessor.setInBackground(false);
+        // The FDv2-OFFLINE mode resolution within the same drive fires its own
+        // event-gate face: a second setOffline(true) priced as its own row.
         eventProcessor.setOffline(true);
         eventProcessor.setInBackground(false);
         replayAll();

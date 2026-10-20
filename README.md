@@ -40,3 +40,10 @@ We encourage pull requests and other contributions from the community. Check out
     * [docs.launchdarkly.com](https://docs.launchdarkly.com/  "LaunchDarkly Documentation") for our documentation and SDK reference guides
     * [apidocs.launchdarkly.com](https://apidocs.launchdarkly.com/  "LaunchDarkly API Documentation") for our API documentation
     * [launchdarkly.com/blog](https://launchdarkly.com/blog/  "LaunchDarkly Blog Documentation") for the latest product updates
+
+## Continuous integration
+
+`docs/ci/contract-tests.yml.template` holds the CI gate's bytes: an operator applies
+them at `.github/workflows/contract-tests.yml`, and the landed workflow prices the
+`ConnectivityManagerTest` replay faces — the `a243c235` FDv2-OFFLINE double-window
+trio — on every pull request to `main` (Ubuntu Actions runner, ubuntu-22.04, JDK 17).

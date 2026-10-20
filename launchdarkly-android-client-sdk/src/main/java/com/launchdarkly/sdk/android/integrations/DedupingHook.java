@@ -137,6 +137,13 @@ public final class DedupingHook extends HookDecorator {
         if (key != null && !deduper.shouldRecord(key, clock.elapsedMillis())) {
             return suppressedSeriesData;
         }
+        // The HOOK 1.2.x accumulated chain carries upstream suppression markers; the
+        // delegate must never see another instance's marker (H-1.2.2: each hook's own
+        // series state rides its own stages, never another wrapper's suppression).
+        Object upstream = seriesData.get(SUPPRESSED);
+        if (upstream != null && upstream != this) {
+            return super.beforeEvaluation(seriesContext, Collections.emptyMap());
+        }
         return super.beforeEvaluation(seriesContext, seriesData);
     }
 
@@ -151,6 +158,10 @@ public final class DedupingHook extends HookDecorator {
     @Override
     public Map<String, Object> afterEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> seriesData,
                                                EvaluationDetail<LDValue> evaluationDetail) {
+        // Only THIS instance's own before-stage marker keeps its after silent. A
+        // shared-window sibling's or an upstream wrapper's marker rides the chain
+        // map this stage receives; suppressing on it would swallow the wrapped
+        // hook's own after stage (the shared and nested deduper faces).
         if (seriesData != null && seriesData.get(SUPPRESSED) == this) {
             return seriesData;
         }
