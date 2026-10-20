@@ -324,6 +324,9 @@ public class SdkClientEntity {
       if (params.events.globalPrivateAttributes != null) {
         eventsBuilder.privateAttributes(params.events.globalPrivateAttributes);
       }
+      if (params.events.enableGzip != null) {
+        eventsBuilder.enableCompression(params.events.enableGzip);
+      }
       builder.events(eventsBuilder);
     }
 
