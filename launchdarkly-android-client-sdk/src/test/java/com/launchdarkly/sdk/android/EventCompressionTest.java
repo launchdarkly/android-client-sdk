@@ -28,19 +28,19 @@ public class EventCompressionTest {
     public LogCaptureRule logging = new LogCaptureRule();
 
     @Test
-    public void eventPayloadsAreGzipEncodedByDefault() throws Exception {
+    public void eventPayloadsAreSentUncompressedByDefault() throws Exception {
         RequestInfo request = sendOneEvent(Components.sendEvents());
-
-        assertEquals("gzip", request.getHeader("Content-Encoding"));
-        assertFalse("the payload should not be sent as plain JSON", request.getBody().contains(EVENT_KEY));
-    }
-
-    @Test
-    public void eventPayloadsAreSentUncompressedWhenCompressionIsDisabled() throws Exception {
-        RequestInfo request = sendOneEvent(Components.sendEvents().enableCompression(false));
 
         assertNull(request.getHeader("Content-Encoding"));
         assertTrue("the payload should be sent as plain JSON", request.getBody().contains(EVENT_KEY));
+    }
+
+    @Test
+    public void eventPayloadsAreGzipEncodedWhenCompressionIsEnabled() throws Exception {
+        RequestInfo request = sendOneEvent(Components.sendEvents().enableCompression(true));
+
+        assertEquals("gzip", request.getHeader("Content-Encoding"));
+        assertFalse("the payload should not be sent as plain JSON", request.getBody().contains(EVENT_KEY));
     }
 
     private RequestInfo sendOneEvent(EventProcessorBuilder eventsBuilder) throws Exception {

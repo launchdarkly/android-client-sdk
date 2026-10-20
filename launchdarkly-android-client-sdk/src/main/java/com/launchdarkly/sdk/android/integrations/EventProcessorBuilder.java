@@ -64,7 +64,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     /**
      * Whether event payloads are sent gzip-encoded
      */
-    protected boolean enableCompression = true;
+    protected boolean enableCompression = false;
 
     /**
      * The flush interval in millis
@@ -127,8 +127,9 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     /**
      * Sets whether event payloads sent to LaunchDarkly use gzip compression.
      * <p>
-     * By default this is {@code true}, which reduces egress bandwidth cost. Set it to {@code false} when
-     * sending events through a version of the Relay Proxy that does not accept gzip-encoded event payloads.
+     * Compression reduces egress bandwidth cost. By default this is {@code false}, because older versions
+     * of the Relay Proxy do not accept gzip-encoded event payloads; applications not using the Relay Proxy
+     * are strongly encouraged to set it to {@code true}.
      *
      * @param enableCompression true to send event payloads gzip-encoded
      * @return the builder
