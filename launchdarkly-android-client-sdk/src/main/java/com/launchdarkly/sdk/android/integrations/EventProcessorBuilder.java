@@ -62,6 +62,11 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     protected int diagnosticRecordingIntervalMillis = DEFAULT_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS;
 
     /**
+     * Whether event payloads are sent gzip-encoded
+     */
+    protected boolean enableCompression = true;
+
+    /**
      * The flush interval in millis
      */
     protected int flushIntervalMillis = DEFAULT_FLUSH_INTERVAL_MILLIS;
@@ -116,6 +121,20 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public EventProcessorBuilder diagnosticRecordingIntervalMillis(int diagnosticRecordingIntervalMillis) {
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis < MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS ?
                 MIN_DIAGNOSTIC_RECORDING_INTERVAL_MILLIS : diagnosticRecordingIntervalMillis;
+        return this;
+    }
+
+    /**
+     * Sets whether event payloads sent to LaunchDarkly use gzip compression.
+     * <p>
+     * By default this is {@code true}, which reduces egress bandwidth cost. Set it to {@code false} when
+     * sending events through a version of the Relay Proxy that does not accept gzip-encoded event payloads.
+     *
+     * @param enableCompression true to send event payloads gzip-encoded
+     * @return the builder
+     */
+    public EventProcessorBuilder enableCompression(boolean enableCompression) {
+        this.enableCompression = enableCompression;
         return this;
     }
 
