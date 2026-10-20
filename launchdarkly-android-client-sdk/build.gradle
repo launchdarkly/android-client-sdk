@@ -127,6 +127,7 @@ dependencies {
     testImplementation("org.easymock:easymock:4.3")
     testImplementation("com.launchdarkly:test-helpers:${versions.testHelpers}")
     testImplementation(project(":shared-test-code"))
+    testImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
 
     androidTestImplementation("junit:junit:${versions.junit}")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")

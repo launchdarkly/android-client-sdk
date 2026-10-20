@@ -14,6 +14,11 @@ import com.launchdarkly.testhelpers.httptest.RequestContext;
 
 import org.junit.Test;
 
+import okhttp3.mockwebserver.Dispatcher;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -43,8 +48,11 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
         return EventPersistence.DISABLED;
     }
 
-    /** An events service whose answer to each post can change during a test, and which keeps what it took. */
-    private static final class EventsService implements Handler {
+    /**
+     * An events service whose answer to each post can change during a test, and which keeps what it took.
+     * It serves either test-helpers' {@link HttpServer} or OkHttp's {@link MockWebServer}.
+     */
+    private static final class EventsService extends Dispatcher implements Handler {
         final AtomicInteger posts = new AtomicInteger();
         /** The status for the nth post, counting from 1. */
         volatile IntUnaryOperator statusForPost = post -> 202;
@@ -54,17 +62,28 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
 
         @Override
         public void apply(RequestContext context) {
+            context.setStatus(respond(context.getRequest().getBody(),
+                    context.getRequest().getHeader(PAYLOAD_ID_HEADER)));
+        }
+
+        @Override
+        public MockResponse dispatch(RecordedRequest request) {
+            return new MockResponse().setResponseCode(
+                    respond(request.getBody().readUtf8(), request.getHeader(PAYLOAD_ID_HEADER)));
+        }
+
+        private int respond(String body, String payloadId) {
             int status = statusForPost.applyAsInt(posts.incrementAndGet());
             if (status == 202) {
                 List<String> keys = new ArrayList<>();
-                for (LDValue event : LDValue.parse(context.getRequest().getBody()).values()) {
+                for (LDValue event : LDValue.parse(body).values()) {
                     if ("custom".equals(event.get("kind").stringValue())) {
                         keys.add(event.get("key").stringValue());
                     }
                 }
-                accepted.add(new HashMap.SimpleEntry<>(context.getRequest().getHeader(PAYLOAD_ID_HEADER), keys));
+                accepted.add(new HashMap.SimpleEntry<>(payloadId, keys));
             }
-            context.setStatus(status);
+            return status;
         }
 
         /** Every accepted key once per payload ID, as the service counts them, in the order accepted. */
@@ -185,8 +204,14 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
         // Every third post refused, so retries, in-memory batches waiting for the next delivery and
         // flushes overlapping one another all happen while the recorders are still going.
         service.statusForPost = post -> post % 3 == 0 ? 503 : 202;
-        try (HttpServer server = HttpServer.start(service)) {
-            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(100_000), true);
+        // Not test-helpers' HttpServer, which reads a request body with a single read(): under load a
+        // large post arrives in pieces, the body it hands over is cut short, and the rest of it is taken
+        // as the next request on the connection, which the SDK is then refused for.
+        try (MockWebServer server = new MockWebServer()) {
+            server.setDispatcher(service);
+            server.start();
+            EventProcessor eventProcessor = makeEventProcessor(server.url("/").uri(), eventsBuilder(100_000),
+                    true);
             try {
                 CountDownLatch start = new CountDownLatch(1);
                 CountDownLatch recorded = new CountDownLatch(recorders);

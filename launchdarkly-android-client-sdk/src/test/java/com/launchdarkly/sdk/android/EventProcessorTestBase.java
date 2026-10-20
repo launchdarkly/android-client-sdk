@@ -21,6 +21,7 @@ import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -98,7 +99,13 @@ public abstract class EventProcessorTestBase {
 
     protected EventProcessor makeEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                 boolean diagnosticOptOut) {
-        EventProcessor eventProcessor = buildOfflineEventProcessor(server, events, diagnosticOptOut);
+        return makeEventProcessor(server.getUri(), events, diagnosticOptOut);
+    }
+
+    protected EventProcessor makeEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                boolean diagnosticOptOut) {
+        EventProcessor eventProcessor = buildOfflineEventProcessor(eventsUri, events, diagnosticOptOut,
+                platformState());
         // LDClient turns the processor on once initialization decides the SDK is not in offline mode.
         eventProcessor.setOffline(false);
         return eventProcessor;
@@ -113,11 +120,17 @@ public abstract class EventProcessorTestBase {
     protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                         boolean diagnosticOptOut,
                                                         PlatformState platformState) {
+        return buildOfflineEventProcessor(server.getUri(), events, diagnosticOptOut, platformState);
+    }
+
+    protected EventProcessor buildOfflineEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .diagnosticOptOut(diagnosticOptOut)
                 .events(events)
-                .serviceEndpoints(Components.serviceEndpoints().events(server.getUri()))
+                .serviceEndpoints(Components.serviceEndpoints().events(eventsUri))
                 .build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
                 null, null, CONTEXT, logging.logger, platformState, environmentReporter, null);
