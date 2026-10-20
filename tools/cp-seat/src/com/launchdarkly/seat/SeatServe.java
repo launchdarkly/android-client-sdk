@@ -296,10 +296,9 @@ public final class SeatServe {
           return;
         }
         entity.close();
-        JsonObject closed = new JsonObject();
-        closed.addProperty("closed", true);
-        closed.addProperty("ok", true);
-        bus.ok(idEl, "closeClient", closed);
+        // CP-SPEC 4.4: the closeClient response is an EMPTY 2xx on success
+        // (body null) — a nested {closed,ok} envelope prices cp.schema invalid.
+        bus.ok(idEl, "closeClient", JsonNull.INSTANCE);
       } catch (Throwable t) {
         System.err.println("[cp-seat] closeClient failed: " + t);
         t.printStackTrace();
