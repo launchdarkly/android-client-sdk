@@ -929,6 +929,80 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void storedEventsPastTheMaximumAgeAreDiscardedAsDroppedWithoutFailingAFlush() throws Exception {
+        assumePersisting();
+        EventStore previousRun = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+                DEFAULT_CAPACITY, true, logging.logger);
+        previousRun.stage(LDValue.buildObject().put("kind", "custom").put("key", "old-1").build()
+                .toJsonString().getBytes(StandardCharsets.UTF_8));
+        previousRun.stage(LDValue.buildObject().put("kind", "custom").put("key", "old-2").build()
+                .toJsonString().getBytes(StandardCharsets.UTF_8));
+        previousRun.closeBatch();
+        previousRun.close();
+        File[] batches = previousRun.getDirectory().listFiles((dir, name) -> name.startsWith("ready-"));
+        assertEquals(1, batches.length);
+        assertTrue(batches[0].setLastModified(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(8)));
+
+        try (HttpServer server = startEventsServer()) {
+            DirectEventProcessor eventProcessor = (DirectEventProcessor) makeEventProcessor(server,
+                    DEFAULT_CAPACITY);
+            try {
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                assertEquals(0, server.getRecorder().count());
+                assertEquals(2, eventProcessor.getAndClearDroppedCount());
+                assertFalse(batches[0].exists());
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void anEventWithNoBytesLeftForItIsDroppedBeforeItIsEncoded() throws Exception {
+        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, 1000,
+                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+        byte[] filler = new byte[794];
+        Arrays.fill(filler, (byte) 'x');
+        assertTrue(store.stage(filler));
+        assertFalse(store.hasRoomForEventBytes());
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        try {
+            eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+            eventProcessor.flush();
+
+            assertEquals(1, eventProcessor.getAndClearDroppedCount());
+            assertEquals(1, store.getPendingEventCount());
+        } finally {
+            eventProcessor.close();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aFlushFailsWhenAnAcceptedEventIsTooLargeForTheBytesLeft() throws Exception {
+        assumePersisting();
+        StringBuilder data = new StringBuilder();
+        for (int i = 0; i < 500; i++) {
+            data.append('x');
+        }
+        try (HttpServer server = startEventsServer()) {
+            DirectEventProcessor eventProcessor = (DirectEventProcessor) makeEventProcessor(server,
+                    eventsBuilder(DEFAULT_CAPACITY).capacityBytes(400), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "too-large", LDValue.of(data.toString()), null);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                logging.assertErrorLogged("no room");
+                assertEquals(0, eventProcessor.getAndClearDroppedCount());
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void theStoreAsksThePlatformWhereItLivesOffTheCallersThread() throws Exception {
         // LDClient.init builds the processor, usually on the main thread, and answering touches the disk:
         // the platform creates the no-backup directory when asked for it, and before API 28 the process

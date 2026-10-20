@@ -152,6 +152,8 @@ abstract class ComponentsImpl {
                     impl.getPlatformState(),
                     clientContext.getMobileKey(),
                     capacity,
+                    capacityBytes,
+                    maxAgeMillis,
                     eventPersistence != EventPersistence.DISABLED,
                     clientContext.getBaseLogger());
         }

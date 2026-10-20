@@ -52,6 +52,16 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public static final EventPersistence DEFAULT_EVENT_PERSISTENCE = EventPersistence.DISABLED;
 
     /**
+     * The default value for {@link #capacityBytes(long)}: 20 MiB.
+     */
+    public static final long DEFAULT_CAPACITY_BYTES = 20L * 1024 * 1024;
+
+    /**
+     * The default value for {@link #maxAgeMillis(long)}: 7 days.
+     */
+    public static final long DEFAULT_MAX_AGE_MILLIS = 7L * 24 * 60 * 60 * 1000;
+
+    /**
      * All attributes should be treated as private
      */
     protected boolean allAttributesPrivate = false;
@@ -75,6 +85,16 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * How far the SDK goes to make a recorded event outlive the process
      */
     protected EventPersistence eventPersistence = DEFAULT_EVENT_PERSISTENCE;
+
+    /**
+     * The most bytes of events kept per environment where events are persisted
+     */
+    protected long capacityBytes = DEFAULT_CAPACITY_BYTES;
+
+    /**
+     * How long persisted events are kept before they are discarded, in millis
+     */
+    protected long maxAgeMillis = DEFAULT_MAX_AGE_MILLIS;
 
     /**
      * Set of attributes by reference that will be treated as private
@@ -164,6 +184,45 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      */
     public EventProcessorBuilder eventPersistence(EventPersistence eventPersistence) {
         this.eventPersistence = eventPersistence == null ? DEFAULT_EVENT_PERSISTENCE : eventPersistence;
+        return this;
+    }
+
+    /**
+     * Sets the maximum number of bytes of events the SDK keeps for each environment where
+     * {@link #eventPersistence(EventPersistence)} keeps events across launches, on disk and in memory
+     * together.
+     * <p>
+     * When it is reached, the SDK discards new events until it successfully delivers the stored ones, as
+     * it does when {@link #capacity(int)} is reached; it never deletes stored events to make room. A fifth
+     * of it is kept for the summaries of flag evaluations, so that evaluations are still counted after
+     * full events start being discarded.
+     * <p>
+     * It has no effect where event persistence is {@link EventPersistence#DISABLED}. The default value is
+     * {@link #DEFAULT_CAPACITY_BYTES}; a value of zero or less means the default.
+     *
+     * @param capacityBytes the most bytes of events to keep for each environment
+     * @return the builder
+     */
+    public EventProcessorBuilder capacityBytes(long capacityBytes) {
+        this.capacityBytes = capacityBytes <= 0 ? DEFAULT_CAPACITY_BYTES : capacityBytes;
+        return this;
+    }
+
+    /**
+     * Sets how long the SDK keeps events it has persisted but not yet delivered, where
+     * {@link #eventPersistence(EventPersistence)} keeps events across launches.
+     * <p>
+     * Events older than this are discarded rather than delivered, and so is everything the SDK stored for
+     * an environment whose mobile key the application stopped using.
+     * <p>
+     * It has no effect where event persistence is {@link EventPersistence#DISABLED}. The default value is
+     * {@link #DEFAULT_MAX_AGE_MILLIS}; a value of zero or less means the default.
+     *
+     * @param maxAgeMillis how long to keep undelivered events, in milliseconds
+     * @return the builder
+     */
+    public EventProcessorBuilder maxAgeMillis(long maxAgeMillis) {
+        this.maxAgeMillis = maxAgeMillis <= 0 ? DEFAULT_MAX_AGE_MILLIS : maxAgeMillis;
         return this;
     }
 

@@ -345,6 +345,7 @@ final class DirectEventProcessor implements EventProcessor {
         // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem.
         submit(() -> {
             store.recoverInterruptedLog();
+            reportDiscarded(store.discardExpired());
             if (store.pendingBatches().isEmpty()) {
                 return;
             }
@@ -618,7 +619,9 @@ final class DirectEventProcessor implements EventProcessor {
      * The run was taken under {@link #recordLock} and is encoded outside it, so recording does not wait on
      * the encoder. Staging bypasses capacity because the decision to keep these events was already made in
      * {@link #record}, and refusing them here would drop events the SDK has counted as accepted; the
-     * reservation taken with the run is what keeps them counted until they are staged.
+     * reservation taken with the run is what keeps them counted until they are staged. The byte capacity
+     * can still refuse one, since only its encoded size says whether it fits, and an event refused then is
+     * lost rather than dropped.
      * <p>
      * Requires {@link #commitLock}: two threads staging separate runs would stage them in whichever order
      * they finished encoding, which is not the order they were recorded in.
@@ -637,7 +640,8 @@ final class DirectEventProcessor implements EventProcessor {
     private void stageSummaries(List<EventSummarizer.EventSummary> summaries) {
         for (byte[] summary : eventBuffer.serializeSummaries(summaries)) {
             // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
-            // counted, and dropping it would lose all of them at once.
+            // counted, and dropping it would lose all of them at once. Only the byte capacity, which keeps
+            // summaries staged while delivery keeps failing from growing without bound, can refuse it.
             if (!store.stage(summary, true)) {
                 reportRefusedByStore("summary event", summary);
             }
@@ -646,11 +650,31 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * Records the loss of something the store would not take. Capacity is bypassed on both paths, so
-     * what is left is a frame too large to store, which no later attempt can fix.
+     * what is left is a frame too large to store, or one the byte capacity has no room for, and the SDK
+     * had already accepted it either way.
      */
     private void reportRefusedByStore(String what, byte[] serialized) {
-        logger.error("Dropping {} of {} bytes, too large to store", what, serialized.length);
+        if (serialized.length > EventLogFormat.MAX_FRAME_SIZE) {
+            logger.error("Dropping {} of {} bytes, too large to store", what, serialized.length);
+        } else {
+            logger.error("Dropping {} of {} bytes, which the event store has no room for", what,
+                    serialized.length);
+        }
         lostEvents.incrementAndGet();
+    }
+
+    /**
+     * Records stored events discarded for being older than the maximum age.
+     * <p>
+     * Counted as dropped rather than lost: a flush is about the caller's events, and the ones discarded
+     * are long past anything a caller is waiting on.
+     */
+    private void reportDiscarded(int events) {
+        if (events <= 0) {
+            return;
+        }
+        logger.debug("Discarded {} stored event(s) older than the maximum age", events);
+        droppedEvents.addAndGet(events);
     }
 
     /**
@@ -684,7 +708,9 @@ final class DirectEventProcessor implements EventProcessor {
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
             return;
         }
-        if (pending.size() + store.getPendingEventCount() >= capacity) {
+        // The bytes are checked here too, before the event is encoded, so that one there is no room for
+        // costs nothing; whether it fits is decided when it is staged.
+        if (pending.size() + store.getPendingEventCount() >= capacity || !store.hasRoomForEventBytes()) {
             if (capacityExceeded.compareAndSet(false, true)) {
                 logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
             }
@@ -1180,6 +1206,7 @@ final class DirectEventProcessor implements EventProcessor {
      * network, and the retry takes all of them again.
      */
     private BatchesOutcome deliverPendingBatches() {
+        reportDiscarded(store.discardExpired());
         boolean allDelivered = true;
         for (EventStore.Batch batch : store.pendingBatches()) {
             if (disabled || offline.get()) {

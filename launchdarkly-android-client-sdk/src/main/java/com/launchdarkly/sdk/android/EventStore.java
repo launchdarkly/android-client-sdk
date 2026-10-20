@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import androidx.annotation.VisibleForTesting;
 
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -63,6 +64,15 @@ class EventStore implements Closeable {
      */
     private final EventDirectory disk;
     private final int capacity;
+    /** The most bytes summaries may take the store to. */
+    private final long byteCapacity;
+    /**
+     * The most bytes full events may take the store to: the byte capacity less a fifth of it, held back so
+     * that summaries, which bypass {@link #capacity}, still have room once full events are being refused.
+     */
+    private final long eventByteCapacity;
+    /** How long a batch may go unwritten before it is discarded rather than delivered. */
+    private final long maxAgeMillis;
     private final LDLogger logger;
 
     /**
@@ -97,8 +107,17 @@ class EventStore implements Closeable {
      * Closed batches whose request is out, by payload ID, and the events in them. Every one is also in
      * {@link #closedEvents}, and leaves both in the same critical section.
      */
-    private final Map<String, Integer> sendingBatches = new HashMap<>();
+    private final Map<String, EventDirectory.Tally> sendingBatches = new HashMap<>();
     private int sendingEvents;
+    /**
+     * The bytes of the events counted above, state for state. Staged bytes are {@link #bufferData} itself.
+     * Changed in the same critical sections as the event counts beside them, so that bytes and events are
+     * never counted in different places.
+     */
+    private long inTransitBytes;
+    private long committedBytes;
+    private long closedBytes;
+    private long sendingBytes;
     /**
      * Events a caller has taken to encode and promised to stage, counted against capacity until each is
      * staged. Staging one moves it from here to {@link #bufferedEventCount} under one lock, so an event
@@ -133,8 +152,19 @@ class EventStore implements Closeable {
      */
     private final Map<String, HeldBatch> inMemoryBatches = new LinkedHashMap<>();
 
-    EventStore(final File directory, final String processName, int capacity, boolean persistEvents,
-               LDLogger logger) {
+    /**
+     * Whether the directories of other environments have been looked at for ones nobody uses any more,
+     * which is done once per process. Only to be used while holding {@link #ioLock}.
+     */
+    private boolean hasDiscardedAbandonedEnvironments;
+
+    EventStore(File directory, String processName, int capacity, boolean persistEvents, LDLogger logger) {
+        this(directory, processName, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
+                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
+    }
+
+    EventStore(final File directory, final String processName, int capacity, long byteCapacity,
+               long maxAgeMillis, boolean persistEvents, LDLogger logger) {
         this(new EventDirectory.Location() {
             @Override
             public File directory() {
@@ -145,12 +175,15 @@ class EventStore implements Closeable {
             public String processName() {
                 return processName;
             }
-        }, capacity, persistEvents, logger);
+        }, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 
-    private EventStore(EventDirectory.Location location, int capacity, boolean persistEvents,
-                       LDLogger logger) {
+    private EventStore(EventDirectory.Location location, int capacity, long byteCapacity, long maxAgeMillis,
+                       boolean persistEvents, LDLogger logger) {
         this.capacity = capacity >= 0 ? capacity : 1;
+        this.byteCapacity = byteCapacity > 0 ? byteCapacity : EventProcessorBuilder.DEFAULT_CAPACITY_BYTES;
+        this.eventByteCapacity = this.byteCapacity - this.byteCapacity / 5;
+        this.maxAgeMillis = maxAgeMillis > 0 ? maxAgeMillis : EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS;
         this.logger = logger;
         // An application that has not asked for persistence gets the same store running the same way it
         // runs once a write has failed: events are held, delivered, and lost only if the process dies.
@@ -178,8 +211,23 @@ class EventStore implements Closeable {
             boolean persistEvents,
             LDLogger logger
     ) {
+        return create(noBackupFilesDir, mobileKey, processName, capacity,
+                EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
+                persistEvents, logger);
+    }
+
+    static EventStore create(
+            File noBackupFilesDir,
+            String mobileKey,
+            String processName,
+            int capacity,
+            long byteCapacity,
+            long maxAgeMillis,
+            boolean persistEvents,
+            LDLogger logger
+    ) {
         return new EventStore(EventDirectory.defaultDirectory(noBackupFilesDir, mobileKey), processName,
-                capacity, persistEvents, logger);
+                capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 
     /**
@@ -188,12 +236,16 @@ class EventStore implements Closeable {
      *
      * @param platformState where the no-backup directory and the process name come from
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
+     * @param byteCapacity the most bytes the store holds, a fifth of which only summaries may use
+     * @param maxAgeMillis how long a batch may go unwritten before it is discarded
      * @param persistEvents whether the application asked for events to outlive the process
      */
     static EventStore create(
             final PlatformState platformState,
             String mobileKey,
             int capacity,
+            long byteCapacity,
+            long maxAgeMillis,
             boolean persistEvents,
             LDLogger logger
     ) {
@@ -208,7 +260,7 @@ class EventStore implements Closeable {
                 return platformState.getProcessName();
             }
         };
-        return new EventStore(location, capacity, persistEvents, logger);
+        return new EventStore(location, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 
     // MARK: recording
@@ -238,6 +290,31 @@ class EventStore implements Closeable {
         // stopped counting it.
         return bufferedEventCount + inTransitEvents + committedEvents
                 + Math.max(0, closedEvents - sendingEvents) + reservedEvents;
+    }
+
+    /**
+     * Every byte counted against the byte capacity. Requires {@link #bufferLock}.
+     * <p>
+     * Events reserved while being encoded have no bytes yet; they are counted when they are staged.
+     */
+    private long countedBytesHoldingBufferLock() {
+        return bufferData.size() + inTransitBytes + committedBytes + Math.max(0, closedBytes - sendingBytes);
+    }
+
+    /**
+     * Whether full events can still be admitted by size, asked before an event is kept for encoding so
+     * that one there is no room for is refused without the cost of encoding it. Staging checks again
+     * against the event's actual size.
+     */
+    boolean hasRoomForEventBytes() {
+        // A store kept off the disk holds events the way the SDK did before persistence, bounded by count
+        // alone.
+        if (disk == null) {
+            return true;
+        }
+        synchronized (bufferLock) {
+            return countedBytesHoldingBufferLock() < eventByteCapacity;
+        }
     }
 
     /**
@@ -274,14 +351,16 @@ class EventStore implements Closeable {
      * Staging is a copy into a buffer and never writes, however much accumulates; {@link #commit()} is what
      * makes the event outlive the process, so how many bytes one write carries is the caller's decision.
      *
-     * @return false if the event was dropped because capacity is reached
+     * @return false if the event was dropped because capacity or the byte capacity is reached
      */
     boolean stage(byte[] serializedEvent) {
         return stage(serializedEvent, false);
     }
 
     /**
-     * @param bypassingCapacity true for an event that must be recorded even when the store is full
+     * @param bypassingCapacity true for a summary, which must be recorded even when the store is full of
+     *   events, and may use the bytes held back from them; where events are persisted it is still refused
+     *   once the byte capacity itself is reached
      */
     boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
         return stage(serializedEvent, bypassingCapacity, false);
@@ -289,7 +368,8 @@ class EventStore implements Closeable {
 
     /**
      * Stages an event {@link #reserve} already counted, turning its reservation into a staged event in
-     * one step. Bypasses capacity, which the reservation already answered to.
+     * one step. Bypasses capacity, which the reservation already answered to, but not the bytes left for
+     * full events, which only the event's encoded size can answer.
      */
     boolean stageReserved(byte[] serializedEvent) {
         return stage(serializedEvent, true, true);
@@ -300,16 +380,25 @@ class EventStore implements Closeable {
                 || serializedEvent.length > EventLogFormat.MAX_FRAME_SIZE) {
             return false;
         }
+        long frameSize = (long) serializedEvent.length + EventLogFormat.FRAME_HEADER_SIZE;
+        // Only a summary bypasses capacity without a reservation, and only a summary may use the bytes held
+        // back.
+        boolean isSummary = bypassingCapacity && !reserved;
 
         synchronized (bufferLock) {
+            // In the same critical section as the append, so the event is never counted twice or not at all.
+            if (reserved && reservedEvents > 0) {
+                reservedEvents--;
+            }
             if (!bypassingCapacity && countedEventsHoldingBufferLock() >= capacity) {
+                return false;
+            }
+            if (disk != null
+                    && countedBytesHoldingBufferLock() + frameSize > (isSummary ? byteCapacity : eventByteCapacity)) {
                 return false;
             }
             EventLogFormat.writeFrame(bufferData, serializedEvent);
             bufferedEventCount++;
-            if (reserved && reservedEvents > 0) {
-                reservedEvents--;
-            }
         }
         return true;
     }
@@ -355,14 +444,16 @@ class EventStore implements Closeable {
             commitHoldingIoLock();
 
             int events;
+            long bytes;
             int stillBuffered;
             synchronized (bufferLock) {
                 events = committedEvents;
+                bytes = committedBytes;
                 stillBuffered = bufferedEventCount;
             }
 
             if (events > 0) {
-                addIfClosed(closed, closeOpenLogHoldingIoLock(events));
+                addIfClosed(closed, closeOpenLogHoldingIoLock(events, bytes));
             }
             // Only reachable once persistence has been given up on; a healthy commit leaves nothing
             // staged behind. Closed after the log, so the older events are delivered first.
@@ -379,15 +470,21 @@ class EventStore implements Closeable {
         }
     }
 
-    /** Requires {@code ioLock}. */
-    private Batch closeOpenLogHoldingIoLock(int events) {
-        EventDirectory.LogClose closed = disk.closeLog(events);
+    /**
+     * Requires {@code ioLock}.
+     *
+     * @param bytes the frames committed to the log, which with the file header are the batch's size
+     */
+    private Batch closeOpenLogHoldingIoLock(int events, long bytes) {
+        long batchBytes = bytes + EventLogFormat.FILE_HEADER_SIZE;
+        EventDirectory.LogClose closed = disk.closeLog(events, batchBytes);
         if (closed.batch == null) {
             if (!closed.logSurvives) {
                 // The log itself is gone, so its events are too. They have to stop counting against
                 // capacity or the store would refuse events for the rest of the session.
                 synchronized (bufferLock) {
                     committedEvents = 0;
+                    committedBytes = 0;
                 }
             }
             return null;
@@ -395,7 +492,9 @@ class EventStore implements Closeable {
 
         synchronized (bufferLock) {
             committedEvents = 0;
+            committedBytes = 0;
             closedEvents += events;
+            closedBytes += batchBytes;
         }
         return closed.batch;
     }
@@ -415,6 +514,7 @@ class EventStore implements Closeable {
             bufferData.reset();
             bufferedEventCount = 0;
             inTransitEvents += events;
+            inTransitBytes += frames.length;
         }
         String payloadId = UUID.randomUUID().toString();
         boolean held = false;
@@ -429,7 +529,9 @@ class EventStore implements Closeable {
                 inMemoryBatches.put(payloadId, new HeldBatch(body, events));
                 synchronized (bufferLock) {
                     inTransitEvents -= events;
+                    inTransitBytes -= frames.length;
                     closedEvents += events;
+                    closedBytes += body.length;
                 }
             }
             held = true;
@@ -437,6 +539,7 @@ class EventStore implements Closeable {
             if (!held) {
                 synchronized (bufferLock) {
                     inTransitEvents -= events;
+                    inTransitBytes -= frames.length;
                 }
             }
         }
@@ -464,11 +567,11 @@ class EventStore implements Closeable {
         if (disk != null) {
             synchronized (ioLock) {
                 batches = disk.listBatches();
-                addHeldBatchesAndRecount(batches);
+                addHeldBatchesAndRecount(batches, disk.storedBytes());
             }
         } else {
             batches = new ArrayList<>();
-            addHeldBatchesAndRecount(batches);
+            addHeldBatchesAndRecount(batches, 0);
         }
         return batches;
     }
@@ -479,11 +582,15 @@ class EventStore implements Closeable {
      * closed, which is how batches another process closed or delivered come to be counted or not.
      * <p>
      * Requires {@code ioLock} where there is a disk, so that the count is of the listing as it stands.
+     *
+     * @param storedBytes the bytes in the batches the listing found on the disk
      */
-    private void addHeldBatchesAndRecount(List<Batch> batches) {
+    private void addHeldBatchesAndRecount(List<Batch> batches, long storedBytes) {
         synchronized (heldLock) {
+            long totalBytes = storedBytes;
             for (Map.Entry<String, HeldBatch> held : inMemoryBatches.entrySet()) {
                 batches.add(new Batch(held.getKey(), held.getValue().eventCount));
+                totalBytes += held.getValue().body.length;
             }
             int total = 0;
             Set<String> listed = new HashSet<>();
@@ -493,6 +600,7 @@ class EventStore implements Closeable {
             }
             synchronized (bufferLock) {
                 closedEvents = total;
+                closedBytes = totalBytes;
                 // One no longer listed is no longer counted, so it cannot be left out of the count either.
                 for (String payloadId : new ArrayList<>(sendingBatches.keySet())) {
                     if (!listed.contains(payloadId)) {
@@ -551,6 +659,7 @@ class EventStore implements Closeable {
             if (held != null) {
                 synchronized (bufferLock) {
                     closedEvents -= held.eventCount;
+                    closedBytes -= held.body.length;
                     forgetSendingHoldingBufferLock(batch.payloadId);
                 }
                 return;
@@ -564,9 +673,10 @@ class EventStore implements Closeable {
             return;
         }
         synchronized (ioLock) {
-            int counted = disk.remove(batch.payloadId, batch.eventCount);
+            EventDirectory.Tally counted = disk.remove(batch.payloadId, batch.eventCount);
             synchronized (bufferLock) {
-                closedEvents -= counted;
+                closedEvents -= counted.events;
+                closedBytes -= counted.bytes;
                 forgetSendingHoldingBufferLock(batch.payloadId);
             }
         }
@@ -577,11 +687,29 @@ class EventStore implements Closeable {
      * {@link #stoppedSending}.
      */
     void startedSending(Batch batch) {
+        long bytes = bytes(batch.payloadId);
         synchronized (bufferLock) {
             if (!sendingBatches.containsKey(batch.payloadId)) {
-                sendingBatches.put(batch.payloadId, batch.eventCount);
+                sendingBatches.put(batch.payloadId, new EventDirectory.Tally(batch.eventCount, bytes));
                 sendingEvents += batch.eventCount;
+                sendingBytes += bytes;
             }
+        }
+    }
+
+    /** The bytes of a closed batch, as far as this store has counted them. */
+    private long bytes(String payloadId) {
+        synchronized (heldLock) {
+            HeldBatch held = inMemoryBatches.get(payloadId);
+            if (held != null) {
+                return held.body.length;
+            }
+        }
+        if (disk == null) {
+            return 0;
+        }
+        synchronized (ioLock) {
+            return disk.bytes(payloadId);
         }
     }
 
@@ -599,9 +727,10 @@ class EventStore implements Closeable {
      * Requires {@link #bufferLock}.
      */
     private void forgetSendingHoldingBufferLock(String payloadId) {
-        Integer events = sendingBatches.remove(payloadId);
-        if (events != null) {
-            sendingEvents -= events;
+        EventDirectory.Tally sending = sendingBatches.remove(payloadId);
+        if (sending != null) {
+            sendingEvents -= sending.events;
+            sendingBytes -= sending.bytes;
         }
     }
 
@@ -626,13 +755,54 @@ class EventStore implements Closeable {
      * <p>
      * Requires {@code ioLock}.
      */
-    private void countRecoveredHoldingIoLock(int events) {
-        if (events <= 0) {
+    private void countRecoveredHoldingIoLock(EventDirectory.Tally recovered) {
+        if (recovered.events <= 0) {
             return;
         }
         synchronized (bufferLock) {
-            closedEvents += events;
+            closedEvents += recovered.events;
+            closedBytes += recovered.bytes;
         }
+    }
+
+    /**
+     * Deletes stored events older than the maximum age, so that what an application can no longer deliver
+     * does not keep the device's storage, or this store's capacity, for ever.
+     * <p>
+     * Its own directory first, under {@code ioLock}; then, once per process, the directories of environments
+     * nothing has written to for as long, outside it, since none of that is this store's.
+     *
+     * @return how many events were discarded, which the caller counts as dropped
+     */
+    int discardExpired() {
+        if (disk == null) {
+            return 0;
+        }
+        long cutoff = System.currentTimeMillis() - maxAgeMillis;
+        int discarded;
+        File directory = null;
+        synchronized (ioLock) {
+            Set<String> sending;
+            synchronized (bufferLock) {
+                sending = new HashSet<>(sendingBatches.keySet());
+            }
+            EventDirectory.Discarded result = disk.discard(cutoff, sending);
+            // In the same critical section as the delete, as for any other path that loses events without
+            // delivering them, so the store cannot go on counting what is gone.
+            synchronized (bufferLock) {
+                closedEvents -= result.counted.events;
+                closedBytes -= result.counted.bytes;
+            }
+            discarded = result.events;
+            if (!hasDiscardedAbandonedEnvironments) {
+                hasDiscardedAbandonedEnvironments = true;
+                directory = disk.directory();
+            }
+        }
+        if (directory != null) {
+            discarded += EventDirectory.discardAbandonedEnvironments(directory, cutoff);
+        }
+        return discarded;
     }
 
     // MARK: writing
@@ -652,6 +822,7 @@ class EventStore implements Closeable {
             bufferData.reset();
             bufferedEventCount = 0;
             inTransitEvents += events;
+            inTransitBytes += bytes.length;
         }
 
         boolean written = false;
@@ -662,8 +833,10 @@ class EventStore implements Closeable {
             // transit, so a capacity check never sees them in both places or in neither.
             synchronized (bufferLock) {
                 inTransitEvents -= events;
+                inTransitBytes -= bytes.length;
                 if (written) {
                     committedEvents += events;
+                    committedBytes += bytes.length;
                 } else {
                     // Put back, to be delivered from memory rather than lost.
                     byte[] laterFrames = bufferData.toByteArray();

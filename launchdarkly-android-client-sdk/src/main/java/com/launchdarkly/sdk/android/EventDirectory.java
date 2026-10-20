@@ -5,6 +5,7 @@ import com.launchdarkly.logging.LogValues;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -67,6 +68,36 @@ class EventDirectory {
         InputStream openForReading(File file) throws IOException;
     }
 
+    /** How many events, and how many bytes, something stored holds: the two things capacity counts. */
+    static final class Tally {
+        static final Tally NONE = new Tally(0, 0);
+
+        final int events;
+        final long bytes;
+
+        Tally(int events, long bytes) {
+            this.events = events;
+            this.bytes = bytes;
+        }
+
+        Tally plus(Tally other) {
+            return new Tally(events + other.events, bytes + other.bytes);
+        }
+    }
+
+    /** What discarding expired files did. */
+    static final class Discarded {
+        /** How many events went with them. */
+        final int events;
+        /** How much of that this process was counting, which is what stops counting against capacity. */
+        final Tally counted;
+
+        Discarded(int events, Tally counted) {
+            this.events = events;
+            this.counted = counted;
+        }
+    }
+
     private final Location location;
     private final Object ioLock;
     private final LDLogger logger;
@@ -92,14 +123,20 @@ class EventDirectory {
      */
     private final Map<String, Stored> stored = new HashMap<>();
 
-    /** A batch in the directory: the file it is, and how many events it holds. */
+    /** A batch in the directory: the file it is, how many events it holds, and how big it is. */
     private static final class Stored {
         final File file;
         final int events;
+        final long bytes;
 
-        Stored(File file, int events) {
+        Stored(File file, int events, long bytes) {
             this.file = file;
             this.events = events;
+            this.bytes = bytes;
+        }
+
+        Tally tally() {
+            return new Tally(events, bytes);
         }
     }
 
@@ -213,15 +250,15 @@ class EventDirectory {
 
     /** What an append did. */
     static final class Append {
-        /** How many events a recovery closed off into batches of their own on the way. */
-        final int recovered;
+        /** What a recovery closed off into batches of their own on the way. */
+        final Tally recovered;
         /**
          * Whether every byte landed. False means none of them is in the log, and that the caller should
          * give up on the disk.
          */
         final boolean written;
 
-        Append(int recovered, boolean written) {
+        Append(Tally recovered, boolean written) {
             this.recovered = recovered;
             this.written = written;
         }
@@ -237,7 +274,7 @@ class EventDirectory {
         // Recovered before the log is opened, because it may still be the one a previous run died writing.
         // A commit on the caller's thread can get here before the processor's queued startup task has
         // recovered it, and appended to, this run's events would sit behind that run's torn last frame.
-        int recovered = diskLog().isOpen() ? 0 : recoverInterruptedLog();
+        Tally recovered = diskLog().isOpen() ? Tally.NONE : recoverInterruptedLog();
         try {
             diskLog().append(bytes);
             return new Append(recovered, true);
@@ -272,8 +309,9 @@ class EventDirectory {
      * Requires {@code ioLock}.
      *
      * @param events how many events the log holds, which the caller has counted as it staged them
+     * @param bytes how big the log is, which the caller has counted as it wrote it
      */
-    LogClose closeLog(int events) {
+    LogClose closeLog(int events, long bytes) {
         assert Thread.holdsLock(ioLock);
         String payloadId = UUID.randomUUID().toString();
         File file = newBatchFile(payloadId, events);
@@ -282,7 +320,7 @@ class EventDirectory {
             return new LogClose(null, diskLog().exists());
         }
 
-        stored.put(payloadId, new Stored(file, events));
+        stored.put(payloadId, new Stored(file, events, bytes));
         return new LogClose(new EventStore.Batch(payloadId, events), true);
     }
 
@@ -300,6 +338,8 @@ class EventDirectory {
 
     /**
      * Requires {@code ioLock}.
+     * <p>
+     * Sizes come from the directory entries, so that counting the directory's bytes reads no file either.
      *
      * @return the batches the directory holds, oldest first, which is the order they are delivered in
      */
@@ -342,7 +382,7 @@ class EventDirectory {
                     continue;
                 }
             }
-            stored.put(payloadId, new Stored(file, events));
+            stored.put(payloadId, new Stored(file, events, file.length()));
             batches.add(new EventStore.Batch(payloadId, events));
         }
 
@@ -354,6 +394,23 @@ class EventDirectory {
         }
         stored.keySet().retainAll(listed);
         return batches;
+    }
+
+    /** The bytes in every batch the last listing or close counted. Requires {@code ioLock}. */
+    long storedBytes() {
+        assert Thread.holdsLock(ioLock);
+        long bytes = 0;
+        for (Stored batch : stored.values()) {
+            bytes += batch.bytes;
+        }
+        return bytes;
+    }
+
+    /** The bytes in a batch, as far as this process has counted them. Requires {@code ioLock}. */
+    long bytes(String payloadId) {
+        assert Thread.holdsLock(ioLock);
+        Stored known = stored.get(payloadId);
+        return known == null ? 0 : known.bytes;
     }
 
     /**
@@ -398,10 +455,10 @@ class EventDirectory {
     /**
      * Forgets a batch. Requires {@code ioLock}.
      *
-     * @return the events it stopped counting, which is zero for a batch that was already gone - one another
+     * @return what it stopped counting, which is nothing for a batch that was already gone - one another
      *   process delivered, say, which a listing has stopped counting already
      */
-    int remove(String payloadId, int events) {
+    Tally remove(String payloadId, int events) {
         assert Thread.holdsLock(ioLock);
         File file = batchFile(payloadId, events);
         deleteQuietly(file);
@@ -412,7 +469,7 @@ class EventDirectory {
             deliveredButUndeleted.add(payloadId);
         }
         Stored removed = stored.remove(payloadId);
-        return removed == null ? 0 : removed.events;
+        return removed == null ? Tally.NONE : removed.tally();
     }
 
     /**
@@ -513,22 +570,28 @@ class EventDirectory {
      * log: after that, the log under this name holds this run's events, and closing it as a previous run's
      * would send them early and report them as recovered.
      *
-     * @return how many events it closed off, which is zero on every call after the first
+     * @return what it closed off, which is nothing on every call after the first
      */
-    int recoverInterruptedLog() {
+    Tally recoverInterruptedLog() {
         assert Thread.holdsLock(ioLock);
         if (recoveryDone) {
-            return 0;
+            return Tally.NONE;
         }
         recoveryDone = true;
 
         File log = diskLog().file();
         if (!log.exists()) {
-            return 0;
+            return Tally.NONE;
         }
         int events;
+        long bytes;
         try {
-            events = EventLogFormat.eventCount(readFile(log));
+            byte[] contents = readFile(log);
+            if (contents == null) {
+                return Tally.NONE;
+            }
+            events = EventLogFormat.eventCount(contents);
+            bytes = contents.length;
         } catch (IOException e) {
             // It cannot stay under this name, which this process is about to append its own events to,
             // and deleting it would lose events that may be intact. Closed uncounted instead, it is read
@@ -538,26 +601,160 @@ class EventDirectory {
             // Named without a count, which is what a batch whose events have never been counted is: the
             // listing that first manages to read it is what counts it.
             log.renameTo(new File(directory(), BATCH_PREFIX + UUID.randomUUID()));
-            return 0;
+            return Tally.NONE;
         }
         if (events < 0) {
             // Unreadable, and a log that cannot be read cannot be appended to either.
             deleteQuietly(log);
-            return 0;
+            return Tally.NONE;
         }
         if (events == 0) {
             deleteQuietly(log);
-            return 0;
+            return Tally.NONE;
         }
         String payloadId = UUID.randomUUID().toString();
         File file = newBatchFile(payloadId, events);
         if (!log.renameTo(file)) {
-            return 0;
+            return Tally.NONE;
         }
-        stored.put(payloadId, new Stored(file, events));
+        Stored recovered = new Stored(file, events, bytes);
+        stored.put(payloadId, recovered);
         logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
                 events);
+        return recovered.tally();
+    }
+
+    // MARK: expiry
+
+    /**
+     * Deletes the batches in this directory last written before {@code cutoffMillis}, and the logs of other
+     * processes that have not been written since then either. Requires {@code ioLock}.
+     * <p>
+     * A batch's modification time is when its newest event was written, since a batch is renamed rather than
+     * rewritten when it is closed, so a batch is discarded only once everything in it is that old. A log
+     * another process has not appended to for as long belongs to a process that is gone: one that is alive
+     * appends far more often than that.
+     *
+     * @param sending batches whose request is out, which are left alone however old they are
+     */
+    Discarded discard(long cutoffMillis, Set<String> sending) {
+        assert Thread.holdsLock(ioLock);
+        File[] files = directory().listFiles();
+        int events = 0;
+        Tally counted = Tally.NONE;
+        if (files == null) {
+            return new Discarded(0, counted);
+        }
+        File ownLog = diskLog().file();
+        for (File file : files) {
+            if (!isOlderThan(file, cutoffMillis)) {
+                continue;
+            }
+            String name = file.getName();
+            if (name.startsWith(BATCH_PREFIX)) {
+                int named = eventsInName(name);
+                String payloadId = payloadIdInName(name, named);
+                if (sending.contains(payloadId) || deliveredButUndeleted.contains(payloadId)) {
+                    continue;
+                }
+                Stored known = stored.get(payloadId);
+                int held = named >= 0 ? named : known != null ? known.events : eventsReading(file);
+                if (!delete(file)) {
+                    continue;
+                }
+                events += held;
+                Stored removed = stored.remove(payloadId);
+                if (removed != null) {
+                    counted = counted.plus(removed.tally());
+                }
+            } else if (name.startsWith(DiskEventLog.PREFIX) && !file.equals(ownLog)) {
+                events += discardAbandonedLog(file);
+            }
+        }
+        return new Discarded(events, counted);
+    }
+
+    /**
+     * Empties and removes the directories of other environments that nothing has written to since
+     * {@code cutoffMillis}: those of a mobile key the application no longer uses, which no client will look
+     * in again.
+     * <p>
+     * Age decides rather than the keys the application configures, because another process of the same
+     * application may be using a key this one does not configure. Nothing is touched here that this store
+     * reads or writes, so it needs no lock. A directory is removed only if it is empty, so a log another
+     * process starts in it meanwhile keeps the directory and itself.
+     * <p>
+     * Only where {@code current} is where the SDK puts environments, so that a store handed some other
+     * directory never goes through that directory's siblings.
+     *
+     * @return how many events were discarded
+     */
+    static int discardAbandonedEnvironments(File current, long cutoffMillis) {
+        File root = current.getParentFile();
+        if (root == null || !DIRECTORY_NAME.equals(root.getName())) {
+            return 0;
+        }
+        File[] environments = root.listFiles();
+        if (environments == null) {
+            return 0;
+        }
+        int events = 0;
+        for (File environment : environments) {
+            if (environment.equals(current) || !environment.isDirectory()) {
+                continue;
+            }
+            File[] files = environment.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (!isOlderThan(file, cutoffMillis)) {
+                        continue;
+                    }
+                    String name = file.getName();
+                    if (name.startsWith(BATCH_PREFIX)) {
+                        int named = eventsInName(name);
+                        int held = named >= 0 ? named : eventsReading(file);
+                        if (delete(file)) {
+                            events += held;
+                        }
+                    } else if (name.startsWith(DiskEventLog.PREFIX)) {
+                        events += discardAbandonedLog(file);
+                    }
+                }
+            }
+            // Removes the directory only if it is empty.
+            environment.delete();
+        }
         return events;
+    }
+
+    /** A file whose modification time is unknown is never taken for an old one. */
+    private static boolean isOlderThan(File file, long cutoffMillis) {
+        long modified = file.lastModified();
+        return modified > 0 && modified < cutoffMillis;
+    }
+
+    /** Deletes a log no live process is appending to, returning how many events it held. */
+    private static int discardAbandonedLog(File log) {
+        int held = eventsReading(log);
+        return delete(log) ? held : 0;
+    }
+
+    private static int eventsReading(File file) {
+        ByteArrayOutputStream contents = new ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        try (InputStream in = new FileInputStream(file)) {
+            int read;
+            while ((read = in.read(chunk)) > 0) {
+                contents.write(chunk, 0, read);
+            }
+        } catch (IOException e) {
+            return 0;
+        }
+        return Math.max(0, EventLogFormat.eventCount(contents.toByteArray()));
+    }
+
+    private static boolean delete(File file) {
+        return file.delete() || !file.exists();
     }
 
     // MARK: naming
