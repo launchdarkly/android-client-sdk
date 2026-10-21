@@ -343,7 +343,7 @@ class EventDirectory {
                     } catch (IOException e) {
                         // Left for a later listing rather than deleted: the read may pass, and the events in
                         // it may be intact. Without a count it cannot be delivered now.
-                        logger.warn("Could not read stored events, will try again later: {}",
+                        logger.warn("Could not read stored events, will try again at the next delivery: {}",
                                 LogValues.exceptionSummary(e));
                         continue;
                     }
@@ -604,7 +604,7 @@ class EventDirectory {
             // whose events have never been counted is, it is read and counted by whichever listing first
             // manages to.
             if (log.renameTo(new File(directory(), BATCH_PREFIX + UUID.randomUUID()))) {
-                logger.warn("Could not read events from a previous run, will try again later: {}",
+                logger.warn("Could not read events from a previous run, will try again at the next delivery: {}",
                         LogValues.exceptionSummary(e));
             } else {
                 // Left where it is, unlocked and appended to by no one, for the next launch to recover.
