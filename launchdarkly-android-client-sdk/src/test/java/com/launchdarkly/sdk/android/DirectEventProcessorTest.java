@@ -1831,10 +1831,10 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
-            FileOutputStream openForAppending(File log) throws IOException {
+            FileOutputStream openForAppending(File file) throws IOException {
                 writeStarted.countDown();
                 awaitQuietly(letWriteFinish);
-                return super.openForAppending(log);
+                return super.openForAppending(file);
             }
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
@@ -2435,8 +2435,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
-            FileOutputStream openForAppending(File log) throws IOException {
-                return new FileOutputStream(log, true) {
+            FileOutputStream openForAppending(File file) throws IOException {
+                return new FileOutputStream(file, true) {
                     @Override
                     public void write(byte[] bytes) throws IOException {
                         // The file header and the first event land; the disk is full from then on.

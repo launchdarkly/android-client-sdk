@@ -942,8 +942,8 @@ class EventStore implements Closeable {
 
     /** Overridable so a test can make a write fail partway through a session, as a full disk does. */
     @VisibleForTesting
-    FileOutputStream openForAppending(File log) throws IOException {
-        return new FileOutputStream(log, true);
+    FileOutputStream openForAppending(File file) throws IOException {
+        return new FileOutputStream(file, true);
     }
 
     @Override

@@ -649,8 +649,8 @@ public class EventStoreMultiProcessTest {
         AtomicInteger writes = new AtomicInteger();
         return new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
-            FileOutputStream openForAppending(File log) throws IOException {
-                return new FileOutputStream(log, true) {
+            FileOutputStream openForAppending(File file) throws IOException {
+                return new FileOutputStream(file, true) {
                     @Override
                     public void write(byte[] bytes) throws IOException {
                         if (writes.incrementAndGet() <= whole) {
@@ -673,14 +673,14 @@ public class EventStoreMultiProcessTest {
         CountDownLatch letWriteFinish = new CountDownLatch(1);
         EventStore store = new EventStore(sharedDirectory(), 2, true, logger) {
             @Override
-            FileOutputStream openForAppending(File log) throws IOException {
+            FileOutputStream openForAppending(File file) throws IOException {
                 writing.countDown();
                 try {
                     letWriteFinish.await(10, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
-                return super.openForAppending(log);
+                return super.openForAppending(file);
             }
         };
         assertTrue(store.stage(event("first"), false));

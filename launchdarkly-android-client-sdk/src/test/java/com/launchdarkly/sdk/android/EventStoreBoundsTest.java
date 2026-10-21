@@ -192,7 +192,7 @@ public class EventStoreBoundsTest {
         EventStore store = new EventStore(new File(tempFolder.getRoot(), "events"), CAPACITY,
                 BYTE_CAPACITY, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger) {
             @Override
-            FileOutputStream openForAppending(File log) throws IOException {
+            FileOutputStream openForAppending(File file) throws IOException {
                 throw new IOException("no space left on device");
             }
         };

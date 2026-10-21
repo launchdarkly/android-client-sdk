@@ -48,7 +48,7 @@ final class DiskEventLog {
 
     /** How the log is opened, so a test can make a write fail partway through a session, as a full disk does. */
     interface Opener {
-        FileOutputStream openForAppending(File log) throws IOException;
+        FileOutputStream openForAppending(File file) throws IOException;
     }
 
     /** The absolute paths of the logs open in this process, which nothing here may open a descriptor on. */
