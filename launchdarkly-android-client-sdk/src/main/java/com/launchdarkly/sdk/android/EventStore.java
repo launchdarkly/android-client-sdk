@@ -650,7 +650,7 @@ class EventStore implements Closeable {
     }
 
     /**
-     * Forgets a batch, which is only correct once LaunchDarkly has accepted it or permanently refused it.
+     * Removes a batch, which is only correct once LaunchDarkly has accepted it or permanently refused it.
      */
     void remove(Batch batch) {
         // Only a count this call takes away stops counting. Two deliveries can both get to the same batch,

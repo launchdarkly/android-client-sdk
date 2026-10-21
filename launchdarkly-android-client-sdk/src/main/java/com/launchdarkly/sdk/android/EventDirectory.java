@@ -438,7 +438,7 @@ class EventDirectory {
     }
 
     /**
-     * Forgets a batch. Requires {@code ioLock}.
+     * Removes a batch. Requires {@code ioLock}.
      *
      * @return what it stopped counting, which is nothing for a batch that was already gone - one another
      *   process delivered, say, which a listing has stopped counting already
