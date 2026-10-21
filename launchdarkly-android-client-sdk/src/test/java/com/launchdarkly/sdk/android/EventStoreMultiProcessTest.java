@@ -16,6 +16,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -837,6 +838,29 @@ public class EventStoreMultiProcessTest {
             bodies.add(keysIn(store.body(batch)));
         }
         assertEquals(Arrays.asList(Arrays.asList("written"), Arrays.asList("landed", "torn")), bodies);
+    }
+
+    @Test
+    public void sendsNoFramesAWriteThatFailedLeftBehindWhenItCouldNotBeCutBack() throws IOException {
+        EventStore store = storeFor();
+        store.stage(event("written"));
+        EventStore.Batch closed = closeOne(store);
+        File[] files = sharedDirectory().listFiles((dir, name) -> name.startsWith("ready-"));
+        assertNotNull(files);
+        assertEquals(1, files.length);
+        // Whole frames past the one the batch was closed holding, which memory delivers instead.
+        ByteArrayOutputStream leftBehind = new ByteArrayOutputStream();
+        EventLogFormat.writeFrame(leftBehind, event("from-memory"));
+        try (FileOutputStream log = new FileOutputStream(files[0], true)) {
+            log.write(leftBehind.toByteArray());
+        }
+
+        assertEquals(Arrays.asList("written"), keysIn(store.body(closed)));
+        EventStore other = storeFor();
+        List<EventStore.Batch> listed = other.pendingBatches();
+        assertEquals(1, listed.size());
+        assertEquals(1, listed.get(0).eventCount);
+        assertEquals(Arrays.asList("written"), keysIn(other.body(listed.get(0))));
     }
 
     @Test

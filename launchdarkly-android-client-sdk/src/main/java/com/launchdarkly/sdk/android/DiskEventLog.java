@@ -159,12 +159,16 @@ final class DiskEventLog {
         }
     }
 
-    /** Cuts the log back to {@code length}, where a failed write left it longer. */
+    /**
+     * Cuts the log back to {@code length}, where a failed write left it longer. Where it cannot, the
+     * batch this log is closed into still delivers only the events it was closed holding, which leaves out
+     * the frames left behind.
+     */
     private void cutBack(FileOutputStream stream, long length) {
         try {
             stream.getChannel().truncate(length);
         } catch (IOException | RuntimeException e) {
-            logger.debug("Could not cut back a failed write to the event log: {}",
+            logger.warn("Could not cut back a failed write to the event log: {}",
                     LogValues.exceptionSummary(e));
         }
     }

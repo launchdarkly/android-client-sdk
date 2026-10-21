@@ -109,6 +109,16 @@ final class EventLogFormat {
      * @return the request body, or null if the log is unreadable or holds no events
      */
     static byte[] assembleBody(byte[] log) {
+        return assembleBody(log, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Assembles the request body out of the first {@code maxEvents} events in the log, and leaves out any
+     * after them.
+     *
+     * @return the request body, or null if the log is unreadable or holds no events
+     */
+    static byte[] assembleBody(byte[] log, int maxEvents) {
         Frames frames = new Frames(log);
         if (!frames.isReadable()) {
             return null;
@@ -116,10 +126,12 @@ final class EventLogFormat {
         ByteArrayOutputStream body = new ByteArrayOutputStream(log.length + 2);
         body.write('[');
         boolean isFirst = true;
-        while (frames.next()) {
+        int events = 0;
+        while (events < maxEvents && frames.next()) {
             if (frames.type() != EVENT_FRAME) {
                 continue;
             }
+            events++;
             if (!isFirst) {
                 body.write(',');
             }

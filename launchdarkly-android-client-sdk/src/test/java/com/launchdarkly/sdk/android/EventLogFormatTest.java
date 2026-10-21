@@ -102,6 +102,16 @@ public class EventLogFormatTest {
     }
 
     @Test
+    public void assemblesNoMoreEventsThanItIsAskedFor() {
+        byte[] log = log("event-0", "event-1", "event-2");
+
+        assertEquals(LDValue.parse("[" + new String(event("event-0"), StandardCharsets.UTF_8) + ","
+                        + new String(event("event-1"), StandardCharsets.UTF_8) + "]"),
+                LDValue.parse(new String(EventLogFormat.assembleBody(log, 2), StandardCharsets.UTF_8)));
+        assertEquals(null, EventLogFormat.assembleBody(log, 0));
+    }
+
+    @Test
     public void hasNoBodyWhenTheFirstFrameIsDamaged() {
         byte[] log = log("damaged");
         log[EventLogFormat.FILE_HEADER_SIZE + EventLogFormat.FRAME_HEADER_SIZE] ^= 0x01;

@@ -421,7 +421,10 @@ class EventDirectory {
         if (log == null) {
             return null;
         }
-        byte[] body = EventLogFormat.assembleBody(log);
+        // No more than the batch was closed holding. A write that failed and could not be truncated
+        // leaves whole frames after them, whose events are delivered from memory instead, and would
+        // otherwise be sent twice.
+        byte[] body = EventLogFormat.assembleBody(log, events > 0 ? events : Integer.MAX_VALUE);
         // A log this version reads that holds no events has nothing to lose, unless its first frame is
         // damaged.
         if (body == null && (EventLogFormat.eventCount(log) != 0 || EventLogFormat.isDamaged(log))) {
