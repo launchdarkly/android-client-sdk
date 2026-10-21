@@ -177,6 +177,9 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * {@link EventPersistence#IMMEDIATE} additionally puts the write on the thread that called
      * {@code track} or {@code identify}, so there is no window in which the event exists only in memory.
      * <p>
+     * Both levels other than {@link EventPersistence#DISABLED} are experimental, and not subject to any
+     * backwards compatibility guarantees or semantic versioning.
+     * <p>
      * The default value is {@link #DEFAULT_EVENT_PERSISTENCE}.
      *
      * @param eventPersistence how far to go to make events outlive the process

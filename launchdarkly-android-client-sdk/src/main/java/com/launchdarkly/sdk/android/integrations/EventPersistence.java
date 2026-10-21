@@ -6,6 +6,10 @@ package com.launchdarkly.sdk.android.integrations;
  * An event lives in memory until it is delivered, so a process that dies before the next flush takes
  * everything recorded since the last one — including the crash an application was reporting when it died.
  * Writing events to disk is what closes that gap: they are delivered on a later run instead of being lost.
+ * <p>
+ * {@link #DEFERRED} and {@link #IMMEDIATE} are not stable in this major version, and not subject to any
+ * backwards compatibility guarantees or semantic versioning. They are experimental: their behavior, their
+ * cost on the calling thread, and what they leave on disk may change in a minor release.
  *
  * @see EventProcessorBuilder#eventPersistence(EventPersistence)
  */
@@ -30,6 +34,8 @@ public enum EventPersistence {
      * A flush is the exception. It writes on the calling thread, as {@link #IMMEDIATE} does, so that an
      * application ending the process on purpose can rely on it. A flush on the main thread with
      * {@link android.os.StrictMode} detecting disk writes therefore sees a violation.
+     * <p>
+     * This level is experimental; see {@link EventPersistence}.
      */
     DEFERRED,
 
@@ -45,6 +51,8 @@ public enum EventPersistence {
      * {@code identify} on the main thread with {@link android.os.StrictMode} detecting disk writes will see
      * a violation for each call. Choose {@link #DEFERRED} for those callers, which keeps these writes off
      * the calling thread.
+     * <p>
+     * This level is experimental; see {@link EventPersistence}.
      */
     IMMEDIATE
 }
