@@ -735,10 +735,10 @@ class EventStore implements Closeable {
     }
 
     /**
-     * Closes any log this process left open on a previous run, so its events join the batches to deliver.
+     * Closes every log no live process holds, so their events join the batches to deliver.
      * <p>
-     * The events in it were recorded by a process that is gone, so there is no one left to add to it. Only
-     * this process's own log is touched: another process's may still be open in a process that is alive.
+     * The events in them were recorded by processes that are gone, so there is no one left to add to them.
+     * A log a live process holds, this store's own included, is left alone.
      */
     void recoverInterruptedLog() {
         if (disk == null) {
@@ -860,9 +860,7 @@ class EventStore implements Closeable {
                 return false;
             }
         }
-        EventDirectory.Append appended = disk.append(bytes);
-        countRecoveredHoldingIoLock(appended.recovered);
-        if (!appended.written) {
+        if (!disk.append(bytes)) {
             synchronized (bufferLock) {
                 persistEvents = false;
             }

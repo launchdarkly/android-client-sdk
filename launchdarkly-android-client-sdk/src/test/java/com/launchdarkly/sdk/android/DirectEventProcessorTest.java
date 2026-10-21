@@ -32,6 +32,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -148,9 +150,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 eventProcessor.flush();
 
-                EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
-                        DEFAULT_CAPACITY, true, logging.logger);
-                List<byte[]> persisted = reader.pendingEventPayloads();
+                List<byte[]> persisted = payloadsOnDisk();
                 int featureEvents = 0;
                 int summaryEvents = 0;
                 for (byte[] payload : persisted) {
@@ -439,11 +439,32 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     /** @return how many events of this kind the store holds, read as another process would read it */
+    /**
+     * Every event in the environment's directory, read straight off the disk the way a process starting after a
+     * kill finds them: every log, whoever has it open, and every batch.
+     */
+    private List<byte[]> payloadsOnDisk() throws IOException {
+        List<byte[]> payloads = new ArrayList<>();
+        File[] files = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY).listFiles();
+        if (files == null) {
+            return payloads;
+        }
+        for (File file : files) {
+            String name = file.getName();
+            if (name.startsWith(DiskEventLog.PREFIX) || name.startsWith("ready-")) {
+                try {
+                    payloads.addAll(EventLogFormat.eventPayloads(Files.readAllBytes(file.toPath())));
+                } catch (NoSuchFileException e) {
+                    // Closed off or delivered since the listing.
+                }
+            }
+        }
+        return payloads;
+    }
+
     private int kindsOnDisk(String kind) throws Exception {
-        EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
-                DEFAULT_CAPACITY, true, logging.logger);
         int found = 0;
-        for (byte[] payload : reader.pendingEventPayloads()) {
+        for (byte[] payload : payloadsOnDisk()) {
             if (kind.equals(LDValue.parse(new String(payload, "UTF-8")).get("kind").stringValue())) {
                 found++;
             }
@@ -465,10 +486,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.recordIdentifyEvent(CONTEXT);
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
 
-                EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
-                        DEFAULT_CAPACITY, true, logging.logger);
-                assertTrue("an event reached the disk without being asked to",
-                        reader.pendingEventPayloads().isEmpty());
+                assertTrue("an event reached the disk without being asked to", payloadsOnDisk().isEmpty());
 
                 // Held in memory instead, so turning persistence off costs durability and nothing else.
                 List<LDValue> events = flushAndCollect(eventProcessor, server);
@@ -2508,14 +2526,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private boolean awaitNoPendingEvents(long timeout, TimeUnit unit) throws Exception {
         long deadlineNanos = System.nanoTime() + unit.toNanos(timeout);
         do {
-            EventStore reader = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
-                    DEFAULT_CAPACITY, true, logging.logger);
-            try {
-                if (reader.pendingEventPayloads().isEmpty()) {
-                    return true;
-                }
-            } finally {
-                reader.close();
+            if (payloadsOnDisk().isEmpty()) {
+                return true;
             }
             Thread.sleep(25);
         } while (System.nanoTime() < deadlineNanos);

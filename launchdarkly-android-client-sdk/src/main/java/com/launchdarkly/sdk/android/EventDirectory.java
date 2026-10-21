@@ -108,9 +108,6 @@ class EventDirectory {
     private File directory;
     private DiskEventLog diskLog;
 
-    /** Whether a log left by a previous run has been dealt with. Guarded by ioLock. */
-    private boolean recoveryDone;
-
     /**
      * What this process knows about each batch in the directory, by payload ID, which is how everything
      * outside this class names one.
@@ -169,7 +166,7 @@ class EventDirectory {
         assert Thread.holdsLock(ioLock);
         if (directory == null) {
             File resolved = location.directory();
-            diskLog = new DiskEventLog(resolved, location.processName(), ioLock, opener, logger);
+            diskLog = new DiskEventLog(resolved, ioLock, opener, logger);
             directory = resolved;
         }
     }
@@ -248,41 +245,24 @@ class EventDirectory {
 
     // MARK: writing
 
-    /** What an append did. */
-    static final class Append {
-        /** What a recovery closed off into batches of their own on the way. */
-        final Tally recovered;
-        /**
-         * Whether every byte landed. False means none of them is in the log, and that the caller should
-         * give up on the disk.
-         */
-        final boolean written;
-
-        Append(Tally recovered, boolean written) {
-            this.recovered = recovered;
-            this.written = written;
-        }
-    }
-
     /**
-     * Appends to the open log, first closing off one a previous run left behind.
+     * Appends to the open log, opening a new one where none is open.
      * <p>
      * Requires {@code ioLock}.
+     *
+     * @return whether every byte landed. False means none of them is in the log, and that the caller should
+     *   give up on the disk.
      */
-    Append append(byte[] bytes) {
+    boolean append(byte[] bytes) {
         assert Thread.holdsLock(ioLock);
-        // Recovered before the log is opened, because it may still be the one a previous run died writing.
-        // A commit on the caller's thread can get here before the processor's queued startup task has
-        // recovered it, and appended to, this run's events would sit behind that run's torn last frame.
-        Tally recovered = diskLog().isOpen() ? Tally.NONE : recoverInterruptedLog();
         try {
             diskLog().append(bytes);
-            return new Append(recovered, true);
+            return true;
         } catch (IOException | RuntimeException e) {
             // Never let a full disk take the application down. The SDK gives up on persistence for the
             // rest of the session instead, which is how other SDKs have crashed their hosts.
             logger.warn("Giving up on persisting events: {}", LogValues.exceptionSummary(e));
-            return new Append(recovered, false);
+            return false;
         }
     }
 
@@ -486,6 +466,8 @@ class EventDirectory {
         }
         if (diskLog().exists()) {
             logs.add(readFileOrNull(diskLog().file()));
+            // Closing the descriptor that read it released this process's lock on it.
+            diskLog().relockAfterReading();
         }
 
         List<byte[]> payloads = new ArrayList<>();
@@ -561,80 +543,82 @@ class EventDirectory {
     // MARK: recovery
 
     /**
-     * Closes off any log left open by a previous run of this process, so its events join the batches to
+     * Closes off every log in the directory that no live process holds, so their events join the batches to
      * deliver.
      * <p>
-     * The events in it were recorded by a process that is gone, so there is no one left to add to it. Only
-     * this process's own log is touched: another process's may still be open in a process that is alive.
+     * Whoever recorded the events in such a log is gone, so there is no one left to add to it: a previous run
+     * of this process, another process of the application, or a store in this one that has since closed. A
+     * log some live process holds, this store's own included, is left alone.
      * <p>
-     * Requires {@code ioLock}. Does its work at most once, and always before this process first opens its
-     * log: after that, the log under this name holds this run's events, and closing it as a previous run's
-     * would send them early and report them as recovered.
+     * Requires {@code ioLock}.
      *
-     * @return what it closed off, which is nothing on every call after the first
+     * @return what it closed off
      */
     Tally recoverInterruptedLog() {
         assert Thread.holdsLock(ioLock);
-        if (recoveryDone) {
+        File[] files = directory().listFiles();
+        if (files == null) {
             return Tally.NONE;
         }
-        recoveryDone = true;
+        Tally recovered = Tally.NONE;
+        for (File file : files) {
+            if (file.getName().startsWith(DiskEventLog.PREFIX) && !DiskEventLog.isHeldByLiveProcess(file)) {
+                recovered = recovered.plus(recoverLog(file));
+            }
+        }
+        if (recovered.events > 0) {
+            logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
+                    recovered.events);
+        }
+        return recovered;
+    }
 
-        File log = diskLog().file();
-        if (!log.exists()) {
-            return Tally.NONE;
-        }
+    /** Closes off one log no live process holds. Requires {@code ioLock}. */
+    private Tally recoverLog(File log) {
         int events;
         long bytes;
         try {
             byte[] contents = readFile(log);
             if (contents == null) {
+                // Recovered by another process since the listing.
                 return Tally.NONE;
             }
             events = EventLogFormat.eventCount(contents);
             bytes = contents.length;
         } catch (IOException e) {
-            // It cannot stay under this name, which this process is about to append its own events to,
-            // and deleting it would lose events that may be intact. Closed uncounted instead, it is read
-            // and counted by whichever listing first manages to.
+            // Deleting it would lose events that may be intact. Named without a count, which is what a batch
+            // whose events have never been counted is, it is read and counted by whichever listing first
+            // manages to.
             logger.warn("Could not read events from a previous run, will try again later: {}",
                     LogValues.exceptionSummary(e));
-            // Named without a count, which is what a batch whose events have never been counted is: the
-            // listing that first manages to read it is what counts it.
             log.renameTo(new File(directory(), BATCH_PREFIX + UUID.randomUUID()));
             return Tally.NONE;
         }
-        if (events < 0) {
-            // Unreadable, and a log that cannot be read cannot be appended to either.
-            deleteQuietly(log);
-            return Tally.NONE;
-        }
-        if (events == 0) {
+        if (events <= 0) {
+            // Holds nothing, or nothing this version reads.
             deleteQuietly(log);
             return Tally.NONE;
         }
         String payloadId = UUID.randomUUID().toString();
         File file = newBatchFile(payloadId, events);
         if (!log.renameTo(file)) {
+            // Left where it is for a later run: no one appends to it, so nothing is lost by waiting.
             return Tally.NONE;
         }
         Stored recovered = new Stored(file, events, bytes);
         stored.put(payloadId, recovered);
-        logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
-                events);
         return recovered.tally();
     }
 
     // MARK: expiry
 
     /**
-     * Deletes the batches in this directory last written before {@code cutoffMillis}, and the logs of other
-     * processes that have not been written since then either. Requires {@code ioLock}.
+     * Deletes the batches in this directory last written before {@code cutoffMillis}, and the logs no live
+     * process holds that have not been written since then either. Requires {@code ioLock}.
      * <p>
      * A batch's modification time is when its newest event was written, since a batch is renamed rather than
-     * rewritten when it is closed, so a batch is discarded only once everything in it is that old. A log
-     * another process has not appended to for as long belongs to a process that is gone: one that is alive
-     * appends far more often than that.
+     * rewritten when it is closed, so a batch is discarded only once everything in it is that old. A log is
+     * usually recovered rather than left to grow old, so one that gets here is one recovery could not move.
      *
      * @param sending batches whose request is out, which are left alone however old they are
      */
@@ -646,7 +630,6 @@ class EventDirectory {
         if (files == null) {
             return new Discarded(0, counted);
         }
-        File ownLog = diskLog().file();
         for (File file : files) {
             if (!isOlderThan(file, cutoffMillis)) {
                 continue;
@@ -668,8 +651,8 @@ class EventDirectory {
                 if (removed != null) {
                     counted = counted.plus(removed.tally());
                 }
-            } else if (name.startsWith(DiskEventLog.PREFIX) && !file.equals(ownLog)) {
-                events += discardAbandonedLog(file);
+            } else {
+                events += discardIfAbandonedLog(file);
             }
         }
         return new Discarded(events, counted);
@@ -717,8 +700,8 @@ class EventDirectory {
                         if (delete(file)) {
                             events += held;
                         }
-                    } else if (name.startsWith(DiskEventLog.PREFIX)) {
-                        events += discardAbandonedLog(file);
+                    } else {
+                        events += discardIfAbandonedLog(file);
                     }
                 }
             }
@@ -734,10 +717,22 @@ class EventDirectory {
         return modified > 0 && modified < cutoffMillis;
     }
 
-    /** Deletes a log no live process is appending to, returning how many events it held. */
-    private static int discardAbandonedLog(File log) {
-        int held = eventsReading(log);
-        return delete(log) ? held : 0;
+    /**
+     * Deletes a log no live process holds, or one a process died opening, which holds no events.
+     *
+     * @return how many events went with it
+     */
+    private static int discardIfAbandonedLog(File file) {
+        String name = file.getName();
+        if (name.startsWith(DiskEventLog.OPENING_PREFIX)) {
+            delete(file);
+            return 0;
+        }
+        if (!name.startsWith(DiskEventLog.PREFIX) || DiskEventLog.isHeldByLiveProcess(file)) {
+            return 0;
+        }
+        int held = eventsReading(file);
+        return delete(file) ? held : 0;
     }
 
     private static int eventsReading(File file) {

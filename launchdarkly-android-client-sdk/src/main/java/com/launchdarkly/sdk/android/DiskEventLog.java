@@ -4,67 +4,111 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * The file of events on disk this process appends to, not to be confused with diagnostic logging.
  * <p>
- * One per process rather than one per directory, so that only one process ever writes a given log and
- * recovery only ever touches its own. With one shared log, a second process starting up would close
- * off, as if a previous run had left it, a log the first is still appending to through its open stream,
- * and the first's later events would land in a batch already sent or deleted. Another process's log is
- * left for that process to recover the next time it runs.
+ * One per store rather than one per directory, so that only one writer ever appends to a given log. Each is
+ * named for a UUID picked when it is opened, which is what keeps two writers apart: nothing about it comes from
+ * the application, and no two processes, or two stores in one, ever pick the same one.
+ * <p>
+ * The owner holds an exclusive lock on its log for as long as it is open, and the kernel releases it when the
+ * descriptor closes, including when the process dies. A log no one holds the lock on therefore belongs to no
+ * one alive, whatever process wrote it, and recovery takes it. A log is locked before it takes the name
+ * recovery looks for, so that a log being opened is never taken for one whose owner is gone.
+ * <p>
+ * A POSIX lock belongs to the process rather than to the descriptor it was taken through, and closing any
+ * descriptor this process has on the file releases it. So nothing in this process opens another store's log:
+ * the logs open here are remembered, and recognized as live without a descriptor being opened on them.
  * <p>
  * Belongs to an {@link EventStore}, which makes every call holding its {@code ioLock}. The lock is handed
  * in so that each call can check it is held, rather than this taking a lock of its own that would have
  * to be ordered against the store's.
  */
 final class DiskEventLog {
-    /** Names a log a single process appends to; the rest of the name is that process. */
+    /** Names a log its owner appends to; the rest of the name is the UUID it was opened under. */
     static final String PREFIX = "open-";
+    /**
+     * Names a log while it is being opened, before it is locked and has its header. Recovery never looks at
+     * these; one left by a process that died while opening it holds no events, and expiry removes it.
+     */
+    static final String OPENING_PREFIX = "new-";
 
     /** How the log is opened, so a test can make a write fail partway through a session, as a full disk does. */
     interface Opener {
         FileOutputStream openForAppending(File log) throws IOException;
     }
 
+    /** The absolute paths of the logs open in this process, which nothing here may open a descriptor on. */
+    private static final Set<String> openInThisProcess = new HashSet<>();
+
     private final File directory;
-    private final File file;
     private final Object ioLock;
     private final Opener opener;
     private final LDLogger logger;
     // Guarded by ioLock.
+    private File file;
     private FileOutputStream output;
+    private FileLock lock;
 
-    DiskEventLog(File directory, String processName, Object ioLock, Opener opener, LDLogger logger) {
+    DiskEventLog(File directory, Object ioLock, Opener opener, LDLogger logger) {
         this.directory = directory;
-        this.file = new File(directory, PREFIX + nameFor(processName));
+        this.file = newLogFile();
         this.ioLock = ioLock;
         this.opener = opener;
         this.logger = logger;
     }
 
+    private File newLogFile() {
+        return new File(directory, PREFIX + UUID.randomUUID());
+    }
+
     /**
-     * Names the log belonging to one process.
+     * Whether some live process holds a log, and recovery must leave it alone.
      * <p>
-     * The readable part is the process name with anything awkward in a filename replaced, which is what
-     * makes a directory of these diagnosable by a human. That reduction is not one-to-one, though:
-     * {@code com.app:remote} and {@code com.app.remote} are both legal process names and both come out as
-     * {@code com_app_remote}. Two processes sharing one log is the single thing this name exists to
-     * prevent, so the digest of the original name is appended to guarantee they never do.
+     * A log open in this process is answered from memory. Any other is answered by trying for a shared lock
+     * on it, which fails while its owner holds the exclusive one. A log that cannot be looked at counts as
+     * held: leaving a dead process's log for a later run costs nothing, while taking a live one's would lose
+     * what it appends next.
      */
-    static String nameFor(String processName) {
-        String name = processName == null ? "" : processName.trim();
-        if (name.isEmpty()) {
-            name = "unknown";
+    static boolean isHeldByLiveProcess(File log) {
+        synchronized (openInThisProcess) {
+            if (openInThisProcess.contains(log.getAbsolutePath())) {
+                return true;
+            }
         }
-        StringBuilder safe = new StringBuilder(name.length() + 9);
-        for (int i = 0; i < name.length(); i++) {
-            char c = name.charAt(i);
-            safe.append(Character.isLetterOrDigit(c) || c == '-' || c == '_' ? c : '_');
+        RandomAccessFile probe;
+        try {
+            probe = new RandomAccessFile(log, "r");
+        } catch (FileNotFoundException e) {
+            // Gone, so no one is appending to it.
+            return false;
         }
-        return safe.append('-').append(EventDirectory.hexDigest(name, 4)).toString();
+        try {
+            FileLock held = probe.getChannel().tryLock(0L, Long.MAX_VALUE, true);
+            if (held == null) {
+                return true;
+            }
+            held.release();
+            return false;
+        } catch (IOException | OverlappingFileLockException e) {
+            return true;
+        } finally {
+            try {
+                probe.close();
+            } catch (IOException ignored) {
+                // Only a probe; nothing was written through it.
+            }
+        }
     }
 
     /** Where the log is, whether or not it exists yet. */
@@ -90,7 +134,7 @@ final class DiskEventLog {
      * Requires {@code ioLock}.
      *
      * @throws IOException if the log could not be opened or written to; none of {@code bytes} is then left
-     *   in the log, and the log is closed, so the next append starts from a fresh open
+     *   in the log, and the log is closed, so the next append starts a new one
      */
     void append(byte[] bytes) throws IOException {
         assert Thread.holdsLock(ioLock);
@@ -124,7 +168,10 @@ final class DiskEventLog {
 
     /**
      * Moves the log to {@code destination}, so that the next append starts a new one. The stream is closed
-     * first, whether or not the move succeeds.
+     * whether or not the move succeeds.
+     * <p>
+     * Closed after the move rather than before it, so that the log is still locked while it moves: unlocked
+     * under this name, it could be taken by another process recovering logs in between.
      * <p>
      * Requires {@code ioLock}.
      *
@@ -132,11 +179,19 @@ final class DiskEventLog {
      */
     boolean closeMovingTo(File destination) {
         assert Thread.holdsLock(ioLock);
-        closeOutput();
-        return file.renameTo(destination);
+        try {
+            return file.renameTo(destination);
+        } finally {
+            closeOutput();
+        }
     }
 
-    /** Closes the stream, leaving the log where it is. Requires {@code ioLock}. */
+    /**
+     * Closes the stream, leaving the log where it is. Requires {@code ioLock}.
+     * <p>
+     * Unlocked, it is from here on a log like one a process that died left behind, which recovery may take
+     * at any moment. So this log is never opened again: the next append starts a new one.
+     */
     void closeOutput() {
         assert Thread.holdsLock(ioLock);
         if (output == null) {
@@ -148,9 +203,38 @@ final class DiskEventLog {
             logger.debug("Could not close the event log: {}", LogValues.exceptionSummary(e));
         }
         output = null;
+        lock = null;
+        forget(file);
     }
 
-    /** Requires {@code ioLock}. */
+    /**
+     * Takes the lock on the open log again, after something in this process closed a descriptor of its own
+     * on the file, which released it. Requires {@code ioLock}.
+     */
+    void relockAfterReading() {
+        assert Thread.holdsLock(ioLock);
+        if (output == null) {
+            return;
+        }
+        try {
+            if (lock != null) {
+                lock.release();
+            }
+            lock = output.getChannel().tryLock();
+        } catch (IOException | RuntimeException e) {
+            lock = null;
+        }
+        if (lock == null) {
+            logger.debug("Could not lock the event log again after reading it");
+        }
+    }
+
+    /**
+     * Opens a new log under a name of its own: created under {@link #OPENING_PREFIX}, locked, given its
+     * header, and only then moved to the name recovery looks for.
+     * <p>
+     * Requires {@code ioLock}.
+     */
     private FileOutputStream outputForAppending() throws IOException {
         if (output != null) {
             return output;
@@ -158,24 +242,52 @@ final class DiskEventLog {
         if (!directory.exists() && !directory.mkdirs() && !directory.isDirectory()) {
             throw new IOException("could not create " + directory);
         }
-        boolean isNew = !file.exists() || file.length() == 0;
-        // Append mode is what makes each write land at the end of the file as one step, so that a
-        // process cannot splice its bytes into the middle of what another wrote.
-        FileOutputStream stream = opener.openForAppending(file);
-        if (isNew) {
-            try {
-                stream.write(EventLogFormat.fileHeader());
-            } catch (IOException | RuntimeException e) {
-                // Not yet in output, so closeOutput would not reach it.
+        if (file.exists()) {
+            // Left by an earlier open in this session, and unlocked since, so no longer this store's to write.
+            file = newLogFile();
+        }
+        File opening = new File(directory, OPENING_PREFIX + file.getName().substring(PREFIX.length()));
+        remember(file);
+        FileOutputStream stream = null;
+        try {
+            stream = opener.openForAppending(opening);
+            FileLock taken = stream.getChannel().tryLock();
+            if (taken == null) {
+                throw new IOException("could not lock " + opening);
+            }
+            stream.write(EventLogFormat.fileHeader());
+            if (!opening.renameTo(file)) {
+                throw new IOException("could not move " + opening + " to " + file);
+            }
+            lock = taken;
+            output = stream;
+            return output;
+        } catch (IOException | RuntimeException e) {
+            // Not yet in output, so closeOutput would not reach it.
+            if (stream != null) {
                 try {
                     stream.close();
                 } catch (IOException ignored) {
-                    // The write already failed; that is the error worth reporting.
+                    // The open already failed; that is the error worth reporting.
                 }
-                throw e;
             }
+            if (opening.exists() && !opening.delete()) {
+                logger.debug("Could not delete {}", opening);
+            }
+            forget(file);
+            throw e;
         }
-        output = stream;
-        return output;
+    }
+
+    private static void remember(File log) {
+        synchronized (openInThisProcess) {
+            openInThisProcess.add(log.getAbsolutePath());
+        }
+    }
+
+    private static void forget(File log) {
+        synchronized (openInThisProcess) {
+            openInThisProcess.remove(log.getAbsolutePath());
+        }
     }
 }

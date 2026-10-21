@@ -2,7 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -22,6 +21,8 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileLock;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -127,37 +128,43 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
-    public void processNamesThatLookAlikeInAFilenameStillGetSeparateLogs() {
-        // Both are legal Android process names, and a naive sanitization maps both to "com_app_remote".
-        EventStore colon = storeFor("com.app:remote");
-        EventStore dot = storeFor("com.app.remote");
+    public void twoStoresOfOneProcessNameStillGetSeparateLogs() {
+        // Two runs of one process overlapping, as a client closed while its replacement starts can.
+        EventStore closing = storeFor(MAIN_PROCESS);
+        EventStore replacement = storeFor(MAIN_PROCESS);
 
-        colon.stage(event("colon"));
-        colon.commit();
-        dot.stage(event("dot"));
-        dot.commit();
+        closing.stage(event("closing"));
+        closing.commit();
+        replacement.stage(event("replacement"));
+        replacement.commit();
 
-        assertNotEquals(DiskEventLog.nameFor("com.app:remote"), DiskEventLog.nameFor("com.app.remote"));
         assertEquals(2, filesNamed("open-").size());
-        assertEquals(Arrays.asList("colon"), visibleKeys(colon));
-        assertEquals(Arrays.asList("dot"), visibleKeys(dot));
+        assertEquals(Arrays.asList("closing"), visibleKeys(closing));
+        assertEquals(Arrays.asList("replacement"), visibleKeys(replacement));
     }
 
     @Test
-    public void aLogNameIsStableAcrossRunsOfTheSameProcess() {
-        // Stability is what lets a process find the log its previous run left behind, so it must not
-        // include anything that changes from run to run.
-        assertEquals(DiskEventLog.nameFor(MAIN_PROCESS), DiskEventLog.nameFor(MAIN_PROCESS));
+    public void aLogIsNamedForAUuidRatherThanForTheProcess() {
+        EventStore main = storeFor(MAIN_PROCESS);
+        main.stage(event("main-1"));
+        main.commit();
+
+        List<File> logs = filesNamed("open-");
+        assertEquals(1, logs.size());
+        String uuid = logs.get(0).getName().substring("open-".length());
+        assertEquals(uuid, UUID.fromString(uuid).toString());
+        assertTrue("a log was left under the name it is opened under", filesNamed("new-").isEmpty());
     }
 
-    @Test
-    public void aProcessNameThePlatformCouldNotDetermineStillYieldsAName() {
-        assertTrue(DiskEventLog.nameFor("").length() > 0);
-        assertTrue(DiskEventLog.nameFor(null).length() > 0);
-        assertNotEquals(DiskEventLog.nameFor(null), DiskEventLog.nameFor(MAIN_PROCESS));
-    }
+    // MARK: recovery takes what no live process holds
 
-    // MARK: recovery respects the boundary between processes
+    /**
+     * What the kernel does to a store's log when its process dies: closes the descriptor, which releases the
+     * lock on it. Everything the store staged has been committed by then.
+     */
+    private static void processDies(EventStore store) {
+        store.close();
+    }
 
     @Test
     public void recoveryLeavesAnotherProcessOpenLogAlone() {
@@ -170,8 +177,7 @@ public class EventStoreMultiProcessTest {
         EventStore main = storeFor(MAIN_PROCESS);
         main.recoverInterruptedLog();
 
-        assertEquals("the other process's log was taken away", 1,
-                filesNamed("open-" + DiskEventLog.nameFor(SERVICE_PROCESS)).size());
+        assertEquals("the other process's log was taken away", 1, filesNamed("open-").size());
         assertTrue("another process's events were claimed as recovered", main.pendingBatches().isEmpty());
 
         // And the service process can still append to it and read back both events.
@@ -181,30 +187,89 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
-    public void aProcessRecoversTheLogItsOwnPreviousRunLeftBehind() {
-        EventStore firstRun = storeFor(SERVICE_PROCESS);
-        firstRun.stage(event("before-the-crash"));
-        firstRun.commit();
-        // No close() - the process died without getting the chance.
+    public void recoveryLeavesALogWhoseLockIsHeldAlone() throws IOException {
+        EventStore service = storeFor(SERVICE_PROCESS);
+        service.stage(event("service-1"));
+        service.commit();
+        processDies(service);
+        File log = filesNamed("open-").get(0);
 
-        EventStore secondRun = storeFor(SERVICE_PROCESS);
-        secondRun.recoverInterruptedLog();
+        // A process this one knows nothing about, holding the lock on the log as its owner does.
+        try (RandomAccessFile owner = new RandomAccessFile(log, "rw");
+             FileLock held = owner.getChannel().lock()) {
+            EventStore main = storeFor(MAIN_PROCESS);
+            main.recoverInterruptedLog();
+            assertTrue("a log a live process holds was recovered", main.pendingBatches().isEmpty());
+            assertTrue(log.exists());
+        }
 
-        List<EventStore.Batch> recovered = secondRun.pendingBatches();
-        assertEquals(1, recovered.size());
-        assertEquals(1, recovered.get(0).eventCount);
-        assertEquals(Arrays.asList("before-the-crash"), visibleKeys(secondRun));
-        assertTrue("the recovered log should no longer be open",
-                filesNamed("open-" + DiskEventLog.nameFor(SERVICE_PROCESS)).isEmpty());
+        EventStore main = storeFor(MAIN_PROCESS);
+        main.recoverInterruptedLog();
+        assertEquals(1, main.pendingBatches().size());
     }
 
     @Test
-    public void aCommitBeforeStartupRecoveryDoesNotPassThisRunsEventsOffAsRecovered() {
+    public void anyProcessRecoversALogWhoseWriterIsGone() {
+        EventStore service = storeFor(SERVICE_PROCESS);
+        service.stage(event("before-the-crash"));
+        service.commit();
+        processDies(service);
+
+        // Not the process that wrote it: a service process may never run again.
+        EventStore main = storeFor(MAIN_PROCESS);
+        main.recoverInterruptedLog();
+
+        List<EventStore.Batch> recovered = main.pendingBatches();
+        assertEquals(1, recovered.size());
+        assertEquals(1, recovered.get(0).eventCount);
+        assertEquals(Arrays.asList("before-the-crash"), visibleKeys(main));
+        assertTrue("the recovered log should no longer be open", filesNamed("open-").isEmpty());
+    }
+
+    @Test
+    public void recoveryTakesEveryLogLeftBehind() {
+        EventStore firstRun = storeFor(MAIN_PROCESS);
+        firstRun.stage(event("first-run"));
+        firstRun.commit();
+        processDies(firstRun);
+        EventStore service = storeFor(SERVICE_PROCESS);
+        service.stage(event("service-1"));
+        service.stage(event("service-2"));
+        service.commit();
+        processDies(service);
+
+        EventStore secondRun = storeFor(MAIN_PROCESS);
+        secondRun.recoverInterruptedLog();
+
+        assertEquals(2, secondRun.pendingBatches().size());
+        assertEquals(3, secondRun.getPendingEventCount());
+        assertTrue(filesNamed("open-").isEmpty());
+    }
+
+    @Test
+    public void aLogNamedForItsProcessByAnEarlierVersionIsRecovered() {
+        EventStore earlierVersion = storeFor(MAIN_PROCESS);
+        earlierVersion.stage(event("named-for-its-process"));
+        earlierVersion.commit();
+        processDies(earlierVersion);
+        File log = filesNamed("open-").get(0);
+        assertTrue(log.renameTo(new File(log.getParentFile(), "open-com_example_app-1a2b3c4d")));
+
+        EventStore main = storeFor(MAIN_PROCESS);
+        main.recoverInterruptedLog();
+
+        assertEquals(1, main.pendingBatches().size());
+        assertEquals(Arrays.asList("named-for-its-process"), visibleKeys(main));
+    }
+
+    @Test
+    public void aCommitBeforeStartupRecoveryKeepsThisRunsEventsOutOfWhatItRecovers() {
         // With IMMEDIATE the first commit happens on the caller's thread, and can beat the recovery the
-        // processor queues on its own thread at startup. The log has the same name in both runs.
+        // processor queues on its own thread at startup.
         EventStore firstRun = storeFor(SERVICE_PROCESS);
         firstRun.stage(event("previous-run"));
         firstRun.commit();
+        processDies(firstRun);
 
         EventStore secondRun = storeFor(SERVICE_PROCESS);
         secondRun.stage(event("this-run"));
@@ -214,8 +279,25 @@ public class EventStoreMultiProcessTest {
         List<EventStore.Batch> recovered = secondRun.pendingBatches();
         assertEquals(1, recovered.size());
         assertEquals("this run's event was counted as a previous run's", 1, recovered.get(0).eventCount);
-        assertEquals(1, filesNamed("open-" + DiskEventLog.nameFor(SERVICE_PROCESS)).size());
+        assertEquals(1, filesNamed("open-").size());
         assertEquals(Arrays.asList("previous-run", "this-run"), visibleKeys(secondRun));
+    }
+
+    @Test
+    public void aStoreThatClosedItsLogAppendsToANewOne() {
+        EventStore store = storeFor(MAIN_PROCESS);
+        store.stage(event("before-close"));
+        store.commit();
+        File first = filesNamed("open-").get(0);
+        store.close();
+
+        // Unlocked once closed, and so another process's to recover from then on.
+        store.stage(event("after-close"));
+        store.commit();
+
+        assertEquals(2, filesNamed("open-").size());
+        assertTrue(first.exists());
+        assertEquals(Arrays.asList("after-close"), visibleKeys(store));
     }
 
     @Test
@@ -225,6 +307,7 @@ public class EventStoreMultiProcessTest {
         closeOne(persistentRun);
         persistentRun.stage(event("open-log"));
         persistentRun.commit();
+        processDies(persistentRun);
 
         EventStore withoutPersistence =
                 new EventStore(sharedDirectory(), SERVICE_PROCESS, CAPACITY, false, logger);
@@ -239,7 +322,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(Arrays.asList(own), withoutPersistence.pendingBatches());
 
         assertEquals(1, filesNamed("ready-").size());
-        assertEquals(1, filesNamed("open-" + DiskEventLog.nameFor(SERVICE_PROCESS)).size());
+        assertEquals(1, filesNamed("open-").size());
 
         // Still there for the next run that has persistence turned on.
         EventStore persistentAgain = storeFor(SERVICE_PROCESS);
@@ -571,12 +654,13 @@ public class EventStoreMultiProcessTest {
         EventStore firstRun = storeFor(SERVICE_PROCESS);
         firstRun.stage(event("before-the-crash"));
         firstRun.commit();
+        processDies(firstRun);
 
         AtomicBoolean failing = new AtomicBoolean(true);
         EventStore secondRun = storeWithFailingReads(SERVICE_PROCESS, failing);
         secondRun.recoverInterruptedLog();
-        // Moved out from under the name this run appends to, and not deleted.
-        assertTrue(filesNamed("open-" + DiskEventLog.nameFor(SERVICE_PROCESS)).isEmpty());
+        // Closed off uncounted for a listing to count, and not deleted.
+        assertTrue(filesNamed("open-").isEmpty());
         assertEquals(1, filesNamed("ready-").size());
 
         secondRun.stage(event("this-run"));

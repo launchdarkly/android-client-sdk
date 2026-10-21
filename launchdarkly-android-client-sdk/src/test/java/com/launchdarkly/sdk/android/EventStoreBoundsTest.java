@@ -236,7 +236,7 @@ public class EventStoreBoundsTest {
     }
 
     @Test
-    public void discardsTheStaleLogOfAProcessThatIsGoneButNeverItsOwn() {
+    public void discardsTheStaleLogOfAProcessThatIsGoneButNeverOneALiveProcessHolds() throws IOException {
         EventStore store = environmentStore(MOBILE_KEY, "test");
         stageFrames(store, 1);
         store.commit();
@@ -244,6 +244,8 @@ public class EventStoreBoundsTest {
         stageFrames(gone, 2);
         gone.commit();
         gone.close();
+        File opening = new File(store.getDirectory(), DiskEventLog.OPENING_PREFIX + "left-by-a-crash");
+        assertTrue(opening.createNewFile());
         ageContents(store.getDirectory(), 8);
 
         assertEquals(2, store.discardExpired());
@@ -252,9 +254,9 @@ public class EventStoreBoundsTest {
         for (File file : store.getDirectory().listFiles()) {
             remaining.add(file.getName());
         }
-        List<String> expected = new ArrayList<>();
-        expected.add(DiskEventLog.PREFIX + DiskEventLog.nameFor("test"));
-        assertEquals(expected, remaining);
+        assertEquals(1, remaining.size());
+        assertTrue(remaining.get(0).startsWith(DiskEventLog.PREFIX));
+        assertTrue("the live store's log was discarded", store.pendingEventPayloads().size() == 1);
     }
 
     @Test
