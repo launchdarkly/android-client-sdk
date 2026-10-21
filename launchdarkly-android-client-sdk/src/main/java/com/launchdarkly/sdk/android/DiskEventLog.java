@@ -152,7 +152,7 @@ final class DiskEventLog {
             // twice: beside the memory copy when the log is closed this session, or by recovery on the
             // next launch.
             if (start >= 0) {
-                cutBack(stream, start);
+                truncate(stream, start);
             }
             closeOutput();
             throw e;
@@ -160,15 +160,15 @@ final class DiskEventLog {
     }
 
     /**
-     * Cuts the log back to {@code length}, where a failed write left it longer. Where it cannot, the
+     * Truncates the log to {@code length}, where a failed write left it longer. Where it cannot, the
      * batch this log is closed into still delivers only the events it was closed holding, which leaves out
      * the frames left behind.
      */
-    private void cutBack(FileOutputStream stream, long length) {
+    private void truncate(FileOutputStream stream, long length) {
         try {
             stream.getChannel().truncate(length);
         } catch (IOException | RuntimeException e) {
-            logger.warn("Could not cut back a failed write to the event log: {}",
+            logger.warn("Could not truncate a failed write to the event log: {}",
                     LogValues.exceptionSummary(e));
         }
     }
