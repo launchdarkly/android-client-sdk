@@ -445,8 +445,9 @@ class EventDirectory {
             return null;
         }
         byte[] body = EventLogFormat.assembleBody(log);
-        // A log this version reads that holds no events has nothing to lose.
-        if (body == null && EventLogFormat.eventCount(log) != 0) {
+        // A log this version reads that holds no events has nothing to lose, unless its first frame is
+        // damaged.
+        if (body == null && (EventLogFormat.eventCount(log) != 0 || EventLogFormat.isDamaged(log))) {
             throw new EventStore.UnreadableBatchException(payloadId);
         }
         return body;

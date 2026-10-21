@@ -962,7 +962,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void anEventWithNoBytesLeftForItIsDroppedBeforeItIsEncoded() throws Exception {
         EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, 1000,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
-        byte[] filler = new byte[794];
+        byte[] filler = new byte[800 - EventLogFormat.FRAME_HEADER_SIZE];
         Arrays.fill(filler, (byte) 'x');
         assertTrue(store.stage(filler));
         assertFalse(store.hasRoomForEventBytes());

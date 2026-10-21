@@ -88,6 +88,10 @@ public class EventStoreMultiProcessTest {
         }
     }
 
+    private byte[] readAll(File file) throws IOException {
+        return java.nio.file.Files.readAllBytes(file.toPath());
+    }
+
     private List<File> filesNamed(String prefix) {
         List<File> matching = new ArrayList<>();
         File[] files = sharedDirectory().listFiles();
@@ -349,6 +353,26 @@ public class EventStoreMultiProcessTest {
         try {
             main.body(batch);
             fail("a damaged batch read as something to send or as nothing to lose");
+        } catch (EventStore.UnreadableBatchException expected) {
+            // what a delivery takes as lost
+        }
+    }
+
+    @Test
+    public void aBatchWhoseFirstFrameIsDamagedIsLostRatherThanEmpty() throws IOException {
+        EventStore main = storeFor(MAIN_PROCESS);
+        main.stage(event("damaged"));
+        EventStore.Batch batch = closeOne(main);
+        assertNotNull(batch);
+
+        File file = filesNamed("ready-").get(0);
+        byte[] damaged = readAll(file);
+        damaged[EventLogFormat.FILE_HEADER_SIZE + EventLogFormat.FRAME_HEADER_SIZE] ^= 0x01;
+        overwrite(file, damaged);
+
+        try {
+            main.body(batch);
+            fail("a batch with a damaged frame read as nothing to lose");
         } catch (EventStore.UnreadableBatchException expected) {
             // what a delivery takes as lost
         }
