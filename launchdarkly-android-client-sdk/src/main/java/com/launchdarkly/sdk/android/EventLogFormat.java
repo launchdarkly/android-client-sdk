@@ -5,7 +5,9 @@ import androidx.annotation.VisibleForTesting;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.zip.CRC32;
 
 /**
@@ -80,8 +82,8 @@ final class EventLogFormat {
         if (!frames.isReadable()) {
             return false;
         }
-        while (frames.next()) {
-            // Walked to wherever it stops.
+        while (frames.hasNext()) {
+            frames.next();
         }
         return !frames.reachedEnd();
     }
@@ -108,8 +110,8 @@ final class EventLogFormat {
             return -1;
         }
         int events = 0;
-        while (frames.next()) {
-            if (frames.type() == EVENT_FRAME) {
+        while (frames.hasNext()) {
+            if (frames.next().type == EVENT_FRAME) {
                 events++;
             }
         }
@@ -152,12 +154,13 @@ final class EventLogFormat {
         }
         int events = 0;
         int cursor = 1;
-        while (events < maxEvents && frames.next()) {
-            if (frames.type() != EVENT_FRAME) {
+        while (events < maxEvents && frames.hasNext()) {
+            Frame frame = frames.next();
+            if (frame.type != EVENT_FRAME) {
                 continue;
             }
-            System.arraycopy(log, frames.start(), log, cursor, frames.length());
-            cursor += frames.length();
+            System.arraycopy(log, frame.start, log, cursor, frame.length);
+            cursor += frame.length;
             log[cursor++] = ',';
             events++;
         }
@@ -194,12 +197,26 @@ final class EventLogFormat {
         if (!frames.isReadable()) {
             return payloads;
         }
-        while (frames.next()) {
-            if (frames.type() == EVENT_FRAME) {
-                payloads.add(Arrays.copyOfRange(log, frames.start(), frames.start() + frames.length()));
+        while (frames.hasNext()) {
+            Frame frame = frames.next();
+            if (frame.type == EVENT_FRAME) {
+                payloads.add(Arrays.copyOfRange(log, frame.start, frame.start + frame.length));
             }
         }
         return payloads;
+    }
+
+    /** One whole frame of a log: its type, and where its payload is in the log. */
+    static final class Frame {
+        final int type;
+        final int start;
+        final int length;
+
+        Frame(int type, int start, int length) {
+            this.type = type;
+            this.start = start;
+            this.length = length;
+        }
     }
 
     /**
@@ -211,19 +228,17 @@ final class EventLogFormat {
      * ends the walk the same way, because its size can no longer be trusted to say where the next frame
      * starts.
      * <p>
-     * A cursor rather than a callback, so that a caller counting or copying frames does it in a plain
-     * loop. {@link #next()} is false from the first frame that is not wholly there or fails its
-     * checksum, and always for a log that is not {@link #isReadable() readable}.
+     * There is no next frame from the first one that is not wholly there or fails its checksum, and none
+     * at all in a log that is not {@link #isReadable() readable}. {@link #hasNext()} is what checks the
+     * next frame, so a caller may write anywhere before where the last frame it was handed ends.
      */
-    static final class Frames {
+    static final class Frames implements Iterator<Frame> {
         private final byte[] log;
         private final boolean readable;
         private final CRC32 checksum = new CRC32();
         private int cursor = FILE_HEADER_SIZE;
         private boolean stopped;
-        private int type;
-        private int start;
-        private int length;
+        private Frame checked;
 
         Frames(byte[] log) {
             this.log = log;
@@ -237,49 +252,47 @@ final class EventLogFormat {
 
         /**
          * Whether the walk ended at the end of the log, rather than at a frame that is torn or fails its
-         * checksum. Only meaningful once {@link #next()} has returned false.
+         * checksum. Only meaningful once {@link #hasNext()} has returned false.
          */
         boolean reachedEnd() {
             return !stopped && cursor == log.length;
         }
 
-        /** Moves to the next whole frame, if there is one. */
-        boolean next() {
+        @Override
+        public boolean hasNext() {
+            if (checked != null) {
+                return true;
+            }
             if (!readable || stopped || cursor + FRAME_HEADER_SIZE > log.length) {
                 return false;
             }
-            int frameType = readUInt16(log, cursor);
-            int frameLength = readInt32(log, cursor + 2);
-            int frameStart = cursor + FRAME_HEADER_SIZE;
-            if (frameLength <= 0 || frameLength > MAX_FRAME_SIZE || frameStart + frameLength > log.length) {
+            int type = readUInt16(log, cursor);
+            int length = readInt32(log, cursor + 2);
+            int start = cursor + FRAME_HEADER_SIZE;
+            if (length <= 0 || length > MAX_FRAME_SIZE || start + length > log.length) {
                 stopped = true;
                 return false;
             }
             checksum.reset();
             checksum.update(log, cursor, 6);
-            checksum.update(log, frameStart, frameLength);
+            checksum.update(log, start, length);
             if ((int) checksum.getValue() != readInt32(log, cursor + 6)) {
                 stopped = true;
                 return false;
             }
-            type = frameType;
-            start = frameStart;
-            length = frameLength;
-            cursor = frameStart + frameLength;
+            checked = new Frame(type, start, length);
+            cursor = start + length;
             return true;
         }
 
-        int type() {
-            return type;
-        }
-
-        /** Where the current frame's payload starts in the log. */
-        int start() {
-            return start;
-        }
-
-        int length() {
-            return length;
+        @Override
+        public Frame next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            Frame frame = checked;
+            checked = null;
+            return frame;
         }
 
         private static boolean isReadable(byte[] log) {
