@@ -158,24 +158,14 @@ class EventStore implements Closeable {
      */
     private boolean hasDiscardedAbandonedEnvironments;
 
-    EventStore(File directory, String processName, int capacity, boolean persistEvents, LDLogger logger) {
-        this(directory, processName, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
+    EventStore(File directory, int capacity, boolean persistEvents, LDLogger logger) {
+        this(directory, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
     }
 
-    EventStore(final File directory, final String processName, int capacity, long byteCapacity,
-               long maxAgeMillis, boolean persistEvents, LDLogger logger) {
-        this(new EventDirectory.Location() {
-            @Override
-            public File directory() {
-                return directory;
-            }
-
-            @Override
-            public String processName() {
-                return processName;
-            }
-        }, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
+    EventStore(final File directory, int capacity, long byteCapacity, long maxAgeMillis,
+               boolean persistEvents, LDLogger logger) {
+        this(() -> directory, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 
     private EventStore(EventDirectory.Location location, int capacity, long byteCapacity, long maxAgeMillis,
@@ -200,41 +190,37 @@ class EventStore implements Closeable {
      *
      * @param noBackupFilesDir where the platform lets the SDK keep files it must not lose
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
-     * @param processName identifies the process, so several processes stay out of each other's way
      * @param persistEvents whether the application asked for events to outlive the process
      */
     static EventStore create(
             File noBackupFilesDir,
             String mobileKey,
-            String processName,
             int capacity,
             boolean persistEvents,
             LDLogger logger
     ) {
-        return create(noBackupFilesDir, mobileKey, processName, capacity,
-                EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
-                persistEvents, logger);
+        return create(noBackupFilesDir, mobileKey, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
+                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
     }
 
     static EventStore create(
             File noBackupFilesDir,
             String mobileKey,
-            String processName,
             int capacity,
             long byteCapacity,
             long maxAgeMillis,
             boolean persistEvents,
             LDLogger logger
     ) {
-        return new EventStore(EventDirectory.defaultDirectory(noBackupFilesDir, mobileKey), processName,
-                capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
+        return new EventStore(EventDirectory.defaultDirectory(noBackupFilesDir, mobileKey), capacity,
+                byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 
     /**
      * Creates the store for one environment of one process, leaving the platform to be asked where on
      * first use, from one of the store's own threads.
      *
-     * @param platformState where the no-backup directory and the process name come from
+     * @param platformState where the no-backup directory comes from
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
      * @param byteCapacity the most bytes the store holds, a fifth of which only summaries may use
      * @param maxAgeMillis how long a batch may go unwritten before it is discarded
@@ -249,17 +235,8 @@ class EventStore implements Closeable {
             boolean persistEvents,
             LDLogger logger
     ) {
-        EventDirectory.Location location = new EventDirectory.Location() {
-            @Override
-            public File directory() {
-                return EventDirectory.defaultDirectory(platformState.getNoBackupFilesDir(), mobileKey);
-            }
-
-            @Override
-            public String processName() {
-                return platformState.getProcessName();
-            }
-        };
+        EventDirectory.Location location =
+                () -> EventDirectory.defaultDirectory(platformState.getNoBackupFilesDir(), mobileKey);
         return new EventStore(location, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 

@@ -67,16 +67,4 @@ interface PlatformState extends Closeable {
      * @return a directory path
      */
     File getNoBackupFilesDir();
-
-    /**
-     * Returns a name for the process the SDK is running in, stable across restarts of that process
-     * and different for each process of a multi-process application.
-     * <p>
-     * An application can declare components in more than one process, and each process gets its own
-     * copy of the SDK with no memory shared between them. Anything the SDK keeps in files is shared
-     * whether it wants to be or not, so this is what lets each process keep its own.
-     *
-     * @return a process name safe to use as part of a filename
-     */
-    String getProcessName();
 }

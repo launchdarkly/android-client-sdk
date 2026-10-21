@@ -130,12 +130,6 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
                 asked.incrementAndGet();
                 return eventsDirectory.getRoot();
             }
-
-            @Override
-            public String getProcessName() {
-                asked.incrementAndGet();
-                return "test";
-            }
         };
         EventsService service = new EventsService();
         // Refused and refused again on the retry; then the batch held from that and the next one are

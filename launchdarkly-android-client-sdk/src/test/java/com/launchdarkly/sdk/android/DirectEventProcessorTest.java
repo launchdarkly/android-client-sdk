@@ -211,7 +211,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aDeferredTrackReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
-        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
         CountDownLatch deliveryAnswers = new CountDownLatch(1);
@@ -242,7 +242,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
         diagnosticExecutors.add(diagnosticExecutor);
-        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
                 UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
@@ -274,7 +274,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // thread: a flush writes on the caller's thread regardless, so the events are on disk by the
         // time it returns rather than whenever the commit executor gets to them.
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
-        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
         CountDownLatch deliveryAnswers = new CountDownLatch(1);
@@ -300,7 +300,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // A flush is what an application calls before ending the process on purpose, so at DEFERRED it
         // writes on its own thread rather than queueing the write the way track does. Holding the commit
         // executor keeps a queued write off the disk, so only a write on this thread can pass.
-        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY,
                 EventUtil.makeEventsTaskExecutor());
@@ -348,7 +348,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
             ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
             diagnosticExecutors.add(diagnosticExecutor);
-            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                     DEFAULT_CAPACITY, true, logging.logger);
             DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
                     server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
@@ -376,7 +376,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aStoredBatchThisVersionCannotReadIsDroppedAndReportedWhileTheRestAreDelivered() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(202))) {
-            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                     DEFAULT_CAPACITY, true, logging.logger);
             ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
             diagnosticExecutors.add(diagnosticExecutor);
@@ -885,7 +885,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         CountDownLatch staging = new CountDownLatch(1);
         CountDownLatch releaseStaging = new CountDownLatch(1);
         // Persisting, since without it a commit point queues no commit at all.
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), 1, true,
                 logging.logger) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {
@@ -919,7 +919,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         CountDownLatch staged = new CountDownLatch(1);
         CountDownLatch releaseCommit = new CountDownLatch(1);
         // Persisting, for the reason the test above is.
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), 2, true,
                 logging.logger) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {
@@ -949,7 +949,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void storedEventsPastTheMaximumAgeAreDiscardedAsDroppedWithoutFailingAFlush() throws Exception {
         assumePersisting();
-        EventStore previousRun = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test",
+        EventStore previousRun = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
         previousRun.stage(LDValue.buildObject().put("kind", "custom").put("key", "old-1").build()
                 .toJsonString().getBytes(StandardCharsets.UTF_8));
@@ -978,7 +978,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void anEventWithNoBytesLeftForItIsDroppedBeforeItIsEncoded() throws Exception {
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, 1000,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, 1000,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
         byte[] filler = new byte[800 - EventLogFormat.FRAME_HEADER_SIZE];
         Arrays.fill(filler, (byte) 'x');
@@ -1023,20 +1023,13 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void theStoreAsksThePlatformWhereItLivesOffTheCallersThread() throws Exception {
         // LDClient.init builds the processor, usually on the main thread, and answering touches the disk:
-        // the platform creates the no-backup directory when asked for it, and before API 28 the process
-        // name is read from /proc.
+        // the platform creates the no-backup directory when asked for it.
         Queue<Thread> askedOn = new ConcurrentLinkedQueue<>();
         MockPlatformState platformState = new MockPlatformState() {
             @Override
             public File getNoBackupFilesDir() {
                 askedOn.add(Thread.currentThread());
                 return eventsDirectory.getRoot();
-            }
-
-            @Override
-            public String getProcessName() {
-                askedOn.add(Thread.currentThread());
-                return "test";
             }
         };
         try (HttpServer server = startEventsServer()) {
@@ -1067,12 +1060,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 asked.incrementAndGet();
                 return eventsDirectory.getRoot();
             }
-
-            @Override
-            public String getProcessName() {
-                asked.incrementAndGet();
-                return "test";
-            }
         };
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = buildOfflineEventProcessor(server,
@@ -1097,7 +1084,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         Queue<String> staged = new ConcurrentLinkedQueue<>();
         Queue<String> durable = new ConcurrentLinkedQueue<>();
         AtomicInteger commits = new AtomicInteger();
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
             boolean stageReserved(byte[] serializedEvent) {
@@ -1166,7 +1153,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void deferredPersistenceWritesOnTheCallersThreadOnlyForAFlush() throws Exception {
         Queue<Thread> committedOn = new ConcurrentLinkedQueue<>();
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
             void commit() {
@@ -1198,7 +1185,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aFullPendingRunIsCommittedWherePersistenceIsOn() throws Exception {
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger);
 
         assertTrue("the run was never committed", pendingEventsInStoreAfterAFullRun(store) > 0);
@@ -1207,7 +1194,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aFullPendingRunWaitsForTheFlushWherePersistenceIsOff() throws Exception {
         // Committing it would make nothing durable, and would put the encode in among the evaluations.
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, false,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, false,
                 logging.logger);
 
         assertEquals(0, pendingEventsInStoreAfterAFullRun(store));
@@ -1217,7 +1204,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aBatchDoesNotCountWhileItsRequestIsOutAndCountsAgainIfTheSendIsToBeRetried()
             throws Exception {
         for (boolean persistEvents : new boolean[] { true, false }) {
-            EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 1, persistEvents,
+            EventStore store = new EventStore(eventsDirectory.newFolder(), 1, persistEvents,
                     logging.logger);
             assertTrue(store.stage(serialized("first")));
             EventStore.Batch batch = closeOne(store);
@@ -1235,7 +1222,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aSentBatchLeavesTheCountOnlyOnceWhenItIsDelivered() throws Exception {
         for (boolean persistEvents : new boolean[] { true, false }) {
-            EventStore store = new EventStore(eventsDirectory.newFolder(), "test", 2, persistEvents,
+            EventStore store = new EventStore(eventsDirectory.newFolder(), 2, persistEvents,
                     logging.logger);
             assertTrue(store.stage(serialized("first")));
             EventStore.Batch batch = closeOne(store);
@@ -1321,7 +1308,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // there for longer than close() waits. The write is close()'s promise, so it does not run there.
         AtomicBoolean closing = new AtomicBoolean(false);
         Queue<Thread> committedDuringClose = new ConcurrentLinkedQueue<>();
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
             void commit() {
@@ -1548,7 +1535,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         int commitsWithCounters = 0;
         for (int trial = 0; trial < SPLIT_TRIALS; trial++) {
             List<List<LDValue>> commits = new ArrayList<>();
-            EventStore store = new EventStore(eventsDirectory.newFolder(), "test", NO_DROP_CAPACITY,
+            EventStore store = new EventStore(eventsDirectory.newFolder(), NO_DROP_CAPACITY,
                     false, logging.logger) {
                 private List<LDValue> staged = new ArrayList<>();
 
@@ -1734,7 +1721,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aFailedCommitOnTheCallersThreadDoesNotReachTheCaller() throws Exception {
         // With IMMEDIATE the commit runs inside track, identify and flush, after record() has
         // returned, so it needs its own guard.
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
             void commit() {
@@ -1799,7 +1786,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // ran out, which then waited on those locks with no bound at all.
         CountDownLatch writeStarted = new CountDownLatch(1);
         Semaphore letWriteFinish = new Semaphore(0);
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
@@ -2403,7 +2390,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void eventsHeldInMemoryWhenAWriteFailsAreDeliveredWithThoseWrittenBeforeIt() throws Exception {
         AtomicInteger writes = new AtomicInteger();
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
@@ -2451,7 +2438,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aBatchThatCannotBeReadIsKeptAndDeliveredOnceItCanBe() throws Exception {
         AtomicBoolean failing = new AtomicBoolean(false);
-        EventStore store = new EventStore(eventsDirectory.newFolder(), "test", DEFAULT_CAPACITY, true,
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
@@ -2803,7 +2790,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                                                     ExecutorService diagnosticExecutor) {
         return makeEventProcessor(diagnosticSender, eventsUri, diagnosticStore, flushIntervalMillis,
                 diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor,
-                EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, "test", DEFAULT_CAPACITY,
+                EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, DEFAULT_CAPACITY,
                         true, logging.logger),
                 DEFAULT_CAPACITY);
     }

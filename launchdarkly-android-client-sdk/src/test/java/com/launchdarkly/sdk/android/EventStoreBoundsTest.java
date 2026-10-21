@@ -44,12 +44,12 @@ public class EventStoreBoundsTest {
     private final LDLogger logger = LDLogger.withAdapter(Logs.none(), "");
 
     private EventStore boundedStore(boolean persistEvents) {
-        return new EventStore(new File(tempFolder.getRoot(), "events"), "test", CAPACITY, BYTE_CAPACITY,
+        return new EventStore(new File(tempFolder.getRoot(), "events"), CAPACITY, BYTE_CAPACITY,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
     }
 
-    private EventStore environmentStore(String mobileKey, String processName) {
-        return EventStore.create(tempFolder.getRoot(), mobileKey, processName, CAPACITY,
+    private EventStore environmentStore(String mobileKey) {
+        return EventStore.create(tempFolder.getRoot(), mobileKey, CAPACITY,
                 EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
                 true, logger);
     }
@@ -151,12 +151,12 @@ public class EventStoreBoundsTest {
     @Test
     public void countsTheBytesOfABatchAnotherProcessClosedFromTheListingWithoutReadingIt() {
         File directory = new File(tempFolder.getRoot(), "events");
-        EventStore writer = new EventStore(directory, "writer", CAPACITY, true, logger);
+        EventStore writer = new EventStore(directory, CAPACITY, true, logger);
         stageFrames(writer, 8);
         assertEquals(1, writer.closeBatch().size());
 
         AtomicInteger reads = new AtomicInteger();
-        EventStore other = new EventStore(directory, "other", CAPACITY, BYTE_CAPACITY,
+        EventStore other = new EventStore(directory, CAPACITY, BYTE_CAPACITY,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
@@ -173,7 +173,7 @@ public class EventStoreBoundsTest {
 
     @Test
     public void boundsTheBatchesItHoldsInMemoryOnceItHasGivenUpOnTheDisk() {
-        EventStore store = new EventStore(new File(tempFolder.getRoot(), "events"), "test", CAPACITY,
+        EventStore store = new EventStore(new File(tempFolder.getRoot(), "events"), CAPACITY,
                 BYTE_CAPACITY, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
@@ -201,7 +201,7 @@ public class EventStoreBoundsTest {
 
     @Test
     public void discardsABatchLastWrittenLongerAgoThanTheMaximumAgeAndStopsCountingIt() {
-        EventStore store = environmentStore(MOBILE_KEY, "test");
+        EventStore store = environmentStore(MOBILE_KEY);
         stageFrames(store, 2);
         store.closeBatch();
         age(onlyBatchFile(store), 8);
@@ -214,7 +214,7 @@ public class EventStoreBoundsTest {
 
     @Test
     public void keepsABatchYoungerThanTheMaximumAge() {
-        EventStore store = environmentStore(MOBILE_KEY, "test");
+        EventStore store = environmentStore(MOBILE_KEY);
         stageFrames(store, 1);
         store.closeBatch();
         age(onlyBatchFile(store), 6);
@@ -225,7 +225,7 @@ public class EventStoreBoundsTest {
 
     @Test
     public void leavesABatchWhoseRequestIsOutHoweverOldItIs() {
-        EventStore store = environmentStore(MOBILE_KEY, "test");
+        EventStore store = environmentStore(MOBILE_KEY);
         stageFrames(store, 1);
         EventStore.Batch batch = store.closeBatch().get(0);
         store.startedSending(batch);
@@ -237,10 +237,10 @@ public class EventStoreBoundsTest {
 
     @Test
     public void discardsTheStaleLogOfAProcessThatIsGoneButNeverOneALiveProcessHolds() throws IOException {
-        EventStore store = environmentStore(MOBILE_KEY, "test");
+        EventStore store = environmentStore(MOBILE_KEY);
         stageFrames(store, 1);
         store.commit();
-        EventStore gone = environmentStore(MOBILE_KEY, "gone");
+        EventStore gone = environmentStore(MOBILE_KEY);
         stageFrames(gone, 2);
         gone.commit();
         gone.close();
@@ -261,14 +261,14 @@ public class EventStoreBoundsTest {
 
     @Test
     public void removesTheDirectoryOfAnEnvironmentNothingHasWrittenToForTheMaximumAge() {
-        EventStore abandoned = environmentStore(OTHER_MOBILE_KEY, "test");
+        EventStore abandoned = environmentStore(OTHER_MOBILE_KEY);
         stageFrames(abandoned, 3);
         abandoned.closeBatch();
         abandoned.close();
         File abandonedDirectory = abandoned.getDirectory();
         ageContents(abandonedDirectory, 8);
 
-        EventStore store = environmentStore(MOBILE_KEY, "test");
+        EventStore store = environmentStore(MOBILE_KEY);
 
         assertEquals(3, store.discardExpired());
         assertFalse(abandonedDirectory.exists());
@@ -276,12 +276,12 @@ public class EventStoreBoundsTest {
 
     @Test
     public void keepsTheDirectoryOfAnEnvironmentWrittenToRecently() {
-        EventStore inUse = environmentStore(OTHER_MOBILE_KEY, "test");
+        EventStore inUse = environmentStore(OTHER_MOBILE_KEY);
         stageFrames(inUse, 1);
         inUse.closeBatch();
         File inUseDirectory = inUse.getDirectory();
 
-        EventStore store = environmentStore(MOBILE_KEY, "test");
+        EventStore store = environmentStore(MOBILE_KEY);
 
         assertEquals(0, store.discardExpired());
         assertEquals(1, inUseDirectory.listFiles().length);
@@ -289,10 +289,10 @@ public class EventStoreBoundsTest {
 
     @Test
     public void looksAtOtherEnvironmentsOnlyOncePerStore() {
-        EventStore store = environmentStore(MOBILE_KEY, "test");
+        EventStore store = environmentStore(MOBILE_KEY);
         assertEquals(0, store.discardExpired());
 
-        EventStore abandoned = environmentStore(OTHER_MOBILE_KEY, "test");
+        EventStore abandoned = environmentStore(OTHER_MOBILE_KEY);
         stageFrames(abandoned, 1);
         abandoned.closeBatch();
         abandoned.close();
@@ -305,13 +305,13 @@ public class EventStoreBoundsTest {
     @Test
     public void leavesTheSiblingsOfADirectoryTheSdkDidNotChoose() {
         File sibling = new File(tempFolder.getRoot(), "unrelated");
-        EventStore neighbor = new EventStore(sibling, "test", CAPACITY, true, logger);
+        EventStore neighbor = new EventStore(sibling, CAPACITY, true, logger);
         stageFrames(neighbor, 1);
         neighbor.closeBatch();
         neighbor.close();
         ageContents(sibling, 8);
 
-        EventStore store = new EventStore(new File(tempFolder.getRoot(), "events"), "test", CAPACITY, true,
+        EventStore store = new EventStore(new File(tempFolder.getRoot(), "events"), CAPACITY, true,
                 logger);
         stageFrames(store, 1);
         store.commit();
@@ -322,13 +322,13 @@ public class EventStoreBoundsTest {
 
     @Test
     public void discardsNothingWhereItKeepsEventsOffTheDisk() {
-        EventStore abandoned = environmentStore(OTHER_MOBILE_KEY, "test");
+        EventStore abandoned = environmentStore(OTHER_MOBILE_KEY);
         stageFrames(abandoned, 1);
         abandoned.closeBatch();
         abandoned.close();
         ageContents(abandoned.getDirectory(), 8);
 
-        EventStore store = EventStore.create(tempFolder.getRoot(), MOBILE_KEY, "test", CAPACITY,
+        EventStore store = EventStore.create(tempFolder.getRoot(), MOBILE_KEY, CAPACITY,
                 EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
                 false, logger);
 

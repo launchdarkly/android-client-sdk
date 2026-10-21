@@ -34,8 +34,7 @@ import java.util.UUID;
  * Where the directory is, is worked out on first use rather than at construction, so that a store which never
  * reaches for the disk makes no filesystem call at all, not even to find out where it would have written.
  * That matters because the store is built on the thread that called {@code LDClient.init}, usually the main
- * one: the platform creates the no-backup directory the first time it is asked for it, and before API 28 the
- * process name is read from {@code /proc}.
+ * one: the platform creates the no-backup directory the first time it is asked for it.
  * <p>
  * Belongs to an {@link EventStore}, which makes every call holding its {@code ioLock}, exactly as
  * {@link DiskEventLog} belongs to this. The lock is handed down so that each call can check it is held,
@@ -59,8 +58,6 @@ class EventDirectory {
     /** Where one store keeps its files. */
     interface Location {
         File directory();
-
-        String processName();
     }
 
     /** How a stored file is read, so a test can make a read fail while the file is intact. */

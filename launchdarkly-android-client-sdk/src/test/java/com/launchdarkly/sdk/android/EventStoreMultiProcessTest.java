@@ -40,15 +40,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * An Android application may declare components in another process, and each process gets its own copy of
  * the SDK sharing nothing but the filesystem. From the store's point of view a second process is simply a
- * second instance over the same directory under a different process name, which is what these tests set
- * up. That is not the same thing as a second OS process - it cannot reproduce a genuinely concurrent
+ * second instance over the same directory, which is what these tests set up. That is not the same thing as a second OS process - it cannot reproduce a genuinely concurrent
  * {@code O_APPEND} write from separate address spaces, which needs an instrumented test - but it does
  * exercise every decision the design makes about sharing: which files a process may touch, which it must
  * leave alone, and what happens when both reach for the same batch.
  */
 public class EventStoreMultiProcessTest {
-    private static final String MAIN_PROCESS = "com.example.app";
-    private static final String SERVICE_PROCESS = "com.example.app:service";
     private static final int CAPACITY = 100;
 
     @Rule
@@ -62,12 +59,13 @@ public class EventStoreMultiProcessTest {
         return new File(tempFolder.getRoot(), "events");
     }
 
-    private EventStore storeFor(String processName) {
-        return storeFor(processName, CAPACITY);
+    /** A store over the shared directory: another process, or another run of one. */
+    private EventStore storeFor() {
+        return storeFor(CAPACITY);
     }
 
-    private EventStore storeFor(String processName, int capacity) {
-        return new EventStore(sharedDirectory(), processName, capacity, true, logger);
+    private EventStore storeFor(int capacity) {
+        return new EventStore(sharedDirectory(), capacity, true, logger);
     }
 
     private byte[] event(String key) {
@@ -110,8 +108,8 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void eachProcessAppendsToItsOwnLog() {
-        EventStore main = storeFor(MAIN_PROCESS);
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore main = storeFor();
+        EventStore service = storeFor();
 
         main.stage(event("main-1"));
         main.commit();
@@ -128,24 +126,8 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
-    public void twoStoresOfOneProcessNameStillGetSeparateLogs() {
-        // Two runs of one process overlapping, as a client closed while its replacement starts can.
-        EventStore closing = storeFor(MAIN_PROCESS);
-        EventStore replacement = storeFor(MAIN_PROCESS);
-
-        closing.stage(event("closing"));
-        closing.commit();
-        replacement.stage(event("replacement"));
-        replacement.commit();
-
-        assertEquals(2, filesNamed("open-").size());
-        assertEquals(Arrays.asList("closing"), visibleKeys(closing));
-        assertEquals(Arrays.asList("replacement"), visibleKeys(replacement));
-    }
-
-    @Test
-    public void aLogIsNamedForAUuidRatherThanForTheProcess() {
-        EventStore main = storeFor(MAIN_PROCESS);
+    public void aLogIsNamedForAUuid() {
+        EventStore main = storeFor();
         main.stage(event("main-1"));
         main.commit();
 
@@ -168,13 +150,13 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void recoveryLeavesAnotherProcessOpenLogAlone() {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("service-1"));
         service.commit();
 
         // The main process starts while the service process is still alive and still appending. Its
         // recovery must not take the log out from under it.
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.recoverInterruptedLog();
 
         assertEquals("the other process's log was taken away", 1, filesNamed("open-").size());
@@ -188,7 +170,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void recoveryLeavesALogWhoseLockIsHeldAlone() throws IOException {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("service-1"));
         service.commit();
         processDies(service);
@@ -197,26 +179,26 @@ public class EventStoreMultiProcessTest {
         // A process this one knows nothing about, holding the lock on the log as its owner does.
         try (RandomAccessFile owner = new RandomAccessFile(log, "rw");
              FileLock held = owner.getChannel().lock()) {
-            EventStore main = storeFor(MAIN_PROCESS);
+            EventStore main = storeFor();
             main.recoverInterruptedLog();
             assertTrue("a log a live process holds was recovered", main.pendingBatches().isEmpty());
             assertTrue(log.exists());
         }
 
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.recoverInterruptedLog();
         assertEquals(1, main.pendingBatches().size());
     }
 
     @Test
     public void anyProcessRecoversALogWhoseWriterIsGone() {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("before-the-crash"));
         service.commit();
         processDies(service);
 
         // Not the process that wrote it: a service process may never run again.
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.recoverInterruptedLog();
 
         List<EventStore.Batch> recovered = main.pendingBatches();
@@ -228,17 +210,17 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void recoveryTakesEveryLogLeftBehind() {
-        EventStore firstRun = storeFor(MAIN_PROCESS);
+        EventStore firstRun = storeFor();
         firstRun.stage(event("first-run"));
         firstRun.commit();
         processDies(firstRun);
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("service-1"));
         service.stage(event("service-2"));
         service.commit();
         processDies(service);
 
-        EventStore secondRun = storeFor(MAIN_PROCESS);
+        EventStore secondRun = storeFor();
         secondRun.recoverInterruptedLog();
 
         assertEquals(2, secondRun.pendingBatches().size());
@@ -248,14 +230,14 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aLogNamedForItsProcessByAnEarlierVersionIsRecovered() {
-        EventStore earlierVersion = storeFor(MAIN_PROCESS);
+        EventStore earlierVersion = storeFor();
         earlierVersion.stage(event("named-for-its-process"));
         earlierVersion.commit();
         processDies(earlierVersion);
         File log = filesNamed("open-").get(0);
         assertTrue(log.renameTo(new File(log.getParentFile(), "open-com_example_app-1a2b3c4d")));
 
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.recoverInterruptedLog();
 
         assertEquals(1, main.pendingBatches().size());
@@ -266,12 +248,12 @@ public class EventStoreMultiProcessTest {
     public void aCommitBeforeStartupRecoveryKeepsThisRunsEventsOutOfWhatItRecovers() {
         // With IMMEDIATE the first commit happens on the caller's thread, and can beat the recovery the
         // processor queues on its own thread at startup.
-        EventStore firstRun = storeFor(SERVICE_PROCESS);
+        EventStore firstRun = storeFor();
         firstRun.stage(event("previous-run"));
         firstRun.commit();
         processDies(firstRun);
 
-        EventStore secondRun = storeFor(SERVICE_PROCESS);
+        EventStore secondRun = storeFor();
         secondRun.stage(event("this-run"));
         secondRun.commit();
         secondRun.recoverInterruptedLog();
@@ -285,7 +267,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aStoreThatClosedItsLogAppendsToANewOne() {
-        EventStore store = storeFor(MAIN_PROCESS);
+        EventStore store = storeFor();
         store.stage(event("before-close"));
         store.commit();
         File first = filesNamed("open-").get(0);
@@ -302,7 +284,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aStoreWithoutPersistenceLeavesWhatAPersistentRunLeftBehindAlone() {
-        EventStore persistentRun = storeFor(SERVICE_PROCESS);
+        EventStore persistentRun = storeFor();
         persistentRun.stage(event("closed-batch"));
         closeOne(persistentRun);
         persistentRun.stage(event("open-log"));
@@ -310,7 +292,7 @@ public class EventStoreMultiProcessTest {
         processDies(persistentRun);
 
         EventStore withoutPersistence =
-                new EventStore(sharedDirectory(), SERVICE_PROCESS, CAPACITY, false, logger);
+                new EventStore(sharedDirectory(), CAPACITY, false, logger);
         withoutPersistence.recoverInterruptedLog();
         assertTrue("a store without persistence picked up a previous run's events",
                 withoutPersistence.pendingBatches().isEmpty());
@@ -325,7 +307,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(1, filesNamed("open-").size());
 
         // Still there for the next run that has persistence turned on.
-        EventStore persistentAgain = storeFor(SERVICE_PROCESS);
+        EventStore persistentAgain = storeFor();
         persistentAgain.recoverInterruptedLog();
         assertEquals(2, persistentAgain.pendingBatches().size());
     }
@@ -334,7 +316,7 @@ public class EventStoreMultiProcessTest {
     public void aStoreWithoutPersistenceAsksTheFilesystemNothingEvenAboutABatchItDoesNotHold()
             throws IOException {
         AtomicInteger reads = new AtomicInteger();
-        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, false, logger) {
+        EventStore store = new EventStore(sharedDirectory(), CAPACITY, false, logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
                 reads.incrementAndGet();
@@ -362,14 +344,14 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void oneProcessRecoveringDoesNotDisturbWhatAnotherHasAlreadyClosed() {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("service-1"));
         EventStore.Batch fromService = closeOne(service);
         assertNotNull(fromService);
 
         // Recovery runs when a store is constructed, before that process has recorded anything of its own,
         // which is the only time it is correct to go looking for a log to close.
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.recoverInterruptedLog();
         main.stage(event("main-1"));
         main.commit();
@@ -385,12 +367,12 @@ public class EventStoreMultiProcessTest {
     public void aBatchClosedByOneProcessIsDeliverableByAnother() throws IOException {
         // The point of sharing: a service process that records events and is then killed may never run
         // again, so a batch only it could see would never be delivered.
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("recorded-by-the-service"));
         EventStore.Batch batch = closeOne(service);
         assertNotNull(batch);
 
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         List<EventStore.Batch> pending = main.pendingBatches();
 
         assertEquals(1, pending.size());
@@ -409,7 +391,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aClosedBatchIsCountedFromItsNameWithoutReadingItBack() throws IOException {
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.stage(event("first"));
         main.stage(event("second"));
         EventStore.Batch batch = closeOne(main);
@@ -424,7 +406,7 @@ public class EventStoreMultiProcessTest {
         overwrite(ready.get(0), "not an event log".getBytes(Charset.forName("UTF-8")));
 
         // The process that closed it and one that did not both count it from the name alone.
-        for (EventStore store : Arrays.asList(main, storeFor(SERVICE_PROCESS))) {
+        for (EventStore store : Arrays.asList(main, storeFor())) {
             List<EventStore.Batch> pending = store.pendingBatches();
             assertEquals(1, pending.size());
             assertEquals(batch.payloadId, pending.get(0).payloadId);
@@ -443,7 +425,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aBatchWhoseFirstFrameIsDamagedIsLostRatherThanEmpty() throws IOException {
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.stage(event("damaged"));
         EventStore.Batch batch = closeOne(main);
         assertNotNull(batch);
@@ -474,14 +456,14 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aBatchNamedWithoutACountIsReadOnceAndThenRemembered() throws IOException {
-        EventStore previousVersion = storeFor(SERVICE_PROCESS);
+        EventStore previousVersion = storeFor();
         previousVersion.stage(event("left-by-a-previous-version"));
         closeOne(previousVersion);
         assertEquals(1, filesNamed("ready-").size());
         asUncountedName(filesNamed("ready-").get(0));
 
         AtomicInteger reads = new AtomicInteger();
-        EventStore main = new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, true, logger) {
+        EventStore main = new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
                 reads.incrementAndGet();
@@ -506,7 +488,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aPayloadIdEndingInZeroLedDigitsIsNotTakenForACount() {
-        EventStore previousVersion = storeFor(SERVICE_PROCESS);
+        EventStore previousVersion = storeFor();
         previousVersion.stage(event("left-by-a-previous-version"));
         closeOne(previousVersion);
         File batch = filesNamed("ready-").get(0);
@@ -514,7 +496,7 @@ public class EventStoreMultiProcessTest {
         String payloadId = "6F9619FF-8B86-D011-B42D-000012345678";
         assertTrue(batch.renameTo(new File(batch.getParentFile(), "ready-" + payloadId)));
 
-        List<EventStore.Batch> pending = storeFor(MAIN_PROCESS).pendingBatches();
+        List<EventStore.Batch> pending = storeFor().pendingBatches();
         assertEquals(1, pending.size());
         assertEquals(payloadId, pending.get(0).payloadId);
         assertEquals(1, pending.get(0).eventCount);
@@ -522,12 +504,12 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aBatchTheOtherProcessAlreadyDeliveredReadsAsNothingToSend() throws IOException {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("delivered-once"));
         EventStore.Batch batch = closeOne(service);
         assertNotNull(batch);
 
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.remove(batch); // main delivered it first
 
         // The other process asking for the body gets nothing, which its caller treats as already
@@ -537,12 +519,12 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void bothProcessesRemovingTheSameBatchIsHarmless() {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("delivered-twice"));
         EventStore.Batch batch = closeOne(service);
         assertNotNull(batch);
 
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.remove(batch);
         service.remove(batch); // a remove of a file that is already gone
 
@@ -555,13 +537,13 @@ public class EventStoreMultiProcessTest {
     public void aProcessCountsAnotherProcessPendingBatchesAgainstItsOwnCapacity() {
         // Deliberately conservative, and documented as such: the alternative is cross-process accounting,
         // which would need cross-process locking to be correct.
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         for (int i = 0; i < 3; i++) {
             service.stage(event("service-" + i));
         }
         closeOne(service);
 
-        EventStore main = storeFor(MAIN_PROCESS);
+        EventStore main = storeFor();
         main.pendingBatches(); // this is what reconciles the count with the directory
 
         assertEquals(3, main.getPendingEventCount());
@@ -573,8 +555,8 @@ public class EventStoreMultiProcessTest {
      * A store whose reads fail while {@code failing} is set, the way they do in a process that has run
      * out of file descriptors: the files are intact and readable again once some are freed.
      */
-    private EventStore storeWithFailingReads(String processName, AtomicBoolean failing) {
-        return new EventStore(sharedDirectory(), processName, CAPACITY, true, logger) {
+    private EventStore storeWithFailingReads(AtomicBoolean failing) {
+        return new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
             InputStream openForReading(File file) throws IOException {
                 if (failing.get()) {
@@ -587,13 +569,13 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aBatchNamedWithoutACountThatCannotBeReadIsLeftForALaterListing() {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("recorded-by-the-service"));
         closeOne(service);
         asUncountedName(filesNamed("ready-").get(0));
 
         AtomicBoolean failing = new AtomicBoolean(true);
-        EventStore main = storeWithFailingReads(MAIN_PROCESS, failing);
+        EventStore main = storeWithFailingReads(failing);
         assertTrue(main.pendingBatches().isEmpty());
         assertEquals("a batch that could not be read was deleted", 1, filesNamed("ready-").size());
 
@@ -605,7 +587,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aBatchCountedByItsNameIsListedEvenWhileReadsAreFailing() {
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore service = storeFor();
         service.stage(event("recorded-by-the-service"));
         closeOne(service);
 
@@ -613,7 +595,7 @@ public class EventStoreMultiProcessTest {
         // the count in the name there is nothing to read until the batch is sent, and a body that cannot
         // be read is a delivery to retry rather than a batch that is invisible until it can be.
         AtomicBoolean failing = new AtomicBoolean(true);
-        EventStore main = storeWithFailingReads(MAIN_PROCESS, failing);
+        EventStore main = storeWithFailingReads(failing);
         List<EventStore.Batch> pending = main.pendingBatches();
         assertEquals(1, pending.size());
         assertEquals(1, pending.get(0).eventCount);
@@ -628,7 +610,7 @@ public class EventStoreMultiProcessTest {
     @Test
     public void aBodyThatCannotBeReadIsAFailureToRetryRatherThanNothingToSend() throws IOException {
         AtomicBoolean failing = new AtomicBoolean(false);
-        EventStore main = storeWithFailingReads(MAIN_PROCESS, failing);
+        EventStore main = storeWithFailingReads(failing);
         main.stage(event("kept"));
         EventStore.Batch batch = closeOne(main);
         assertNotNull(batch);
@@ -651,13 +633,13 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aPreviousRunsLogThatCannotBeReadIsKeptForALaterListing() {
-        EventStore firstRun = storeFor(SERVICE_PROCESS);
+        EventStore firstRun = storeFor();
         firstRun.stage(event("before-the-crash"));
         firstRun.commit();
         processDies(firstRun);
 
         AtomicBoolean failing = new AtomicBoolean(true);
-        EventStore secondRun = storeWithFailingReads(SERVICE_PROCESS, failing);
+        EventStore secondRun = storeWithFailingReads(failing);
         secondRun.recoverInterruptedLog();
         // Closed off uncounted for a listing to count, and not deleted.
         assertTrue(filesNamed("open-").isEmpty());
@@ -680,7 +662,7 @@ public class EventStoreMultiProcessTest {
      */
     private EventStore storeFailingPartwayAfter(int whole) {
         AtomicInteger writes = new AtomicInteger();
-        return new EventStore(sharedDirectory(), MAIN_PROCESS, CAPACITY, true, logger) {
+        return new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
                 return new FileOutputStream(log, true) {
@@ -704,7 +686,7 @@ public class EventStoreMultiProcessTest {
         // They used to be counted nowhere until the write returned, and capacity admitted that many more.
         CountDownLatch writing = new CountDownLatch(1);
         CountDownLatch letWriteFinish = new CountDownLatch(1);
-        EventStore store = new EventStore(sharedDirectory(), MAIN_PROCESS, 2, true, logger) {
+        EventStore store = new EventStore(sharedDirectory(), 2, true, logger) {
             @Override
             FileOutputStream openForAppending(File log) throws IOException {
                 writing.countDown();
@@ -742,7 +724,7 @@ public class EventStoreMultiProcessTest {
         // Deliveries can overlap, and two of them can both get to the same batch.
         for (boolean persist : new boolean[] {true, false}) {
             EventStore store = new EventStore(new File(sharedDirectory(), "persist-" + persist),
-                    MAIN_PROCESS, CAPACITY, persist, logger);
+                    CAPACITY, persist, logger);
             store.stage(event("first"));
             EventStore.Batch first = closeOne(store);
             store.stage(event("second"));
@@ -758,7 +740,7 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aDeliveredBatchWhoseFileWillNotDeleteIsNotListedAgain() {
-        EventStore store = storeFor(MAIN_PROCESS);
+        EventStore store = storeFor();
         store.stage(event("first"));
         EventStore.Batch first = closeOne(store);
         store.stage(event("second"));
@@ -788,8 +770,8 @@ public class EventStoreMultiProcessTest {
 
     @Test
     public void aBatchAnotherProcessDeliveredStopsCountingOnce() {
-        EventStore main = storeFor(MAIN_PROCESS);
-        EventStore service = storeFor(SERVICE_PROCESS);
+        EventStore main = storeFor();
+        EventStore service = storeFor();
         main.stage(event("first"));
         EventStore.Batch first = closeOne(main);
         main.stage(event("second"));
@@ -807,7 +789,7 @@ public class EventStoreMultiProcessTest {
     public void aListingDoesNotLoseOrDoubleABatchClosedWhileItRuns() throws Exception {
         for (boolean persist : new boolean[] {true, false}) {
             EventStore store = new EventStore(new File(sharedDirectory(), "persist-" + persist),
-                    MAIN_PROCESS, 100_000, persist, logger);
+                    100_000, persist, logger);
             AtomicBoolean done = new AtomicBoolean();
             Thread lister = new Thread(() -> {
                 while (!done.get()) {
@@ -886,7 +868,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(Arrays.asList("landed", "torn"), keysIn(store.body(fromMemory)));
 
         // Delivered from memory this run, so the next must not find any of it again in the log.
-        EventStore nextRun = storeFor(MAIN_PROCESS);
+        EventStore nextRun = storeFor();
         nextRun.recoverInterruptedLog();
         assertEquals(0, nextRun.pendingBatches().size());
     }
@@ -898,8 +880,8 @@ public class EventStoreMultiProcessTest {
         int eventsPerProcess = 200;
         // Capacity well clear of what the test records, so that a dropped event means a real loss rather
         // than the store correctly refusing to exceed its limit.
-        EventStore main = storeFor(MAIN_PROCESS, 10 * eventsPerProcess);
-        EventStore service = storeFor(SERVICE_PROCESS, 10 * eventsPerProcess);
+        EventStore main = storeFor(10 * eventsPerProcess);
+        EventStore service = storeFor(10 * eventsPerProcess);
 
         CountDownLatch startTogether = new CountDownLatch(1);
         CountDownLatch finished = new CountDownLatch(2);
