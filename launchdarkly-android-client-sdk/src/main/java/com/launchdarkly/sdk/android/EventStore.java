@@ -189,12 +189,14 @@ class EventStore implements Closeable {
     }
 
     /**
-     * Creates the store for one environment of one process.
+     * Creates the store for one environment of one process, in a directory the caller already has, with the
+     * default byte capacity and maximum age. The SDK itself uses the {@link PlatformState} overload.
      *
      * @param noBackupFilesDir where the platform lets the SDK keep files it must not lose
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
      * @param persistEvents whether the application asked for events to outlive the process
      */
+    @VisibleForTesting
     static EventStore create(
             File noBackupFilesDir,
             String mobileKey,
@@ -206,6 +208,11 @@ class EventStore implements Closeable {
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
     }
 
+    /**
+     * Creates the store for one environment of one process, in a directory the caller already has. The SDK
+     * itself uses the {@link PlatformState} overload.
+     */
+    @VisibleForTesting
     static EventStore create(
             File noBackupFilesDir,
             String mobileKey,
