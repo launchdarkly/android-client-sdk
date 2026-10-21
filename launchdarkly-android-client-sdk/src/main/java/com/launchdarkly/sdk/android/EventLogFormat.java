@@ -34,8 +34,16 @@ final class EventLogFormat {
     static final int FRAME_HEADER_SIZE = 10;
     /** The only frame type written today; a reader skips a frame whose type it does not know. */
     static final int EVENT_FRAME = 1;
-    /** A ceiling on a single frame, so a corrupt size cannot make recovery allocate wildly. */
-    static final int MAX_FRAME_SIZE = 8 * 1024 * 1024;
+    /**
+     * The most a batch may hold, file header included, so that no request it becomes is larger than the
+     * events service accepts.
+     */
+    static final int MAX_BATCH_SIZE = 2 * 1024 * 1024;
+    /**
+     * A ceiling on a single frame's payload: the most that still fits in a batch on its own. It is also
+     * what keeps a corrupt size from making recovery allocate wildly.
+     */
+    static final int MAX_FRAME_SIZE = MAX_BATCH_SIZE - FILE_HEADER_SIZE - FRAME_HEADER_SIZE;
 
     private EventLogFormat() {
     }
@@ -253,6 +261,32 @@ final class EventLogFormat {
             }
             return readUInt16(log, MAGIC.length) == VERSION;
         }
+    }
+
+    /** The size, header included, of the frame at {@code start} in frames this process wrote. */
+    static int frameSize(byte[] frames, int start) {
+        return FRAME_HEADER_SIZE + readInt32(frames, start + 2);
+    }
+
+    /**
+     * Where a run of whole frames from {@code start}, in frames this process wrote, ends if it is to take
+     * no more than {@code room} bytes. It takes the first frame whatever its size.
+     */
+    static int endOfFramesFitting(byte[] frames, int start, long room) {
+        int end = start + frameSize(frames, start);
+        while (end < frames.length && end + frameSize(frames, end) - start <= room) {
+            end += frameSize(frames, end);
+        }
+        return end;
+    }
+
+    /** How many frames there are between two frame boundaries in frames this process wrote. */
+    static int frameCount(byte[] frames, int start, int end) {
+        int count = 0;
+        for (int cursor = start; cursor < end; cursor += frameSize(frames, cursor)) {
+            count++;
+        }
+        return count;
     }
 
     private static int readUInt16(byte[] bytes, int offset) {

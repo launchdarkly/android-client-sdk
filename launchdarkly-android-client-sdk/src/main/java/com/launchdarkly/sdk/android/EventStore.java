@@ -13,6 +13,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -421,15 +422,16 @@ class EventStore implements Closeable {
      * persistence with those earlier events in the log and the failed ones back in memory, and closing
      * only the log would leave the rest for a delivery that reports success without them.
      *
-     * @return every batch this closed, oldest first: the one from the log, then the one from memory, so
-     *   at most two and usually one; empty when there is nothing to send
+     * @return the batches this closed, oldest first: the one from the log, then those from memory; usually
+     *   one, and empty when there is nothing to send. A log a commit filled was closed into a batch of its
+     *   own as it filled, and is not among them; {@link #pendingBatches()} lists every batch.
      */
     List<Batch> closeBatch() {
         List<Batch> closed = new ArrayList<>(1);
         // Where the application asked for no disk there is no log to close, and so nothing to close it
         // alongside.
         if (disk == null) {
-            addIfClosed(closed, closeInMemoryBatch());
+            closed.addAll(closeInMemoryBatches());
             return closed;
         }
         synchronized (ioLock) {
@@ -447,10 +449,11 @@ class EventStore implements Closeable {
             if (events > 0) {
                 addIfClosed(closed, closeOpenLogHoldingIoLock(events, bytes));
             }
-            // Only reachable once persistence has been given up on; a healthy commit leaves nothing
-            // staged behind. Closed after the log, so the older events are delivered first.
+            // Only reachable once persistence has been given up on, or a full log could not be closed; a
+            // healthy commit leaves nothing staged behind. Closed after the log, so the older events are
+            // delivered first.
             if (stillBuffered > 0) {
-                addIfClosed(closed, closeInMemoryBatch());
+                closed.addAll(closeInMemoryBatches());
             }
             return closed;
         }
@@ -492,12 +495,15 @@ class EventStore implements Closeable {
     }
 
     /**
-     * Closes whatever is staged into a batch that never reaches a file.
+     * Closes whatever is staged into batches that never reach a file, as many as it takes to keep each
+     * within {@link EventLogFormat#MAX_BATCH_SIZE}.
      * <p>
      * Called under {@code ioLock} where there is a disk, so that it and the log are closed as one step,
      * and on its own where there is not.
+     *
+     * @return the batches, oldest first
      */
-    private Batch closeInMemoryBatch() {
+    private List<Batch> closeInMemoryBatches() {
         byte[] frames;
         int events;
         synchronized (bufferLock) {
@@ -508,34 +514,44 @@ class EventStore implements Closeable {
             inTransitEvents += events;
             inTransitBytes += frames.length;
         }
-        String payloadId = UUID.randomUUID().toString();
-        boolean held = false;
+        List<Batch> closed = new ArrayList<>(1);
+        int held = 0;
+        int heldEvents = 0;
         try {
             // Outside bufferLock, because it copies every staged frame; inTransitEvents is what keeps
             // them counted meanwhile.
-            byte[] body = EventLogFormat.assembleBody(EventLogFormat.withFileHeader(frames));
-            if (body == null) {
-                return null;
-            }
-            synchronized (heldLock) {
-                inMemoryBatches.put(payloadId, new HeldBatch(body, events));
-                synchronized (bufferLock) {
-                    inTransitEvents -= events;
-                    inTransitBytes -= frames.length;
-                    closedEvents += events;
-                    closedBytes += body.length;
+            while (held < frames.length) {
+                int end = EventLogFormat.endOfFramesFitting(frames, held,
+                        EventLogFormat.MAX_BATCH_SIZE - EventLogFormat.FILE_HEADER_SIZE);
+                int batchEvents = EventLogFormat.frameCount(frames, held, end);
+                byte[] body = EventLogFormat.assembleBody(
+                        EventLogFormat.withFileHeader(Arrays.copyOfRange(frames, held, end)));
+                if (body == null) {
+                    break;
                 }
+                String payloadId = UUID.randomUUID().toString();
+                synchronized (heldLock) {
+                    inMemoryBatches.put(payloadId, new HeldBatch(body, batchEvents));
+                    synchronized (bufferLock) {
+                        inTransitEvents -= batchEvents;
+                        inTransitBytes -= end - held;
+                        closedEvents += batchEvents;
+                        closedBytes += body.length;
+                    }
+                }
+                closed.add(new Batch(payloadId, batchEvents));
+                held = end;
+                heldEvents += batchEvents;
             }
-            held = true;
         } finally {
-            if (!held) {
+            if (held < frames.length) {
                 synchronized (bufferLock) {
-                    inTransitEvents -= events;
-                    inTransitBytes -= frames.length;
+                    inTransitEvents -= events - heldEvents;
+                    inTransitBytes -= frames.length - held;
                 }
             }
         }
-        return new Batch(payloadId, events);
+        return closed;
     }
 
     /** A batch the filesystem would not take, kept where the SDK used to keep all of them. */
@@ -799,7 +815,12 @@ class EventStore implements Closeable {
 
     // MARK: writing
 
-    /** Requires {@code ioLock}. */
+    /**
+     * Requires {@code ioLock}.
+     * <p>
+     * Closes the open log into a batch wherever the next frame would take it past
+     * {@link EventLogFormat#MAX_BATCH_SIZE}, so a commit can land in several batches.
+     */
     private void commitHoldingIoLock() {
         byte[] bytes;
         int events;
@@ -817,27 +838,70 @@ class EventStore implements Closeable {
             inTransitBytes += bytes.length;
         }
 
-        boolean written = false;
+        int written = 0;
+        int writtenEvents = 0;
         try {
-            written = append(bytes);
+            while (written < bytes.length) {
+                long room;
+                synchronized (bufferLock) {
+                    room = EventLogFormat.MAX_BATCH_SIZE - EventLogFormat.FILE_HEADER_SIZE - committedBytes;
+                }
+                if (EventLogFormat.frameSize(bytes, written) > room) {
+                    if (!closeFullLogHoldingIoLock()) {
+                        break;
+                    }
+                    continue;
+                }
+                int end = EventLogFormat.endOfFramesFitting(bytes, written, room);
+                int landing = EventLogFormat.frameCount(bytes, written, end);
+                boolean isWhole = written == 0 && end == bytes.length;
+                if (!append(isWhole ? bytes : Arrays.copyOfRange(bytes, written, end))) {
+                    break;
+                }
+                // Counted where they landed in the same critical section that stops counting them in
+                // transit, so a capacity check never sees them in both places or in neither.
+                synchronized (bufferLock) {
+                    inTransitEvents -= landing;
+                    inTransitBytes -= end - written;
+                    committedEvents += landing;
+                    committedBytes += end - written;
+                }
+                written = end;
+                writtenEvents += landing;
+            }
         } finally {
-            // Counted where they landed in the same critical section that stops counting them in
-            // transit, so a capacity check never sees them in both places or in neither.
-            synchronized (bufferLock) {
-                inTransitEvents -= events;
-                inTransitBytes -= bytes.length;
-                if (written) {
-                    committedEvents += events;
-                    committedBytes += bytes.length;
-                } else {
+            if (written < bytes.length) {
+                synchronized (bufferLock) {
+                    inTransitEvents -= events - writtenEvents;
+                    inTransitBytes -= bytes.length - written;
                     // Put back, to be delivered from memory rather than lost.
                     byte[] laterFrames = bufferData.toByteArray();
                     bufferData.reset();
-                    writeQuietly(bufferData, bytes);
+                    bufferData.write(bytes, written, bytes.length - written);
                     writeQuietly(bufferData, laterFrames);
-                    bufferedEventCount += events;
+                    bufferedEventCount += events - writtenEvents;
                 }
             }
+        }
+    }
+
+    /**
+     * Closes an open log that has no room for the next frame, so that the frame starts a batch of its own.
+     * Requires {@code ioLock}.
+     *
+     * @return whether the next append starts a new log; false if this one could not be closed, which
+     *   leaves the frames to be held in memory rather than grow it past the size of a batch
+     */
+    private boolean closeFullLogHoldingIoLock() {
+        int events;
+        long bytes;
+        synchronized (bufferLock) {
+            events = committedEvents;
+            bytes = committedBytes;
+        }
+        closeOpenLogHoldingIoLock(events, bytes);
+        synchronized (bufferLock) {
+            return committedBytes == 0;
         }
     }
 

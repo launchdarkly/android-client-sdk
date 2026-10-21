@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
+import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 
 import org.junit.Rule;
@@ -21,6 +22,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -208,6 +211,99 @@ public class EventStoreBoundsTest {
 
         assertTrue(store.hasRoomForEventBytes());
         assertEquals(20, store.getPendingEventCount());
+    }
+
+    // batch size
+
+    private static final int QUARTER_BATCH = EventLogFormat.MAX_BATCH_SIZE / 4;
+
+    private EventStore storeWithRoomForLargeBatches(boolean persistEvents) {
+        return new EventStore(new File(tempFolder.getRoot(), "events"), CAPACITY,
+                EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
+                persistEvents, logger);
+    }
+
+    private static void stageQuarterBatches(EventStore store, int from, int to) {
+        for (int i = from; i <= to; i++) {
+            assertTrue(store.stage(event(QUARTER_BATCH, "event-" + i)));
+        }
+    }
+
+    private static List<List<String>> keysByBatch(EventStore store) throws IOException {
+        List<List<String>> batches = new ArrayList<>();
+        for (EventStore.Batch batch : store.pendingBatches()) {
+            byte[] body = store.body(batch);
+            assertTrue(body.length <= EventLogFormat.MAX_BATCH_SIZE);
+            List<String> keys = new ArrayList<>();
+            for (LDValue event : LDValue.parse(new String(body, StandardCharsets.UTF_8)).values()) {
+                keys.add(event.get("key").stringValue());
+            }
+            assertEquals(keys.size(), batch.eventCount);
+            batches.add(keys);
+        }
+        // Batches closed within the same millisecond list in either order.
+        Collections.sort(batches, (a, b) -> a.get(0).compareTo(b.get(0)));
+        return batches;
+    }
+
+    private static void assertNoBatchFileIsLargerThanABatch(EventStore store) {
+        File[] files = store.getDirectory().listFiles((dir, name) -> name.startsWith("ready-"));
+        assertNotNull(files);
+        for (File file : files) {
+            assertTrue(file.length() <= EventLogFormat.MAX_BATCH_SIZE);
+        }
+    }
+
+    @Test
+    public void closesALogACommitWouldTakePastTheBatchSizeAndCarriesOnInANewOne() throws IOException {
+        // Four quarters and the file header are just past the batch size, so three fit in each.
+        EventStore store = storeWithRoomForLargeBatches(true);
+        stageQuarterBatches(store, 1, 5);
+        store.commit();
+        store.closeBatch();
+
+        assertEquals(Arrays.asList(Arrays.asList("event-1", "event-2", "event-3"),
+                Arrays.asList("event-4", "event-5")), keysByBatch(store));
+        assertNoBatchFileIsLargerThanABatch(store);
+        assertEquals(5, store.getPendingEventCount());
+    }
+
+    @Test
+    public void closesALogALaterCommitWouldTakePastTheBatchSize() throws IOException {
+        EventStore store = storeWithRoomForLargeBatches(true);
+        stageQuarterBatches(store, 1, 2);
+        store.commit();
+        stageQuarterBatches(store, 3, 5);
+        store.commit();
+        store.closeBatch();
+
+        assertEquals(Arrays.asList(Arrays.asList("event-1", "event-2", "event-3"),
+                Arrays.asList("event-4", "event-5")), keysByBatch(store));
+        assertNoBatchFileIsLargerThanABatch(store);
+    }
+
+    @Test
+    public void splitsWhatItHoldsInMemoryAtTheBatchSizeToo() throws IOException {
+        EventStore store = storeWithRoomForLargeBatches(false);
+        stageQuarterBatches(store, 1, 5);
+
+        assertEquals(2, store.closeBatch().size());
+        assertEquals(Arrays.asList(Arrays.asList("event-1", "event-2", "event-3"),
+                Arrays.asList("event-4", "event-5")), keysByBatch(store));
+        assertEquals(5, store.getPendingEventCount());
+    }
+
+    @Test
+    public void takesAnEventThatFillsABatchOnItsOwnAndRefusesAnyLarger() throws IOException {
+        EventStore store = storeWithRoomForLargeBatches(true);
+        int largest = EventLogFormat.MAX_FRAME_SIZE + EventLogFormat.FRAME_HEADER_SIZE;
+        assertFalse(store.stage(event(largest + 1, "too-large")));
+        stageFrames(store, 1);
+        assertTrue(store.stage(event(largest, "largest")));
+        store.closeBatch();
+
+        assertEquals(Arrays.asList(Arrays.asList("event-1"), Arrays.asList("largest")), keysByBatch(store));
+        assertNoBatchFileIsLargerThanABatch(store);
     }
 
     // expiry
