@@ -113,6 +113,7 @@ abstract class ComponentsImpl {
                     0L, // use default retry delay
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
+            boolean commitOnCallerThread = eventPersistence == EventPersistence.IMMEDIATE;
             return new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
@@ -127,7 +128,7 @@ abstract class ComponentsImpl {
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
                     capacity,
-                    eventPersistence == EventPersistence.IMMEDIATE,
+                    commitOnCallerThread,
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
