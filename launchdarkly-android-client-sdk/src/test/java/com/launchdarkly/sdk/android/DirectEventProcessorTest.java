@@ -2436,6 +2436,48 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlushIsToldOfABatchADeliveryNobodyWaitedOnDroppedAsUnreadable() throws Exception {
+        File directory = eventsDirectory.newFolder();
+        EventStore previousRun = new EventStore(directory, DEFAULT_CAPACITY, true, logging.logger);
+        assertTrue(previousRun.stage(serialized("damaged")));
+        EventStore.Batch damaged = closeOne(previousRun);
+        previousRun.close();
+        // Its name still counts it, so it is listed without being read; the damage is only found on sending.
+        File damagedFile = new File(directory, "ready-" + damaged.payloadId + "-" + damaged.eventCount);
+        try (FileOutputStream out = new FileOutputStream(damagedFile)) {
+            out.write("not an event log".getBytes(StandardCharsets.UTF_8));
+        }
+
+        EventStore store = new EventStore(directory, DEFAULT_CAPACITY, true, logging.logger);
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                // Going online delivers what the previous run left, with no caller waiting on it.
+                eventProcessor.setOffline(false);
+                long deadline = System.currentTimeMillis() + 5_000;
+                while (damagedFile.exists() && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(10);
+                }
+                assertFalse("the damaged batch was never delivered", damagedFile.exists());
+                logging.assertErrorLogged("this version cannot read");
+
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                eventProcessor.recordCustomEvent(CONTEXT, "later", LDValue.ofNull(), null);
+                assertTrue("the loss was reported twice", awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     public void aBatchThatCannotBeReadIsKeptAndDeliveredOnceItCanBe() throws Exception {
         AtomicBoolean failing = new AtomicBoolean(false);
         EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,

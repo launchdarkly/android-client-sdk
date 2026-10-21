@@ -666,6 +666,16 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
+     * Records a batch lost for good. The delivery that lost it fails, but a delivery nobody waits on - the
+     * periodic one, a {@code flush()}, the one going online starts - has no caller to tell, so the loss is
+     * also counted for the next {@link #flushAsync()} to hear about. A caller waiting on this delivery can
+     * then hear about it from the next one too.
+     */
+    private void reportBatchLost(EventStore.Batch batch) {
+        lostEvents.addAndGet(batch.eventCount);
+    }
+
+    /**
      * Records stored events discarded for being older than the maximum age.
      * <p>
      * Counted as dropped rather than lost: a flush is about the caller's events, and the ones discarded
@@ -1286,6 +1296,7 @@ final class DirectEventProcessor implements EventProcessor {
             // attempted, and the caller hears that this pass lost events.
             logger.error("Dropping {} stored event(s) this version cannot read", batch.eventCount);
             store.remove(batch);
+            reportBatchLost(batch);
             return BatchesOutcome.FAILED;
         } catch (IOException e) {
             // Kept: the file is still there, and a read that failed may not fail next time.
@@ -1311,7 +1322,11 @@ final class DirectEventProcessor implements EventProcessor {
                 // them. Anything else - a timeout, a 503, no network - leaves the batch where it is, to
                 // be tried again by the retry, the next flush or the next run of the application.
                 store.remove(batch);
-                return result.isSuccess() ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED;
+                if (result.isSuccess()) {
+                    return BatchesOutcome.DELIVERED;
+                }
+                reportBatchLost(batch);
+                return BatchesOutcome.FAILED;
             }
             return result == null ? BatchesOutcome.FAILED : BatchesOutcome.RETRYABLE;
         } catch (Exception e) {
