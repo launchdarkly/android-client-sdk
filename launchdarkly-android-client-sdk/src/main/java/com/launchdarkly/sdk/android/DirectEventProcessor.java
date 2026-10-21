@@ -344,7 +344,7 @@ final class DirectEventProcessor implements EventProcessor {
 
         // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem.
         submit(() -> {
-            store.recoverInterruptedLog();
+            store.preparePayloadsFromInterruptedLogs();
             reportDiscarded(store.discardExpired());
             if (store.pendingBatches().isEmpty()) {
                 return;

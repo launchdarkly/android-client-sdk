@@ -157,7 +157,7 @@ public class EventStoreMultiProcessTest {
         // The main process starts while the service process is still alive and still appending. Its
         // recovery must not take the log out from under it.
         EventStore main = storeFor();
-        main.recoverInterruptedLog();
+        main.preparePayloadsFromInterruptedLogs();
 
         assertEquals("the other process's log was taken away", 1, filesNamed(DiskEventLog.PREFIX).size());
         assertTrue("another process's events were claimed as recovered", main.pendingBatches().isEmpty());
@@ -180,13 +180,13 @@ public class EventStoreMultiProcessTest {
         try (RandomAccessFile owner = new RandomAccessFile(log, "rw");
              FileLock held = owner.getChannel().lock()) {
             EventStore main = storeFor();
-            main.recoverInterruptedLog();
+            main.preparePayloadsFromInterruptedLogs();
             assertTrue("a log a live process holds was recovered", main.pendingBatches().isEmpty());
             assertTrue(log.exists());
         }
 
         EventStore main = storeFor();
-        main.recoverInterruptedLog();
+        main.preparePayloadsFromInterruptedLogs();
         assertEquals(1, main.pendingBatches().size());
     }
 
@@ -199,7 +199,7 @@ public class EventStoreMultiProcessTest {
 
         // Not the process that wrote it: a service process may never run again.
         EventStore main = storeFor();
-        main.recoverInterruptedLog();
+        main.preparePayloadsFromInterruptedLogs();
 
         List<EventStore.Batch> recovered = main.pendingBatches();
         assertEquals(1, recovered.size());
@@ -221,7 +221,7 @@ public class EventStoreMultiProcessTest {
         processDies(service);
 
         EventStore secondRun = storeFor();
-        secondRun.recoverInterruptedLog();
+        secondRun.preparePayloadsFromInterruptedLogs();
 
         assertEquals(2, secondRun.pendingBatches().size());
         assertEquals(3, secondRun.getPendingEventCount());
@@ -240,7 +240,7 @@ public class EventStoreMultiProcessTest {
         EventStore secondRun = storeFor();
         secondRun.stage(event("this-run"));
         secondRun.commit();
-        secondRun.recoverInterruptedLog();
+        secondRun.preparePayloadsFromInterruptedLogs();
 
         List<EventStore.Batch> recovered = secondRun.pendingBatches();
         assertEquals(1, recovered.size());
@@ -277,7 +277,7 @@ public class EventStoreMultiProcessTest {
 
         EventStore withoutPersistence =
                 new EventStore(sharedDirectory(), CAPACITY, false, logger);
-        withoutPersistence.recoverInterruptedLog();
+        withoutPersistence.preparePayloadsFromInterruptedLogs();
         assertTrue("a store without persistence picked up a previous run's events",
                 withoutPersistence.pendingBatches().isEmpty());
         assertTrue(visibleKeys(withoutPersistence).isEmpty());
@@ -292,7 +292,7 @@ public class EventStoreMultiProcessTest {
 
         // Still there for the next run that has persistence turned on.
         EventStore persistentAgain = storeFor();
-        persistentAgain.recoverInterruptedLog();
+        persistentAgain.preparePayloadsFromInterruptedLogs();
         assertEquals(2, persistentAgain.pendingBatches().size());
     }
 
@@ -336,7 +336,7 @@ public class EventStoreMultiProcessTest {
         // Recovery runs when a store is constructed, before that process has recorded anything of its own,
         // which is the only time it is correct to go looking for a log to close.
         EventStore main = storeFor();
-        main.recoverInterruptedLog();
+        main.preparePayloadsFromInterruptedLogs();
         main.stage(event("main-1"));
         main.commit();
 
@@ -624,7 +624,7 @@ public class EventStoreMultiProcessTest {
 
         AtomicBoolean failing = new AtomicBoolean(true);
         EventStore secondRun = storeWithFailingReads(failing);
-        secondRun.recoverInterruptedLog();
+        secondRun.preparePayloadsFromInterruptedLogs();
         // Closed off uncounted for a listing to count, and not deleted.
         assertTrue(filesNamed(DiskEventLog.PREFIX).isEmpty());
         assertEquals(1, filesNamed("ready-").size());
@@ -853,7 +853,7 @@ public class EventStoreMultiProcessTest {
 
         // Delivered from memory this run, so the next must not find any of it again in the log.
         EventStore nextRun = storeFor();
-        nextRun.recoverInterruptedLog();
+        nextRun.preparePayloadsFromInterruptedLogs();
         assertEquals(0, nextRun.pendingBatches().size());
     }
 

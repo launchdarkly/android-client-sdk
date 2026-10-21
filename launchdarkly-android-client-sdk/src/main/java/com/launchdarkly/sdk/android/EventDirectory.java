@@ -551,7 +551,7 @@ class EventDirectory {
      *
      * @return what it closed off
      */
-    Tally recoverInterruptedLog() {
+    Tally preparePayloadsFromInterruptedLogs() {
         assert Thread.holdsLock(ioLock);
         File[] files = directory().listFiles();
         if (files == null) {
@@ -560,7 +560,7 @@ class EventDirectory {
         Tally recovered = Tally.NONE;
         for (File file : files) {
             if (file.getName().startsWith(DiskEventLog.PREFIX) && !DiskEventLog.isHeldByLiveProcess(file)) {
-                recovered = recovered.plus(recoverLog(file));
+                recovered = recovered.plus(preparePayloadFromInterruptedLog(file));
             }
         }
         if (recovered.events > 0) {
@@ -570,8 +570,8 @@ class EventDirectory {
         return recovered;
     }
 
-    /** Closes off one log no live process holds. Requires {@code ioLock}. */
-    private Tally recoverLog(File log) {
+    /** Closes off one log no live process holds into a batch to deliver. Requires {@code ioLock}. */
+    private Tally preparePayloadFromInterruptedLog(File log) {
         int events;
         long bytes;
         try {

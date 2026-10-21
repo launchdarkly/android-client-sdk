@@ -717,12 +717,12 @@ class EventStore implements Closeable {
      * The events in them were recorded by processes that are gone, so there is no one left to add to them.
      * A log a live process holds, this store's own included, is left alone.
      */
-    void recoverInterruptedLog() {
+    void preparePayloadsFromInterruptedLogs() {
         if (disk == null) {
             return;
         }
         synchronized (ioLock) {
-            countRecoveredHoldingIoLock(disk.recoverInterruptedLog());
+            countRecoveredHoldingIoLock(disk.preparePayloadsFromInterruptedLogs());
         }
     }
 
