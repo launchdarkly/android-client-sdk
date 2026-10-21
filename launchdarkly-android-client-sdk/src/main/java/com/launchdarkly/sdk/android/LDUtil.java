@@ -174,6 +174,29 @@ public class LDUtil {
         return urlSafeBase64Hash(JsonSerialization.serialize(context));
     }
 
+    /**
+     * A hash for a file or directory name. Unlike {@link #urlSafeBase64Hash(String)} it does not go
+     * through the Android framework's Base64, so it also runs in plain JVM tests, and it has no padding
+     * character.
+     *
+     * @param bytes how many bytes of the digest to render, so a caller can trade length for headroom
+     * @return the first {@code bytes} bytes of the input's SHA-256, in lowercase hex
+     */
+    static String hexDigest(String input, int bytes) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(Charset.forName("UTF-8")));
+            StringBuilder hex = new StringBuilder(bytes * 2);
+            for (int i = 0; i < bytes; i++) {
+                hex.append(Character.forDigit((hash[i] >> 4) & 0xf, 16));
+                hex.append(Character.forDigit(hash[i] & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e); // shouldn't be possible; SHA-256 is built in
+        }
+    }
+
     static String urlSafeBase64(LDContext context) {
         return Base64.encodeToString(JsonSerialization.serialize(context).getBytes(),
                 Base64.URL_SAFE + Base64.NO_WRAP);

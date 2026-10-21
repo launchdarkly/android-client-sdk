@@ -8,9 +8,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -788,32 +785,10 @@ class EventDirectory {
 
     /**
      * Names the directory for one environment, hashed so the mobile key itself is never a filename.
-     * <p>
-     * Deliberately not {@link LDUtil#urlSafeBase64Hash(String)}, which goes through the Android
-     * framework's Base64 and so is unavailable to plain JVM tests, and which pads with a character
-     * that has no business in a path.
+     * Not {@link LDUtil#urlSafeBase64Hash(String)}, for the reasons {@link LDUtil#hexDigest} gives.
      */
     private static String environmentDirectoryName(String mobileKey) {
         // Half a digest, which is far more than enough to keep two mobile keys apart.
-        return hexDigest(mobileKey, 16);
-    }
-
-    /**
-     * @param bytes how many bytes of the digest to render, so a caller can trade length for headroom
-     * @return the first {@code bytes} bytes of the input's SHA-256, in lowercase hex
-     */
-    static String hexDigest(String input, int bytes) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(bytes * 2);
-            for (int i = 0; i < bytes; i++) {
-                hex.append(Character.forDigit((hash[i] >> 4) & 0xf, 16));
-                hex.append(Character.forDigit(hash[i] & 0xf, 16));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e); // shouldn't be possible; SHA-256 is built in
-        }
+        return LDUtil.hexDigest(mobileKey, 16);
     }
 }
