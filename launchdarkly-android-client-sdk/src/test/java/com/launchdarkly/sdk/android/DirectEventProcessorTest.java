@@ -1238,6 +1238,48 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void aBatchAlreadyRemovedIsNotLeftOutOfTheCountWhenItsSendStarts() throws Exception {
+        // As when another process delivered it and a listing dropped it before this one got to it: leaving
+        // it out would take its events from the batches still counted, and admit that many more.
+        for (boolean persistEvents : new boolean[] { true, false }) {
+            EventStore store = new EventStore(eventsDirectory.newFolder(), 2, persistEvents,
+                    logging.logger);
+            assertTrue(store.stage(serialized("first")));
+            EventStore.Batch removed = closeOne(store);
+            assertTrue(store.stage(serialized("second")));
+            closeOne(store);
+            store.remove(removed);
+
+            store.startedSending(removed);
+            assertEquals(1, store.getPendingEventCount());
+            assertTrue(store.stage(serialized("third")));
+            assertFalse(store.stage(serialized("fourth")));
+
+            store.stoppedSending(removed);
+            assertEquals(2, store.getPendingEventCount());
+        }
+    }
+
+    @Test
+    public void aBatchAnotherProcessDeliveredIsNotLeftOutOfTheCountWhenItsSendStarts() throws Exception {
+        File directory = eventsDirectory.newFolder();
+        EventStore store = new EventStore(directory, 2, true, logging.logger);
+        assertTrue(store.stage(serialized("first")));
+        EventStore.Batch delivered = closeOne(store);
+        assertTrue(store.stage(serialized("second")));
+        closeOne(store);
+        EventStore other = new EventStore(directory, 2, true, logging.logger);
+        other.pendingBatches();
+        other.remove(delivered);
+        store.pendingBatches();
+
+        store.startedSending(delivered);
+        assertEquals(1, store.getPendingEventCount());
+        assertTrue(store.stage(serialized("third")));
+        assertFalse(store.stage(serialized("fourth")));
+    }
+
     /**
      * What the contract tests' "buffer is reset after flush" does: they have the payload as soon as it is
      * sent, and record the next event before the SDK has heard back.

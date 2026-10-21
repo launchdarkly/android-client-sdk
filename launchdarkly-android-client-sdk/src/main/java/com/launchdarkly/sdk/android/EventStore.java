@@ -105,8 +105,10 @@ class EventStore implements Closeable {
      */
     private int closedEvents;
     /**
-     * Closed batches whose request is out, by payload ID, and the events in them. Every one is also in
-     * {@link #closedEvents}, and leaves both in the same critical section.
+     * Closed batches whose request is out, by payload ID, and the events in them as {@link #closedEvents}
+     * counts them. Every one is also counted there: one is only added while it is counted, and leaves in the
+     * same critical section that stops counting it, so {@link #sendingEvents} can never exceed
+     * {@link #closedEvents}.
      */
     private final Map<String, EventDirectory.Tally> sendingBatches = new HashMap<>();
     private int sendingEvents;
@@ -247,7 +249,8 @@ class EventStore implements Closeable {
      * A batch being sent is left out so that a flush makes room as soon as it sends, as it did when events
      * were only held in memory; otherwise an event recorded while the request is out is refused for a batch
      * LaunchDarkly may already have. A send that fails puts the batch back, so a full store can briefly
-     * hold capacity plus that batch.
+     * hold capacity plus that batch: one at a time, since deliveries run one after another, and no more than
+     * {@link EventLogFormat#MAX_BATCH_SIZE}.
      *
      * @return serialized events counted against capacity: those recorded and not yet accepted by
      *   LaunchDarkly, whether staged in memory, on their way out of it, written to the open log, or sitting
@@ -264,10 +267,8 @@ class EventStore implements Closeable {
      * reader can miss one of them. Requires {@link #bufferLock}.
      */
     private int countedEventsHoldingBufferLock() {
-        // Clamped because a batch another process delivered can be marked as sending after a listing
-        // stopped counting it.
         return bufferedEventCount + inTransitEvents + committedEvents
-                + Math.max(0, closedEvents - sendingEvents) + reservedEvents;
+                + (closedEvents - sendingEvents) + reservedEvents;
     }
 
     /**
@@ -276,7 +277,7 @@ class EventStore implements Closeable {
      * Events reserved while being encoded have no bytes yet; they are counted when they are staged.
      */
     private long countedBytesHoldingBufferLock() {
-        return bufferData.size() + inTransitBytes + committedBytes + Math.max(0, closedBytes - sendingBytes);
+        return bufferData.size() + inTransitBytes + committedBytes + (closedBytes - sendingBytes);
     }
 
     /**
@@ -692,31 +693,46 @@ class EventStore implements Closeable {
     /**
      * Stops counting a batch against capacity while its request is out. Ended by {@link #remove} or
      * {@link #stoppedSending}.
+     * <p>
+     * Does nothing for a batch this store no longer counts - one {@link #remove} forgot, or a listing
+     * dropped because another process delivered it - since leaving it out would take its events from the
+     * batches still counted.
      */
     void startedSending(Batch batch) {
-        long bytes = bytes(batch.payloadId);
-        synchronized (bufferLock) {
-            if (!sendingBatches.containsKey(batch.payloadId)) {
-                sendingBatches.put(batch.payloadId, new EventDirectory.Tally(batch.eventCount, bytes));
-                sendingEvents += batch.eventCount;
-                sendingBytes += bytes;
-            }
+        if (disk == null) {
+            startedSendingHoldingIoLock(batch.payloadId);
+            return;
+        }
+        synchronized (ioLock) {
+            startedSendingHoldingIoLock(batch.payloadId);
         }
     }
 
-    /** The bytes of a closed batch, as far as this store has counted them. */
-    private long bytes(String payloadId) {
+    /**
+     * Requires {@code ioLock} where there is a disk, so that the batch cannot stop being counted between
+     * finding it counted and leaving it out.
+     */
+    private void startedSendingHoldingIoLock(String payloadId) {
         synchronized (heldLock) {
+            EventDirectory.Tally counted;
             HeldBatch held = inMemoryBatches.get(payloadId);
             if (held != null) {
-                return held.body.length;
+                counted = new EventDirectory.Tally(held.eventCount, held.body.length);
+            } else if (disk != null) {
+                counted = disk.counted(payloadId);
+            } else {
+                counted = null;
             }
-        }
-        if (disk == null) {
-            return 0;
-        }
-        synchronized (ioLock) {
-            return disk.bytes(payloadId);
+            if (counted == null) {
+                return;
+            }
+            synchronized (bufferLock) {
+                if (!sendingBatches.containsKey(payloadId)) {
+                    sendingBatches.put(payloadId, counted);
+                    sendingEvents += counted.events;
+                    sendingBytes += counted.bytes;
+                }
+            }
         }
     }
 

@@ -384,11 +384,14 @@ class EventDirectory {
         return bytes;
     }
 
-    /** The bytes in a batch, as far as this process has counted them. Requires {@code ioLock}. */
-    long bytes(String payloadId) {
+    /**
+     * What this process counts for a batch, or null if it counts nothing for it: one removed, or dropped by
+     * a listing it was no longer in. Requires {@code ioLock}.
+     */
+    Tally counted(String payloadId) {
         assert Thread.holdsLock(ioLock);
         Stored known = stored.get(payloadId);
-        return known == null ? 0 : known.bytes;
+        return known == null ? null : known.tally();
     }
 
     /**
