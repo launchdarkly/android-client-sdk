@@ -589,9 +589,14 @@ class EventDirectory {
             // Deleting it would lose events that may be intact. Named without a count, which is what a batch
             // whose events have never been counted is, it is read and counted by whichever listing first
             // manages to.
-            logger.warn("Could not read events from a previous run, will try again later: {}",
-                    LogValues.exceptionSummary(e));
-            log.renameTo(new File(directory(), BATCH_PREFIX + UUID.randomUUID()));
+            if (log.renameTo(new File(directory(), BATCH_PREFIX + UUID.randomUUID()))) {
+                logger.warn("Could not read events from a previous run, will try again later: {}",
+                        LogValues.exceptionSummary(e));
+            } else {
+                // Left where it is, unlocked and appended to by no one, for the next launch to recover.
+                logger.warn("Could not read events from a previous run, will try again at the next launch: {}",
+                        LogValues.exceptionSummary(e));
+            }
             return Tally.NONE;
         }
         if (events <= 0) {
@@ -603,6 +608,8 @@ class EventDirectory {
         File file = newBatchFile(payloadId, events);
         if (!log.renameTo(file)) {
             // Left where it is for a later run: no one appends to it, so nothing is lost by waiting.
+            logger.warn("Could not prepare {} event(s) from a previous run, will try again at the next launch",
+                    events);
             return Tally.NONE;
         }
         Stored recovered = new Stored(file, events, bytes);
