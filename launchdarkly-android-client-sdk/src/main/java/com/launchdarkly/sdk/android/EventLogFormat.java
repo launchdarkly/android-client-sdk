@@ -1,5 +1,7 @@
 package com.launchdarkly.sdk.android;
 
+import androidx.annotation.VisibleForTesting;
+
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -115,56 +117,72 @@ final class EventLogFormat {
     }
 
     /**
-     * Assembles the JSON array LaunchDarkly expects out of the frames, without parsing the events:
-     * they were serialized on the way in and are shipped exactly as they were recorded.
-     *
-     * @return the request body, or null if the log is unreadable or holds no events
+     * A JSON array of events at the start of an array that may run on past it, so that it can be sent
+     * from where it was assembled rather than copied out first.
      */
-    static byte[] assembleBody(byte[] log) {
-        return assembleBody(log, Integer.MAX_VALUE);
+    static final class Payload {
+        final byte[] bytes;
+        final int length;
+
+        Payload(byte[] bytes, int length) {
+            this.bytes = bytes;
+            this.length = length;
+        }
+
+        byte[] toByteArray() {
+            return Arrays.copyOf(bytes, length);
+        }
     }
 
     /**
-     * Assembles the request body out of the first {@code maxEvents} events in the log, and leaves out any
-     * after them.
+     * Turns the log into the JSON array LaunchDarkly expects, in the log's own array, without parsing
+     * the events: they were serialized on the way in and are shipped exactly as they were recorded.
+     * <p>
+     * The array always has room: the file header becomes the '[', and each frame header the ',' or ']'
+     * after its payload. Each payload moves towards the start only once its frame has been checked, and
+     * never past where that frame began, so no frame still to be checked is written over.
      *
-     * @return the request body, or null if the log is unreadable or holds no events
+     * @return the payload of the first {@code maxEvents} events, leaving out any after them; or null if the
+     *   log is unreadable or holds no events, in which case the log is left as it was
      */
-    static byte[] assembleBody(byte[] log, int maxEvents) {
+    static Payload assemblePayloadInPlace(byte[] log, int maxEvents) {
         Frames frames = new Frames(log);
         if (!frames.isReadable()) {
             return null;
         }
-        // Where each payload starts and how long it is, found first so the body is allocated once at its
-        // exact size rather than grown and copied out.
-        int[] payloads = new int[64];
         int events = 0;
-        // The '[', and then each payload with the ',' or ']' after it.
-        int size = 1;
+        int cursor = 1;
         while (events < maxEvents && frames.next()) {
             if (frames.type() != EVENT_FRAME) {
                 continue;
             }
-            if (2 * events + 1 >= payloads.length) {
-                payloads = Arrays.copyOf(payloads, 2 * payloads.length);
-            }
-            payloads[2 * events] = frames.start();
-            payloads[2 * events + 1] = frames.length();
-            size += frames.length() + 1;
+            System.arraycopy(log, frames.start(), log, cursor, frames.length());
+            cursor += frames.length();
+            log[cursor++] = ',';
             events++;
         }
         if (events == 0) {
             return null;
         }
-        byte[] body = new byte[size];
-        body[0] = '[';
-        int cursor = 1;
-        for (int i = 0; i < events; i++) {
-            System.arraycopy(log, payloads[2 * i], body, cursor, payloads[2 * i + 1]);
-            cursor += payloads[2 * i + 1];
-            body[cursor++] = (byte) (i == events - 1 ? ']' : ',');
-        }
-        return body;
+        log[0] = '[';
+        log[cursor - 1] = ']';
+        return new Payload(log, cursor);
+    }
+
+    /**
+     * {@link #assemblePayloadInPlace} into an array of its own, leaving the log as it was.
+     *
+     * @return the payload, or null if the log is unreadable or holds no events
+     */
+    @VisibleForTesting
+    static byte[] assembleBody(byte[] log) {
+        return assembleBody(log, Integer.MAX_VALUE);
+    }
+
+    @VisibleForTesting
+    static byte[] assembleBody(byte[] log, int maxEvents) {
+        Payload payload = assemblePayloadInPlace(log.clone(), maxEvents);
+        return payload == null ? null : payload.toByteArray();
     }
 
     /**

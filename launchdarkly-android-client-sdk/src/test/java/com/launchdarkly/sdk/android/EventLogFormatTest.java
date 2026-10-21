@@ -3,6 +3,8 @@ package com.launchdarkly.sdk.android;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDValue;
@@ -110,6 +112,27 @@ public class EventLogFormatTest {
                 EventLogFormat.assembleBody(log("event-0", "event-1")));
         assertArrayEquals(("[" + new String(event("only"), StandardCharsets.UTF_8) + "]")
                 .getBytes(StandardCharsets.UTF_8), EventLogFormat.assembleBody(log("only")));
+    }
+
+    @Test
+    public void assemblesThePayloadAtTheStartOfTheLogsOwnArray() {
+        byte[] log = log("event-0", "event-1", "event-2");
+        byte[] expected = EventLogFormat.assembleBody(log);
+
+        EventLogFormat.Payload payload = EventLogFormat.assemblePayloadInPlace(log, Integer.MAX_VALUE);
+
+        assertSame(log, payload.bytes);
+        assertArrayEquals(expected, Arrays.copyOf(log, payload.length));
+    }
+
+    @Test
+    public void leavesALogWithNoEventsAsItWasWhenAssemblingInPlace() {
+        byte[] log = log("damaged");
+        log[EventLogFormat.FILE_HEADER_SIZE + EventLogFormat.FRAME_HEADER_SIZE] ^= 0x01;
+        byte[] before = log.clone();
+
+        assertNull(EventLogFormat.assemblePayloadInPlace(log, Integer.MAX_VALUE));
+        assertArrayEquals(before, log);
     }
 
     @Test

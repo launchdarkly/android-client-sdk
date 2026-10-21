@@ -223,6 +223,21 @@ public class EventStoreBoundsTest {
                 persistEvents, logger);
     }
 
+    @Test
+    public void assemblesAStoredBatchInTheArrayItWasReadIntoRatherThanASecondOne() throws IOException {
+        EventStore store = environmentStore(MOBILE_KEY);
+        stageQuarterBatches(store, 1, 3);
+        EventStore.Batch batch = store.closeBatch().get(0);
+        long fileSize = onlyBatchFile(store).length();
+
+        EventLogFormat.Payload payload = store.payload(batch);
+
+        assertEquals(fileSize, payload.bytes.length);
+        assertTrue(payload.length < payload.bytes.length);
+        assertEquals(3, LDValue.parse(new String(payload.bytes, 0, payload.length, StandardCharsets.UTF_8))
+                .size());
+    }
+
     private static void stageQuarterBatches(EventStore store, int from, int to) {
         for (int i = from; i <= to; i++) {
             assertTrue(store.stage(event(QUARTER_BATCH, "event-" + i)));

@@ -59,14 +59,15 @@ final class AnalyticsEventSender implements Closeable {
     /**
      * Posts a batch once. The retry is the caller's, so that the wait before it does not hold a thread.
      *
-     * @param body the JSON request body
+     * @param payload the JSON request body, sent from the array it is in rather than copied out of it
      * @param eventCount how many events the body holds, for logging
      * @param payloadId identifies this delivery, the same on every attempt at it
      * @param eventsBaseUri the events service
      * @return whether the events arrived, whether the SDK must stop, and the service's clock; neither
      *   set means the failure may pass and the batch is worth trying again
      */
-    EventSender.Result sendBatch(byte[] body, int eventCount, String payloadId, URI eventsBaseUri) {
+    EventSender.Result sendBatch(EventLogFormat.Payload payload, int eventCount, String payloadId,
+                                 URI eventsBaseUri) {
         URI uri = HttpHelpers.concatenateUriPath(eventsBaseUri,
                 StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH);
         Request request = new Request.Builder()
@@ -75,7 +76,7 @@ final class AnalyticsEventSender implements Closeable {
                 .addHeader("Content-Type", "application/json")
                 .addHeader(EVENT_SCHEMA_HEADER, EVENT_SCHEMA_VERSION)
                 .addHeader(PAYLOAD_ID_HEADER, payloadId)
-                .post(RequestBody.create(body, JSON))
+                .post(RequestBody.create(payload.bytes, JSON, 0, payload.length))
                 .build();
 
         try (Response response = client.newCall(request).execute()) {

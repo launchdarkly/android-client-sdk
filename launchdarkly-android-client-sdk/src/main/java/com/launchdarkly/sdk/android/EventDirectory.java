@@ -414,12 +414,13 @@ class EventDirectory {
     /**
      * Requires {@code ioLock}.
      *
-     * @return the JSON request body for a batch, or null if it is gone or holds no events
+     * @return the JSON payload for a batch, assembled in the array the file was read into; or null if it is
+     *   gone or holds no events
      * @throws EventStore.UnreadableBatchException if the batch is there but holds nothing this version can
      *   send
      * @throws IOException if the batch is there but could not be read this time
      */
-    byte[] body(String payloadId, int events) throws IOException {
+    EventLogFormat.Payload payload(String payloadId, int events) throws IOException {
         assert Thread.holdsLock(ioLock);
         byte[] log = readFile(batchFile(payloadId, events));
         if (log == null) {
@@ -428,13 +429,14 @@ class EventDirectory {
         // No more than the batch was closed holding. A write that failed and could not be truncated
         // leaves whole frames after them, whose events are delivered from memory instead, and would
         // otherwise be sent twice.
-        byte[] body = EventLogFormat.assembleBody(log, events > 0 ? events : Integer.MAX_VALUE);
+        EventLogFormat.Payload payload =
+                EventLogFormat.assemblePayloadInPlace(log, events > 0 ? events : Integer.MAX_VALUE);
         // A log this version reads that holds no events has nothing to lose, unless its first frame is
-        // damaged.
-        if (body == null && (EventLogFormat.eventCount(log) != 0 || EventLogFormat.isDamaged(log))) {
+        // damaged. Where there is no payload the log is as it was read.
+        if (payload == null && (EventLogFormat.eventCount(log) != 0 || EventLogFormat.isDamaged(log))) {
             throw new EventStore.UnreadableBatchException(payloadId);
         }
-        return body;
+        return payload;
     }
 
     /**

@@ -518,18 +518,19 @@ class EventStore implements Closeable {
                 int end = EventLogFormat.endOfFramesFitting(frames, held,
                         EventLogFormat.MAX_BATCH_SIZE - EventLogFormat.FILE_HEADER_SIZE);
                 int batchEvents = EventLogFormat.frameCount(frames, held, end);
-                byte[] body = EventLogFormat.assembleBody(EventLogFormat.withFileHeader(frames, held, end));
-                if (body == null) {
+                EventLogFormat.Payload payload = EventLogFormat.assemblePayloadInPlace(
+                        EventLogFormat.withFileHeader(frames, held, end), Integer.MAX_VALUE);
+                if (payload == null) {
                     break;
                 }
                 String payloadId = UUID.randomUUID().toString();
                 synchronized (heldLock) {
-                    inMemoryBatches.put(payloadId, new HeldBatch(body, batchEvents));
+                    inMemoryBatches.put(payloadId, new HeldBatch(payload, batchEvents));
                     synchronized (bufferLock) {
                         inTransitEvents -= batchEvents;
                         inTransitBytes -= end - held;
                         closedEvents += batchEvents;
-                        closedBytes += body.length;
+                        closedBytes += payload.length;
                     }
                 }
                 closed.add(new Batch(payloadId, batchEvents));
@@ -549,11 +550,11 @@ class EventStore implements Closeable {
 
     /** A batch the filesystem would not take, kept where the SDK used to keep all of them. */
     private static final class HeldBatch {
-        final byte[] body;
+        final EventLogFormat.Payload payload;
         final int eventCount;
 
-        HeldBatch(byte[] body, int eventCount) {
-            this.body = body;
+        HeldBatch(EventLogFormat.Payload payload, int eventCount) {
+            this.payload = payload;
             this.eventCount = eventCount;
         }
     }
@@ -591,7 +592,7 @@ class EventStore implements Closeable {
             long totalBytes = storedBytes;
             for (Map.Entry<String, HeldBatch> held : inMemoryBatches.entrySet()) {
                 batches.add(new Batch(held.getKey(), held.getValue().eventCount));
-                totalBytes += held.getValue().body.length;
+                totalBytes += held.getValue().payload.length;
             }
             int total = 0;
             Set<String> listed = new HashSet<>();
@@ -624,17 +625,17 @@ class EventStore implements Closeable {
     }
 
     /**
-     * @return the JSON request body for a batch, or null if it is gone or holds no events, neither of which
-     *   loses anything
+     * @return the JSON payload for a batch, or null if it is gone or holds no events, neither of which
+     *   loses anything. A batch on the disk is read into one array and assembled there, so it is held once.
      * @throws UnreadableBatchException if the batch is there but holds nothing this version can send
      * @throws IOException if the batch is there but could not be read this time, which a later attempt may
      *   manage
      */
-    byte[] body(Batch batch) throws IOException {
+    EventLogFormat.Payload payload(Batch batch) throws IOException {
         synchronized (heldLock) {
             HeldBatch held = inMemoryBatches.get(batch.payloadId);
             if (held != null) {
-                return held.body;
+                return held.payload;
             }
         }
 
@@ -645,8 +646,15 @@ class EventStore implements Closeable {
         }
 
         synchronized (ioLock) {
-            return disk.body(batch.payloadId, batch.eventCount);
+            return disk.payload(batch.payloadId, batch.eventCount);
         }
+    }
+
+    /** {@link #payload} in an array of its own. */
+    @VisibleForTesting
+    byte[] body(Batch batch) throws IOException {
+        EventLogFormat.Payload payload = payload(batch);
+        return payload == null ? null : payload.toByteArray();
     }
 
     /**
@@ -660,7 +668,7 @@ class EventStore implements Closeable {
             if (held != null) {
                 synchronized (bufferLock) {
                     closedEvents -= held.eventCount;
-                    closedBytes -= held.body.length;
+                    closedBytes -= held.payload.length;
                     forgetSendingHoldingBufferLock(batch.payloadId);
                 }
                 return;
@@ -710,7 +718,7 @@ class EventStore implements Closeable {
             EventDirectory.Tally counted;
             HeldBatch held = inMemoryBatches.get(payloadId);
             if (held != null) {
-                counted = new EventDirectory.Tally(held.eventCount, held.body.length);
+                counted = new EventDirectory.Tally(held.eventCount, held.payload.length);
             } else if (disk != null) {
                 counted = disk.counted(payloadId);
             } else {

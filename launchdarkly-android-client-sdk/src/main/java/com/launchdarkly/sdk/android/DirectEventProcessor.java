@@ -1288,9 +1288,9 @@ final class DirectEventProcessor implements EventProcessor {
      *   it never can; RETRYABLE if it failed in a way that may pass
      */
     private BatchesOutcome deliver(EventStore.Batch batch) {
-        byte[] body;
+        EventLogFormat.Payload payload;
         try {
-            body = store.body(batch);
+            payload = store.payload(batch);
         } catch (EventStore.UnreadableBatchException e) {
             // Lost like a refused batch: nothing will ever send it, so it is removed, the rest are still
             // attempted, and the caller hears that this pass lost events.
@@ -1303,7 +1303,7 @@ final class DirectEventProcessor implements EventProcessor {
             logger.warn("Could not read stored events: {}", LogValues.exceptionSummary(e));
             return BatchesOutcome.RETRYABLE;
         }
-        if (body == null) {
+        if (payload == null) {
             // Already delivered by another process of this application, or holding no events. Either way
             // nothing is lost and there is nothing to keep.
             store.remove(batch);
@@ -1314,7 +1314,7 @@ final class DirectEventProcessor implements EventProcessor {
         }
         store.startedSending(batch);
         try {
-            EventSender.Result result = analyticsEventSender.sendBatch(body, batch.eventCount,
+            EventSender.Result result = analyticsEventSender.sendBatch(payload, batch.eventCount,
                     batch.payloadId, eventsUri);
             handleResponse(result);
             if (result != null && (result.isSuccess() || result.isMustShutDown())) {
