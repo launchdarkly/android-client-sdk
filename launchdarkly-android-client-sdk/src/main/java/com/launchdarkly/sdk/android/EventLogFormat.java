@@ -87,9 +87,14 @@ final class EventLogFormat {
 
     /** Frames on their own, as a log: only for the in-memory fallback, which has no file. */
     static byte[] withFileHeader(byte[] frames) {
-        byte[] log = new byte[FILE_HEADER_SIZE + frames.length];
+        return withFileHeader(frames, 0, frames.length);
+    }
+
+    /** The frames from {@code start} to {@code end}, as a log of their own. */
+    static byte[] withFileHeader(byte[] frames, int start, int end) {
+        byte[] log = new byte[FILE_HEADER_SIZE + end - start];
         System.arraycopy(fileHeader(), 0, log, 0, FILE_HEADER_SIZE);
-        System.arraycopy(frames, 0, log, FILE_HEADER_SIZE, frames.length);
+        System.arraycopy(frames, start, log, FILE_HEADER_SIZE, end - start);
         return log;
     }
 
@@ -131,26 +136,36 @@ final class EventLogFormat {
         if (!frames.isReadable()) {
             return null;
         }
-        ByteArrayOutputStream body = new ByteArrayOutputStream(log.length + 2);
-        body.write('[');
-        boolean isFirst = true;
+        // Where each payload starts and how long it is, found first so the body is allocated once at its
+        // exact size rather than grown and copied out.
+        int[] payloads = new int[64];
         int events = 0;
+        // The '[', and then each payload with the ',' or ']' after it.
+        int size = 1;
         while (events < maxEvents && frames.next()) {
             if (frames.type() != EVENT_FRAME) {
                 continue;
             }
-            events++;
-            if (!isFirst) {
-                body.write(',');
+            if (2 * events + 1 >= payloads.length) {
+                payloads = Arrays.copyOf(payloads, 2 * payloads.length);
             }
-            body.write(log, frames.start(), frames.length());
-            isFirst = false;
+            payloads[2 * events] = frames.start();
+            payloads[2 * events + 1] = frames.length();
+            size += frames.length() + 1;
+            events++;
         }
-        if (isFirst) {
+        if (events == 0) {
             return null;
         }
-        body.write(']');
-        return body.toByteArray();
+        byte[] body = new byte[size];
+        body[0] = '[';
+        int cursor = 1;
+        for (int i = 0; i < events; i++) {
+            System.arraycopy(log, payloads[2 * i], body, cursor, payloads[2 * i + 1]);
+            cursor += payloads[2 * i + 1];
+            body[cursor++] = (byte) (i == events - 1 ? ']' : ',');
+        }
+        return body;
     }
 
     /**

@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -509,20 +510,33 @@ class EventDirectory {
      *   gets, which is why existence is checked rather than the exception's type.
      */
     private byte[] readFile(File file) throws IOException {
-        ByteArrayOutputStream contents = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
         try (InputStream in = reader.openForReading(file)) {
-            int read;
-            while ((read = in.read(chunk)) > 0) {
-                contents.write(chunk, 0, read);
+            // Read into an array of the file's size, so a batch is held once rather than in a growing
+            // buffer and a copy of it. Only a log still being appended to can turn out longer.
+            byte[] contents = new byte[(int) Math.min(file.length(), Integer.MAX_VALUE - 8)];
+            int filled = 0;
+            while (true) {
+                if (filled == contents.length) {
+                    int next = in.read();
+                    if (next < 0) {
+                        break;
+                    }
+                    contents = Arrays.copyOf(contents, Math.max(2 * contents.length, 8192));
+                    contents[filled++] = (byte) next;
+                }
+                int read = in.read(contents, filled, contents.length - filled);
+                if (read < 0) {
+                    break;
+                }
+                filled += read;
             }
+            return filled == contents.length ? contents : Arrays.copyOf(contents, filled);
         } catch (IOException e) {
             if (!file.exists()) {
                 return null;
             }
             throw e;
         }
-        return contents.toByteArray();
     }
 
     /** For inspecting the store, where a file that cannot be read is simply left out. */

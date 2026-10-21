@@ -524,8 +524,7 @@ class EventStore implements Closeable {
                 int end = EventLogFormat.endOfFramesFitting(frames, held,
                         EventLogFormat.MAX_BATCH_SIZE - EventLogFormat.FILE_HEADER_SIZE);
                 int batchEvents = EventLogFormat.frameCount(frames, held, end);
-                byte[] body = EventLogFormat.assembleBody(
-                        EventLogFormat.withFileHeader(Arrays.copyOfRange(frames, held, end)));
+                byte[] body = EventLogFormat.assembleBody(EventLogFormat.withFileHeader(frames, held, end));
                 if (body == null) {
                     break;
                 }

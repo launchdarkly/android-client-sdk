@@ -102,6 +102,17 @@ public class EventLogFormatTest {
     }
 
     @Test
+    public void assemblesTheEventsExactlyAsTheyWereRecordedIntoOneArray() {
+        String expected = "[" + new String(event("event-0"), StandardCharsets.UTF_8) + ","
+                + new String(event("event-1"), StandardCharsets.UTF_8) + "]";
+
+        assertArrayEquals(expected.getBytes(StandardCharsets.UTF_8),
+                EventLogFormat.assembleBody(log("event-0", "event-1")));
+        assertArrayEquals(("[" + new String(event("only"), StandardCharsets.UTF_8) + "]")
+                .getBytes(StandardCharsets.UTF_8), EventLogFormat.assembleBody(log("only")));
+    }
+
+    @Test
     public void assemblesNoMoreEventsThanItIsAskedFor() {
         byte[] log = log("event-0", "event-1", "event-2");
 
