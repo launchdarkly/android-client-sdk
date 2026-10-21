@@ -564,7 +564,7 @@ class EventDirectory {
             }
         }
         if (recovered.events > 0) {
-            logger.info("Recovered {} event(s) that a previous run of this application did not deliver",
+            logger.debug("Prepared {} event(s) from a previous run of this application for delivery",
                     recovered.events);
         }
         return recovered;
