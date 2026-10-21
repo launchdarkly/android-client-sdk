@@ -16,8 +16,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * The frame checksum: a frame the storage changed after it was written ends the walk, as a torn tail does,
- * and a log written before frames carried one is still read.
+ * The frame checksum: a frame the storage changed after it was written ends the walk, as a torn tail does.
  */
 public class EventLogFormatTest {
     private static byte[] event(String key) {
@@ -113,30 +112,9 @@ public class EventLogFormatTest {
     }
 
     @Test
-    public void stillReadsALogWrittenBeforeFramesCarriedAChecksum() {
-        ByteArrayOutputStream log = new ByteArrayOutputStream();
-        log.write(EventLogFormat.MAGIC, 0, EventLogFormat.MAGIC.length);
-        log.write(0);
-        log.write(EventLogFormat.VERSION_WITHOUT_CHECKSUM);
-        for (String key : Arrays.asList("first", "second")) {
-            byte[] payload = event(key);
-            log.write(0);
-            log.write(EventLogFormat.EVENT_FRAME);
-            log.write(0);
-            log.write(0);
-            log.write(0);
-            log.write(payload.length);
-            log.write(payload, 0, payload.length);
-        }
-
-        assertEquals(Arrays.asList("first", "second"), keys(log.toByteArray()));
-        assertFalse(EventLogFormat.isDamaged(log.toByteArray()));
-    }
-
-    @Test
     public void refusesAVersionItDoesNotKnow() {
         byte[] log = log("event-0");
-        log[5] = 3;
+        log[5] = 2;
 
         assertEquals(-1, EventLogFormat.eventCount(log));
         assertFalse(EventLogFormat.isDamaged(log));

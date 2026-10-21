@@ -28,13 +28,10 @@ import java.util.zip.CRC32;
  */
 final class EventLogFormat {
     /** Bump this whenever the framing or the meaning of a frame changes. */
-    static final int VERSION = 2;
-    /** The version before frames carried a checksum, which this one still reads. */
-    static final int VERSION_WITHOUT_CHECKSUM = 1;
+    static final int VERSION = 1;
     static final byte[] MAGIC = "LDEV".getBytes(StandardCharsets.US_ASCII);
     static final int FILE_HEADER_SIZE = 6;
     static final int FRAME_HEADER_SIZE = 10;
-    static final int FRAME_HEADER_SIZE_WITHOUT_CHECKSUM = 6;
     /** The only frame type written today; a reader skips a frame whose type it does not know. */
     static final int EVENT_FRAME = 1;
     /** A ceiling on a single frame, so a corrupt size cannot make recovery allocate wildly. */
@@ -168,8 +165,7 @@ final class EventLogFormat {
      */
     static final class Frames {
         private final byte[] log;
-        private final int version;
-        private final int headerSize;
+        private final boolean readable;
         private final CRC32 checksum = new CRC32();
         private int cursor = FILE_HEADER_SIZE;
         private boolean stopped;
@@ -179,14 +175,12 @@ final class EventLogFormat {
 
         Frames(byte[] log) {
             this.log = log;
-            this.version = versionOf(log);
-            this.headerSize = version == VERSION_WITHOUT_CHECKSUM ? FRAME_HEADER_SIZE_WITHOUT_CHECKSUM
-                    : FRAME_HEADER_SIZE;
+            this.readable = isReadable(log);
         }
 
         /** Whether this is a log this version reads at all. */
         boolean isReadable() {
-            return version != -1;
+            return readable;
         }
 
         /**
@@ -199,24 +193,22 @@ final class EventLogFormat {
 
         /** Moves to the next whole frame, if there is one. */
         boolean next() {
-            if (!isReadable() || stopped || cursor + headerSize > log.length) {
+            if (!readable || stopped || cursor + FRAME_HEADER_SIZE > log.length) {
                 return false;
             }
             int frameType = readUInt16(log, cursor);
             int frameLength = readInt32(log, cursor + 2);
-            int frameStart = cursor + headerSize;
+            int frameStart = cursor + FRAME_HEADER_SIZE;
             if (frameLength <= 0 || frameLength > MAX_FRAME_SIZE || frameStart + frameLength > log.length) {
                 stopped = true;
                 return false;
             }
-            if (version == VERSION) {
-                checksum.reset();
-                checksum.update(log, cursor, 6);
-                checksum.update(log, frameStart, frameLength);
-                if ((int) checksum.getValue() != readInt32(log, cursor + 6)) {
-                    stopped = true;
-                    return false;
-                }
+            checksum.reset();
+            checksum.update(log, cursor, 6);
+            checksum.update(log, frameStart, frameLength);
+            if ((int) checksum.getValue() != readInt32(log, cursor + 6)) {
+                stopped = true;
+                return false;
             }
             type = frameType;
             start = frameStart;
@@ -238,22 +230,20 @@ final class EventLogFormat {
             return length;
         }
 
-        /** The log's format version, or -1 if it is not a log this version reads. */
-        private static int versionOf(byte[] log) {
+        private static boolean isReadable(byte[] log) {
             if (log == null || log.length < FILE_HEADER_SIZE) {
-                return -1;
+                return false;
             }
             for (int i = 0; i < MAGIC.length; i++) {
                 if (log[i] != MAGIC[i]) {
-                    return -1;
+                    return false;
                 }
             }
-            int version = readUInt16(log, MAGIC.length);
-            return version == VERSION || version == VERSION_WITHOUT_CHECKSUM ? version : -1;
+            return readUInt16(log, MAGIC.length) == VERSION;
         }
     }
 
-    static int readUInt16(byte[] bytes, int offset) {
+    private static int readUInt16(byte[] bytes, int offset) {
         return ((bytes[offset] & 0xff) << 8) | (bytes[offset + 1] & 0xff);
     }
 
