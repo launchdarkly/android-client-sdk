@@ -295,6 +295,21 @@ class EventStore implements Closeable {
     }
 
     /**
+     * {@link #getPendingEventCount} and {@link #hasRoomForEventBytes} in one acquisition of the lock, for the
+     * check every recorded event makes, where the lock is contended by the commit staging events.
+     *
+     * @param heldElsewhere events the caller holds that the store does not count yet
+     * @param capacity the most events to hold, counting {@code heldElsewhere}
+     * @return whether one more full event can be admitted, by count and by bytes
+     */
+    boolean admitsEvent(int heldElsewhere, int capacity) {
+        synchronized (bufferLock) {
+            return heldElsewhere + countedEventsHoldingBufferLock() < capacity
+                    && (disk == null || countedBytesHoldingBufferLock() < eventByteCapacity);
+        }
+    }
+
+    /**
      * Counts events against capacity before they are staged, for a caller that has taken them from
      * somewhere capacity was already counting them and will encode them before staging.
      * <p>

@@ -104,6 +104,19 @@ public class EventStoreBoundsTest {
     }
 
     @Test
+    public void admitsAnEventOnlyWhileThereIsRoomByCountAndByBytes() {
+        EventStore store = boundedStore(true);
+        stageFrames(store, 7);
+
+        assertTrue(store.admitsEvent(0, CAPACITY));
+        assertTrue(store.admitsEvent(CAPACITY - 8, CAPACITY));
+        assertFalse(store.admitsEvent(CAPACITY - 7, CAPACITY));
+
+        stageFrames(store, 1);
+        assertFalse(store.admitsEvent(0, CAPACITY));
+    }
+
+    @Test
     public void takesSummariesIntoWhatItHoldsBackAndRefusesThemPastTheByteCapacity() {
         EventStore store = boundedStore(true);
         stageFrames(store, 8);

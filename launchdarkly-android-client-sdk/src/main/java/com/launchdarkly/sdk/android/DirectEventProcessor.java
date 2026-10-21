@@ -545,7 +545,9 @@ final class DirectEventProcessor implements EventProcessor {
 
     /** Queues a commit unless one is already queued, so a run of recordings asks for one rather than many. */
     private void scheduleCommit() {
-        if (commitScheduled.compareAndSet(false, true)) {
+        // Read before the compare-and-set, which takes the line for writing even when it fails, and fails for
+        // every deferred track recorded while a commit is already queued.
+        if (!commitScheduled.get() && commitScheduled.compareAndSet(false, true)) {
             try {
                 commitExecutor.execute(guarded(this::runScheduledCommit));
             } catch (RuntimeException e) { // shut down by close(), whose own commit takes these events
@@ -710,14 +712,17 @@ final class DirectEventProcessor implements EventProcessor {
         }
         // The bytes are checked here too, before the event is encoded, so that one there is no room for
         // costs nothing; whether it fits is decided when it is staged.
-        if (pending.size() + store.getPendingEventCount() >= capacity || !store.hasRoomForEventBytes()) {
+        if (!store.admitsEvent(pending.size(), capacity)) {
             if (capacityExceeded.compareAndSet(false, true)) {
                 logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
             }
             droppedEvents.incrementAndGet();
             return;
         }
-        capacityExceeded.set(false);
+        // Read before written: a write on every event would contend for the line with nothing to change.
+        if (capacityExceeded.get()) {
+            capacityExceeded.set(false);
+        }
         pending.add(event);
     }
 
