@@ -356,7 +356,7 @@ class EventDirectory {
                 if (events < 0) {
                     // Written by a version whose format this one does not read, or damaged beyond what the
                     // torn-tail recovery tolerates. Either way it can never be delivered.
-                    deleteQuietly(file);
+                    tryDelete(file);
                     continue;
                 }
             }
@@ -404,7 +404,7 @@ class EventDirectory {
         if (!deliveredButUndeleted.contains(payloadId)) {
             return false;
         }
-        deleteQuietly(file);
+        tryDelete(file);
         if (!file.exists()) {
             deliveredButUndeleted.remove(payloadId);
         }
@@ -446,7 +446,7 @@ class EventDirectory {
     Tally remove(String payloadId, int events) {
         assert Thread.holdsLock(ioLock);
         File file = batchFile(payloadId, events);
-        deleteQuietly(file);
+        tryDelete(file);
         if (file.exists()) {
             // Its events stop counting all the same: LaunchDarkly has them, and holding capacity for a file this
             // process may never be allowed to delete would cost the session events it could still have recorded.
@@ -551,7 +551,7 @@ class EventDirectory {
         }
     }
 
-    private void deleteQuietly(File file) {
+    private void tryDelete(File file) {
         if (file.exists() && !file.delete()) {
             logger.debug("Could not delete {}", file);
         }
@@ -618,7 +618,7 @@ class EventDirectory {
         }
         if (events <= 0) {
             // Holds nothing, or nothing this version reads.
-            deleteQuietly(log);
+            tryDelete(log);
             return Tally.NONE;
         }
         String payloadId = UUID.randomUUID().toString();
