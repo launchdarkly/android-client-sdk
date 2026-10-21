@@ -35,8 +35,11 @@ import java.util.UUID;
  * to be ordered against the store's.
  */
 final class DiskEventLog {
-    /** Names a log its owner appends to; the rest of the name is the UUID it was opened under. */
-    static final String PREFIX = "open-";
+    /**
+     * Names a log whose events are not yet in a batch: one its owner is appending to, or one left by an owner
+     * that is gone, for recovery to close off. The rest of the name is the UUID it was opened under.
+     */
+    static final String PREFIX = "pending-";
     /**
      * Names a log while it is being opened, before it is locked and has its header. Recovery never looks at
      * these; one left by a process that died while opening it holds no events, and expiry removes it.
