@@ -1,7 +1,6 @@
 package com.launchdarkly.sdk.android;
 
 import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -29,7 +28,7 @@ import java.util.zip.CRC32;
 final class EventLogFormat {
     /** Bump this whenever the framing or the meaning of a frame changes. */
     static final int VERSION = 1;
-    static final byte[] MAGIC = "LDEV".getBytes(StandardCharsets.US_ASCII);
+    static final byte[] MAGIC = {'L', 'D', 'E', 'V'};
     static final int FILE_HEADER_SIZE = 6;
     static final int FRAME_HEADER_SIZE = 10;
     /** The only frame type written today; a reader skips a frame whose type it does not know. */
