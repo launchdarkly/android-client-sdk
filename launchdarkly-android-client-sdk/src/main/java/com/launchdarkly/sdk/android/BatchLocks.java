@@ -1,5 +1,8 @@
 package com.launchdarkly.sdk.android;
 
+import android.annotation.SuppressLint;
+import android.os.ParcelFileDescriptor;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -7,6 +10,7 @@ import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -111,23 +115,50 @@ final class BatchLocks {
      */
     static boolean deleteUnlessBeingSent(File batch) {
         synchronized (heldInThisProcess) {
-            if (heldInThisProcess.containsKey(batch.getAbsolutePath()) || !batch.exists()) {
+            if (heldInThisProcess.containsKey(batch.getAbsolutePath())) {
                 return false;
             }
-            // Opening to write creates a file that is missing, which a batch deleted since the look above
-            // would be; a batch is never empty, so an empty one is that, and not counted.
-            try (RandomAccessFile probe = new RandomAccessFile(batch, "rw");
-                 FileChannel channel = probe.getChannel();
+            try (FileChannel channel = openWithoutCreating(batch);
                  FileLock exclusive = channel.tryLock()) {
-                if (exclusive == null) {
-                    return false;
-                }
-                boolean wasThere = probe.length() > 0;
                 // Deleted while still locked, so no sender can take its lock between the look and the delete.
-                return batch.delete() && wasThere;
+                return exclusive != null && batch.delete();
             } catch (IOException | OverlappingFileLockException e) {
                 return false;
             }
+        }
+    }
+
+    private static volatile boolean hasNioFiles = true;
+
+    /**
+     * Opens a batch for writing, which an exclusive lock needs, failing if it is missing. Never creates it: a
+     * batch another process delivered or expired since the listing would be back for a moment, empty, and a
+     * delivery reading it then would report its events lost.
+     */
+    static FileChannel openWithoutCreating(File batch) throws IOException {
+        if (hasNioFiles) {
+            try {
+                return NioFiles.openWithoutCreating(batch);
+            } catch (LinkageError e) {
+                // Android before API 26, which has no java.nio.file.
+                hasNioFiles = false;
+            }
+        }
+        return openThroughParcelFileDescriptor(batch);
+    }
+
+    /** {@link #openWithoutCreating} for any Android version. Not on the JVM, where this class is a stub. */
+    static FileChannel openThroughParcelFileDescriptor(File batch) throws FileNotFoundException {
+        ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(batch, ParcelFileDescriptor.MODE_READ_WRITE);
+        // Closing the channel closes the stream, which closes the descriptor.
+        return new ParcelFileDescriptor.AutoCloseOutputStream(descriptor).getChannel();
+    }
+
+    /** Apart, so that Android without java.nio.file fails when this is called rather than when BatchLocks loads. */
+    @SuppressLint("NewApi")
+    private static final class NioFiles {
+        static FileChannel openWithoutCreating(File batch) throws IOException {
+            return FileChannel.open(batch.toPath(), StandardOpenOption.READ, StandardOpenOption.WRITE);
         }
     }
 }
