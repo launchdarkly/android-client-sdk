@@ -361,6 +361,35 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void flushesWaitingOnOneRetryAreEachToldOfALossBeforeTheirMark() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
+                Handlers.status(202), Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), 1.0);
+
+                // The first flush loses the poison event, is refused, and waits for the retry a second away.
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                // The second finds the backoff waiting and joins the same retry, with the same mark.
+                Future<Boolean> second = eventProcessor.flushAsync();
+
+                // The retry succeeds. Neither flush began after the loss was reported, so each is told.
+                assertEquals(false, first.get(10, TimeUnit.SECONDS));
+                assertEquals(false, second.get(10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // A flush beginning once the loss was reported is not told again.
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), 1.0);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aFailedDeliveryIsRetriedOnceUnderTheSamePayloadId() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
                 Handlers.status(202)))) {
