@@ -8,6 +8,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.HashSet;
@@ -89,40 +90,21 @@ final class DiskEventLog {
                 return true;
             }
         }
-        RandomAccessFile probe;
-        try {
-            probe = new RandomAccessFile(log, "r");
+        try (RandomAccessFile probe = new RandomAccessFile(log, "r");
+             FileChannel channel = probe.getChannel();
+             FileLock held = channel.tryLock(0L, Long.MAX_VALUE, true)) {
+            return held == null;
         } catch (FileNotFoundException e) {
             // Gone, so no one is appending to it.
             return false;
-        }
-        try {
-            FileLock held = probe.getChannel().tryLock(0L, Long.MAX_VALUE, true);
-            if (held == null) {
-                return true;
-            }
-            held.release();
-            return false;
         } catch (IOException | OverlappingFileLockException e) {
             return true;
-        } finally {
-            try {
-                probe.close();
-            } catch (IOException ignored) {
-                // Only a probe; nothing was written through it.
-            }
         }
     }
 
-    /** Where the log is, whether or not it exists yet. */
+    /** Where the log is, whether it exists yet or not. */
     File file() {
         return file;
-    }
-
-    /** Requires {@code ioLock}. */
-    boolean isOpen() {
-        assert Thread.holdsLock(ioLock);
-        return output != null;
     }
 
     /** Requires {@code ioLock}. */
@@ -147,7 +129,7 @@ final class DiskEventLog {
             start = stream.getChannel().size();
             stream.write(bytes);
         } catch (IOException | RuntimeException e) {
-            // A write that fails partway can leave whole frames behind. The caller keeps every one of
+            // Writing that fails partway can leave whole frames behind. The caller keeps every one of
             // the bytes in memory to deliver from there, so frames left here as well would be sent
             // twice: beside the memory copy when the log is closed this session, or by recovery on the
             // next launch.
@@ -175,7 +157,7 @@ final class DiskEventLog {
 
     /**
      * Moves the log to {@code destination}, so that the next append starts a new one. The stream is closed
-     * whether or not the move succeeds.
+     * whether the move succeeds or not.
      * <p>
      * Closed after the move rather than before it, so that the log is still locked while it moves: unlocked
      * under this name, it could be taken by another process recovering logs in between.
