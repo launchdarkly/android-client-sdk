@@ -1170,6 +1170,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        CountDownLatch commitsResume = new CountDownLatch(1);
         try {
             eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
             eventProcessor.recordCustomEvent(CONTEXT, "another", LDValue.ofNull(), null);
@@ -1179,12 +1180,16 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertFalse("a track committed on the caller's thread",
                     committedOn.contains(Thread.currentThread()));
 
+            // Held, because the track below queues a commit of its own. Were it to run first it would cover
+            // everything the flush needs, leaving the flush nothing to write on this thread.
+            lastCommitExecutor.submit(() -> awaitQuietly(commitsResume, 10, TimeUnit.SECONDS));
             eventProcessor.recordCustomEvent(CONTEXT, "before-exit", LDValue.ofNull(), null);
             eventProcessor.flush();
 
             assertTrue("a flush left its commit to another thread",
                     committedOn.contains(Thread.currentThread()));
         } finally {
+            commitsResume.countDown();
             eventProcessor.close();
             scheduler.shutdownNow();
         }
