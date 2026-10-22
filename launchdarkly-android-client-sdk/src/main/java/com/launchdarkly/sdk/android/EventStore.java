@@ -88,8 +88,26 @@ class EventStore implements Closeable {
     private final Object ioLock = new Object();
 
     // Guarded by bufferLock.
-    private final ByteArrayOutputStream bufferData = new ByteArrayOutputStream();
+    /** Full events staged, {@link #bufferedEventCount} of them. */
+    private final FrameBuffer bufferData = new FrameBuffer();
     private int bufferedEventCount;
+    /**
+     * Summaries staged, {@link #bufferedSummaryCount} of them, apart from the full events because capacity
+     * does not count them. Everything staged is taken as the full events followed by the summaries, so that
+     * any part of it can say how many of its frames are summaries from where the summaries start.
+     */
+    private final FrameBuffer summaryData = new FrameBuffer();
+    private int bufferedSummaryCount;
+    /**
+     * How many of the frames counted in each state below are summaries, state for state, so capacity can
+     * leave them out. Changed in the same critical sections as the counts beside them. A batch this store
+     * did not close - one a previous run or another process left - counts none: its name says how many
+     * frames it holds, not what they are, so every one counts as an event, which errs towards refusing.
+     */
+    private int inTransitSummaries;
+    private int committedSummaries;
+    private int closedSummaries;
+    private int sendingSummaries;
     /**
      * Events taken out of the buffer to be written to the log, or assembled into a batch held in
      * memory, and not yet counted where they land. Both happen outside this lock, and for as long as
@@ -244,7 +262,7 @@ class EventStore implements Closeable {
      *
      * @return serialized events counted against capacity: those recorded and not yet accepted by
      *   LaunchDarkly, whether staged in memory, on their way out of it, written to the open log, or sitting
-     *   in a closed batch - except a batch whose request is out
+     *   in a closed batch - except a batch whose request is out, and except the summaries this store wrote
      */
     int getPendingEventCount() {
         synchronized (bufferLock) {
@@ -257,8 +275,10 @@ class EventStore implements Closeable {
      * reader can miss one of them. Requires {@link #bufferLock}.
      */
     private int countedEventsHoldingBufferLock() {
-        return bufferedEventCount + inTransitEvents + committedEvents
-                + (closedEvents - sendingEvents) + reservedEvents;
+        // Summaries left out: they are not events but the record of evaluations already counted, and
+        // counting them would let the ones a long outage writes at every commit point refuse full events.
+        return bufferedEventCount + (inTransitEvents - inTransitSummaries) + (committedEvents - committedSummaries)
+                + ((closedEvents - closedSummaries) - (sendingEvents - sendingSummaries)) + reservedEvents;
     }
 
     /**
@@ -267,7 +287,7 @@ class EventStore implements Closeable {
      * Events reserved while being encoded have no bytes yet; they are counted when they are staged.
      */
     private long countedBytesHoldingBufferLock() {
-        return bufferData.size() + inTransitBytes + committedBytes + (closedBytes - sendingBytes);
+        return bufferData.size() + summaryData.size() + inTransitBytes + committedBytes + (closedBytes - sendingBytes);
     }
 
     /**
@@ -384,10 +404,99 @@ class EventStore implements Closeable {
                     && countedBytesHoldingBufferLock() + frameSize > (isSummary ? byteCapacity : eventByteCapacity)) {
                 return false;
             }
-            EventLogFormat.writeFrame(bufferData, serializedEvent);
-            bufferedEventCount++;
+            if (isSummary) {
+                EventLogFormat.writeFrame(summaryData, serializedEvent);
+                bufferedSummaryCount++;
+            } else {
+                EventLogFormat.writeFrame(bufferData, serializedEvent);
+                bufferedEventCount++;
+            }
         }
         return true;
+    }
+
+    /** A buffer of frames that copies into a larger array without a copy of its own on the way. */
+    private static final class FrameBuffer extends ByteArrayOutputStream {
+        void copyInto(byte[] target, int offset) {
+            System.arraycopy(buf, 0, target, offset, count);
+        }
+    }
+
+    /**
+     * Everything staged, taken out of the buffers in one step: the full events, then the summaries.
+     */
+    private static final class Staged {
+        final byte[] frames;
+        /** Where in {@link #frames} the summaries start. */
+        final int summariesFrom;
+        /** Every frame in {@link #frames}, summaries included. */
+        final int events;
+        final int summaries;
+
+        Staged(byte[] frames, int summariesFrom, int events, int summaries) {
+            this.frames = frames;
+            this.summariesFrom = summariesFrom;
+            this.events = events;
+            this.summaries = summaries;
+        }
+
+        /** How many of the frames from {@code from} up to {@code to} are summaries. */
+        int summariesIn(int from, int to) {
+            return to <= summariesFrom ? 0 : EventLogFormat.frameCount(frames, Math.max(from, summariesFrom), to);
+        }
+    }
+
+    /**
+     * Takes everything staged, counting it in transit until it is counted where it lands. Requires
+     * {@link #bufferLock}.
+     */
+    private Staged takeStagedHoldingBufferLock() {
+        byte[] frames;
+        if (summaryData.size() == 0) {
+            frames = bufferData.toByteArray();
+        } else {
+            frames = new byte[bufferData.size() + summaryData.size()];
+            bufferData.copyInto(frames, 0);
+            summaryData.copyInto(frames, bufferData.size());
+        }
+        Staged staged = new Staged(frames, bufferData.size(), bufferedEventCount + bufferedSummaryCount,
+                bufferedSummaryCount);
+        bufferData.reset();
+        summaryData.reset();
+        bufferedEventCount = 0;
+        bufferedSummaryCount = 0;
+        inTransitEvents += staged.events;
+        inTransitSummaries += staged.summaries;
+        inTransitBytes += frames.length;
+        return staged;
+    }
+
+    /**
+     * Puts back what of {@code staged} from {@code from} on never landed, ahead of anything staged since, to
+     * be delivered from memory rather than lost. Requires {@link #bufferLock}.
+     */
+    private void putBackHoldingBufferLock(Staged staged, int from) {
+        byte[] frames = staged.frames;
+        int summariesFrom = Math.max(from, staged.summariesFrom);
+        int events = EventLogFormat.frameCount(frames, from, summariesFrom);
+        int summaries = EventLogFormat.frameCount(frames, summariesFrom, frames.length);
+        inTransitEvents -= events + summaries;
+        inTransitSummaries -= summaries;
+        inTransitBytes -= frames.length - from;
+        prepend(bufferData, frames, from, summariesFrom);
+        prepend(summaryData, frames, summariesFrom, frames.length);
+        bufferedEventCount += events;
+        bufferedSummaryCount += summaries;
+    }
+
+    private static void prepend(ByteArrayOutputStream target, byte[] frames, int from, int to) {
+        if (from == to) {
+            return;
+        }
+        byte[] later = target.toByteArray();
+        target.reset();
+        target.write(frames, from, to - from);
+        writeQuietly(target, later);
     }
 
     /**
@@ -432,16 +541,18 @@ class EventStore implements Closeable {
             commitHoldingIoLock();
 
             int events;
+            int summaries;
             long bytes;
             int stillBuffered;
             synchronized (bufferLock) {
                 events = committedEvents;
+                summaries = committedSummaries;
                 bytes = committedBytes;
-                stillBuffered = bufferedEventCount;
+                stillBuffered = bufferedEventCount + bufferedSummaryCount;
             }
 
             if (events > 0) {
-                addIfClosed(closed, closeOpenLogHoldingIoLock(events, bytes));
+                addIfClosed(closed, closeOpenLogHoldingIoLock(events, summaries, bytes));
             }
             // Only reachable once persistence has been given up on, or a full log could not be closed; a
             // healthy commit leaves nothing staged behind. Closed after the log, so the older events are
@@ -462,17 +573,19 @@ class EventStore implements Closeable {
     /**
      * Requires {@code ioLock}.
      *
+     * @param summaries how many of {@code events} are summaries
      * @param bytes the frames committed to the log, which with the file header are the batch's size
      */
-    private Batch closeOpenLogHoldingIoLock(int events, long bytes) {
+    private Batch closeOpenLogHoldingIoLock(int events, int summaries, long bytes) {
         long batchBytes = bytes + EventLogFormat.FILE_HEADER_SIZE;
-        EventDirectory.LogClose closed = disk.closeLog(events, batchBytes);
+        EventDirectory.LogClose closed = disk.closeLog(events, summaries, batchBytes);
         if (closed.batch == null) {
             if (!closed.logSurvives) {
                 // The log itself is gone, so its events are too. They have to stop counting against
                 // capacity or the store would refuse events for the rest of the session.
                 synchronized (bufferLock) {
                     committedEvents = 0;
+                    committedSummaries = 0;
                     committedBytes = 0;
                 }
             }
@@ -481,8 +594,10 @@ class EventStore implements Closeable {
 
         synchronized (bufferLock) {
             committedEvents = 0;
+            committedSummaries = 0;
             committedBytes = 0;
             closedEvents += events;
+            closedSummaries += summaries;
             closedBytes += batchBytes;
         }
         return closed.batch;
@@ -498,19 +613,15 @@ class EventStore implements Closeable {
      * @return the batches, oldest first
      */
     private List<Batch> closeInMemoryBatches() {
-        byte[] frames;
-        int events;
+        Staged staged;
         synchronized (bufferLock) {
-            frames = bufferData.toByteArray();
-            events = bufferedEventCount;
-            bufferData.reset();
-            bufferedEventCount = 0;
-            inTransitEvents += events;
-            inTransitBytes += frames.length;
+            staged = takeStagedHoldingBufferLock();
         }
+        byte[] frames = staged.frames;
         List<Batch> closed = new ArrayList<>(1);
         int held = 0;
         int heldEvents = 0;
+        int heldSummaries = 0;
         try {
             // Outside bufferLock, because it copies every staged frame; inTransitEvents is what keeps
             // them counted meanwhile.
@@ -518,6 +629,7 @@ class EventStore implements Closeable {
                 int end = EventLogFormat.endOfFramesFitting(frames, held,
                         EventLogFormat.MAX_BATCH_SIZE - EventLogFormat.FILE_HEADER_SIZE);
                 int batchEvents = EventLogFormat.frameCount(frames, held, end);
+                int batchSummaries = staged.summariesIn(held, end);
                 EventLogFormat.Payload payload = EventLogFormat.assemblePayloadInPlace(
                         EventLogFormat.withFileHeader(frames, held, end), Integer.MAX_VALUE);
                 if (payload == null) {
@@ -525,22 +637,26 @@ class EventStore implements Closeable {
                 }
                 String payloadId = UUID.randomUUID().toString();
                 synchronized (heldLock) {
-                    inMemoryBatches.put(payloadId, new HeldBatch(payload, batchEvents));
+                    inMemoryBatches.put(payloadId, new HeldBatch(payload, batchEvents, batchSummaries));
                     synchronized (bufferLock) {
                         inTransitEvents -= batchEvents;
+                        inTransitSummaries -= batchSummaries;
                         inTransitBytes -= end - held;
                         closedEvents += batchEvents;
+                        closedSummaries += batchSummaries;
                         closedBytes += payload.length;
                     }
                 }
                 closed.add(new Batch(payloadId, batchEvents));
                 held = end;
                 heldEvents += batchEvents;
+                heldSummaries += batchSummaries;
             }
         } finally {
             if (held < frames.length) {
                 synchronized (bufferLock) {
-                    inTransitEvents -= events - heldEvents;
+                    inTransitEvents -= staged.events - heldEvents;
+                    inTransitSummaries -= staged.summaries - heldSummaries;
                     inTransitBytes -= frames.length - held;
                 }
             }
@@ -552,10 +668,17 @@ class EventStore implements Closeable {
     private static final class HeldBatch {
         final EventLogFormat.Payload payload;
         final int eventCount;
+        /** How many of {@link #eventCount} are summaries. */
+        final int summaries;
 
-        HeldBatch(EventLogFormat.Payload payload, int eventCount) {
+        HeldBatch(EventLogFormat.Payload payload, int eventCount, int summaries) {
             this.payload = payload;
             this.eventCount = eventCount;
+            this.summaries = summaries;
+        }
+
+        EventDirectory.Tally tally() {
+            return new EventDirectory.Tally(eventCount, summaries, payload.length);
         }
     }
 
@@ -569,11 +692,11 @@ class EventStore implements Closeable {
         if (disk != null) {
             synchronized (ioLock) {
                 batches = disk.listBatches();
-                addHeldBatchesAndRecount(batches, disk.storedBytes());
+                addHeldBatchesAndRecount(batches, disk.storedSummaries(), disk.storedBytes());
             }
         } else {
             batches = new ArrayList<>();
-            addHeldBatchesAndRecount(batches, 0);
+            addHeldBatchesAndRecount(batches, 0, 0);
         }
         return batches;
     }
@@ -585,13 +708,16 @@ class EventStore implements Closeable {
      * <p>
      * Requires {@code ioLock} where there is a disk, so that the count is of the listing as it stands.
      *
+     * @param storedSummaries the summaries this store knows of in the batches the listing found on the disk
      * @param storedBytes the bytes in the batches the listing found on the disk
      */
-    private void addHeldBatchesAndRecount(List<Batch> batches, long storedBytes) {
+    private void addHeldBatchesAndRecount(List<Batch> batches, int storedSummaries, long storedBytes) {
         synchronized (heldLock) {
+            int totalSummaries = storedSummaries;
             long totalBytes = storedBytes;
             for (Map.Entry<String, HeldBatch> held : inMemoryBatches.entrySet()) {
                 batches.add(new Batch(held.getKey(), held.getValue().eventCount));
+                totalSummaries += held.getValue().summaries;
                 totalBytes += held.getValue().payload.length;
             }
             int total = 0;
@@ -602,6 +728,7 @@ class EventStore implements Closeable {
             }
             synchronized (bufferLock) {
                 closedEvents = total;
+                closedSummaries = totalSummaries;
                 closedBytes = totalBytes;
                 // One no longer listed is no longer counted, so it cannot be left out of the count either.
                 for (String payloadId : new ArrayList<>(sendingBatches.keySet())) {
@@ -668,6 +795,7 @@ class EventStore implements Closeable {
             if (held != null) {
                 synchronized (bufferLock) {
                     closedEvents -= held.eventCount;
+                    closedSummaries -= held.summaries;
                     closedBytes -= held.payload.length;
                     forgetSendingHoldingBufferLock(batch.payloadId);
                 }
@@ -685,6 +813,7 @@ class EventStore implements Closeable {
             EventDirectory.Tally counted = disk.remove(batch.payloadId, batch.eventCount);
             synchronized (bufferLock) {
                 closedEvents -= counted.events;
+                closedSummaries -= counted.summaries;
                 closedBytes -= counted.bytes;
                 forgetSendingHoldingBufferLock(batch.payloadId);
             }
@@ -718,7 +847,7 @@ class EventStore implements Closeable {
             EventDirectory.Tally counted;
             HeldBatch held = inMemoryBatches.get(payloadId);
             if (held != null) {
-                counted = new EventDirectory.Tally(held.eventCount, held.payload.length);
+                counted = held.tally();
             } else if (disk != null) {
                 counted = disk.counted(payloadId);
             } else {
@@ -731,6 +860,7 @@ class EventStore implements Closeable {
                 if (!sendingBatches.containsKey(payloadId)) {
                     sendingBatches.put(payloadId, counted);
                     sendingEvents += counted.events;
+                    sendingSummaries += counted.summaries;
                     sendingBytes += counted.bytes;
                 }
             }
@@ -754,6 +884,7 @@ class EventStore implements Closeable {
         EventDirectory.Tally sending = sendingBatches.remove(payloadId);
         if (sending != null) {
             sendingEvents -= sending.events;
+            sendingSummaries -= sending.summaries;
             sendingBytes -= sending.bytes;
         }
     }
@@ -785,6 +916,7 @@ class EventStore implements Closeable {
         }
         synchronized (bufferLock) {
             closedEvents += recovered.events;
+            closedSummaries += recovered.summaries;
             closedBytes += recovered.bytes;
         }
     }
@@ -815,6 +947,7 @@ class EventStore implements Closeable {
             // delivering them, so the store cannot go on counting what is gone.
             synchronized (bufferLock) {
                 closedEvents -= result.counted.events;
+                closedSummaries -= result.counted.summaries;
                 closedBytes -= result.counted.bytes;
             }
             discarded = result.events;
@@ -838,24 +971,18 @@ class EventStore implements Closeable {
      * {@link EventLogFormat#MAX_BATCH_SIZE}, so a commit can land in several batches.
      */
     private void commitHoldingIoLock() {
-        byte[] bytes;
-        int events;
+        Staged staged;
         synchronized (bufferLock) {
-            if (!persistEvents || bufferedEventCount == 0) {
+            if (!persistEvents || bufferedEventCount + bufferedSummaryCount == 0) {
                 // Staged bytes are left where they are: with nowhere durable to put them, memory is
                 // better than dropping them.
                 return;
             }
-            bytes = bufferData.toByteArray();
-            events = bufferedEventCount;
-            bufferData.reset();
-            bufferedEventCount = 0;
-            inTransitEvents += events;
-            inTransitBytes += bytes.length;
+            staged = takeStagedHoldingBufferLock();
         }
+        byte[] bytes = staged.frames;
 
         int written = 0;
-        int writtenEvents = 0;
         try {
             while (written < bytes.length) {
                 long room;
@@ -870,6 +997,7 @@ class EventStore implements Closeable {
                 }
                 int end = EventLogFormat.endOfFramesFitting(bytes, written, room);
                 int landing = EventLogFormat.frameCount(bytes, written, end);
+                int landingSummaries = staged.summariesIn(written, end);
                 boolean isWhole = written == 0 && end == bytes.length;
                 if (!append(isWhole ? bytes : Arrays.copyOfRange(bytes, written, end))) {
                     break;
@@ -878,24 +1006,18 @@ class EventStore implements Closeable {
                 // transit, so a capacity check never sees them in both places or in neither.
                 synchronized (bufferLock) {
                     inTransitEvents -= landing;
+                    inTransitSummaries -= landingSummaries;
                     inTransitBytes -= end - written;
                     committedEvents += landing;
+                    committedSummaries += landingSummaries;
                     committedBytes += end - written;
                 }
                 written = end;
-                writtenEvents += landing;
             }
         } finally {
             if (written < bytes.length) {
                 synchronized (bufferLock) {
-                    inTransitEvents -= events - writtenEvents;
-                    inTransitBytes -= bytes.length - written;
-                    // Put back, to be delivered from memory rather than lost.
-                    byte[] laterFrames = bufferData.toByteArray();
-                    bufferData.reset();
-                    bufferData.write(bytes, written, bytes.length - written);
-                    writeQuietly(bufferData, laterFrames);
-                    bufferedEventCount += events - writtenEvents;
+                    putBackHoldingBufferLock(staged, written);
                 }
             }
         }
@@ -910,12 +1032,14 @@ class EventStore implements Closeable {
      */
     private boolean closeFullLogHoldingIoLock() {
         int events;
+        int summaries;
         long bytes;
         synchronized (bufferLock) {
             events = committedEvents;
+            summaries = committedSummaries;
             bytes = committedBytes;
         }
-        closeOpenLogHoldingIoLock(events, bytes);
+        closeOpenLogHoldingIoLock(events, summaries, bytes);
         synchronized (bufferLock) {
             return committedBytes == 0;
         }
@@ -1040,6 +1164,10 @@ class EventStore implements Closeable {
             if (bufferedEventCount > 0) {
                 payloads.addAll(EventLogFormat.eventPayloads(
                         EventLogFormat.withFileHeader(bufferData.toByteArray())));
+            }
+            if (bufferedSummaryCount > 0) {
+                payloads.addAll(EventLogFormat.eventPayloads(
+                        EventLogFormat.withFileHeader(summaryData.toByteArray())));
             }
         }
         return payloads;

@@ -125,7 +125,44 @@ public class EventStoreBoundsTest {
         assertTrue(store.stage(event(FRAME, "summary-1"), true));
         assertTrue(store.stage(event(FRAME, "summary-2"), true));
         assertFalse(store.stage(event(FRAME, "summary-3"), true));
-        assertEquals(10, store.getPendingEventCount());
+        // Their bytes count, but they are not events.
+        assertEquals(8, store.getPendingEventCount());
+    }
+
+    @Test
+    public void leavesSummariesOutOfTheEventCountInEveryState() {
+        // Written at every commit point, summaries would otherwise fill capacity during an outage, and full
+        // events would be refused for the summaries of evaluations already counted.
+        for (boolean persist : new boolean[] {true, false}) {
+            String mode = "persisting: " + persist;
+            EventStore store = new EventStore(new File(tempFolder.getRoot(), "persist-" + persist), 2,
+                    EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
+                    persist, logger);
+            assertTrue(store.stage(event(FRAME, "summary-1"), true));
+            assertTrue(store.stage(event(FRAME, "event-1")));
+            assertEquals(mode + ", staged", 1, store.getPendingEventCount());
+            store.commit();
+            assertEquals(mode + ", committed", 1, store.getPendingEventCount());
+
+            List<EventStore.Batch> closed = store.closeBatch();
+            assertEquals(mode, 1, closed.size());
+            EventStore.Batch batch = closed.get(0);
+            assertEquals(mode + ": the batch holds both frames", 2, batch.eventCount);
+            assertEquals(mode + ", closed", 1, store.getPendingEventCount());
+            assertEquals(mode, Arrays.asList(batch), store.pendingBatches());
+            assertEquals(mode + ", listed", 1, store.getPendingEventCount());
+
+            assertTrue(store.stage(event(FRAME, "summary-2"), true));
+            assertTrue(mode, store.stage(event(FRAME, "event-2")));
+            assertFalse(mode + ": capacity still counts the events", store.stage(event(FRAME, "event-3")));
+
+            store.startedSending(batch);
+            assertEquals(mode + ", sending", 1, store.getPendingEventCount());
+            store.stoppedSending(batch);
+            assertEquals(mode + ", sent and failed", 2, store.getPendingEventCount());
+            store.remove(batch);
+            assertEquals(mode + ", delivered", 1, store.getPendingEventCount());
+        }
     }
 
     @Test

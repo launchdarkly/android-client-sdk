@@ -64,20 +64,30 @@ class EventDirectory {
         InputStream openForReading(File file) throws IOException;
     }
 
-    /** How many events, and how many bytes, something stored holds: the two things capacity counts. */
+    /**
+     * How many events, and how many bytes, something stored holds: the two things capacity counts. With how
+     * many of the events are summaries, which capacity leaves out, where this store wrote them.
+     */
     static final class Tally {
         static final Tally NONE = new Tally(0, 0);
 
         final int events;
+        /** How many of {@link #events} are known to be summaries; none for a batch this store did not close. */
+        final int summaries;
         final long bytes;
 
         Tally(int events, long bytes) {
+            this(events, 0, bytes);
+        }
+
+        Tally(int events, int summaries, long bytes) {
             this.events = events;
+            this.summaries = summaries;
             this.bytes = bytes;
         }
 
         Tally plus(Tally other) {
-            return new Tally(events + other.events, bytes + other.bytes);
+            return new Tally(events + other.events, summaries + other.summaries, bytes + other.bytes);
         }
     }
 
@@ -116,20 +126,25 @@ class EventDirectory {
      */
     private final Map<String, Stored> stored = new HashMap<>();
 
-    /** A batch in the directory: the file it is, how many events it holds, and how big it is. */
+    /**
+     * A batch in the directory: the file it is, how many events it holds, how many of them this store knows
+     * to be summaries, and how big it is.
+     */
     private static final class Stored {
         final File file;
         final int events;
+        final int summaries;
         final long bytes;
 
-        Stored(File file, int events, long bytes) {
+        Stored(File file, int events, int summaries, long bytes) {
             this.file = file;
             this.events = events;
+            this.summaries = summaries;
             this.bytes = bytes;
         }
 
         Tally tally() {
-            return new Tally(events, bytes);
+            return new Tally(events, summaries, bytes);
         }
     }
 
@@ -284,9 +299,10 @@ class EventDirectory {
      * Requires {@code ioLock}.
      *
      * @param events how many events the log holds, which the caller has counted as it staged them
+     * @param summaries how many of {@code events} are summaries
      * @param bytes how big the log is, which the caller has counted as it wrote it
      */
-    LogClose closeLog(int events, long bytes) {
+    LogClose closeLog(int events, int summaries, long bytes) {
         assert Thread.holdsLock(ioLock);
         String payloadId = UUID.randomUUID().toString();
         File file = newBatchFile(payloadId, events);
@@ -295,7 +311,7 @@ class EventDirectory {
             return new LogClose(null, diskLog().exists());
         }
 
-        stored.put(payloadId, new Stored(file, events, bytes));
+        stored.put(payloadId, new Stored(file, events, summaries, bytes));
         return new LogClose(new EventStore.Batch(payloadId, events), true);
     }
 
@@ -357,7 +373,10 @@ class EventDirectory {
                     continue;
                 }
             }
-            stored.put(payloadId, new Stored(file, events, file.length()));
+            // What the close knew of its summaries is kept; nothing in the file says.
+            Stored previous = stored.get(payloadId);
+            int summaries = previous != null && previous.events == events ? previous.summaries : 0;
+            stored.put(payloadId, new Stored(file, events, summaries, file.length()));
             batches.add(new EventStore.Batch(payloadId, events));
         }
 
@@ -369,6 +388,16 @@ class EventDirectory {
         }
         stored.keySet().retainAll(listed);
         return batches;
+    }
+
+    /** The summaries known to be in the batches the last listing or close counted. Requires {@code ioLock}. */
+    int storedSummaries() {
+        assert Thread.holdsLock(ioLock);
+        int summaries = 0;
+        for (Stored batch : stored.values()) {
+            summaries += batch.summaries;
+        }
+        return summaries;
     }
 
     /** The bytes in every batch the last listing or close counted. Requires {@code ioLock}. */
@@ -624,7 +653,7 @@ class EventDirectory {
                     events);
             return Tally.NONE;
         }
-        Stored recovered = new Stored(file, events, bytes);
+        Stored recovered = new Stored(file, events, 0, bytes);
         stored.put(payloadId, recovered);
         return recovered.tally();
     }

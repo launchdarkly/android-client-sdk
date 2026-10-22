@@ -2192,6 +2192,38 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void theSummariesAnOutageWritesLeaveRoomForEvents() throws Exception {
+        // Every flush of an outage is a commit point, and each writes a summary of the evaluations since
+        // the last. Counted as events, they would leave a long outage refusing every track.
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(2), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "blocked", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                for (int flush = 0; flush < 3; flush++) {
+                    eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                            FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, false, null);
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                }
+
+                eventProcessor.recordCustomEvent(CONTEXT, "after-the-summaries", LDValue.ofNull(), null);
+                service.setTarget(Handlers.status(202));
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                boolean sent = false;
+                // Past the requests the outage refused, two for each flush.
+                for (int request = 0; request < 10 && !sent; request++) {
+                    sent = server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                            .contains("\"key\":\"after-the-summaries\"");
+                }
+                assertTrue("refused for room the summaries took", sent);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void everyRecoverableStatusKeepsTheBatchPastTheRetry() throws Exception {
         // The statuses the SDK treats as worth trying again; each has to keep the batch, not just 503.
         for (int status : new int[] { 400, 408, 429, 500, 502, 504 }) {

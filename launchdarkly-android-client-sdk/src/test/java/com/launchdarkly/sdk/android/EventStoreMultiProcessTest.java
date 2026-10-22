@@ -901,6 +901,28 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
+    public void summariesAFailedWriteLeftInMemoryStillDoNotCountAsEvents() throws IOException {
+        // The file header and the first commit land; the second fails partway into its summary.
+        EventStore store = storeFailingPartwayAfter(2);
+        store.stage(event("written"));
+        store.stage(event("summary-written"), true);
+        store.commit();
+        store.stage(event("landed"));
+        store.stage(event("summary-put-back"), true);
+        store.commit();
+        assertFalse(store.isPersisting());
+        assertEquals(2, store.getPendingEventCount());
+
+        List<EventStore.Batch> closed = store.closeBatch();
+        assertEquals(2, closed.size());
+        assertEquals(Arrays.asList("written", "summary-written"), keysIn(store.body(closed.get(0))));
+        assertEquals(Arrays.asList("landed", "summary-put-back"), keysIn(store.body(closed.get(1))));
+        assertEquals(2, store.getPendingEventCount());
+        store.pendingBatches();
+        assertEquals(2, store.getPendingEventCount());
+    }
+
+    @Test
     public void sendsNoFramesAWriteThatFailedLeftBehindWhenItCouldNotBeCutBack() throws IOException {
         EventStore store = storeFor();
         store.stage(event("written"));
