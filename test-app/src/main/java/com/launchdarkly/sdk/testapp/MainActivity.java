@@ -159,16 +159,17 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        ldClient = startClient(eventPersistence);
+        ldClient = startClient(eventPersistence, offlineSwitch().isChecked());
     }
 
     /**
      * Blocks for up to {@link #INIT_WAIT_SECONDS} waiting for flags, and returns the client either way: if
      * they have not arrived by then, it is usable with whatever it has cached.
      */
-    private LDClient startClient(EventPersistence persistence) {
+    private LDClient startClient(EventPersistence persistence, boolean offline) {
         LDConfig.Builder configBuilder = new LDConfig.Builder(AutoEnvAttributes.Enabled)
                 .mobileKey(BuildConfig.MOBILE_KEY)
+                .offline(offline)
                 .http(
                         Components.httpConfiguration().useReport(false)
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
@@ -255,11 +256,16 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Off the main thread, because closing waits on the event store and starting waits for flags. The
      * spinner stays disabled until it is done, so restarts never overlap.
+     * <p>
+     * The replacement starts in the offline switch's state rather than being switched after it starts,
+     * because starting waits for flags, and a client online for that long can deliver the events stored
+     * before the change.
      */
     private void restartClient(final Spinner spinner, final EventPersistence persistence) {
         if (BuildConfig.MOBILE_KEY.isEmpty()) {
             return;
         }
+        final boolean offline = offlineSwitch().isChecked();
         final LDClient previous = ldClient;
         ldClient = null;
         spinner.setEnabled(false);
@@ -273,12 +279,18 @@ public class MainActivity extends AppCompatActivity {
                     Timber.w(e, "closing the client for a persistence change");
                 }
             }
-            LDClient restarted = startClient(persistence);
+            LDClient restarted = startClient(persistence, offline);
             new Handler(getMainLooper()).post(() -> {
                 ldClient = restarted;
                 spinner.setEnabled(true);
-                if (((Switch) findViewById(R.id.offlineSwitch)).isChecked()) {
-                    restarted.setOffline();
+                // The switch is ignored while there is no client to act on.
+                boolean offlineNow = offlineSwitch().isChecked();
+                if (offlineNow != offline) {
+                    if (offlineNow) {
+                        restarted.setOffline();
+                    } else {
+                        restarted.setOnline();
+                    }
                 }
                 Toast.makeText(this, "Restarted with " + persistence, Toast.LENGTH_SHORT).show();
             });
@@ -529,9 +541,12 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private Switch offlineSwitch() {
+        return findViewById(R.id.offlineSwitch);
+    }
+
     private void setupOfflineSwitch() {
-        Switch offlineSwitch = findViewById(R.id.offlineSwitch);
-        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) ->
+        offlineSwitch().setOnCheckedChangeListener((compoundButton, isChecked) ->
             MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline())
         );
     }
