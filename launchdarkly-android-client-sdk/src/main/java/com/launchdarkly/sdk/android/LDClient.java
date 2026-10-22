@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -777,6 +778,55 @@ public class LDClient implements LDClientInterface, Closeable {
 
     private void flushInternal() {
         eventProcessor.flush();
+    }
+
+    @Override
+    public boolean flushAndWait(long timeout, TimeUnit unit) {
+        // Clamped because toNanos saturates: a timeout at Long.MIN_VALUE nanos would make the
+        // remaining time below underflow, and wrap round to a wait with no bound at all.
+        long deadline = System.nanoTime() + Math.max(0, unit.toNanos(timeout));
+        Map<String, LDClient> clients = getInstancesIfTheyIncludeThisClient();
+        if (clients.isEmpty()) {
+            // This client has been closed, or replaced by a later init; either way it can deliver
+            // nothing, and saying otherwise would tell the caller its events were safe.
+            return false;
+        }
+        // Every environment is started before any of them is waited on. Each has its own event
+        // processor and its own thread, so waiting on one before starting the next would spend the
+        // caller's budget on deliveries that could have been running all along.
+        List<Future<Boolean>> deliveries = new ArrayList<>(clients.size());
+        for (LDClient client : clients.values()) {
+            deliveries.add(client.eventProcessor.flushAsync());
+        }
+        boolean delivered = true;
+        for (Future<Boolean> delivery : deliveries) {
+            // Each wait gets what is left of the one budget rather than a fresh copy of it, so that
+            // the timeout the caller asked for is the time this call can take.
+            delivered &= awaitDelivery(delivery, Math.max(0, deadline - System.nanoTime()));
+        }
+        return delivered;
+    }
+
+    private boolean awaitDelivery(Future<Boolean> delivery, long remainingNanos) {
+        try {
+            return Boolean.TRUE.equals(delivery.get(remainingNanos, TimeUnit.NANOSECONDS));
+        } catch (TimeoutException e) {
+            // Left running rather than canceled: the events have been taken out of the buffer by
+            // now, so interrupting the delivery would only make losing them certain.
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (CancellationException e) {
+            // Not something the SDK's own processor does, but a custom one can hand back a future
+            // that is canceled, and that must not escape a call whose answer is a boolean.
+            return false;
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            logger.error("Exception caught when flushing events: {}", LogValues.exceptionSummary(cause));
+            logger.debug("{}", LogValues.exceptionTrace(cause));
+            return false;
+        }
     }
 
     @VisibleForTesting
