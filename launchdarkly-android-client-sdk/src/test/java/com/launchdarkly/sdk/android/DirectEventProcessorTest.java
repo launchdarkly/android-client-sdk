@@ -1299,6 +1299,106 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void anOfflineFlushEncodesNothingWherePersistenceIsOff() throws Exception {
+        AtomicInteger encoded = new AtomicInteger();
+        EventStore store = encodingCountingStore(encoded);
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(server, store, scheduler);
+            try {
+                eventProcessor.setOffline(true);
+                // Past the pending threshold, which schedules a commit only where one would write.
+                for (int i = 0; i < 40; i++) {
+                    recordEvaluation(eventProcessor, true, null);
+                }
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                assertFalse(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
+                eventProcessor.blockingFlush();
+                eventProcessor.flush();
+                scheduler.submit(() -> { }).get(5, TimeUnit.SECONDS);
+                lastCommitExecutor.submit(() -> { }).get(5, TimeUnit.SECONDS);
+
+                assertEquals("an offline flush encoded events it could not send", 0, encoded.get());
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+
+                eventProcessor.setOffline(false);
+                eventProcessor.blockingFlush();
+
+                // One delivery, carrying everything recorded while offline.
+                RequestInfo sent = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+                List<LDValue> events = new ArrayList<>();
+                for (LDValue event : LDValue.parse(sent.getBody()).values()) {
+                    events.add(event);
+                }
+                assertEquals(40, countEventsOfKind(events, "feature"));
+                assertEquals(1, countEventsOfKind(events, "custom"));
+                assertEquals(40, summaryCountFor(events, FLAG_KEY));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void closingOfflineEncodesNothingWherePersistenceIsOff() throws Exception {
+        AtomicInteger encoded = new AtomicInteger();
+        EventStore store = encodingCountingStore(encoded);
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(server, store, scheduler);
+            try {
+                eventProcessor.setOffline(true);
+                recordEvaluation(eventProcessor, true, null);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                eventProcessor.close();
+                assertTrue(scheduler.awaitTermination(5, TimeUnit.SECONDS));
+                assertTrue(lastCommitExecutor.awaitTermination(5, TimeUnit.SECONDS));
+
+                assertEquals("closing offline encoded events it could not send", 0, encoded.get());
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    /** A store that does not persist, counting every encoded event or summary staged into it. */
+    private EventStore encodingCountingStore(AtomicInteger encoded) throws Exception {
+        return new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, false, logging.logger) {
+            @Override
+            boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
+                encoded.incrementAndGet();
+                return super.stage(serializedEvent, bypassingCapacity);
+            }
+
+            @Override
+            boolean stageReserved(byte[] serializedEvent) {
+                encoded.incrementAndGet();
+                return super.stageReserved(serializedEvent);
+            }
+        };
+    }
+
+    private DirectEventProcessor makeEventProcessor(HttpServer server, EventStore store,
+                                                    ScheduledExecutorService scheduler) {
+        return makeEventProcessor(server, store, DEFAULT_CAPACITY, scheduler);
+    }
+
+    private DirectEventProcessor makeEventProcessor(HttpServer server, EventStore store, int capacity,
+                                                    ScheduledExecutorService scheduler) {
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        return makeEventProcessor(new StubEventSender(), server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS,
+                60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler, diagnosticExecutor,
+                store, capacity);
+    }
+
+    @Test
     public void aBatchDoesNotCountWhileItsRequestIsOutAndCountsAgainIfTheSendIsToBeRetried()
             throws Exception {
         for (boolean persistEvents : new boolean[] { true, false }) {
@@ -1647,7 +1747,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // a commit the counter for the flag and the number of feature events are the same number.
         //
         // Persistence is off so that the store never commits on its own; every commit() is one of the
-        // processor's. The processor stays offline, so each flush commits and delivers nothing.
+        // processor's. Where nothing persists only a delivery commits, so the processor is online and
+        // each flush commits and delivers.
         //
         // Repeated because the window is narrow -- the two writes are adjacent, and a commit has to
         // land between them.
@@ -1678,8 +1779,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 }
             };
             ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
-            DirectEventProcessor eventProcessor = makeEventProcessor(store, NO_DROP_CAPACITY, scheduler);
+            HttpServer server = startEventsServer();
+            DirectEventProcessor eventProcessor = makeEventProcessor(server, store, NO_DROP_CAPACITY,
+                    scheduler);
             try {
+                eventProcessor.setOffline(false);
                 AtomicInteger recorded = new AtomicInteger();
                 List<Thread> recorders = new ArrayList<>();
                 for (int i = 0; i < RACE_RECORDERS; i++) {
@@ -1722,6 +1826,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             } finally {
                 eventProcessor.close();
                 scheduler.shutdownNow();
+                server.close();
             }
         }
         // Otherwise a single commit per trial would satisfy everything above without a commit ever

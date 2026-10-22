@@ -1016,8 +1016,9 @@ final class DirectEventProcessor implements EventProcessor {
         // Staging and writing come first, and get the budget first. A caller who closed the client and
         // then let the process end has to find those events on the next run, and that is worth more
         // than the post below. A batch on disk is delivered next run, while an event never staged is
-        // gone whether the post would have succeeded or not.
-        Future<?> finalCommit = commitWithinBudget(deadlineNanos);
+        // gone whether the post would have succeeded or not. Where nothing persists there is nothing to
+        // write: the final delivery encodes what it sends, and offline nothing is sent.
+        Future<?> finalCommit = store.isPersisting() ? commitWithinBudget(deadlineNanos) : null;
 
         // Then deliver what is buffered, with whatever is left. This waits rather than firing and
         // forgetting because it is this run's last chance to send them. While offline that chance is
@@ -1170,9 +1171,15 @@ final class DirectEventProcessor implements EventProcessor {
      * delivery refused for being offline returns before {@code commitAndCloseBatch}. Without
      * this, a flush while offline would leave everything recorded in memory, and a process that then
      * died would lose it -- the case persistence exists for.
+     * <p>
+     * Only where events persist. Otherwise the commit makes nothing durable: online, the one in
+     * {@code commitAndCloseBatch} is the drain, and offline it would encode events that cannot be sent
+     * into bytes that wait in memory exactly as the events would have.
      */
     private DeliveryOutcome commitAndDeliverReportingOutcome() {
-        commitDurably();
+        if (store.isPersisting()) {
+            commitDurably();
+        }
         return deliverPayloadAndRetryLater();
     }
 
