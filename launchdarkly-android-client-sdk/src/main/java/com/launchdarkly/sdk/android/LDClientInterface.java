@@ -173,6 +173,9 @@ public interface LDClientInterface extends Closeable {
      * {@link com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder#connectTimeoutMillis(int)}.
      * A shorter timeout returns {@code false} before then, so there it bounds the wait rather than
      * reporting how the delivery went.
+     * <p>
+     * This method is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+     * It is experimental.
      *
      * @param timeout how long to wait for delivery
      * @param unit the time unit of {@code timeout}

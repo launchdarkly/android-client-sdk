@@ -112,6 +112,9 @@ public interface EventProcessor extends Closeable {
      * <p>
      * Nothing cancels the delivery when a caller stops waiting for it: by then the events have been
      * taken out of the buffer, so interrupting the post would only make losing them certain.
+     * <p>
+     * This method is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+     * It is experimental.
      *
      * @return a future that completes with true if the events reached the service, or there were
      *   none to send; false if they could not be sent, including when a delivery that started
