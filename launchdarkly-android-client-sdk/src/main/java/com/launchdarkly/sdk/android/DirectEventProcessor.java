@@ -1240,13 +1240,28 @@ final class DirectEventProcessor implements EventProcessor {
         if (waiting == BatchesOutcome.RETRYABLE) {
             return new DeliveryPass(waiting, commitLeavingTheLogOpen());
         }
-        long lostEventsMark = commitAndCloseBatch();
+        Close close = commitAndCloseBatch();
         BatchesOutcome closed = deliverListedBatches();
-        if (closed == BatchesOutcome.RETRYABLE) {
-            return new DeliveryPass(closed, lostEventsMark);
+        if (closed == BatchesOutcome.RETRYABLE || !close.closedEverything) {
+            // Events left in a log that would not close are still on the disk, for the next close to try again
+            // with; this pass cannot say they got out.
+            return new DeliveryPass(BatchesOutcome.RETRYABLE, close.lostEventsMark);
         }
         boolean delivered = waiting == BatchesOutcome.DELIVERED && closed == BatchesOutcome.DELIVERED;
-        return new DeliveryPass(delivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED, lostEventsMark);
+        return new DeliveryPass(delivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED, close.lostEventsMark);
+    }
+
+    /** What {@link #commitAndCloseBatch()} did. */
+    private static final class Close {
+        /** As {@link DeliveryOutcome#lostEventsMark}. */
+        final long lostEventsMark;
+        /** Whether the close took every committed event into a batch. */
+        final boolean closedEverything;
+
+        Close(long lostEventsMark, boolean closedEverything) {
+            this.lostEventsMark = lostEventsMark;
+            this.closedEverything = closedEverything;
+        }
     }
 
     /**
@@ -1264,13 +1279,15 @@ final class DirectEventProcessor implements EventProcessor {
      * going online starts, the one recovery starts, and the final one at close all reach here without
      * that earlier commit.
      *
-     * @return the loss count as of the close, for {@link #takeEventsLost(long)}
+     * @return the loss count as of the close, for {@link #takeEventsLost(long)}, and whether the close took
+     *   every committed event into a batch; both under the lock, so they cover this close and nothing a later
+     *   commit does
      */
-    private long commitAndCloseBatch() {
+    private Close commitAndCloseBatch() {
         synchronized (commitLock) {
             commitDurably();
             store.closeBatch();
-            return lostEvents.get();
+            return new Close(lostEvents.get(), !store.holdsUnclosedEvents());
         }
     }
 

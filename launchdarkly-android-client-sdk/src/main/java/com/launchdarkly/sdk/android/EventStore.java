@@ -564,6 +564,16 @@ class EventStore implements Closeable {
         }
     }
 
+    /**
+     * Whether committed events are outside every batch. Right after {@link #closeBatch()}, that means it could
+     * not close the log holding them; they stay in that log for the next close to try again.
+     */
+    boolean holdsUnclosedEvents() {
+        synchronized (bufferLock) {
+            return committedEvents > 0;
+        }
+    }
+
     private static void addIfClosed(List<Batch> closed, Batch batch) {
         if (batch != null) {
             closed.add(batch);

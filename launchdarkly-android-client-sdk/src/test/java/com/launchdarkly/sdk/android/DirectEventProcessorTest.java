@@ -2223,6 +2223,52 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlushFailsWhileTheEventLogWillNotClose() throws Exception {
+        // The events are still in the log, for the next close to move, and this flush did not send them.
+        File directory = eventsDirectory.newFolder();
+        AtomicBoolean closesFail = new AtomicBoolean(true);
+        EventStore store = new EventStore(directory, DEFAULT_CAPACITY, true, logging.logger) {
+            @Override
+            List<Batch> closeBatch() {
+                if (!closesFail.get()) {
+                    return super.closeBatch();
+                }
+                // Read-only only for the close, so the log is written and then cannot be renamed.
+                assertTrue(directory.setWritable(false));
+                try {
+                    return super.closeBatch();
+                } finally {
+                    assertTrue(directory.setWritable(true));
+                }
+            }
+        };
+        try (HttpServer server = HttpServer.start(Handlers.status(202))) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "unclosed", LDValue.ofNull(), null);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+                assertTrue(store.holdsUnclosedEvents());
+
+                closesFail.set(false);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo request = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(request.getBody().contains("\"key\":\"unclosed\""));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     public void theSummariesAnOutageWritesLeaveRoomForEvents() throws Exception {
         // Every flush of an outage is a commit point, and each writes a summary of the evaluations since
         // the last. Counted as events, they would leave a long outage refusing every track.
