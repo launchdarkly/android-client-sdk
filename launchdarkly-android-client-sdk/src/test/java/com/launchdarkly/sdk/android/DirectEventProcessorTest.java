@@ -25,6 +25,11 @@ import com.launchdarkly.testhelpers.httptest.RequestInfo;
 import org.junit.After;
 import org.junit.Test;
 
+import okhttp3.mockwebserver.Dispatcher;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -37,8 +42,10 @@ import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -2391,6 +2398,70 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertEquals(1, countEventsOfKind(events, "custom"));
                 assertEquals(LDValue.of("fine"), requireEventOfKind(events, "custom").get("key"));
                 logging.assertErrorLogged("too large to store");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushOfMoreThanABatchSendsEveryEventOnceInRequestsNoLargerThanABatch() throws Exception {
+        // Small enough that a batch closed at the limit is within one event of it, so a body that is
+        // short of the limit by more than that shows the split happened somewhere else.
+        int dataChars = EventLogFormat.MAX_BATCH_SIZE / 32;
+        int eventCount = 100;
+        char[] data = new char[dataChars];
+        Arrays.fill(data, 'x');
+        LDValue padding = LDValue.of(new String(data));
+        // MockWebServer rather than test-helpers' HttpServer, which keeps only what one read of the
+        // socket returns and so cuts a body this large short.
+        try (MockWebServer server = new MockWebServer()) {
+            server.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return new MockResponse().setResponseCode(202);
+                }
+            });
+            EventProcessor eventProcessor = makeEventProcessor(server.url("/").uri(),
+                    eventsBuilder(eventCount), true);
+            try {
+                for (int i = 1; i <= eventCount; i++) {
+                    eventProcessor.recordCustomEvent(CONTEXT, "event-" + i, padding, null);
+                }
+
+                assertTrue(awaitFlush(eventProcessor, 30, TimeUnit.SECONDS));
+
+                List<Integer> bodySizes = new ArrayList<>();
+                Set<String> payloadIds = new HashSet<>();
+                List<String> keys = new ArrayList<>();
+                for (int i = server.getRequestCount(); i > 0; i--) {
+                    RecordedRequest request = server.takeRequest(10, TimeUnit.SECONDS);
+                    assertNotNull(request);
+                    String body = request.getBody().readUtf8();
+                    bodySizes.add((int) request.getBodySize());
+                    payloadIds.add(request.getHeader(PAYLOAD_ID_HEADER));
+                    for (LDValue event : LDValue.parse(body).values()) {
+                        keys.add(event.get("key").stringValue());
+                    }
+                }
+
+                assertTrue("one request carried everything: " + bodySizes, bodySizes.size() > 1);
+                Collections.sort(bodySizes);
+                assertTrue("a request was larger than a batch: " + bodySizes,
+                        bodySizes.get(bodySizes.size() - 1) <= EventLogFormat.MAX_BATCH_SIZE);
+                // Only the batch the events ran out in may be short of full.
+                for (int size : bodySizes.subList(1, bodySizes.size())) {
+                    assertTrue("a batch closed short of the limit: " + bodySizes,
+                            size > EventLogFormat.MAX_BATCH_SIZE - dataChars - 4096);
+                }
+                assertEquals(bodySizes.size(), payloadIds.size());
+                List<String> expected = new ArrayList<>();
+                for (int i = 1; i <= eventCount; i++) {
+                    expected.add("event-" + i);
+                }
+                Collections.sort(keys);
+                Collections.sort(expected);
+                assertEquals(expected, keys);
             } finally {
                 eventProcessor.close();
             }
