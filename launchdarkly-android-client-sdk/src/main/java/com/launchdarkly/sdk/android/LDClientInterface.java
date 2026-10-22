@@ -192,6 +192,12 @@ public interface LDClientInterface extends Closeable {
      * A shorter timeout returns {@code false} before then, so there it bounds the wait rather than
      * reporting how the delivery went.
      * <p>
+     * Where event persistence is on, this writes down everything recorded so far, as {@link #flush()} does,
+     * but on a thread of the SDK's rather than the calling one, so that the timeout bounds the write as
+     * well: a disk that stalls cannot hold a crashing thread past it. A {@code true} means the events were
+     * written before they were sent. A {@code false} because the timeout expired can come before the write
+     * is done, and the events then survive the process only if it lives long enough for the write to finish.
+     * <p>
      * This method is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
      * It is experimental.
      *

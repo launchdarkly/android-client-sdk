@@ -31,9 +31,10 @@ public enum EventPersistence {
      * memory until enough of them have built up, or until the next {@code track}, {@code identify}, flush or
      * delivery writes them.
      * <p>
-     * A flush is the exception. It writes on the calling thread, as {@link #IMMEDIATE} does, so that an
-     * application ending the process on purpose can rely on it. A flush on the main thread with
-     * {@link android.os.StrictMode} detecting disk writes therefore sees a violation.
+     * {@code LDClient.flush} is the exception. It writes on the calling thread, as {@link #IMMEDIATE} does,
+     * so that an application ending the process on purpose can rely on it. A flush on the main thread with
+     * {@link android.os.StrictMode} detecting disk writes therefore sees a violation. {@code flushAndWait}
+     * writes on a thread of the SDK's instead, so that its timeout bounds the write.
      * <p>
      * This level is experimental; see {@link EventPersistence}.
      */
