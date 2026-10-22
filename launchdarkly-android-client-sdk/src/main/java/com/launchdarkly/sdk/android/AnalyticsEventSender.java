@@ -2,7 +2,6 @@ package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
-import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.sdk.internal.http.HttpHelpers;
 import com.launchdarkly.sdk.internal.http.HttpProperties;
 
@@ -10,6 +9,10 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Date;
+import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 
 import okhttp3.Headers;
 import okhttp3.MediaType;
@@ -56,6 +59,31 @@ final class AnalyticsEventSender implements Closeable {
         this.baseHeaders = httpProperties.toHeadersBuilder().build();
     }
 
+    /** What one post came to. */
+    static final class Result {
+        /** Whether the service took the events. */
+        final boolean success;
+        /**
+         * For a failure, whether it is unlikely to pass soon: a 4xx other than 400, 408 and 429, or a TLS or
+         * certificate failure. The batch is kept either way; this only decides how long the next post waits.
+         */
+        final boolean unexpected;
+        /** The HTTP status, or 0 where no response arrived. */
+        final int status;
+        /** The wait a failed response asked for with {@code Retry-After}, or -1 where it asked for none. */
+        final long retryAfterMillis;
+        /** The service's clock, from an accepted response's {@code Date}, or null. */
+        final Date serverTime;
+
+        Result(boolean success, boolean unexpected, int status, long retryAfterMillis, Date serverTime) {
+            this.success = success;
+            this.unexpected = unexpected;
+            this.status = status;
+            this.retryAfterMillis = retryAfterMillis;
+            this.serverTime = serverTime;
+        }
+    }
+
     /**
      * Posts a batch once. The retry is the caller's, so that the wait before it does not hold a thread.
      *
@@ -63,11 +91,9 @@ final class AnalyticsEventSender implements Closeable {
      * @param eventCount how many events the body holds, for logging
      * @param payloadId identifies this delivery, the same on every attempt at it
      * @param eventsBaseUri the events service
-     * @return whether the events arrived, whether the SDK must stop, and the service's clock; neither
-     *   set means the failure may pass and the batch is worth trying again
+     * @return whether the events arrived and, where they did not, how long the next attempt should wait
      */
-    EventSender.Result sendBatch(EventLogFormat.Payload payload, int eventCount, String payloadId,
-                                 URI eventsBaseUri) {
+    Result sendBatch(EventLogFormat.Payload payload, int eventCount, String payloadId, URI eventsBaseUri) {
         URI uri = HttpHelpers.concatenateUriPath(eventsBaseUri,
                 StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH);
         Request request = new Request.Builder()
@@ -82,16 +108,38 @@ final class AnalyticsEventSender implements Closeable {
         try (Response response = client.newCall(request).execute()) {
             if (response.isSuccessful()) {
                 logger.debug("Posted {} event(s)", eventCount);
-                return new EventSender.Result(true, false, parseDate(response));
+                return new Result(true, false, response.code(), -1, parseDate(response));
             }
             logger.warn("Error posting events: HTTP status {}", response.code());
-            if (!LDUtil.isHttpErrorRecoverable(response.code())) {
-                return new EventSender.Result(false, true, null);
-            }
+            return new Result(false, LDUtil.isHttpErrorUnexpected(response.code()), response.code(),
+                    retryAfterMillis(response), null);
         } catch (IOException e) {
             logger.warn("Error posting events: {}", LogValues.exceptionSummary(e));
+            // A certificate that will not validate is a misconfiguration, which waits like a refusal.
+            boolean unexpected = e instanceof SSLHandshakeException || e instanceof SSLPeerUnverifiedException;
+            return new Result(false, unexpected, 0, -1, null);
         }
-        return new EventSender.Result(false, false, null);
+    }
+
+    /** {@code Retry-After} as seconds or as an HTTP date, or -1 where it is absent or unreadable. */
+    private static long retryAfterMillis(Response response) {
+        String value = response.header("Retry-After");
+        if (value == null) {
+            return -1;
+        }
+        try {
+            long seconds = Long.parseLong(value.trim());
+            return seconds < 0 ? -1 : TimeUnit.SECONDS.toMillis(seconds);
+        } catch (NumberFormatException e) {
+            // An HTTP date, then.
+        }
+        Date date;
+        try {
+            date = response.headers().getDate("Retry-After");
+        } catch (RuntimeException e) {
+            return -1;
+        }
+        return date == null ? -1 : Math.max(0, date.getTime() - System.currentTimeMillis());
     }
 
     /**

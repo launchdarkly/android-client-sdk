@@ -26,6 +26,7 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.Future;
 
 /**
@@ -103,6 +104,28 @@ abstract class ComponentsImpl {
 
     static final class EventProcessorBuilderImpl extends EventProcessorBuilder
             implements DiagnosticDescription {
+        // The backoff's delays, settable by tests the specified ones would hold for minutes; a negative
+        // normal ceiling means the specified delays.
+        private long retryInitialDelayMillis;
+        private long retryNormalCeilingMillis = -1;
+        private long retryExtendedCeilingMillis;
+
+        EventProcessorBuilderImpl retryDelaysForTesting(long initialDelayMillis, long normalCeilingMillis,
+                                                        long extendedCeilingMillis) {
+            retryInitialDelayMillis = initialDelayMillis;
+            retryNormalCeilingMillis = normalCeilingMillis;
+            retryExtendedCeilingMillis = extendedCeilingMillis;
+            return this;
+        }
+
+        private DeliveryRetryState makeRetryState() {
+            if (retryNormalCeilingMillis < 0) {
+                return new DeliveryRetryState(flushIntervalMillis);
+            }
+            return new DeliveryRetryState(retryInitialDelayMillis, retryNormalCeilingMillis,
+                    retryExtendedCeilingMillis, new Random());
+        }
+
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
@@ -125,6 +148,7 @@ abstract class ComponentsImpl {
                     diagnosticEventSender,
                     new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
                             clientContext.getBaseLogger()),
+                    makeRetryState(),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
                     clientContextImpl.getDiagnosticStore(),
                     capacity,

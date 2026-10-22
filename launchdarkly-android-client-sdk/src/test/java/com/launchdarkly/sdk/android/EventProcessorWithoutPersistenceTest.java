@@ -133,10 +133,13 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
         };
         EventsService service = new EventsService();
         // Refused and refused again on the retry; then the batch held from that and the next one are
-        // accepted; then the service says the key is no good.
+        // accepted; then the service says the key is no good, after which nothing is posted for a while.
+        // The waits are cut to milliseconds, which makes that while about four seconds.
         service.statusForPost = post -> post <= 2 ? 503 : post <= 4 ? 202 : 401;
         try (HttpServer server = HttpServer.start(service)) {
-            EventProcessor eventProcessor = buildOfflineEventProcessor(server, eventsBuilder(100),
+            EventProcessor eventProcessor = buildOfflineEventProcessor(server,
+                    ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(100))
+                            .retryDelaysForTesting(8, 8, TimeUnit.HOURS.toMillis(1)),
                     true, platformState);
             eventProcessor.setOffline(false);
             try {
@@ -169,7 +172,8 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
         AtomicBoolean down = new AtomicBoolean(true);
         service.statusForPost = post -> down.get() ? 503 : 202;
         try (HttpServer server = HttpServer.start(service)) {
-            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(capacity), true);
+            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilderWithoutBackoff(capacity),
+                    true);
             try {
                 for (String key : keys("e-", 0, 10)) {
                     track(eventProcessor, key);

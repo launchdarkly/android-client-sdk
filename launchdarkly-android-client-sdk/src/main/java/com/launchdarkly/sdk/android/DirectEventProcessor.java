@@ -91,7 +91,11 @@ final class DirectEventProcessor implements EventProcessor {
      */
     static final long DEFAULT_CLOSE_BUDGET_MILLIS = 2_000;
 
-    /** How long a delivery that failed in a way that may pass waits for its one retry, as the other SDKs do. */
+    /**
+     * The first wait of the backoff after a failure, as the other SDKs wait for their one retry. A flush
+     * waiting on the delivery that failed sits out this wait and hears the retry's outcome; any longer
+     * wait it does not, and is told the delivery failed.
+     */
     static final long RETRY_DELAY_MILLIS = 1_000;
 
     // Set in the constructor and never changed.
@@ -99,6 +103,8 @@ final class DirectEventProcessor implements EventProcessor {
     private final EventStore store;
     private final EventSender diagnosticEventSender;
     private final AnalyticsEventSender analyticsEventSender;
+    /** When the next post may go, after a failure. Consulted before every post, and only there. */
+    private final DeliveryRetryState retryState;
     private final URI eventsUri;
     private final DiagnosticStore diagnosticStore;
     private final long flushIntervalMillis;
@@ -248,8 +254,6 @@ final class DirectEventProcessor implements EventProcessor {
     // Atomic or volatile, so read and written without a lock.
 
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    // Set when the service tells us to stop, e.g. because the mobile key is invalid.
-    private volatile boolean disabled = false;
     private volatile boolean diagnosticInitSent = false;
     private final AtomicLong lastKnownPastTime = new AtomicLong(0);
     /**
@@ -284,7 +288,7 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * How many events the SDK accepted and then dropped for good.
      * <p>
-     * A batch the service refuses in a way that may pass is kept and retried, so it is not a loss.
+     * A batch the service refuses is kept and retried, so it is not a loss.
      * What is lost is what the store never received: an event or a summary that could not be
      * serialized when it was committed, or that serialized too large to store. A delivery that
      * finds nothing to send cannot tell those apart from events that arrived, so without this it
@@ -313,6 +317,7 @@ final class DirectEventProcessor implements EventProcessor {
             EventStore store,
             EventSender diagnosticEventSender,
             AnalyticsEventSender analyticsEventSender,
+            DeliveryRetryState retryState,
             URI eventsUri,
             DiagnosticStore diagnosticStore,
             int capacity,
@@ -332,6 +337,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.commitOnCallerThread = commitOnCallerThread;
         this.diagnosticEventSender = diagnosticEventSender;
         this.analyticsEventSender = analyticsEventSender;
+        this.retryState = retryState;
         this.eventsUri = eventsUri;
         this.diagnosticStore = diagnosticStore;
         this.capacity = capacity;
@@ -1146,7 +1152,7 @@ final class DirectEventProcessor implements EventProcessor {
      * <p>
      * This commit looks redundant with the one in {@link #commitAndCloseBatch()}, and online it is: the
      * second finds nothing pending and returns. It is kept for the case where it is the only one. A
-     * delivery refused for being offline or disabled returns before {@code commitAndCloseBatch}. Without
+     * delivery refused for being offline returns before {@code commitAndCloseBatch}. Without
      * this, a flush while offline would leave everything recorded in memory, and a process that then
      * died would lose it -- the case persistence exists for.
      */
@@ -1163,7 +1169,10 @@ final class DirectEventProcessor implements EventProcessor {
         static final DeliveryOutcome CLOSED_NOTHING = new DeliveryOutcome(false, null, 0);
 
         final boolean delivered;
-        /** Non-null when a batch failed in a way that may pass, and a retry of every batch is queued. */
+        /**
+         * Non-null when a batch failed and the retry of every batch is queued to run after the first wait of
+         * the backoff, which is as long as a caller waits to hear how it went.
+         */
         final Future<Boolean> retry;
         /**
          * The loss count as of the close of this delivery's batch, which is as far as it can answer
@@ -1193,8 +1202,12 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Delivers every batch waiting and then what has been committed since, queuing one retry if a batch
-     * failed in a way that may pass.
+     * Delivers every batch waiting and then what has been committed since, queuing one retry for when the
+     * backoff allows if a batch is still waiting.
+     * <p>
+     * The retry is handed back for the caller to wait on only where it comes after the first wait. Any
+     * longer one, a refusal's or one grown through an outage, is the backoff saying not to post for a
+     * while, and a flush that sat it out would hold its caller for minutes to say what it can say now.
      * <p>
      * Runs on the scheduler thread for a requested or periodic delivery, and on the caller's thread
      * at close. Deliveries can therefore overlap: a retry runs a second behind the delivery that
@@ -1204,14 +1217,20 @@ final class DirectEventProcessor implements EventProcessor {
      * rather than counting the events twice.
      */
     private DeliveryOutcome deliverPayloadAndRetryLater() {
-        if (disabled || offline.get()) {
+        if (offline.get()) {
             return DeliveryOutcome.CLOSED_NOTHING;
         }
 
         DeliveryPass pass = deliverWaitingThenNew();
         if (pass.outcome == BatchesOutcome.RETRYABLE) {
-            Future<Boolean> retry = scheduleRetry();
-            return new DeliveryOutcome(false, retry, pass.lostEventsMark);
+            // A batch kept for a reason other than the network, such as a read that failed, has no wait of its
+            // own, and is retried after the first one.
+            long waitNanos = retryState.remainingWaitNanos();
+            long delayNanos = waitNanos > 0 ? waitNanos
+                    : TimeUnit.MILLISECONDS.toNanos(retryState.initialDelayMillis());
+            Future<Boolean> retry = scheduleRetry(delayNanos);
+            boolean awaited = delayNanos <= TimeUnit.MILLISECONDS.toNanos(retryState.initialDelayMillis());
+            return new DeliveryOutcome(false, awaited ? retry : null, pass.lostEventsMark);
         }
         return new DeliveryOutcome(pass.outcome == BatchesOutcome.DELIVERED, null, pass.lostEventsMark);
     }
@@ -1333,7 +1352,7 @@ final class DirectEventProcessor implements EventProcessor {
         EventStore.Listing listing = store.listPendingBatches();
         boolean allDelivered = true;
         for (EventStore.Batch batch : listing.batches) {
-            if (disabled || offline.get()) {
+            if (offline.get()) {
                 return BatchesOutcome.FAILED;
             }
             BatchesOutcome outcome = deliver(batch);
@@ -1352,9 +1371,10 @@ final class DirectEventProcessor implements EventProcessor {
      * Queues the retry on the scheduler rather than sleeping for it there, which would hold every flush,
      * and close()'s final delivery, behind the wait.
      *
+     * @param delayNanos how long until the backoff allows the next post
      * @return the retry, a retry already queued, or null if the processor is shutting down
      */
-    private Future<Boolean> scheduleRetry() {
+    private Future<Boolean> scheduleRetry(long delayNanos) {
         synchronized (submitLock) {
             if (shuttingDown) {
                 return null;
@@ -1363,19 +1383,20 @@ final class DirectEventProcessor implements EventProcessor {
                 return pendingRetry;
             }
             try {
-                pendingRetry = scheduler.schedule(this::retryPendingBatches, RETRY_DELAY_MILLIS,
-                        TimeUnit.MILLISECONDS);
+                pendingRetry = scheduler.schedule(this::retryPendingBatches, delayNanos, TimeUnit.NANOSECONDS);
             } catch (RuntimeException e) { // the executor was shut down under us
                 return null;
             }
-            logger.warn("Will retry posting events in {}ms after a failure", RETRY_DELAY_MILLIS);
+            logger.warn("Will retry posting events in {}ms after a failure",
+                    TimeUnit.NANOSECONDS.toMillis(delayNanos));
             return pendingRetry;
         }
     }
 
     /**
-     * The one retry. A failure here is not retried again; the batches wait on disk, or in memory, for the
-     * next flush.
+     * The one retry. A failure here queues no other; the batches wait on disk, or in memory, for the next
+     * flush, which posts once the backoff allows. Until it does, the periodic one each time queues this
+     * retry for when it will.
      * <p>
      * A pass like the delivery's rather than only the batches it left: the delivery may have closed
      * nothing, behind a batch that was blocked, and a {@code true} has to mean that the events the
@@ -1388,7 +1409,7 @@ final class DirectEventProcessor implements EventProcessor {
                 return false;
             }
         }
-        if (disabled || offline.get()) {
+        if (offline.get()) {
             return false;
         }
         try {
@@ -1401,15 +1422,20 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * @return DELIVERED if the batch is no longer the SDK's problem, whether because it arrived or because
-     *   it never can; RETRYABLE if it failed in a way that may pass
+     *   it never can; RETRYABLE if it is kept to be sent again, which is every failure to post it, and a
+     *   post the backoff did not allow
      */
     private BatchesOutcome deliver(EventStore.Batch batch) {
+        if (retryState.remainingWaitNanos() > 0) {
+            // Not an attempt, so it moves nothing in the backoff.
+            return BatchesOutcome.RETRYABLE;
+        }
         EventLogFormat.Payload payload;
         try {
             payload = store.payload(batch);
         } catch (EventStore.UnreadableBatchException e) {
-            // Lost like a refused batch: nothing will ever send it, so it is removed, the rest are still
-            // attempted, and the caller hears that this pass lost events.
+            // Lost: nothing will ever send it, so it is removed, the rest are still attempted, and the
+            // caller hears that this pass lost events.
             logger.error("Dropping {} stored event(s) this version cannot read", batch.eventCount);
             store.remove(batch);
             reportBatchLost(batch);
@@ -1433,26 +1459,26 @@ final class DirectEventProcessor implements EventProcessor {
         }
         store.startedSending(batch);
         try {
-            EventSender.Result result = analyticsEventSender.sendBatch(payload, payload.eventCount,
+            AnalyticsEventSender.Result result = analyticsEventSender.sendBatch(payload, payload.eventCount,
                     batch.payloadId, eventsUri);
-            handleResponse(result);
-            if (result.isSuccess() || result.isMustShutDown()) {
-                // Forgotten once the service has either taken the events or told us to stop sending
-                // them. Anything else - a timeout, a 503, no network - leaves the batch where it is, to
-                // be tried again by the retry, the next flush or the next run of the application.
-                store.remove(batch);
-                if (result.isSuccess() && leftOut > 0) {
-                    logger.error("Dropped {} damaged stored event(s) from a batch it delivered", leftOut);
-                    lostEvents.addAndGet(leftOut);
-                    return BatchesOutcome.FAILED;
-                }
-                if (result.isSuccess()) {
-                    return BatchesOutcome.DELIVERED;
-                }
-                reportBatchLost(batch);
+            if (!result.success) {
+                // Kept whatever the failure, a 401 included: a valid key is sometimes refused for minutes, and
+                // deleting on a refusal would lose every event recorded meanwhile. The backoff decides when the
+                // retry, the next flush or the next run of the application sends it again.
+                retryState.recordFailure(result.unexpected, result.retryAfterMillis);
+                return BatchesOutcome.RETRYABLE;
+            }
+            retryState.recordSuccess();
+            if (result.serverTime != null) {
+                recordPastTime(result.serverTime.getTime());
+            }
+            store.remove(batch);
+            if (leftOut > 0) {
+                logger.error("Dropped {} damaged stored event(s) from a batch it delivered", leftOut);
+                lostEvents.addAndGet(leftOut);
                 return BatchesOutcome.FAILED;
             }
-            return BatchesOutcome.RETRYABLE;
+            return BatchesOutcome.DELIVERED;
         } catch (Exception e) {
             logUnexpectedError(e);
             return BatchesOutcome.FAILED;
@@ -1553,15 +1579,13 @@ final class DirectEventProcessor implements EventProcessor {
         return isStopped() || offline.get() || inBackground.get();
     }
 
+    /**
+     * A diagnostic response is only read for the service's clock. One the service refused stops nothing:
+     * analytics delivery backs off on its own responses, and a diagnostic is not retried anyway.
+     */
     private void handleResponse(EventSender.Result result) {
-        if (result == null) {
-            return;
-        }
-        if (result.getTimeFromServer() != null) {
+        if (result != null && result.getTimeFromServer() != null) {
             recordPastTime(result.getTimeFromServer().getTime());
-        }
-        if (result.isMustShutDown()) {
-            disabled = true;
         }
     }
 
@@ -1726,7 +1750,7 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     private boolean isStopped() {
-        return closed.get() || disabled;
+        return closed.get();
     }
 
     private void logUnexpectedError(Throwable e) {

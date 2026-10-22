@@ -84,6 +84,15 @@ public abstract class EventProcessorTestBase {
     }
 
     /**
+     * {@link #eventsBuilder} without the backoff, so every flush posts and is retried at once, for tests
+     * about what a failure keeps rather than about how long it waits.
+     */
+    protected EventProcessorBuilder eventsBuilderWithoutBackoff(int capacity) {
+        return ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(capacity))
+                .retryDelaysForTesting(0, 0, 0);
+    }
+
+    /**
      * The persistence {@link #eventsBuilder} configures. IMMEDIATE here, which is what lets a test
      * assert on the store straight after a track; each suite also runs as a subclass that answers
      * DISABLED, because that is what an application gets unless it asks.

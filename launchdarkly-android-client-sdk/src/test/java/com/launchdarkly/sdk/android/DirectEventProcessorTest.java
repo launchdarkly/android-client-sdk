@@ -1620,27 +1620,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void beingToldToShutDownStopsRecordingAndDelivery() throws Exception {
-        // A 401 means the mobile key will not start working again, so the SDK is supposed to stop
-        // for the life of the process rather than keep posting events nobody will accept.
-        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
-            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
-            try {
-                eventProcessor.recordCustomEvent(CONTEXT, "before", LDValue.ofNull(), null);
-                eventProcessor.blockingFlush();
-                server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
-
-                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
-                eventProcessor.blockingFlush();
-
-                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
-            } finally {
-                eventProcessor.close();
-            }
-        }
-    }
-
-    @Test
     public void flushWithTimeoutReportsDeliveredEvents() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
@@ -2097,8 +2076,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void flushReportsFailureWhenTheServiceRefusesTheEventsForNow() throws Exception {
-        // 503 is a failure that may pass: the processor retries it once, and a caller waiting on the
-        // flush is answered by that retry. The batch is kept after it; see the tests below.
+        // 503 is a failure that may pass: the processor retries it a second later, and a caller waiting on
+        // the flush is answered by that retry. The batch is kept after it; see the tests below.
         try (HttpServer server = HttpServer.start(Handlers.status(503))) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
@@ -2108,26 +2087,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
-            } finally {
-                eventProcessor.close();
-            }
-        }
-    }
-
-    @Test
-    public void flushReportsFailureWhenTheServiceRefusesTheEventsForGood() throws Exception {
-        // 401 is not retried, and stops the processor for the life of the process, so the flush
-        // after it has nothing it can deliver on either.
-        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
-            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
-            try {
-                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
-                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
-                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
-
-                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
-                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
-                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
             }
@@ -2159,7 +2118,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aBatchAnUnheardDeliveryCouldNotSendGoesOutOnceTheServiceRecovers() throws Exception {
         HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
         try (HttpServer server = HttpServer.start(service)) {
-            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "kept-event", LDValue.ofNull(), null);
                 eventProcessor.blockingFlush();
@@ -2190,14 +2150,14 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aBatchIsKeptThroughRepeatedRefusalsAndDeliveredOnceTheServiceRecovers() throws Exception {
-        assertKeptThroughRefusalsAndDeliveredOnRecovery(503, eventsBuilder(DEFAULT_CAPACITY), 3);
+        assertKeptThroughRefusalsAndDeliveredOnRecovery(503, eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), 3);
     }
 
     @Test
     public void aBatchHeldInMemoryIsKeptThroughRepeatedRefusalsWherePersistenceIsOff() throws Exception {
         // Without a disk the store holds batches in memory, and a refusal must not cost them either.
         assertKeptThroughRefusalsAndDeliveredOnRecovery(503,
-                eventsBuilder(DEFAULT_CAPACITY).eventPersistence(EventPersistence.DISABLED), 3);
+                eventsBuilderWithoutBackoff(DEFAULT_CAPACITY).eventPersistence(EventPersistence.DISABLED), 3);
     }
 
     @Test
@@ -2206,7 +2166,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // or batches held in memory, each with a summary of its own.
         HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
         try (HttpServer server = HttpServer.start(service)) {
-            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(DEFAULT_CAPACITY), true);
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "blocked", LDValue.ofNull(), null);
                 for (int flush = 0; flush < 3; flush++) {
@@ -2317,7 +2278,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // the last. Counted as events, they would leave a long outage refusing every track.
         HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
         try (HttpServer server = HttpServer.start(service)) {
-            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(2), true);
+            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilderWithoutBackoff(2), true);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "blocked", LDValue.ofNull(), null);
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
@@ -2344,10 +2305,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void everyRecoverableStatusKeepsTheBatchPastTheRetry() throws Exception {
-        // The statuses the SDK treats as worth trying again; each has to keep the batch, not just 503.
-        for (int status : new int[] { 400, 408, 429, 500, 502, 504 }) {
-            assertKeptThroughRefusalsAndDeliveredOnRecovery(status, eventsBuilder(DEFAULT_CAPACITY), 2);
+    public void everyFailingStatusKeepsTheBatchPastTheRetry() throws Exception {
+        // Each has to keep the batch, not just 503: a refusal such as a 401 only waits longer.
+        for (int status : new int[] { 400, 401, 403, 404, 408, 413, 429, 500, 502, 504 }) {
+            assertKeptThroughRefusalsAndDeliveredOnRecovery(status, eventsBuilderWithoutBackoff(DEFAULT_CAPACITY),
+                    2);
         }
     }
 
@@ -2355,7 +2317,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void eventsRecordedDuringAnOutageAreDeliveredWithTheBatchesRefusedBeforeThem() throws Exception {
         HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
         try (HttpServer server = HttpServer.start(service)) {
-            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "first-event", LDValue.ofNull(), null);
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
@@ -2413,31 +2376,104 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aBatchRefusedWith400IsPostedOnlyByEachFlushAndItsRetry() throws Exception {
-        assertPostedOnlyByEachFlushAndItsRetry(400);
+    public void aBatchRefusedWith400IsPostedOnlyAsTheBackoffAllows() throws Exception {
+        assertPostedOnlyAsTheBackoffAllows(400);
     }
 
     @Test
-    public void aBatchRefusedWith503IsPostedOnlyByEachFlushAndItsRetry() throws Exception {
-        assertPostedOnlyByEachFlushAndItsRetry(503);
+    public void aBatchRefusedWith503IsPostedOnlyAsTheBackoffAllows() throws Exception {
+        assertPostedOnlyAsTheBackoffAllows(503);
     }
 
     /**
-     * Kept is not the same as resent on its own: a failure must never queue another attempt beyond the
-     * one retry, or a batch the service always refuses would be posted in a loop.
+     * Kept is not the same as resent on its own: a batch the service always refuses is posted a second
+     * after the first failure and then twice as long after each one, and a flush in between posts nothing,
+     * or it would be posted in a loop.
      */
-    private void assertPostedOnlyByEachFlushAndItsRetry(int status) throws Exception {
+    private void assertPostedOnlyAsTheBackoffAllows(int status) throws Exception {
+        long second = DirectEventProcessor.RETRY_DELAY_MILLIS;
         try (HttpServer server = HttpServer.start(Handlers.status(status))) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
-                for (int flush = 0; flush < 2; flush++) {
-                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
-                    server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
-                    server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
-                    server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 3,
-                            TimeUnit.MILLISECONDS);
-                }
+                // The attempt and the retry a second later, which the flush waits for.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+
+                // Two seconds now, which a flush neither posts in nor waits out.
+                long start = System.nanoTime();
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertTrue("the flush waited out the backoff",
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < second);
+                server.getRecorder().requireNoRequests(second, TimeUnit.MILLISECONDS);
+
+                // The retry that flush queued, once the two seconds are up, and then four seconds of nothing.
+                server.getRecorder().requireRequest(3 * second, TimeUnit.MILLISECONDS);
+                server.getRecorder().requireNoRequests(3 * second, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aRefusedBatchIsKeptAndPostedAgainOnceTheLongerWaitIsOver() throws Exception {
+        // A 401 for a valid key happens during an incident and passes in minutes, so the batch is kept and
+        // the SDK waits longer before trying again, rather than deleting it and stopping. Cut to a second
+        // and a half here from the eight and a half minutes the SDK waits.
+        long refusalWaitMillis = 1_500;
+        long second = DirectEventProcessor.RETRY_DELAY_MILLIS;
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY))
+                            .retryDelaysForTesting(second, second, refusalWaitMillis), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                String payloadId = server.getRecorder().requireRequest(1, TimeUnit.SECONDS)
+                        .getHeader(PAYLOAD_ID_HEADER);
+
+                // Recording goes on, and a flush during the wait says it failed without posting.
+                eventProcessor.recordCustomEvent(CONTEXT, "recorded-meanwhile", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(refusalWaitMillis / 2, TimeUnit.MILLISECONDS);
+                service.setTarget(Handlers.status(202));
+
+                // The retry the refusal queued: the refused batch under the ID it was refused under, then what
+                // was recorded since.
+                RequestInfo resent = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(resent.getBody().contains("\"key\":\"refused\""));
+                assertEquals(payloadId, resent.getHeader(PAYLOAD_ID_HEADER));
+                RequestInfo since = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(since.getBody().contains("\"key\":\"recorded-meanwhile\""));
+
+                // One accepted delivery puts the backoff back: the next failure waits only the second a flush
+                // sits out, so the flush hears that its retry worked.
+                service.setTarget(Handlers.sequential(Handlers.status(503), Handlers.status(202)));
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aRetryAfterSetsTheWaitBeforeTheNextPost() throws Exception {
+        // Four seconds, jittered down to no less than two, which is past the second a flush waits out.
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.header("Retry-After", "4"), Handlers.status(503)),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(1_800, TimeUnit.MILLISECONDS);
+                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"an-event\""));
             } finally {
                 eventProcessor.close();
             }
@@ -2465,9 +2501,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 for (Future<Boolean> flush : flushes) {
                     assertFalse(flush.get(10, TimeUnit.SECONDS));
                 }
-                // The second delivery, then the one retry both failures share.
-                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
-                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                // The second delivery runs inside the wait the first failure started and posts nothing; the
+                // one retry both share does.
+                server.getRecorder().requireRequest(2, TimeUnit.SECONDS);
                 server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 3,
                         TimeUnit.MILLISECONDS);
             } finally {
@@ -2478,7 +2514,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void thePeriodicFlushPostsARefusedBatchAtMostOncePerInterval() throws Exception {
+    public void thePeriodicFlushPostsARefusedBatchNoMoreOftenThanTheBackoffAllows() throws Exception {
         int intervalMillis = 200;
         long windowMillis = 2_000;
         try (HttpServer server = HttpServer.start(Handlers.status(503))) {
@@ -2488,12 +2524,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
                 Thread.sleep(windowMillis);
 
-                // One post per interval and one outstanding retry at a time; a loop would be in the
-                // hundreds by now.
+                // At most one post a second, the backoff's ceiling where the interval is shorter; a loop
+                // would be in the hundreds by now.
                 int posts = server.getRecorder().count();
-                long most = windowMillis / intervalMillis + 1
-                        + windowMillis / DirectEventProcessor.RETRY_DELAY_MILLIS + 1;
-                assertTrue(posts + " posts in " + windowMillis + "ms", posts >= 3 && posts <= most);
+                long most = windowMillis / DirectEventProcessor.RETRY_DELAY_MILLIS + 1;
+                assertTrue(posts + " posts in " + windowMillis + "ms", posts >= 2 && posts <= most);
 
                 // Offline stops it entirely, kept batch or not.
                 eventProcessor.setOffline(true);
@@ -3230,6 +3265,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 new AnalyticsEventSender(LDUtil.makeHttpProperties(
                         new HttpConfiguration(2000, Collections.emptyMap(), null, false)),
                         logging.logger),
+                new DeliveryRetryState(flushIntervalMillis),
                 eventsUri,
                 diagnosticStore,
                 capacity,
