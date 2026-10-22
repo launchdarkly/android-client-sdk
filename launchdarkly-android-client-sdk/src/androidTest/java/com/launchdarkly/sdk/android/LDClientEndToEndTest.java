@@ -175,12 +175,13 @@ public class LDClientEndToEndTest {
                 .serviceEndpoints(Components.serviceEndpoints().polling(mockPollingServerUri))
                 .build();
 
-        LDClient client = LDClient.init(application, config, contextA, 1);
-        assertFalse("client should not have been initialized", client.isInitialized());
-        assertFalse("client was offline", client.isOffline());
-        assertEquals(flagValueA, client.stringVariation(flagKeyA, "defaultA"));
+        try (LDClient client = LDClient.init(application, config, contextA, 1)) {
+            assertFalse("client should not have been initialized", client.isInitialized());
+            assertFalse("client was offline", client.isOffline());
+            assertEquals(flagValueA, client.stringVariation(flagKeyA, "defaultA"));
 
-        client.identify(contextB).get();
-        assertEquals(flagValueB, client.stringVariation(flagKeyB, "defaultB"));
+            client.identify(contextB).get();
+            assertEquals(flagValueB, client.stringVariation(flagKeyB, "defaultB"));
+        }
     }
 }
