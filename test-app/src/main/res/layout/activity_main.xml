@@ -183,7 +183,8 @@
 
     <!--
         Many evaluations of one flag in a row, timed either side of the event store filling up. See
-        MainActivity#setupOverRefreshButton for what the two numbers mean.
+        MainActivity#setupOverRefreshButton for what the two numbers mean. Next to it, events too large
+        to fit in one batch: see MainActivity#setupFillBatchesButton.
     -->
     <LinearLayout
         android:id="@+id/over_refresh_row"
@@ -202,6 +203,13 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Over-Refresh Eval" />
+
+        <Button
+            android:id="@+id/fill_batches_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Fill 3 Batches" />
     </LinearLayout>
 
     <Space

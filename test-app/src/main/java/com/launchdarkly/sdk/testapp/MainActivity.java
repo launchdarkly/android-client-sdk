@@ -17,6 +17,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConnectionInformation;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
@@ -31,6 +32,7 @@ import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.LDCrashHandler;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +69,16 @@ public class MainActivity extends AppCompatActivity {
      * finishes the tap well inside the ANR window.
      */
     private static final int OVER_CAPACITY_EVALUATIONS = 2000;
+
+    /**
+     * A batch holds at most 2 MiB, so seven of these fit in one and an eighth does not. Large events
+     * rather than many small ones, because the 2000-event capacity is reached long before small events
+     * fill a batch.
+     */
+    private static final int LARGE_EVENT_DATA_CHARS = 256 * 1024;
+
+    /** Seven, seven and six: three batches, the last of them not full. */
+    private static final int LARGE_EVENTS = 20;
 
     /** Null while a persistence change restarts the client, which makes every button a no-op meanwhile. */
     private volatile LDClient ldClient;
@@ -131,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
         setupKillNowButton();
         setupCrashNowButton();
         setupOverRefreshButton();
+        setupFillBatchesButton();
         setupOfflineSwitch();
         setupPersistenceSpinner();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
@@ -452,6 +465,36 @@ public class MainActivity extends AppCompatActivity {
                     flagKey,
                     EVENT_CAPACITY, filling,
                     OVER_CAPACITY_EVALUATIONS, overCapacity);
+            Timber.w(result);
+            ((TextView) findViewById(R.id.result_textView)).setText(result);
+        });
+    }
+
+    /**
+     * Records more events than one batch holds, so a flush sends several requests, each with a payload
+     * ID of its own. Offline, or followed by a kill, it leaves several {@code ready-} files on disk for
+     * the next launch to deliver. Each event's index is in its data, so the dashboard shows whether all
+     * of them arrived and none twice.
+     */
+    private void setupFillBatchesButton() {
+        Button fillBatchesButton = findViewById(R.id.fill_batches_button);
+        fillBatchesButton.setOnClickListener(v -> {
+            if (ldClient == null) {
+                return;
+            }
+            char[] filler = new char[LARGE_EVENT_DATA_CHARS];
+            Arrays.fill(filler, 'x');
+            String padding = new String(filler);
+            for (int i = 1; i <= LARGE_EVENTS; i++) {
+                ldClient.trackData("fill-batches", LDValue.buildObject()
+                        .put("index", i)
+                        .put("of", LARGE_EVENTS)
+                        .put("padding", padding)
+                        .build());
+            }
+            String result = String.format(Locale.US,
+                    "Recorded %d events of %d KiB: three batches of at most 2 MiB",
+                    LARGE_EVENTS, LARGE_EVENT_DATA_CHARS / 1024);
             Timber.w(result);
             ((TextView) findViewById(R.id.result_textView)).setText(result);
         });
