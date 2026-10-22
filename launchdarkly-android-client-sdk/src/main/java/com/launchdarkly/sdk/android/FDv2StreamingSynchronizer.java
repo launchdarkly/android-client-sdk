@@ -195,8 +195,8 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
 
         EventSource es = new EventSource.Builder(connectStrategy)
-                .retryDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
                 .retryDelayStrategy(RetryDelayStrategy.defaultStrategy()
+                        .initialDelay(initialReconnectDelayMillis, TimeUnit.MILLISECONDS)
                         .maxDelay(MAX_RECONNECT_TIME_MS, TimeUnit.MILLISECONDS))
                 .errorStrategy(ErrorStrategy.alwaysContinue())
                 .build();
