@@ -1189,8 +1189,8 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Closes what has been committed into a batch and delivers every batch waiting, queuing one retry
-     * if a batch failed in a way that may pass.
+     * Delivers every batch waiting and then what has been committed since, queuing one retry if a batch
+     * failed in a way that may pass.
      * <p>
      * Runs on the scheduler thread for a requested or periodic delivery, and on the caller's thread
      * at close. Deliveries can therefore overlap: a retry runs a second behind the delivery that
@@ -1204,14 +1204,49 @@ final class DirectEventProcessor implements EventProcessor {
             return DeliveryOutcome.CLOSED_NOTHING;
         }
 
-        long lostEventsMark = commitAndCloseBatch();
-
-        BatchesOutcome outcome = deliverPendingBatches();
-        if (outcome == BatchesOutcome.RETRYABLE) {
+        DeliveryPass pass = deliverWaitingThenNew();
+        if (pass.outcome == BatchesOutcome.RETRYABLE) {
             Future<Boolean> retry = scheduleRetry();
-            return new DeliveryOutcome(false, retry, lostEventsMark);
+            return new DeliveryOutcome(false, retry, pass.lostEventsMark);
         }
-        return new DeliveryOutcome(outcome == BatchesOutcome.DELIVERED, null, lostEventsMark);
+        return new DeliveryOutcome(pass.outcome == BatchesOutcome.DELIVERED, null, pass.lostEventsMark);
+    }
+
+    /** How one pass over the batches went, and the loss count it can answer for. */
+    private static final class DeliveryPass {
+        final BatchesOutcome outcome;
+        /** As {@link DeliveryOutcome#lostEventsMark}. */
+        final long lostEventsMark;
+
+        DeliveryPass(BatchesOutcome outcome, long lostEventsMark) {
+            this.outcome = outcome;
+            this.lostEventsMark = lostEventsMark;
+        }
+    }
+
+    /**
+     * Delivers the batches already waiting and, only once none of them is left blocked, closes what has been
+     * committed into a batch of its own and delivers that.
+     * <p>
+     * Closing first would add a batch for every pass a failure lasts: every flush and every periodic
+     * delivery of an outage would leave one more file, or one more batch held in memory, each with the
+     * summary its commit wrote. Held back, what is committed meanwhile goes on into the open log, which is
+     * closed once it is full or once the batches ahead of it are gone, so an outage costs a batch per
+     * {@link EventLogFormat#MAX_BATCH_SIZE} rather than one per pass. It is committed all the same, since
+     * a pass is a commit point.
+     */
+    private DeliveryPass deliverWaitingThenNew() {
+        BatchesOutcome waiting = deliverPendingBatches();
+        if (waiting == BatchesOutcome.RETRYABLE) {
+            return new DeliveryPass(waiting, commitLeavingTheLogOpen());
+        }
+        long lostEventsMark = commitAndCloseBatch();
+        BatchesOutcome closed = deliverListedBatches();
+        if (closed == BatchesOutcome.RETRYABLE) {
+            return new DeliveryPass(closed, lostEventsMark);
+        }
+        boolean delivered = waiting == BatchesOutcome.DELIVERED && closed == BatchesOutcome.DELIVERED;
+        return new DeliveryPass(delivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED, lostEventsMark);
     }
 
     /**
@@ -1239,6 +1274,19 @@ final class DirectEventProcessor implements EventProcessor {
         }
     }
 
+    /**
+     * {@link #commitAndCloseBatch()} for a pass that found an earlier batch blocked, and so closes nothing.
+     * The mark is as of this commit, the last point anything the caller recorded was staged.
+     *
+     * @return the loss count as of the commit, for {@link #takeEventsLost(long)}
+     */
+    private long commitLeavingTheLogOpen() {
+        synchronized (commitLock) {
+            commitDurably();
+            return lostEvents.get();
+        }
+    }
+
     private enum BatchesOutcome { DELIVERED, FAILED, RETRYABLE }
 
     /**
@@ -1250,6 +1298,11 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private BatchesOutcome deliverPendingBatches() {
         reportDiscarded(store.discardExpired());
+        return deliverListedBatches();
+    }
+
+    /** {@link #deliverPendingBatches()} without the discard, for a second pass moments after the first. */
+    private BatchesOutcome deliverListedBatches() {
         boolean allDelivered = true;
         for (EventStore.Batch batch : store.pendingBatches()) {
             if (disabled || offline.get()) {
@@ -1292,6 +1345,10 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * The one retry. A failure here is not retried again; the batches wait on disk, or in memory, for the
      * next flush.
+     * <p>
+     * A pass like the delivery's rather than only the batches it left: the delivery may have closed
+     * nothing, behind a batch that was blocked, and a {@code true} has to mean that the events the
+     * caller was waiting on went too.
      */
     private boolean retryPendingBatches() {
         synchronized (submitLock) {
@@ -1304,7 +1361,7 @@ final class DirectEventProcessor implements EventProcessor {
             return false;
         }
         try {
-            return deliverPendingBatches() == BatchesOutcome.DELIVERED;
+            return deliverWaitingThenNew().outcome == BatchesOutcome.DELIVERED;
         } catch (RuntimeException e) {
             logUnexpectedError(e);
             return false;

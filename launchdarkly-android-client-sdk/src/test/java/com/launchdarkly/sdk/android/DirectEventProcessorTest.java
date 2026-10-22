@@ -2158,6 +2158,40 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void flushesDuringAnOutageCloseNoBatchesBehindTheOneBlocked() throws Exception {
+        // A batch per flush would grow without bound for as long as an outage lasts: files on the disk,
+        // or batches held in memory, each with a summary of its own.
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(DEFAULT_CAPACITY), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "blocked", LDValue.ofNull(), null);
+                for (int flush = 0; flush < 3; flush++) {
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    // The attempt and its retry, both of the batch at the head.
+                    for (int attempt = 0; attempt < 2; attempt++) {
+                        RequestInfo refused = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                        assertTrue(refused.getBody().contains("\"key\":\"blocked\""));
+                    }
+                    eventProcessor.recordCustomEvent(CONTEXT, "during-" + flush, LDValue.ofNull(), null);
+                }
+                service.setTarget(Handlers.status(202));
+
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo head = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(head.getBody().contains("\"key\":\"blocked\""));
+                RequestInfo since = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                for (int flush = 0; flush < 3; flush++) {
+                    assertTrue("during-" + flush, since.getBody().contains("\"key\":\"during-" + flush + "\""));
+                }
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void everyRecoverableStatusKeepsTheBatchPastTheRetry() throws Exception {
         // The statuses the SDK treats as worth trying again; each has to keep the batch, not just 503.
         for (int status : new int[] { 400, 408, 429, 500, 502, 504 }) {
