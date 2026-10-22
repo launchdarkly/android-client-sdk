@@ -125,10 +125,16 @@ final class EventLogFormat {
     static final class Payload {
         final byte[] bytes;
         final int length;
+        /**
+         * How many events made it in: fewer than the batch holds where a frame after the first is torn or
+         * fails its checksum, since assembly stops there.
+         */
+        final int eventCount;
 
-        Payload(byte[] bytes, int length) {
+        Payload(byte[] bytes, int length, int eventCount) {
             this.bytes = bytes;
             this.length = length;
+            this.eventCount = eventCount;
         }
 
         byte[] toByteArray() {
@@ -169,7 +175,7 @@ final class EventLogFormat {
         }
         log[0] = '[';
         log[cursor - 1] = ']';
-        return new Payload(log, cursor);
+        return new Payload(log, cursor, events);
     }
 
     /**

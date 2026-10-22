@@ -123,6 +123,20 @@ public class EventLogFormatTest {
 
         assertSame(log, payload.bytes);
         assertArrayEquals(expected, Arrays.copyOf(log, payload.length));
+        assertEquals(3, payload.eventCount);
+    }
+
+    @Test
+    public void saysHowManyEventsMadeItIntoThePayloadOfALogDamagedAfterItsFirstFrame() {
+        byte[] log = log("event-0", "event-1", "event-2");
+        log[log.length - 1] ^= 0x01;
+
+        EventLogFormat.Payload payload = EventLogFormat.assemblePayloadInPlace(log, Integer.MAX_VALUE);
+
+        assertEquals(2, payload.eventCount);
+        assertEquals(LDValue.parse("[" + new String(event("event-0"), StandardCharsets.UTF_8) + ","
+                        + new String(event("event-1"), StandardCharsets.UTF_8) + "]"),
+                LDValue.parse(new String(payload.toByteArray(), StandardCharsets.UTF_8)));
     }
 
     @Test

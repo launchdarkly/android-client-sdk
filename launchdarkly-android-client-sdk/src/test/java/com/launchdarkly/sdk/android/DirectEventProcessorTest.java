@@ -455,6 +455,49 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void aStoredBatchDamagedAfterItsFirstFrameIsSentShortAndReportedAsLosingTheRest() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(202))) {
+            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
+                    DEFAULT_CAPACITY, true, logging.logger);
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                // As above, past the startup listing, so the flush is the delivery that finds the batch.
+                eventProcessor.setOffline(false);
+                scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+                for (String key : new String[] { "kept-0", "kept-1", "torn" }) {
+                    store.stage(("{\"kind\":\"custom\",\"key\":\"" + key + "\"}").getBytes(StandardCharsets.UTF_8));
+                }
+                EventStore.Batch damaged = closeOne(store);
+                File damagedFile = findFile(eventsDirectory.getRoot(), "ready-" + damaged.payloadId + ".3");
+                assertNotNull(damagedFile);
+                byte[] log = java.nio.file.Files.readAllBytes(damagedFile.toPath());
+                log[log.length - 1] ^= 0x01;
+                java.nio.file.Files.write(damagedFile.toPath(), log);
+
+                assertFalse("a flush that sent a batch short reported success",
+                        awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                RequestInfo sent = server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                assertTrue(sent.getBody().contains("kept-0"));
+                assertTrue(sent.getBody().contains("kept-1"));
+                assertFalse(sent.getBody().contains("torn"));
+                assertFalse(damagedFile.exists());
+
+                // Reported once: the next flush has nothing of it to answer for.
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
     /** Closes what a test expects to be exactly one batch, as anything short of a failed write leaves. */
     private static EventStore.Batch closeOne(EventStore store) {
         List<EventStore.Batch> closed = store.closeBatch();

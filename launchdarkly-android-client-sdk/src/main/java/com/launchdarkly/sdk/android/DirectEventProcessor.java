@@ -1421,12 +1421,15 @@ final class DirectEventProcessor implements EventProcessor {
             store.remove(batch);
             return BatchesOutcome.DELIVERED;
         }
+        // Damage after the first frame: what came before it is sent, and the rest is gone with the file. Counted
+        // once the batch is removed rather than now, since one kept for a retry is read, and found short, again.
+        int leftOut = Math.max(0, batch.eventCount - payload.eventCount);
         if (diagnosticStore != null) {
-            diagnosticStore.recordEventsInBatch(batch.eventCount);
+            diagnosticStore.recordEventsInBatch(payload.eventCount);
         }
         store.startedSending(batch);
         try {
-            EventSender.Result result = analyticsEventSender.sendBatch(payload, batch.eventCount,
+            EventSender.Result result = analyticsEventSender.sendBatch(payload, payload.eventCount,
                     batch.payloadId, eventsUri);
             handleResponse(result);
             if (result.isSuccess() || result.isMustShutDown()) {
@@ -1434,6 +1437,11 @@ final class DirectEventProcessor implements EventProcessor {
                 // them. Anything else - a timeout, a 503, no network - leaves the batch where it is, to
                 // be tried again by the retry, the next flush or the next run of the application.
                 store.remove(batch);
+                if (result.isSuccess() && leftOut > 0) {
+                    logger.error("Dropped {} damaged stored event(s) from a batch it delivered", leftOut);
+                    lostEvents.addAndGet(leftOut);
+                    return BatchesOutcome.FAILED;
+                }
                 if (result.isSuccess()) {
                     return BatchesOutcome.DELIVERED;
                 }
