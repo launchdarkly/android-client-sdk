@@ -387,7 +387,7 @@ public class EventStoreMultiProcessTest {
         // apart: a listing that read would refuse this batch.
         List<File> ready = filesNamed("ready-");
         assertEquals(1, ready.size());
-        assertEquals("ready-" + batch.payloadId + "-2", ready.get(0).getName());
+        assertEquals("ready-" + batch.payloadId + ".2", ready.get(0).getName());
         overwrite(ready.get(0), "not an event log".getBytes(Charset.forName("UTF-8")));
 
         // The process that closed it and one that did not both count it from the name alone.
@@ -429,12 +429,12 @@ public class EventStoreMultiProcessTest {
     }
 
     /**
-     * Renames a batch to the name a version that did not count them in the name gave it, which is what
-     * such a version leaves behind for this one to deliver.
+     * Renames a batch to a name without a count, which is what a recovery that could not read a log
+     * leaves behind for a listing to count.
      */
     private File asUncountedName(File batch) {
         String name = batch.getName();
-        File renamed = new File(batch.getParentFile(), name.substring(0, name.lastIndexOf('-')));
+        File renamed = new File(batch.getParentFile(), name.substring(0, name.lastIndexOf('.')));
         assertTrue("could not rename " + name, batch.renameTo(renamed));
         return renamed;
     }
@@ -484,6 +484,36 @@ public class EventStoreMultiProcessTest {
         List<EventStore.Batch> pending = storeFor().pendingBatches();
         assertEquals(1, pending.size());
         assertEquals(payloadId, pending.get(0).payloadId);
+        assertEquals(1, pending.get(0).eventCount);
+    }
+
+    @Test
+    public void aNameWithAFieldAfterTheCountIsReadByPosition() throws IOException {
+        EventStore later = storeFor();
+        later.stage(event("first"));
+        later.stage(event("second"));
+        EventStore.Batch batch = closeOne(later);
+        File file = filesNamed("ready-").get(0);
+        // What a later version might add, which this one has no use for.
+        assertTrue(file.renameTo(new File(file.getParentFile(), file.getName() + ".v2-something")));
+
+        List<EventStore.Batch> pending = storeFor().pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(batch.payloadId, pending.get(0).payloadId);
+        assertEquals(2, pending.get(0).eventCount);
+    }
+
+    @Test
+    public void aCountThatDoesNotParseIsCountedByReadingTheBatch() {
+        EventStore previous = storeFor();
+        previous.stage(event("only"));
+        EventStore.Batch batch = closeOne(previous);
+        File file = asUncountedName(filesNamed("ready-").get(0));
+        assertTrue(file.renameTo(new File(file.getParentFile(), file.getName() + ".not-a-count")));
+
+        List<EventStore.Batch> pending = storeFor().pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(batch.payloadId, pending.get(0).payloadId);
         assertEquals(1, pending.get(0).eventCount);
     }
 

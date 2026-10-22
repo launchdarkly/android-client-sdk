@@ -401,7 +401,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertNotNull(damaged);
                 // Its name still counts it, so it is listed without being read; the damage is only found on
                 // sending.
-                File damagedFile = findFile(eventsDirectory.getRoot(), "ready-" + damaged.payloadId + "-1");
+                File damagedFile = findFile(eventsDirectory.getRoot(), "ready-" + damaged.payloadId + ".1");
                 assertNotNull(damagedFile);
                 java.nio.file.Files.write(damagedFile.toPath(),
                         "not an event log".getBytes(StandardCharsets.UTF_8));
@@ -2492,7 +2492,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         EventStore.Batch damaged = closeOne(previousRun);
         previousRun.close();
         // Its name still counts it, so it is listed without being read; the damage is only found on sending.
-        File damagedFile = new File(directory, "ready-" + damaged.payloadId + "-" + damaged.eventCount);
+        File damagedFile = new File(directory, "ready-" + damaged.payloadId + "." + damaged.eventCount);
         try (FileOutputStream out = new FileOutputStream(damagedFile)) {
             out.write("not an event log".getBytes(StandardCharsets.UTF_8));
         }

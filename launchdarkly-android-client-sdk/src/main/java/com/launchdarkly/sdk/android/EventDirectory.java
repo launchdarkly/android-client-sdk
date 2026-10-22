@@ -41,7 +41,8 @@ import java.util.UUID;
 class EventDirectory {
     /**
      * Names a log closed off for delivery. The rest of the name is the batch's payload ID and how many
-     * events are in it, {@code ready-<payloadId>-<count>}.
+     * events are in it, {@code ready-<payloadId>.<count>}. Anything more a batch needs to say belongs in a
+     * frame type readers skip, rather than in the name.
      * <p>
      * The count is in the name so that listing a batch this process did not close costs a directory entry
      * rather than a read of the whole file. That is what every batch is at startup: the ones a previous run
@@ -51,6 +52,7 @@ class EventDirectory {
      * A batch is never appended to once it is closed, so the count is as good as the file is.
      */
     private static final String BATCH_PREFIX = "ready-";
+    private static final char NAME_FIELD_SEPARATOR = '.';
     private static final String DIRECTORY_NAME = "com.launchdarkly.events";
 
     /** Where one store keeps its files. */
@@ -198,44 +200,42 @@ class EventDirectory {
 
     /** Requires {@code ioLock}. */
     private File newBatchFile(String payloadId, int events) {
-        return new File(directory(), BATCH_PREFIX + payloadId + "-" + events);
+        return new File(directory(), BATCH_PREFIX + payloadId + NAME_FIELD_SEPARATOR + events);
     }
 
     /**
-     * A batch as its filename gives it: everything between the prefix and the count is the payload ID.
+     * The count in a batch's name, {@code ready-<payloadId>.<count>}: the second field, by position.
+     * <p>
+     * Fields are split at {@link #NAME_FIELD_SEPARATOR}, which a payload ID never contains, so nothing
+     * about the count's own characters is needed to tell it apart. Fields after it, which a later
+     * version might add, are ignored.
      *
-     * @return the count the name ends with, or -1 where it has none, which is how a version that did not
-     *   write one named its batches. A payload ID cannot be mistaken for a count: it is a UUID, whose
-     *   last group is twelve characters. Twelve digits are more than an {@code int} holds unless they
-     *   start with a zero, which a count never does.
+     * @return the count, or -1 where the name has none or it does not parse - a batch a recovery could not
+     *   read, which is read once to count it
      */
     private static int eventsInName(String fileName) {
-        int split = fileName.lastIndexOf('-');
-        if (split < BATCH_PREFIX.length()) {
+        String[] fields = fileName.substring(BATCH_PREFIX.length()).split("\\" + NAME_FIELD_SEPARATOR, -1);
+        if (fields.length < 2 || fields[1].isEmpty()) {
             return -1;
         }
-        String suffix = fileName.substring(split + 1);
-        if (suffix.isEmpty() || (suffix.length() > 1 && suffix.charAt(0) == '0')) {
-            return -1;
-        }
-        for (int i = 0; i < suffix.length(); i++) {
-            char c = suffix.charAt(i);
+        for (int i = 0; i < fields[1].length(); i++) {
+            char c = fields[1].charAt(i);
             if (c < '0' || c > '9') {
                 return -1;
             }
         }
         try {
-            return Integer.parseInt(suffix);
+            return Integer.parseInt(fields[1]);
         } catch (NumberFormatException e) {
             return -1;
         }
     }
 
-    /** The payload ID a filename carries, given what {@link #eventsInName} made of it. */
-    private static String payloadIdInName(String fileName, int events) {
-        return events < 0
-                ? fileName.substring(BATCH_PREFIX.length())
-                : fileName.substring(BATCH_PREFIX.length(), fileName.lastIndexOf('-'));
+    /** The payload ID in a batch's name: the first field, whatever follows it. */
+    private static String payloadIdInName(String fileName) {
+        String rest = fileName.substring(BATCH_PREFIX.length());
+        int end = rest.indexOf(NAME_FIELD_SEPARATOR);
+        return end < 0 ? rest : rest.substring(0, end);
     }
 
     // MARK: writing
@@ -323,7 +323,7 @@ class EventDirectory {
         List<EventStore.Batch> batches = new ArrayList<>();
         for (File file : readyFilesOldestFirst()) {
             int events = eventsInName(file.getName());
-            String payloadId = payloadIdInName(file.getName(), events);
+            String payloadId = payloadIdInName(file.getName());
             if (isDeliveredButUndeleted(payloadId, file)) {
                 continue;
             }
@@ -660,7 +660,7 @@ class EventDirectory {
             String name = file.getName();
             if (name.startsWith(BATCH_PREFIX)) {
                 int named = eventsInName(name);
-                String payloadId = payloadIdInName(name, named);
+                String payloadId = payloadIdInName(name);
                 if (sending.contains(payloadId) || deliveredButUndeleted.contains(payloadId)) {
                     continue;
                 }
