@@ -219,8 +219,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aDeferredTrackReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+                DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
         CountDownLatch deliveryAnswers = new CountDownLatch(1);
         try {
@@ -251,8 +250,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
         diagnosticExecutors.add(diagnosticExecutor);
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+                DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
                 UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
                 scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
@@ -284,8 +282,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // time it returns rather than whenever the commit executor gets to them.
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+                DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
         CountDownLatch deliveryAnswers = new CountDownLatch(1);
         try {
@@ -311,8 +308,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // writes on its own thread rather than queueing the write the way track does. Holding the commit
         // executor keeps a queued write off the disk, so only a write on this thread can pass.
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+                DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY,
                 EventUtil.makeEventsTaskExecutor());
         CountDownLatch commitsResume = new CountDownLatch(1);
@@ -360,8 +356,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
             diagnosticExecutors.add(diagnosticExecutor);
             EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                    DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                    EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+                    DEFAULT_CAPACITY, true, logging.logger);
             DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
                     server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
                     scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
@@ -389,8 +384,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void aStoredBatchThisVersionCannotReadIsDroppedAndReportedWhileTheRestAreDelivered() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(202))) {
             EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                    DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                    EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+                    DEFAULT_CAPACITY, true, logging.logger);
             ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
             diagnosticExecutors.add(diagnosticExecutor);
             ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
@@ -963,8 +957,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     public void storedEventsPastTheMaximumAgeAreDiscardedAsDroppedWithoutFailingAFlush() throws Exception {
         assumePersisting();
         EventStore previousRun = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger);
+                DEFAULT_CAPACITY, true, logging.logger);
         previousRun.stage(LDValue.buildObject().put("kind", "custom").put("key", "old-1").build()
                 .toJsonString().getBytes(StandardCharsets.UTF_8));
         previousRun.stage(LDValue.buildObject().put("kind", "custom").put("key", "old-2").build()
@@ -2953,8 +2946,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         return makeEventProcessor(diagnosticSender, eventsUri, diagnosticStore, flushIntervalMillis,
                 diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor,
                 EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                        DEFAULT_CAPACITY, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                        EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logging.logger),
+                        DEFAULT_CAPACITY, true, logging.logger),
                 DEFAULT_CAPACITY);
     }
 

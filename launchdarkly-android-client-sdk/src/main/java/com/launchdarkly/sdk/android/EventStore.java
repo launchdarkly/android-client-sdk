@@ -1,5 +1,6 @@
 package com.launchdarkly.sdk.android;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
 import com.launchdarkly.logging.LDLogger;
@@ -30,8 +31,8 @@ import java.util.UUID;
  * the process dying is retried on the next run rather than lost.
  * <p>
  * Bytes reach the kernel through an ordinary write and are never {@code fsync}ed. What this defends
- * against is the process dying - which is what an uncaught exception, an ANR kill, a native crash, and
- * the system reclaiming a backgrounded application all are - and a process cannot take back bytes the
+ * against is the process dying, which is what an uncaught exception, an ANR kill, a native crash, and
+ * the system reclaiming a backgrounded application all are. A process cannot take back bytes the
  * kernel already holds. Only losing the kernel itself, to a panic or a power cut, can discard them, and
  * covering that would mean an {@code fsync} per event, which costs milliseconds where this costs
  * microseconds.
@@ -42,8 +43,8 @@ import java.util.UUID;
  * <p>
  * <b>Several processes.</b> An application may declare components in more than one process, and each
  * gets its own copy of the SDK that shares nothing but the filesystem. Only the open log is per-process,
- * named after the process appending to it, which is what keeps two processes from interleaving frames in
- * one file and keeps one process's startup recovery from stealing a log another is still writing to.
+ * named after the process appending to it. That keeps two processes from interleaving frames in one file,
+ * and keeps one process's startup recovery from stealing a log another is still writing to.
  * Closed batches are deliberately left shared: a process that recorded events and then died may never
  * run again, and a batch nobody but that process could see would never be delivered. If two processes
  * do deliver the same batch, its payload ID is the same both times, and LaunchDarkly discards a repeated
@@ -74,10 +75,9 @@ class EventStore implements Closeable {
     private final long eventByteCapacity;
     /** How long a batch may go unwritten before it is discarded rather than delivered. */
     private final long maxAgeMillis;
-    private final LDLogger logger;
 
     /**
-     * Guards the buffer and the counters. Held for a copy and never across a write, so an
+     * Guards the buffer and the counters. Held for a copy and never while writing, so an
      * evaluation recording an event waits on another thread's array copy at worst, never on the disk.
      */
     private final Object bufferLock = new Object();
@@ -101,7 +101,7 @@ class EventStore implements Closeable {
     /**
      * Events in closed batches: those the {@link #disk} is holding plus those in {@link #inMemoryBatches}.
      * Changed only in the critical section that changes one of those, so that it cannot drift from them; a
-     * total worked out from them and written afterwards would overwrite a close or a removal in between.
+     * total worked out from them and written afterward would overwrite a close or a removal in between.
      */
     private int closedEvents;
     /**
@@ -128,7 +128,7 @@ class EventStore implements Closeable {
      */
     private int reservedEvents;
     /**
-     * Whether events are being written to disk, which is what the application asked for until a write
+     * Whether events are being written to disk, which is what the application asked for until writing
      * fails and the store gives up on persistence for the rest of the session.
      * <p>
      * Written under {@link #bufferLock} but volatile, so {@link #isPersisting} can answer without it:
@@ -139,9 +139,9 @@ class EventStore implements Closeable {
     /**
      * Guards {@link #inMemoryBatches}.
      * <p>
-     * Its own lock rather than {@code ioLock}, so that a store the application told to keep off the disk -
-     * where held batches are the only ones there are - never waits on the lock disk I/O is serialized
-     * under. Taken inside {@code ioLock} where there is a disk, never the other way round, and taken
+     * Its own lock rather than {@code ioLock}, so that a store the application told to keep off the disk
+     * never waits on the lock disk I/O is serialized under; there, held batches are the only ones there
+     * are. Taken inside {@code ioLock} where there is a disk, never the other way round, and taken
      * before {@code bufferLock}, never after it.
      */
     private final Object heldLock = new Object();
@@ -156,16 +156,17 @@ class EventStore implements Closeable {
     private final Map<String, HeldBatch> inMemoryBatches = new LinkedHashMap<>();
 
     /**
-     * Whether the directories of other environments have been looked at for ones nobody uses any more,
+     * Whether the directories of other environments have been looked at for ones nobody uses anymore,
      * which is done once per process. Only to be used while holding {@link #ioLock}.
      */
     private boolean hasDiscardedAbandonedEnvironments;
 
-    EventStore(File directory, int capacity, boolean persistEvents, LDLogger logger) {
-        this(directory, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
+    EventStore(final File directory, int capacity, boolean persistEvents, LDLogger logger) {
+        this(() -> directory, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
     }
 
+    @VisibleForTesting
     EventStore(final File directory, int capacity, long byteCapacity, long maxAgeMillis,
                boolean persistEvents, LDLogger logger) {
         this(() -> directory, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
@@ -177,9 +178,8 @@ class EventStore implements Closeable {
         this.byteCapacity = byteCapacity > 0 ? byteCapacity : EventProcessorBuilder.DEFAULT_CAPACITY_BYTES;
         this.eventByteCapacity = this.byteCapacity - this.byteCapacity / 5;
         this.maxAgeMillis = maxAgeMillis > 0 ? maxAgeMillis : EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS;
-        this.logger = logger;
         // An application that has not asked for persistence gets the same store running the same way it
-        // runs once a write has failed: events are held, delivered, and lost only if the process dies.
+        // runs once writing has failed: events are held, delivered, and lost only if the process dies.
         // It also skips every read, so batches a run with persistence turned on left behind stay on disk
         // until persistence is turned back on.
         this.persistEvents = persistEvents;
@@ -189,13 +189,11 @@ class EventStore implements Closeable {
     }
 
     /**
-     * Creates the store for one environment of one process, in a directory the caller already has. The SDK
-     * itself uses the {@link PlatformState} overload.
+     * Creates the store for one environment of one process, in a directory the caller already has, with the
+     * default byte capacity and maximum age. The SDK itself uses the {@link PlatformState} overload.
      *
      * @param noBackupFilesDir where the platform lets the SDK keep files it must not lose
      * @param mobileKey identifies the environment, so several clients stay out of each other's way
-     * @param byteCapacity the most bytes the store holds, a fifth of which only summaries may use
-     * @param maxAgeMillis how long a batch may go unwritten before it is discarded
      * @param persistEvents whether the application asked for events to outlive the process
      */
     @VisibleForTesting
@@ -203,13 +201,12 @@ class EventStore implements Closeable {
             File noBackupFilesDir,
             String mobileKey,
             int capacity,
-            long byteCapacity,
-            long maxAgeMillis,
             boolean persistEvents,
             LDLogger logger
     ) {
         return new EventStore(EventDirectory.defaultDirectory(noBackupFilesDir, mobileKey), capacity,
-                byteCapacity, maxAgeMillis, persistEvents, logger);
+                EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
+                persistEvents, logger);
     }
 
     /**
@@ -240,8 +237,8 @@ class EventStore implements Closeable {
 
     /**
      * A batch being sent is left out so that a flush makes room as soon as it sends, as it did when events
-     * were only held in memory; otherwise an event recorded while the request is out is refused for a batch
-     * LaunchDarkly may already have. A send that fails puts the batch back, so a full store can briefly
+     * were only held in memory. Otherwise an event recorded while the request is out is refused for a batch
+     * LaunchDarkly may already have. A failed request puts the batch back, so a full store can briefly
      * hold capacity plus that batch: one at a time, since deliveries run one after another, and no more than
      * {@link EventLogFormat#MAX_BATCH_SIZE}.
      *
@@ -325,7 +322,7 @@ class EventStore implements Closeable {
     }
 
     /**
-     * @return whether a commit writes anything, which is false where persistence is off and once a write
+     * @return whether a commit writes anything, which is false where persistence is off and once writing
      *   has failed and the store has given up on it
      */
     boolean isPersisting() {
@@ -412,8 +409,8 @@ class EventStore implements Closeable {
      * Commits, then closes the open log into a batch to deliver, and whatever is still staged in memory
      * into another.
      * <p>
-     * Both can hold events at once. A write that fails after earlier ones succeeded gives up on
-     * persistence with those earlier events in the log and the failed ones back in memory, and closing
+     * Both can hold events at once. Writing that fails after earlier writes succeeded gives up on
+     * persistence with those earlier events in the log and the failed ones back in memory. Closing
      * only the log would leave the rest for a delivery that reports success without them.
      *
      * @return the batches this closed, oldest first: the one from the log, then those from memory; usually
@@ -738,7 +735,7 @@ class EventStore implements Closeable {
     }
 
     /**
-     * Counts a batch against capacity again, after a send that did not end with it removed. Does nothing
+     * Counts a batch against capacity again, after a request that did not end with it removed. Does nothing
      * for a batch {@link #remove} already forgot.
      */
     void stoppedSending(Batch batch) {
@@ -791,7 +788,7 @@ class EventStore implements Closeable {
 
     /**
      * Deletes stored events older than the maximum age, so that what an application can no longer deliver
-     * does not keep the device's storage, or this store's capacity, for ever.
+     * does not keep the device's storage, or this store's capacity, forever.
      * <p>
      * Its own directory first, under {@code ioLock}; then, once per process, the directories of environments
      * nothing has written to for as long, outside it, since none of that is this store's.
@@ -811,7 +808,7 @@ class EventStore implements Closeable {
                 sending = new HashSet<>(sendingBatches.keySet());
             }
             EventDirectory.Discarded result = disk.discard(cutoff, sending);
-            // In the same critical section as the delete, as for any other path that loses events without
+            // In the same critical section as the deletion, as for any other path that loses events without
             // delivering them, so the store cannot go on counting what is gone.
             synchronized (bufferLock) {
                 closedEvents -= result.counted.events;
@@ -941,7 +938,7 @@ class EventStore implements Closeable {
         return true;
     }
 
-    /** Overridable so a test can make a write fail partway through a session, as a full disk does. */
+    /** Overridable so a test can make writing fail partway through a session, as a full disk does. */
     @VisibleForTesting
     FileOutputStream openForAppending(File file) throws IOException {
         return new FileOutputStream(file, true);
@@ -975,7 +972,11 @@ class EventStore implements Closeable {
         }
     }
 
-    /** Overridable so a test can make a read fail while the file is intact. */
+    /**
+     * Overridable so a test can make a read fail while the file is intact. Not {@code Files.newInputStream},
+     * which needs API 26.
+     */
+    @SuppressWarnings("IOStreamConstructor")
     @VisibleForTesting
     InputStream openForReading(File file) throws IOException {
         return new FileInputStream(file);
@@ -1010,6 +1011,7 @@ class EventStore implements Closeable {
             return payloadId.hashCode() * 31 + eventCount;
         }
 
+        @NonNull
         @Override
         public String toString() {
             return "Batch(" + payloadId + ", " + eventCount + " events)";

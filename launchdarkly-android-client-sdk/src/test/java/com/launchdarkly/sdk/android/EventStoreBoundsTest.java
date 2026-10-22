@@ -52,9 +52,7 @@ public class EventStoreBoundsTest {
     }
 
     private EventStore environmentStore(String mobileKey) {
-        return EventStore.create(tempFolder.getRoot(), mobileKey, CAPACITY,
-                EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
-                true, logger);
+        return EventStore.create(tempFolder.getRoot(), mobileKey, CAPACITY, true, logger);
     }
 
     /** An event whose frame in the log, header included, is exactly {@code frameBytes} long. */
@@ -452,9 +450,7 @@ public class EventStoreBoundsTest {
         abandoned.close();
         ageContents(abandoned.getDirectory(), 8);
 
-        EventStore store = EventStore.create(tempFolder.getRoot(), MOBILE_KEY, CAPACITY,
-                EventProcessorBuilder.DEFAULT_CAPACITY_BYTES, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS,
-                false, logger);
+        EventStore store = EventStore.create(tempFolder.getRoot(), MOBILE_KEY, CAPACITY, false, logger);
 
         assertEquals(0, store.discardExpired());
         assertEquals(1, abandoned.getDirectory().listFiles().length);

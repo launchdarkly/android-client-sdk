@@ -10,7 +10,6 @@ import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.ContextKind;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
-import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.internal.events.Event;
 
 import org.junit.Before;
@@ -161,8 +160,7 @@ public class EventPersistenceBenchmark {
     public void recordingCostPerCall() throws IOException {
         final OutboundEventBuffer buffer = makeBuffer(noRedaction());
         final EventStore store = EventStore.create(eventsDirectory.getRoot(), "benchmark-key",
-                Integer.MAX_VALUE, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger);
+                Integer.MAX_VALUE, true, logger);
         final LDContext context = makeContext(ContextShape.STUB, "benchmark-key");
 
         try {
@@ -233,11 +231,9 @@ public class EventPersistenceBenchmark {
         // does not charge the next one for the file it had already grown.
         for (int calls : BULK_SIZES) {
             final EventStore committing = EventStore.create(eventsDirectory.newFolder(), "benchmark-key",
-                    Integer.MAX_VALUE, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                    EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger);
+                    Integer.MAX_VALUE, true, logger);
             final EventStore staging = EventStore.create(eventsDirectory.newFolder(), "benchmark-key",
-                    Integer.MAX_VALUE, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
-                    EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger);
+                    Integer.MAX_VALUE, true, logger);
             try {
                 List<DistributionMeasurement> results = new ArrayList<>();
 
