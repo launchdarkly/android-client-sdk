@@ -265,7 +265,8 @@ class EventDirectory {
         /** The batch the log became, or null where the close failed. */
         final EventStore.Batch batch;
         /**
-         * Where the close failed, whether the log is still there to try again with. Where it is not - a
+         * Where the close failed, whether the log is still there to try again with; it is then still the
+         * open log, and its events still count as the open log's. Where it is not - a
          * directory the platform reclaimed, say - its events are gone, and they have to stop counting
          * against capacity, or the store would refuse events for the rest of the session.
          */

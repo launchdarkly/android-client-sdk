@@ -784,6 +784,36 @@ public class EventStoreMultiProcessTest {
     }
 
     @Test
+    public void aLogThatCouldNotBeClosedStaysOpenAndIsClosedWholeByTheNextClose() throws IOException {
+        EventStore store = storeFor();
+        store.stage(event("first"));
+        store.stage(event("second"));
+        store.commit();
+
+        File directory = sharedDirectory();
+        // A directory with no write permission is one its entries cannot be renamed in, which is what the
+        // filesystem refusing to close the log looks like from here.
+        assertTrue("could not make the directory read-only", directory.setWritable(false));
+        try {
+            assertTrue("closed a log with the directory read-only", store.closeBatch().isEmpty());
+        } finally {
+            assertTrue("could not make the directory writable again", directory.setWritable(true));
+        }
+        assertEquals(2, store.getPendingEventCount());
+
+        // Appended to the same log, so one batch holds all three and is named for as many.
+        store.stage(event("third"));
+        EventStore.Batch closed = closeOne(store);
+        assertEquals(3, closed.eventCount);
+        assertEquals(Arrays.asList("first", "second", "third"), keysIn(store.body(closed)));
+        assertTrue("a log was left behind", filesNamed("pending-").isEmpty());
+
+        List<EventStore.Batch> listed = storeFor().pendingBatches();
+        assertEquals(1, listed.size());
+        assertEquals(3, listed.get(0).eventCount);
+    }
+
+    @Test
     public void aBatchAnotherProcessDeliveredStopsCountingOnce() {
         EventStore main = storeFor();
         EventStore service = storeFor();

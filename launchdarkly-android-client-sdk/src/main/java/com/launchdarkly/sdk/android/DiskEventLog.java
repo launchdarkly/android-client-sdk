@@ -156,11 +156,15 @@ final class DiskEventLog {
     }
 
     /**
-     * Moves the log to {@code destination}, so that the next append starts a new one. The stream is closed
-     * whether the move succeeds or not.
+     * Moves the log to {@code destination}, so that the next append starts a new one.
      * <p>
      * Closed after the move rather than before it, so that the log is still locked while it moves: unlocked
      * under this name, it could be taken by another process recovering logs in between.
+     * <p>
+     * A move that fails leaves a log that is still there open and locked, to be appended to and moved
+     * again. Closed, it would be no longer this store's to write, and the next append would start another
+     * log while the caller still counted this one's events as the open log's: they would be out of reach
+     * this session, and the next batch would be named for more events than it holds.
      * <p>
      * Requires {@code ioLock}.
      *
@@ -168,11 +172,11 @@ final class DiskEventLog {
      */
     boolean closeMovingTo(File destination) {
         assert Thread.holdsLock(ioLock);
-        try {
-            return file.renameTo(destination);
-        } finally {
+        boolean moved = file.renameTo(destination);
+        if (moved || !file.exists()) {
             closeOutput();
         }
+        return moved;
     }
 
     /**
