@@ -113,6 +113,8 @@ class EventDirectory {
     // Guarded by ioLock, and null until locateHoldingIoLock has run.
     private File directory;
     private DiskEventLog diskLog;
+    /** Whether {@link #openInThisProcess} counts this store, from locating the directory until closing. */
+    private boolean countedAsOpen;
 
     /**
      * What this process knows about each batch in the directory, by payload ID, which is how everything
@@ -163,6 +165,31 @@ class EventDirectory {
      */
     private final Set<String> deliveredButUndeleted = new HashSet<>();
 
+    /**
+     * The batches this store has a request out for, by payload ID: the file each was locked under, so the lock
+     * is released from that file even once the batch has been removed or dropped from a listing, and how many
+     * of this store's deliveries are sending it.
+     * <p>
+     * Only to be used while holding {@code ioLock}.
+     */
+    private final Map<String, Sending> sending = new HashMap<>();
+
+    private static final class Sending {
+        final File file;
+        int senders;
+
+        Sending(File file) {
+            this.file = file;
+        }
+    }
+
+    /**
+     * The directories of the stores open in this process, by absolute path, with how many stores have each
+     * open. Another environment's sweep leaves these alone, however long it is since they were written: a
+     * store that is open may be about to write, or be sending a batch older than the cutoff.
+     */
+    private static final Map<String, Integer> openInThisProcess = new HashMap<>();
+
     EventDirectory(Location location, Object ioLock, LDLogger logger, Reader reader,
                    DiskEventLog.Opener opener) {
         this.location = location;
@@ -179,6 +206,17 @@ class EventDirectory {
             File resolved = location.directory();
             diskLog = new DiskEventLog(resolved, ioLock, opener, logger);
             directory = resolved;
+            countedAsOpen = true;
+            synchronized (openInThisProcess) {
+                Integer stores = openInThisProcess.get(resolved.getAbsolutePath());
+                openInThisProcess.put(resolved.getAbsolutePath(), stores == null ? 1 : stores + 1);
+            }
+        }
+    }
+
+    private static boolean isOpenInThisProcess(File environment) {
+        synchronized (openInThisProcess) {
+            return openInThisProcess.containsKey(environment.getAbsolutePath());
         }
     }
 
@@ -315,13 +353,58 @@ class EventDirectory {
         return new LogClose(new EventStore.Batch(payloadId, events), true);
     }
 
-    /** Closes the descriptor, leaving everything where it is. Requires {@code ioLock}. */
+    /**
+     * Closes the descriptor, leaving everything where it is, and stops counting the directory as open in this
+     * process. Requires {@code ioLock}.
+     */
     void closeOpenLog() {
         assert Thread.holdsLock(ioLock);
         // Not diskLog(): a store that never wrote has never asked the platform where it lives, and shutting
         // down is no reason to start.
         if (diskLog != null) {
             diskLog.closeOutput();
+        }
+        if (countedAsOpen) {
+            countedAsOpen = false;
+            synchronized (openInThisProcess) {
+                String path = directory.getAbsolutePath();
+                Integer stores = openInThisProcess.get(path);
+                if (stores != null && stores > 1) {
+                    openInThisProcess.put(path, stores - 1);
+                } else {
+                    openInThisProcess.remove(path);
+                }
+            }
+        }
+    }
+
+    /**
+     * Locks a batch against expiry, in this process and every other, for as long as a request for it is out.
+     * Each call is ended by one {@link #stoppedSending}. Requires {@code ioLock}.
+     *
+     * @param events what the caller holding the batch knows it to contain, as for {@link #payload}
+     */
+    void startedSending(String payloadId, int events) {
+        assert Thread.holdsLock(ioLock);
+        Sending batch = sending.get(payloadId);
+        if (batch == null) {
+            batch = new Sending(batchFile(payloadId, events));
+            sending.put(payloadId, batch);
+        }
+        batch.senders++;
+        BatchLocks.startedSending(batch.file);
+    }
+
+    /** Ends one {@link #startedSending}. Requires {@code ioLock}. */
+    void stoppedSending(String payloadId) {
+        assert Thread.holdsLock(ioLock);
+        Sending batch = sending.get(payloadId);
+        if (batch == null) {
+            return;
+        }
+        BatchLocks.stoppedSending(batch.file);
+        if (--batch.senders == 0) {
+            sending.remove(payloadId);
         }
     }
 
@@ -668,7 +751,10 @@ class EventDirectory {
      * rewritten when it is closed, so a batch is discarded only once everything in it is that old. A log is
      * usually recovered rather than left to grow old, so one that gets here is one recovery could not move.
      *
-     * @param sending batches whose request is out, which are left alone however old they are
+     * A batch whose request is out is left alone however old it is, whichever store or process sent it; see
+     * {@link BatchLocks}.
+     *
+     * @param sending batches whose request is out from this store
      */
     Discarded discard(long cutoffMillis, Set<String> sending) {
         assert Thread.holdsLock(ioLock);
@@ -686,12 +772,20 @@ class EventDirectory {
             if (name.startsWith(BATCH_PREFIX)) {
                 int named = eventsInName(name);
                 String payloadId = payloadIdInName(name);
-                if (sending.contains(payloadId) || deliveredButUndeleted.contains(payloadId)) {
+                if (sending.contains(payloadId) || deliveredButUndeleted.contains(payloadId)
+                        || BatchLocks.isSentInThisProcess(file)) {
                     continue;
                 }
                 Stored known = stored.get(payloadId);
                 int held = named >= 0 ? named : known != null ? known.events : eventsReading(file);
-                if (!delete(file)) {
+                if (!BatchLocks.deleteUnlessBeingSent(file)) {
+                    if (!file.exists()) {
+                        // Delivered by another process since the listing: no longer counted, and not dropped.
+                        Stored removed = stored.remove(payloadId);
+                        if (removed != null) {
+                            counted = counted.plus(removed.tally());
+                        }
+                    }
                     continue;
                 }
                 events += held;
@@ -717,7 +811,8 @@ class EventDirectory {
      * process starts in it meanwhile keeps the directory and itself.
      * <p>
      * Only where {@code current} is where the SDK puts environments, so that a store handed some other
-     * directory never goes through that directory's siblings.
+     * directory never goes through that directory's siblings. The directory of a store open in this process
+     * is left alone, and so is a batch some live process is sending; see {@link BatchLocks}.
      *
      * @return how many events were discarded
      */
@@ -732,7 +827,7 @@ class EventDirectory {
         }
         int events = 0;
         for (File environment : environments) {
-            if (environment.equals(current) || !environment.isDirectory()) {
+            if (environment.equals(current) || !environment.isDirectory() || isOpenInThisProcess(environment)) {
                 continue;
             }
             File[] files = environment.listFiles();
@@ -743,9 +838,12 @@ class EventDirectory {
                     }
                     String name = file.getName();
                     if (name.startsWith(BATCH_PREFIX)) {
+                        if (BatchLocks.isSentInThisProcess(file)) {
+                            continue;
+                        }
                         int named = eventsInName(name);
                         int held = named >= 0 ? named : eventsReading(file);
-                        if (delete(file)) {
+                        if (BatchLocks.deleteUnlessBeingSent(file)) {
                             events += held;
                         }
                     } else {

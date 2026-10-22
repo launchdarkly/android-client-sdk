@@ -15,11 +15,13 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -407,6 +409,70 @@ public class EventStoreBoundsTest {
 
         assertEquals(0, store.discardExpired());
         assertTrue(onlyBatchFile(store).exists());
+    }
+
+    @Test
+    public void leavesABatchAnotherStoreInThisProcessIsSendingUntilItStops() {
+        EventStore sender = environmentStore(MOBILE_KEY);
+        stageFrames(sender, 1);
+        EventStore.Batch batch = sender.closeBatch().get(0);
+        sender.startedSending(batch);
+        File file = onlyBatchFile(sender);
+        age(file, 8);
+
+        EventStore other = environmentStore(MOBILE_KEY);
+        assertEquals(0, other.discardExpired());
+        assertTrue(file.exists());
+
+        sender.stoppedSending(batch);
+        assertEquals(1, other.discardExpired());
+        assertFalse(file.exists());
+    }
+
+    @Test
+    public void leavesABatchAnotherProcessIsSendingUntilItStops() throws Exception {
+        EventStore store = environmentStore(MOBILE_KEY);
+        stageFrames(store, 1);
+        store.closeBatch();
+        File file = onlyBatchFile(store);
+        age(file, 8);
+
+        Process sender = new ProcessBuilder(
+                new File(System.getProperty("java.home"), "bin/java").getPath(),
+                "-cp", System.getProperty("java.class.path"),
+                BatchLockHolder.class.getName(), file.getAbsolutePath())
+                .redirectErrorStream(true)
+                .start();
+        try {
+            assertEquals("locked", new BufferedReader(
+                    new InputStreamReader(sender.getInputStream(), StandardCharsets.UTF_8)).readLine());
+
+            assertEquals(0, store.discardExpired());
+            assertTrue("deleted while another process was sending it", file.exists());
+        } finally {
+            sender.getOutputStream().close();
+            assertTrue(sender.waitFor(10, TimeUnit.SECONDS));
+        }
+
+        // The kernel let go of the lock with the process.
+        assertEquals(1, store.discardExpired());
+        assertFalse(file.exists());
+    }
+
+    @Test
+    public void leavesTheDirectoryOfAnotherEnvironmentOpenInThisProcess() {
+        // Open, so it may be about to write, or be sending a batch older than the cutoff; its own store
+        // expires its batches.
+        EventStore open = environmentStore(OTHER_MOBILE_KEY);
+        stageFrames(open, 3);
+        open.closeBatch();
+        File openDirectory = open.getDirectory();
+        ageContents(openDirectory, 8);
+
+        EventStore store = environmentStore(MOBILE_KEY);
+
+        assertEquals(0, store.discardExpired());
+        assertEquals(1, openDirectory.listFiles().length);
     }
 
     @Test

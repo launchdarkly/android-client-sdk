@@ -827,6 +827,9 @@ class EventStore implements Closeable {
      * Does nothing for a batch this store no longer counts - one {@link #remove} forgot, or a listing
      * dropped because another process delivered it - since leaving it out would take its events from the
      * batches still counted.
+     * <p>
+     * A batch on the disk is also locked against expiry, by this process and any other, until
+     * {@link #stoppedSending}: one deleted while its request is out would leave nothing to retry from.
      */
     void startedSending(Batch batch) {
         if (disk == null) {
@@ -835,6 +838,15 @@ class EventStore implements Closeable {
         }
         synchronized (ioLock) {
             startedSendingHoldingIoLock(batch.payloadId);
+            if (!isHeldInMemory(batch.payloadId)) {
+                disk.startedSending(batch.payloadId, batch.eventCount);
+            }
+        }
+    }
+
+    private boolean isHeldInMemory(String payloadId) {
+        synchronized (heldLock) {
+            return inMemoryBatches.containsKey(payloadId);
         }
     }
 
@@ -869,9 +881,15 @@ class EventStore implements Closeable {
 
     /**
      * Counts a batch against capacity again, after a request that did not end with it removed. Does nothing
-     * for a batch {@link #remove} already forgot.
+     * for a batch {@link #remove} already forgot. Ends every {@link #startedSending}, removed or not, so that
+     * the lock against expiry is released either way.
      */
     void stoppedSending(Batch batch) {
+        if (disk != null) {
+            synchronized (ioLock) {
+                disk.stoppedSending(batch.payloadId);
+            }
+        }
         synchronized (bufferLock) {
             forgetSendingHoldingBufferLock(batch.payloadId);
         }
