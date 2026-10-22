@@ -288,9 +288,10 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * How many events the SDK accepted and then dropped for good.
      * <p>
-     * A batch the service refuses is kept and retried, so it is not a loss.
-     * What is lost is what the store never received: an event or a summary that could not be
-     * serialized when it was committed, or that serialized too large to store. A delivery that
+     * A batch the service refuses is kept and retried, so it is not a loss, unless the refusal is a
+     * second 400 in a row. Otherwise what is lost is what the store never received: an event or a
+     * summary that could not be serialized when it was committed, or that serialized too large to
+     * store. A delivery that
      * finds nothing to send cannot tell those apart from events that arrived, so without this it
      * would report success for them.
      * <p>
@@ -311,6 +312,20 @@ final class DirectEventProcessor implements EventProcessor {
      * that no loss is reported twice and none goes unreported.
      */
     private final AtomicLong reportedLostEvents = new AtomicLong(0);
+
+    /**
+     * How many 400s in a row drop a batch. A 400 is a payload the service cannot read, which posting it
+     * again will not change, and a kept batch is the oldest and so the next posted: kept for good, it would
+     * hold every batch behind it. Two rather than one, so a 400 from a proxy or an incident costs nothing.
+     */
+    static final int BAD_REQUESTS_BEFORE_DROPPING = 2;
+
+    // The batch that last got a 400 and how many in a row: delivery goes oldest first and stops at a kept
+    // failure, so the next post is that batch's unless capacity dropped it. Held only in memory, so a new
+    // run of the application counts again.
+    private final Object badRequestLock = new Object();
+    private String badRequestPayloadId;
+    private int badRequestsInARow;
 
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
@@ -1421,9 +1436,10 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * @return DELIVERED if the batch is no longer the SDK's problem, whether because it arrived or because
-     *   it never can; RETRYABLE if it is kept to be sent again, which is every failure to post it, and a
-     *   post the backoff did not allow
+     * @return DELIVERED if the batch arrived, or held nothing left to send; FAILED if events were lost,
+     *   whether the batch could not be read, arrived short, or was refused as malformed
+     *   {@link #BAD_REQUESTS_BEFORE_DROPPING} times in a row; RETRYABLE if it is kept to be sent again,
+     *   which is every other failure to post it, and a post the backoff did not allow
      */
     private BatchesOutcome deliver(EventStore.Batch batch) {
         if (retryState.remainingWaitNanos() > 0) {
@@ -1462,12 +1478,21 @@ final class DirectEventProcessor implements EventProcessor {
             AnalyticsEventSender.Result result = analyticsEventSender.sendBatch(payload, payload.eventCount,
                     batch.payloadId, eventsUri);
             if (!result.success) {
-                // Kept whatever the failure, a 401 included: a valid key is sometimes refused for minutes, and
+                retryState.recordFailure(result.unexpected, result.retryAfterMillis);
+                if (countBadRequest(batch, result.status) >= BAD_REQUESTS_BEFORE_DROPPING) {
+                    // The rest are still attempted, once the backoff allows.
+                    logger.error("Dropping {} event(s) the service refused as malformed {} times in a row",
+                            batch.eventCount, BAD_REQUESTS_BEFORE_DROPPING);
+                    store.remove(batch);
+                    reportBatchLost(batch);
+                    return BatchesOutcome.FAILED;
+                }
+                // Kept for any other failure, a 401 included: a valid key is sometimes refused for minutes, and
                 // deleting on a refusal would lose every event recorded meanwhile. The backoff decides when the
                 // retry, the next flush or the next run of the application sends it again.
-                retryState.recordFailure(result.unexpected, result.retryAfterMillis);
                 return BatchesOutcome.RETRYABLE;
             }
+            countBadRequest(batch, result.status);
             retryState.recordSuccess();
             if (result.serverTime != null) {
                 recordPastTime(result.serverTime.getTime());
@@ -1485,6 +1510,31 @@ final class DirectEventProcessor implements EventProcessor {
         } finally {
             // Counted again unless the batch was removed above.
             store.stoppedSending(batch);
+        }
+    }
+
+    /**
+     * @return how many 400s in a row this batch has had, counting this response; zero for any other
+     *   status, which ends the run, and once the batch is dropped
+     */
+    private int countBadRequest(EventStore.Batch batch, int status) {
+        synchronized (badRequestLock) {
+            if (status != 400) {
+                badRequestPayloadId = null;
+                badRequestsInARow = 0;
+                return 0;
+            }
+            if (!batch.payloadId.equals(badRequestPayloadId)) {
+                badRequestPayloadId = batch.payloadId;
+                badRequestsInARow = 0;
+            }
+            badRequestsInARow++;
+            int count = badRequestsInARow;
+            if (count >= BAD_REQUESTS_BEFORE_DROPPING) {
+                badRequestPayloadId = null;
+                badRequestsInARow = 0;
+            }
+            return count;
         }
     }
 

@@ -2306,8 +2306,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void everyFailingStatusKeepsTheBatchPastTheRetry() throws Exception {
-        // Each has to keep the batch, not just 503: a refusal such as a 401 only waits longer.
-        for (int status : new int[] { 400, 401, 403, 404, 408, 413, 429, 500, 502, 504 }) {
+        // Each has to keep the batch, not just 503: a refusal such as a 401 only waits longer. Not a 400,
+        // which drops the batch when it comes twice in a row; see the tests below.
+        for (int status : new int[] { 401, 403, 404, 408, 413, 429, 500, 502, 504 }) {
             assertKeptThroughRefusalsAndDeliveredOnRecovery(status, eventsBuilderWithoutBackoff(DEFAULT_CAPACITY),
                     2);
         }
@@ -2376,8 +2377,59 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aBatchRefusedWith400IsPostedOnlyAsTheBackoffAllows() throws Exception {
-        assertPostedOnlyAsTheBackoffAllows(400);
+    public void aBatchRefusedWith400TwiceInARowIsDroppedAndNoLongerHoldsTheOnesBehindIt() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(400));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "malformed", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                String payloadId = server.getRecorder().requireRequest(1, TimeUnit.SECONDS)
+                        .getHeader(PAYLOAD_ID_HEADER);
+                assertEquals(payloadId, server.getRecorder().requireRequest(1, TimeUnit.SECONDS)
+                        .getHeader(PAYLOAD_ID_HEADER));
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
+                service.setTarget(Handlers.status(202));
+
+                // What was recorded since goes out alone, and that flush is the first a caller waits on
+                // since the loss, so it hears about it.
+                eventProcessor.recordCustomEvent(CONTEXT, "next", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo next = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(next.getBody().contains("\"key\":\"next\""));
+                assertFalse(next.getBody().contains("malformed"));
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aBatchIsDroppedOnlyForTwo400sInARow() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(400),
+                Handlers.status(503), Handlers.status(400), Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                String payloadId = null;
+                for (int post = 0; post < 4; post++) {
+                    RequestInfo request = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                    assertTrue(request.getBody().contains("\"key\":\"kept\""));
+                    if (payloadId == null) {
+                        payloadId = request.getHeader(PAYLOAD_ID_HEADER);
+                    }
+                    assertEquals(payloadId, request.getHeader(PAYLOAD_ID_HEADER));
+                }
+            } finally {
+                eventProcessor.close();
+            }
+        }
     }
 
     @Test
