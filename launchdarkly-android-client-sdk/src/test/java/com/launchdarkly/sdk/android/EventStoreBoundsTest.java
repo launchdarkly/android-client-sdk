@@ -211,6 +211,21 @@ public class EventStoreBoundsTest {
         assertEquals(20, store.getPendingEventCount());
     }
 
+    @Test
+    public void boundsSummariesByBytesEvenWhereItKeepsEventsOffTheDisk() {
+        // Nothing else bounds them: capacity never refuses a summary, and a delivery that keeps failing
+        // keeps every one it was given.
+        EventStore store = boundedStore(false);
+        stageFrames(store, 8);
+        assertTrue(store.stage(event(FRAME, "summary-1"), true));
+        assertEquals(1, store.closeBatch().size());
+        assertTrue(store.stage(event(FRAME, "summary-2"), true));
+
+        assertFalse(store.stage(event(FRAME, "summary-3"), true));
+        // Full events are still bounded by count alone.
+        assertTrue(store.stage(event(FRAME, "event-9")));
+    }
+
     // batch size
 
     private static final int QUARTER_BATCH = EventLogFormat.MAX_BATCH_SIZE / 4;

@@ -343,8 +343,8 @@ class EventStore implements Closeable {
 
     /**
      * @param bypassingCapacity true for a summary, which must be recorded even when the store is full of
-     *   events, and may use the bytes held back from them; where events are persisted it is still refused
-     *   once the byte capacity itself is reached
+     *   events, and may use the bytes held back from them; it is still refused once the byte capacity
+     *   itself is reached, whether or not events are persisted
      */
     boolean stage(byte[] serializedEvent, boolean bypassingCapacity) {
         return stage(serializedEvent, bypassingCapacity, false);
@@ -377,7 +377,10 @@ class EventStore implements Closeable {
             if (!bypassingCapacity && countedEventsHoldingBufferLock() >= capacity) {
                 return false;
             }
-            if (disk != null
+            // Kept off the disk, full events are bounded by count alone, as they were before persistence. A
+            // summary bypasses the count wherever it is kept, so there its bytes are all that bounds it: a
+            // delivery that keeps failing would otherwise go on holding one more for the life of the process.
+            if ((disk != null || isSummary)
                     && countedBytesHoldingBufferLock() + frameSize > (isSummary ? byteCapacity : eventByteCapacity)) {
                 return false;
             }

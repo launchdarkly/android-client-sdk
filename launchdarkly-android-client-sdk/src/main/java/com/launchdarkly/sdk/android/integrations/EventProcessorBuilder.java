@@ -200,8 +200,10 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * of it is kept for the summaries of flag evaluations, so that evaluations are still counted after
      * full events start being discarded.
      * <p>
-     * It has no effect where event persistence is {@link EventPersistence#DISABLED}. The default value is
-     * {@link #DEFAULT_CAPACITY_BYTES}; a value of zero or less means the default.
+     * Where event persistence is {@link EventPersistence#DISABLED}, full events are bounded by
+     * {@link #capacity(int)} alone, and this bounds only the summaries, which it never refuses: a
+     * delivery that keeps failing would otherwise leave them growing for the life of the process. The
+     * default value is {@link #DEFAULT_CAPACITY_BYTES}; a value of zero or less means the default.
      *
      * @param capacityBytes the most bytes of events to keep for each environment
      * @return the builder
