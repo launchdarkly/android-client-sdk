@@ -11,7 +11,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -20,18 +19,18 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * The directory one store keeps its events in: the log this process appends to, and beside it the batches
+ * The directory one store keeps its events in: the log this process appends to, and next to it the batches
  * that have been closed off for delivery.
  * <p>
- * Everything about the filesystem lives here - where the directory is, what the files in it are called, and
- * how they are listed, read, moved and deleted - so that {@link EventStore} is left with the buffer, the
+ * Everything about the filesystem lives here: where the directory is, what the files in it are called, and
+ * how they are listed, read, moved and deleted. That leaves {@link EventStore} with the buffer, the
  * capacity arithmetic, and the batches it holds in memory, none of which need a disk at all. A store the
  * application told to keep events off the disk has no {@code EventDirectory}, rather than one it is careful
  * never to use.
  * <p>
- * Where the directory is, is worked out on first use rather than at construction, so that a store which never
- * reaches for the disk makes no filesystem call at all, not even to find out where it would have written.
- * That matters because the store is built on the thread that called {@code LDClient.init}, usually the main
+ * The directory's location is worked out on first use rather than at construction. A store that never
+ * reaches for the disk then makes no filesystem call at all, not even to find out where it would have
+ * written. That matters because the store is built on the thread that called {@code LDClient.init}, usually the main
  * one: the platform creates the no-backup directory the first time it is asked for it.
  * <p>
  * Belongs to an {@link EventStore}, which makes every call holding its {@code ioLock}, exactly as
@@ -109,9 +108,9 @@ class EventDirectory {
      * What this process knows about each batch in the directory, by payload ID, which is how everything
      * outside this class names one.
      * <p>
-     * The file is remembered rather than composed from the payload ID, because the count is part of the name
-     * and a batch closed by a version that did not write one has no count to compose. The count is
-     * remembered so that such a batch is read at most once.
+     * The file is remembered rather than rebuilt from the payload ID, because the count is part of the name
+     * and a batch named without one has no count to rebuild it with. The count is remembered so that such
+     * a batch is read at most once.
      * <p>
      * Only to be used while holding {@code ioLock}.
      */
@@ -138,8 +137,8 @@ class EventDirectory {
      * Batches LaunchDarkly has accepted whose file the filesystem would not let go of.
      * <p>
      * Left out of every listing, because a batch that is delivered and merely still on the disk would otherwise
-     * be found again by the next delivery, and the one after that, and sent each time. The delete is tried once
-     * more on each listing, so a directory that stops being read-only clears itself.
+     * be found again by the next delivery, and the one after that, and sent each time. Each listing tries to
+     * delete it once more, so a directory that stops being read-only clears itself.
      * <p>
      * Only for this session: a later run, which may well be able to delete the file, treats it as it would any
      * other batch a previous run left behind. LaunchDarkly discards a repeated payload ID, so the cost of that is
@@ -268,7 +267,7 @@ class EventDirectory {
         /**
          * Where the close failed, whether the log is still there to try again with. Where it is not - a
          * directory the platform reclaimed, say - its events are gone, and they have to stop counting
-         * against capacity or the store would refuse events for the rest of the session.
+         * against capacity, or the store would refuse events for the rest of the session.
          */
         final boolean logSurvives;
 
@@ -392,8 +391,8 @@ class EventDirectory {
     }
 
     /**
-     * Whether a batch has already been delivered and only its file is left, trying the delete that failed once
-     * more on the way.
+     * Whether a batch has already been delivered and only its file is left, trying once more on the way to
+     * delete the file.
      * <p>
      * Requires {@code ioLock}.
      */
@@ -423,7 +422,7 @@ class EventDirectory {
         if (log == null) {
             return null;
         }
-        // No more than the batch was closed holding. A write that failed and could not be truncated
+        // No more than the batch was closed holding. Writing that failed and could not be truncated
         // leaves whole frames after them, whose events are delivered from memory instead, and would
         // otherwise be sent twice.
         EventLogFormat.Payload payload =
@@ -496,12 +495,7 @@ class EventDirectory {
                 ready.add(file);
             }
         }
-        Collections.sort(ready, new Comparator<File>() {
-            @Override
-            public int compare(File a, File b) {
-                return Long.compare(a.lastModified(), b.lastModified());
-            }
-        });
+        Collections.sort(ready, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
         return ready;
     }
 
@@ -562,8 +556,9 @@ class EventDirectory {
      * Closes off every log in the directory that no live process holds, so their events join the batches to
      * deliver.
      * <p>
-     * Whoever recorded the events in such a log is gone, so there is no one left to add to it: a previous run
-     * of this process, another process of the application, or a store in this one that has since closed. A
+     * Whoever recorded the events in such a log is gone, so there is no one left to add to it. That may be a
+     * previous run of this process, another process of the application, or a store in this one that has since
+     * closed. A
      * log some live process holds, this store's own included, is left alone.
      * <p>
      * Requires {@code ioLock}.
@@ -654,7 +649,7 @@ class EventDirectory {
             return new Discarded(0, counted);
         }
         for (File file : files) {
-            if (!isOlderThan(file, cutoffMillis)) {
+            if (isWrittenSince(file, cutoffMillis)) {
                 continue;
             }
             String name = file.getName();
@@ -713,7 +708,7 @@ class EventDirectory {
             File[] files = environment.listFiles();
             if (files != null) {
                 for (File file : files) {
-                    if (!isOlderThan(file, cutoffMillis)) {
+                    if (isWrittenSince(file, cutoffMillis)) {
                         continue;
                     }
                     String name = file.getName();
@@ -729,15 +724,17 @@ class EventDirectory {
                 }
             }
             // Removes the directory only if it is empty.
-            environment.delete();
+            delete(environment);
         }
         return events;
     }
 
-    /** A file whose modification time is unknown is never taken for an old one. */
-    private static boolean isOlderThan(File file, long cutoffMillis) {
+    /**
+     * A file whose modification time is unknown counts as written since, so it is never taken for an old one.
+     */
+    private static boolean isWrittenSince(File file, long cutoffMillis) {
         long modified = file.lastModified();
-        return modified > 0 && modified < cutoffMillis;
+        return modified <= 0 || modified >= cutoffMillis;
     }
 
     /**
@@ -758,6 +755,8 @@ class EventDirectory {
         return delete(file) ? held : 0;
     }
 
+    // Files.newInputStream needs API 26.
+    @SuppressWarnings("IOStreamConstructor")
     private static int eventsReading(File file) {
         ByteArrayOutputStream contents = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
