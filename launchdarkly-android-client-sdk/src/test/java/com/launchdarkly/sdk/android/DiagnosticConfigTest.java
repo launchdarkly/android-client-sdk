@@ -89,6 +89,21 @@ public class DiagnosticConfigTest {
     }
 
     @Test
+    public void diagnosticConfigurationReportsTheCapacityTheSdkWillUse() throws Exception {
+        // A capacity of nought or less runs at one, so that is what the service should be told.
+        for (int capacity : new int[] { 0, -5 }) {
+            LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                    .events(Components.sendEvents().capacity(capacity))
+                    .build();
+
+            LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
+
+            Assert.assertEquals("capacity " + capacity,
+                    1, diagnosticJson.get("eventsCapacity").intValue());
+        }
+    }
+
+    @Test
     public void customDiagnosticConfigurationStreaming() throws Exception {
         LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .dataSource(
