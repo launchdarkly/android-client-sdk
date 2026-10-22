@@ -32,6 +32,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -565,6 +568,55 @@ public class EventStoreMultiProcessTest {
     }
 
     // MARK: a read that fails is no reason to delete
+
+    @Test
+    public void recoveryReadsWhatAPreviousRunLeftWithoutHoldingUpACommit() throws Exception {
+        // At IMMEDIATE a track commits on the caller's thread, and recovery runs at startup; a crash can
+        // leave many logs of up to a batch each.
+        EventStore firstRun = storeFor();
+        firstRun.stage(event("before-the-crash"));
+        firstRun.commit();
+        processDies(firstRun);
+
+        CountDownLatch readStarted = new CountDownLatch(1);
+        CountDownLatch readResumes = new CountDownLatch(1);
+        EventStore secondRun = new EventStore(sharedDirectory(), CAPACITY, true, logger) {
+            @Override
+            InputStream openForReading(File file) throws IOException {
+                if (file.getName().startsWith(DiskEventLog.PREFIX)) {
+                    readStarted.countDown();
+                    try {
+                        readResumes.await(10, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                return super.openForReading(file);
+            }
+        };
+        ExecutorService recovery = Executors.newSingleThreadExecutor();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> recovered = recovery.submit(secondRun::preparePayloadsFromInterruptedLogs);
+            assertTrue(readStarted.await(5, TimeUnit.SECONDS));
+
+            Future<?> committed = caller.submit(() -> {
+                secondRun.stage(event("this-run"));
+                secondRun.commit();
+            });
+            committed.get(2, TimeUnit.SECONDS);
+
+            readResumes.countDown();
+            recovered.get(5, TimeUnit.SECONDS);
+            assertEquals(1, secondRun.pendingBatches().size());
+            assertEquals(new HashSet<>(Arrays.asList("before-the-crash", "this-run")),
+                    new HashSet<>(visibleKeys(secondRun)));
+        } finally {
+            readResumes.countDown();
+            recovery.shutdownNow();
+            caller.shutdownNow();
+        }
+    }
 
     /**
      * A store whose reads fail while {@code failing} is set, the way they do in a process that has run

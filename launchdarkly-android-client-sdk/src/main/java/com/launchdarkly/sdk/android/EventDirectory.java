@@ -708,63 +708,95 @@ class EventDirectory {
     // MARK: recovery
 
     /**
-     * Closes off every log in the directory that no live process holds, so their events join the batches to
-     * deliver.
+     * Every log in the directory that no live process holds, for recovery to read with {@link #read} and
+     * close off with {@link #preparePayload}, so their events join the batches to deliver.
      * <p>
      * Whoever recorded the events in such a log is gone, so there is no one left to add to it. That may be a
      * previous run of this process, another process of the application, or a store in this one that has since
-     * closed. A
-     * log some live process holds, this store's own included, is left alone.
+     * closed. A log some live process holds, this store's own included, is left alone. None of those listed
+     * becomes held later: a log is opened under a name of its own and never reopened once closed.
      * <p>
      * Requires {@code ioLock}.
-     *
-     * @return what it closed off
      */
-    Tally preparePayloadsFromInterruptedLogs() {
+    List<File> interruptedLogs() {
         assert Thread.holdsLock(ioLock);
+        List<File> logs = new ArrayList<>();
         File[] files = directory().listFiles();
         if (files == null) {
-            return Tally.NONE;
+            return logs;
         }
-        Tally recovered = Tally.NONE;
         for (File file : files) {
             if (file.getName().startsWith(DiskEventLog.PREFIX) && !DiskEventLog.isHeldByLiveProcess(file)) {
-                recovered = recovered.plus(preparePayloadFromInterruptedLog(file));
+                logs.add(file);
             }
         }
-        if (recovered.events > 0) {
-            logger.debug("Prepared {} event(s) from a previous run of this application for delivery",
-                    recovered.events);
-        }
-        return recovered;
+        return logs;
     }
 
-    /** Closes off one log no live process holds into a batch to deliver. Requires {@code ioLock}. */
-    private Tally preparePayloadFromInterruptedLog(File log) {
-        int events;
-        long bytes;
+    /** What {@link #read} found in a log a previous run left. */
+    static final class InterruptedLog {
+        final File file;
+        /** Null where it could be read: it is gone, or {@link #events} and {@link #bytes} say what it holds. */
+        final IOException failure;
+        final boolean gone;
+        /** As {@link EventLogFormat#eventCount}. */
+        final int events;
+        final long bytes;
+
+        private InterruptedLog(File file, IOException failure, boolean gone, int events, long bytes) {
+            this.file = file;
+            this.failure = failure;
+            this.gone = gone;
+            this.events = events;
+            this.bytes = bytes;
+        }
+    }
+
+    /**
+     * Reads and counts one of the {@link #interruptedLogs}. Needs no lock: no one appends to the log, and nothing
+     * this store counts changes here, so a commit is not held up behind the read.
+     */
+    InterruptedLog read(File log) {
         try {
             byte[] contents = readFile(log);
             if (contents == null) {
-                // Recovered by another process since the listing.
-                return Tally.NONE;
+                return new InterruptedLog(log, null, true, 0, 0);
             }
-            events = EventLogFormat.eventCount(contents);
-            bytes = contents.length;
+            return new InterruptedLog(log, null, false, EventLogFormat.eventCount(contents), contents.length);
         } catch (IOException e) {
+            return new InterruptedLog(log, e, false, 0, 0);
+        }
+    }
+
+    /**
+     * Closes off a log {@link #read} has been through into a batch to deliver. Requires {@code ioLock}, so that
+     * the rename and what this store counts for the batch are one step to a listing, which would otherwise
+     * count it twice.
+     *
+     * @return what it closed off
+     */
+    Tally preparePayload(InterruptedLog interrupted) {
+        assert Thread.holdsLock(ioLock);
+        File log = interrupted.file;
+        if (interrupted.gone || !log.exists()) {
+            // Recovered by another store or process since it was listed.
+            return Tally.NONE;
+        }
+        if (interrupted.failure != null) {
             // Deleting it would lose events that may be intact. Named without a count, which is what a batch
             // whose events have never been counted is, it is read and counted by whichever listing first
             // manages to.
             if (log.renameTo(new File(directory(), BATCH_PREFIX + UUID.randomUUID()))) {
                 logger.warn("Could not read events from a previous run, will try again at the next delivery: {}",
-                        LogValues.exceptionSummary(e));
-            } else {
+                        LogValues.exceptionSummary(interrupted.failure));
+            } else if (log.exists()) {
                 // Left where it is, unlocked and appended to by no one, for the next launch to recover.
                 logger.warn("Could not read events from a previous run, will try again at the next launch: {}",
-                        LogValues.exceptionSummary(e));
+                        LogValues.exceptionSummary(interrupted.failure));
             }
             return Tally.NONE;
         }
+        int events = interrupted.events;
         if (events <= 0) {
             // Holds nothing, or nothing this version reads.
             tryDelete(log);
@@ -773,13 +805,16 @@ class EventDirectory {
         String payloadId = UUID.randomUUID().toString();
         File file = newBatchFile(payloadId, events);
         if (!log.renameTo(file)) {
-            // Left where it is for a later run: no one appends to it, so nothing is lost by waiting.
-            logger.warn("Could not prepare {} event(s) from a previous run, will try again at the next launch",
-                    events);
+            if (log.exists()) {
+                // Left where it is for a later run: no one appends to it, so nothing is lost by waiting.
+                logger.warn("Could not prepare {} event(s) from a previous run, will try again at the next launch",
+                        events);
+            }
             return Tally.NONE;
         }
-        Stored recovered = new Stored(file, events, 0, bytes, file.lastModified());
+        Stored recovered = new Stored(file, events, 0, interrupted.bytes, file.lastModified());
         stored.put(payloadId, recovered);
+        logger.debug("Prepared {} event(s) from a previous run of this application for delivery", events);
         return recovered.tally();
     }
 

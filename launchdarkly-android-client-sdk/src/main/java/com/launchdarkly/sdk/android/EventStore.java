@@ -951,8 +951,18 @@ class EventStore implements Closeable {
         if (disk == null) {
             return;
         }
+        // Each log is read without ioLock, one at a time, and the lock taken only to move it and count it. A
+        // commit at a commit point then waits for at most one rename rather than for every log a crash left to
+        // be read.
+        List<File> logs;
         synchronized (ioLock) {
-            countRecoveredHoldingIoLock(disk.preparePayloadsFromInterruptedLogs());
+            logs = disk.interruptedLogs();
+        }
+        for (File log : logs) {
+            EventDirectory.InterruptedLog interrupted = disk.read(log);
+            synchronized (ioLock) {
+                countRecoveredHoldingIoLock(disk.preparePayload(interrupted));
+            }
         }
     }
 
