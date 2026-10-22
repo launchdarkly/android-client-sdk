@@ -1301,10 +1301,17 @@ final class DirectEventProcessor implements EventProcessor {
         return deliverListedBatches();
     }
 
-    /** {@link #deliverPendingBatches()} without the discard, for a second pass moments after the first. */
+    /**
+     * {@link #deliverPendingBatches()} without the discard, for a second pass moments after the first.
+     * <p>
+     * Where the directory could not be listed, delivers the batches the store last counted and answers
+     * {@link BatchesOutcome#RETRYABLE}: a batch the listing could not see is still on the disk, and the
+     * listing may work next time.
+     */
     private BatchesOutcome deliverListedBatches() {
+        EventStore.Listing listing = store.listPendingBatches();
         boolean allDelivered = true;
-        for (EventStore.Batch batch : store.pendingBatches()) {
+        for (EventStore.Batch batch : listing.batches) {
             if (disabled || offline.get()) {
                 return BatchesOutcome.FAILED;
             }
@@ -1313,6 +1320,9 @@ final class DirectEventProcessor implements EventProcessor {
                 return outcome;
             }
             allDelivered &= outcome == BatchesOutcome.DELIVERED;
+        }
+        if (!listing.complete) {
+            return BatchesOutcome.RETRYABLE;
         }
         return allDelivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED;
     }

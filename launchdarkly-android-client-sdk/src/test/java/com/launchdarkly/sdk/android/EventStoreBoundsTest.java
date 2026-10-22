@@ -412,6 +412,49 @@ public class EventStoreBoundsTest {
     }
 
     @Test
+    public void keepsEveryBatchItCountedWhereTheDirectoryCannotBeListed() {
+        EventStore store = environmentStore(MOBILE_KEY);
+        stageFrames(store, 1);
+        EventStore.Batch older = store.closeBatch().get(0);
+        age(onlyBatchFile(store), 1);
+        assertEquals(1, store.pendingBatches().size());
+        stageFrames(store, 2);
+        EventStore.Batch newer = store.closeBatch().get(0);
+        File directory = store.getDirectory();
+
+        assertTrue(directory.setReadable(false));
+        try {
+            EventStore.Listing listing = store.listPendingBatches();
+
+            assertFalse(listing.complete);
+            assertEquals(2, listing.batches.size());
+            assertEquals(older.payloadId, listing.batches.get(0).payloadId);
+            assertEquals(newer.payloadId, listing.batches.get(1).payloadId);
+            assertEquals("the batches stopped counting against capacity", 3, store.getPendingEventCount());
+        } finally {
+            assertTrue(directory.setReadable(true));
+        }
+        assertTrue(store.listPendingBatches().complete);
+        assertEquals(3, store.getPendingEventCount());
+    }
+
+    @Test
+    public void listsNothingAndCompletelyWhereTheDirectoryIsNotThere() {
+        EventStore store = environmentStore(MOBILE_KEY);
+        stageFrames(store, 1);
+        store.closeBatch();
+        File batch = onlyBatchFile(store);
+        assertTrue(batch.delete());
+        assertTrue(store.getDirectory().delete());
+
+        EventStore.Listing listing = store.listPendingBatches();
+
+        assertTrue(listing.complete);
+        assertTrue(listing.batches.isEmpty());
+        assertEquals(0, store.getPendingEventCount());
+    }
+
+    @Test
     public void leavesABatchAnotherStoreInThisProcessIsSendingUntilItStops() {
         EventStore sender = environmentStore(MOBILE_KEY);
         stageFrames(sender, 1);

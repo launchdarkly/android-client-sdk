@@ -2192,6 +2192,37 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlushFailsWhileTheStoredEventsCannotBeListed() throws Exception {
+        // A directory that cannot be listed is not an empty one: the batch the flush closes is on the disk.
+        assumePersisting();
+        try (HttpServer server = HttpServer.start(Handlers.status(202))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, eventsBuilder(DEFAULT_CAPACITY), true);
+            File directory = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(directory.isDirectory());
+
+                eventProcessor.recordCustomEvent(CONTEXT, "unlisted", LDValue.ofNull(), null);
+                assertTrue(directory.setReadable(false));
+                try {
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+                } finally {
+                    assertTrue(directory.setReadable(true));
+                }
+
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo request = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(request.getBody().contains("\"key\":\"unlisted\""));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void theSummariesAnOutageWritesLeaveRoomForEvents() throws Exception {
         // Every flush of an outage is a commit point, and each writes a summary of the evaluations since
         // the last. Counted as events, they would leave a long outage refusing every track.

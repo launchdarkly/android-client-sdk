@@ -130,19 +130,21 @@ class EventDirectory {
 
     /**
      * A batch in the directory: the file it is, how many events it holds, how many of them this store knows
-     * to be summaries, and how big it is.
+     * to be summaries, how big it is, and when it was last written, which is what orders batches oldest first.
      */
     private static final class Stored {
         final File file;
         final int events;
         final int summaries;
         final long bytes;
+        final long modified;
 
-        Stored(File file, int events, int summaries, long bytes) {
+        Stored(File file, int events, int summaries, long bytes, long modified) {
             this.file = file;
             this.events = events;
             this.summaries = summaries;
             this.bytes = bytes;
+            this.modified = modified;
         }
 
         Tally tally() {
@@ -349,7 +351,7 @@ class EventDirectory {
             return new LogClose(null, diskLog().exists());
         }
 
-        stored.put(payloadId, new Stored(file, events, summaries, bytes));
+        stored.put(payloadId, new Stored(file, events, summaries, bytes, System.currentTimeMillis()));
         return new LogClose(new EventStore.Batch(payloadId, events), true);
     }
 
@@ -414,13 +416,23 @@ class EventDirectory {
      * Requires {@code ioLock}.
      * <p>
      * Sizes come from the directory entries, so that counting the directory's bytes reads no file either.
+     * <p>
+     * A directory that is not there holds nothing. One that is there and cannot be listed - out of file
+     * descriptors, or no longer readable - is not empty, so it answers with the batches the last listing or
+     * close counted, as they were counted, and says the listing is incomplete.
      *
      * @return the batches the directory holds, oldest first, which is the order they are delivered in
      */
-    List<EventStore.Batch> listBatches() {
+    EventStore.Listing listBatches() {
         assert Thread.holdsLock(ioLock);
+        List<ReadyFile> ready = readyFilesOldestFirst();
+        if (ready == null) {
+            logger.info("Could not list stored events, will try again at the next delivery");
+            return new EventStore.Listing(knownBatchesOldestFirst(), false);
+        }
         List<EventStore.Batch> batches = new ArrayList<>();
-        for (File file : readyFilesOldestFirst()) {
+        for (ReadyFile entry : ready) {
+            File file = entry.file;
             int events = eventsInName(file.getName());
             String payloadId = payloadIdInName(file.getName());
             if (isDeliveredButUndeleted(payloadId, file)) {
@@ -459,7 +471,7 @@ class EventDirectory {
             // What the close knew of its summaries is kept; nothing in the file says.
             Stored previous = stored.get(payloadId);
             int summaries = previous != null && previous.events == events ? previous.summaries : 0;
-            stored.put(payloadId, new Stored(file, events, summaries, file.length()));
+            stored.put(payloadId, new Stored(file, events, summaries, file.length(), entry.modified));
             batches.add(new EventStore.Batch(payloadId, events));
         }
 
@@ -470,6 +482,20 @@ class EventDirectory {
             listed.add(batch.payloadId);
         }
         stored.keySet().retainAll(listed);
+        return new EventStore.Listing(batches, true);
+    }
+
+    /**
+     * The batches the last listing or close counted, oldest first: every batch this store closed itself, but
+     * none another process closed or a previous run left since. Requires {@code ioLock}.
+     */
+    private List<EventStore.Batch> knownBatchesOldestFirst() {
+        List<Map.Entry<String, Stored>> known = new ArrayList<>(stored.entrySet());
+        Collections.sort(known, (a, b) -> Long.compare(a.getValue().modified, b.getValue().modified));
+        List<EventStore.Batch> batches = new ArrayList<>();
+        for (Map.Entry<String, Stored> batch : known) {
+            batches.add(new EventStore.Batch(batch.getKey(), batch.getValue().events));
+        }
         return batches;
     }
 
@@ -576,8 +602,9 @@ class EventDirectory {
     List<byte[]> storedPayloads() {
         assert Thread.holdsLock(ioLock);
         List<byte[]> logs = new ArrayList<>();
-        for (File file : readyFilesOldestFirst()) {
-            logs.add(readFileOrNull(file));
+        List<ReadyFile> ready = readyFilesOldestFirst();
+        for (ReadyFile entry : ready != null ? ready : Collections.<ReadyFile>emptyList()) {
+            logs.add(readFileOrNull(entry.file));
         }
         if (diskLog().exists()) {
             logs.add(readFileOrNull(diskLog().file()));
@@ -592,23 +619,38 @@ class EventDirectory {
         return payloads;
     }
 
+    /** A batch file, and when it was last written as of the listing that found it. */
+    private static final class ReadyFile {
+        final File file;
+        final long modified;
+
+        ReadyFile(File file) {
+            this.file = file;
+            this.modified = file.lastModified();
+        }
+    }
+
     /**
      * Requires {@code ioLock}.
+     * <p>
+     * Each file's modification time is read once, before the sort, so that the order cannot change under it.
      *
-     * @return every batch file in the directory, oldest first
+     * @return every batch file in the directory, oldest first; empty if the directory is not there, and null if
+     *   it is there and could not be listed
      */
-    private List<File> readyFilesOldestFirst() {
-        List<File> ready = new ArrayList<>();
+    private List<ReadyFile> readyFilesOldestFirst() {
+        List<ReadyFile> ready = new ArrayList<>();
         File[] files = directory().listFiles();
         if (files == null) {
-            return ready;
+            // File says null for an I/O error as well as for a directory that is not there.
+            return directory().exists() ? null : ready;
         }
         for (File file : files) {
             if (file.getName().startsWith(BATCH_PREFIX)) {
-                ready.add(file);
+                ready.add(new ReadyFile(file));
             }
         }
-        Collections.sort(ready, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+        Collections.sort(ready, (a, b) -> Long.compare(a.modified, b.modified));
         return ready;
     }
 
@@ -736,7 +778,7 @@ class EventDirectory {
                     events);
             return Tally.NONE;
         }
-        Stored recovered = new Stored(file, events, 0, bytes);
+        Stored recovered = new Stored(file, events, 0, bytes, file.lastModified());
         stored.put(payloadId, recovered);
         return recovered.tally();
     }

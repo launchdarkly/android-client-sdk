@@ -682,23 +682,47 @@ class EventStore implements Closeable {
         }
     }
 
+    /** The batches awaiting delivery, and whether that is all of them. */
+    static final class Listing {
+        final List<Batch> batches;
+        /**
+         * False where the directory could not be listed. {@link #batches} are then the ones this process last
+         * knew to be there, which includes every batch it closed itself, but can miss one another process
+         * closed or a previous run left.
+         */
+        final boolean complete;
+
+        Listing(List<Batch> batches, boolean complete) {
+            this.batches = batches;
+            this.complete = complete;
+        }
+    }
+
     /**
      * @return batches awaiting delivery, oldest first, including any left by a previous run
      */
     List<Batch> pendingBatches() {
+        return listPendingBatches().batches;
+    }
+
+    /**
+     * {@link #pendingBatches()}, saying whether the listing was complete. A directory that could not be listed
+     * leaves the batches this store last counted, and what it counts for them, as they were. It does not
+     * empty them.
+     */
+    Listing listPendingBatches() {
         // Listed in one critical section where there is a disk, so that the files and what is held cannot
         // be counted either side of a close that moves events between them.
-        List<Batch> batches;
         if (disk != null) {
             synchronized (ioLock) {
-                batches = disk.listBatches();
-                addHeldBatchesAndRecount(batches, disk.storedSummaries(), disk.storedBytes());
+                Listing listing = disk.listBatches();
+                addHeldBatchesAndRecount(listing.batches, disk.storedSummaries(), disk.storedBytes());
+                return listing;
             }
-        } else {
-            batches = new ArrayList<>();
-            addHeldBatchesAndRecount(batches, 0, 0);
         }
-        return batches;
+        List<Batch> batches = new ArrayList<>();
+        addHeldBatchesAndRecount(batches, 0, 0);
+        return new Listing(batches, true);
     }
 
     /**
