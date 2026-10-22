@@ -12,11 +12,13 @@ import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -48,6 +50,15 @@ public class MultiEnvironmentLDClientTest {
                 .build();
 
         ldContext = LDContext.create("userKey");
+    }
+
+    @After
+    public void tearDown() throws IOException {
+        // A client left open stays the instance that every later LDClient.init in this process
+        // returns, whatever config that test passes.
+        if (ldClient != null) {
+            ldClient.close();
+        }
     }
 
     @Test
