@@ -810,22 +810,22 @@ final class DirectEventProcessor implements EventProcessor {
         if (isStopped()) {
             return new LDSuccessFuture<>(false);
         }
-        commitBeforeDelivery();
+        queueCommitBeforeDelivery();
         return queueDelivery(true);
     }
 
     /**
-     * The commit point every flush starts with, before anything is handed to the events thread.
+     * The commit point {@link #flush()} and {@link #blockingFlush()} start with, before anything is
+     * handed to the events thread.
      * <p>
      * Written on the caller's thread wherever events persist, not only where the application asked for
      * that as it does for {@code track} and {@code identify}. A flush is what an application calls when it
      * is about to end the process on purpose, and the process may end before a commit it only queued
      * has run. Where nothing persists, a commit makes nothing durable, and is left to the delivery.
      * <p>
-     * It does not wait for the events thread, which can be held by a post or by a retry long after a
-     * caller with a deadline has stopped waiting. The delivery commits again when it runs, but that is
-     * too late to be the only commit: {@code flushAndWait} exists for the caller that is about to be
-     * killed, and a timed-out wait must still leave the events durable.
+     * It does not wait for the events thread, which can be held by a post or by a retry long after the
+     * caller has moved on. The delivery commits again when it runs, but that is too late to be the only
+     * commit.
      */
     private void commitBeforeDelivery() {
         try {
@@ -835,6 +835,43 @@ final class DirectEventProcessor implements EventProcessor {
         } catch (RuntimeException e) {
             // As in recordEvaluationEvent: every commit point is on the caller's thread.
             logUnexpectedError(e);
+        }
+    }
+
+    /**
+     * The commit point {@link #flushAsync()} starts with: the same commit as {@link #commitBeforeDelivery},
+     * queued on the commit executor rather than written on the caller's thread.
+     * <p>
+     * A caller of {@code flushAsync} has a deadline, which is how {@code flushAndWait} bounds the whole call,
+     * and it can only enforce one once it holds the future. Each step of a commit can block for as long as
+     * the device takes: on {@link #commitLock} behind a commit or a delivery that stalled on the disk, on the
+     * store's I/O lock, and on its own writing. Committed here, any of them ran before the deadline could
+     * apply, so a stalled flash write outlasted the timeout of the crash handler on its way out.
+     * <p>
+     * Queued rather than left to the delivery, because the events thread can be held by a post or by a
+     * retry long after the caller has stopped waiting, and {@code flushAndWait} is for a caller that is about
+     * to be killed. The commit executor is not held by the network. The future still answers for the write:
+     * the delivery commits again before it sends, so a {@code true} means the events were written first. A
+     * commit that outlasts the caller's wait is left to finish, as {@link #close()} leaves its own.
+     */
+    private void queueCommitBeforeDelivery() {
+        try {
+            if (commitOnCallerThread || store.isPersisting()) {
+                long through = lastRecordedSequence();
+                commitExecutor.execute(guarded(() -> {
+                    // As in runScheduledCommit: close() writes everything recorded before it with its own
+                    // commit, and a commit reaching here later could only run against a released store.
+                    if (!closed.get()) {
+                        commitDurablyThrough(through);
+                    }
+                }));
+            }
+        } catch (RuntimeException e) {
+            // Shut down by close(), whose own commit takes these events; or as in recordEvaluationEvent,
+            // a failure on the caller's thread is logged rather than thrown.
+            if (!closed.get()) {
+                logUnexpectedError(e);
+            }
         }
     }
 

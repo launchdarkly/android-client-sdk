@@ -241,11 +241,12 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aFlushThatWaitsWritesOnItsOwnThreadWhileADeliveryHoldsTheEventsThread() throws Exception {
+    public void aFlushThatWaitsWritesWhileADeliveryHoldsTheEventsThread() throws Exception {
         // An evaluation is not a commit point, so a flush is what makes one durable. flushAsync hands
         // the delivery to the events thread, which a post or a retry can hold for longer than the
         // caller's timeout -- and flushAndWait is what an application calls when it is about to be
-        // killed, so the write cannot be left to that thread.
+        // killed, so the write cannot be left to that thread. It goes to the commit executor instead,
+        // which the network never holds.
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
         diagnosticExecutors.add(diagnosticExecutor);
@@ -266,9 +267,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertFalse("the delivery answered even though the events thread was held",
                     awaitFlush(eventProcessor, 0, TimeUnit.MILLISECONDS));
 
-            // Read with nothing waited on: the commit ran on the flushing thread, not the events one.
-            assertEquals(1, kindsOnDisk("feature"));
-            assertEquals(1, kindsOnDisk("summary"));
+            // While the events thread is still held, so the delivery's own commit cannot be the one.
+            assertEquals(1, kindsOnDiskSoon("feature"));
+            assertEquals(1, kindsOnDiskSoon("summary"));
         } finally {
             deliveryAnswers.countDown();
             eventProcessor.close();
@@ -278,8 +279,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aDeferredFlushThatWaitsReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
         // As above, where the application asked for writes to be queued rather than made on its own
-        // thread: a flush writes on the caller's thread regardless, so the events are on disk by the
-        // time it returns rather than whenever the commit executor gets to them.
+        // thread.
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
@@ -294,10 +294,44 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertFalse("the delivery answered even though the events thread was held",
                     awaitFlush(eventProcessor, 0, TimeUnit.MILLISECONDS));
 
-            assertEquals(1, kindsOnDisk("feature"));
-            assertEquals(1, kindsOnDisk("summary"));
+            assertEquals(1, kindsOnDiskSoon("feature"));
+            assertEquals(1, kindsOnDiskSoon("summary"));
         } finally {
             deliveryAnswers.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
+    public void aFlushThatWaitsGetsItsFutureWhileAWriteIsStalledOnTheDisk() throws Exception {
+        // flushAndWait can only enforce its timeout once it holds the future. A write stalled on the disk
+        // holds the commit lock, and a flush that committed before handing back its future waited behind
+        // it with no bound at all, on the crashing thread when the crash handler was the caller.
+        CountDownLatch writeStalled = new CountDownLatch(1);
+        CountDownLatch diskAnswers = new CountDownLatch(1);
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
+                logging.logger) {
+            @Override
+            void commit() {
+                writeStalled.countDown();
+                awaitQuietly(diskAnswers, 10, TimeUnit.SECONDS);
+                super.commit();
+            }
+        };
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY,
+                EventUtil.makeEventsTaskExecutor());
+        try {
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            assertTrue("the track's commit never reached the disk", writeStalled.await(5, TimeUnit.SECONDS));
+
+            eventProcessor.recordCustomEvent(CONTEXT, "before-exit", LDValue.ofNull(), null);
+            long start = System.nanoTime();
+            eventProcessor.flushAsync();
+            long tookMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+            assertTrue("flushAsync waited " + tookMillis + "ms for the stalled write", tookMillis < 1_000);
+        } finally {
+            diskAnswers.countDown();
             eventProcessor.close();
         }
     }
@@ -477,6 +511,15 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             }
         }
         return found;
+    }
+
+    /** {@link #kindsOnDisk}, once at least one is there or five seconds have passed. */
+    private int kindsOnDiskSoon(String kind) throws Exception {
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (kindsOnDisk(kind) == 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+        }
+        return kindsOnDisk(kind);
     }
 
     @Test
