@@ -211,7 +211,8 @@ final class OutboundEventBuffer {
      * loss, and it costs nothing in accuracy: LaunchDarkly sums the counters of every summary it
      * receives, so several summaries covering the same evaluations count the same as one.
      * <p>
-     * A summary that cannot be serialized is dropped and logged rather than counted back in. Losing
+     * A summary that cannot be serialized is dropped whole and logged rather than counted back in, and
+     * {@link #takeSerializationFailure} reports it, so the flush that committed it answers false. Losing
      * an aggregate of evaluations the SDK promised to report is bad, but everything the encoder can
      * fail on is a property of the data it was handed -- the output stream is a byte array and cannot
      * fail transiently -- so putting the counters back would make every later flush fail on the same

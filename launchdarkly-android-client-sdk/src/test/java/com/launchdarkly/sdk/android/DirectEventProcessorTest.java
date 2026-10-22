@@ -2697,6 +2697,30 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlushIsNotToldEvaluationsArrivedWhoseSummaryCouldNotBeSerialized() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                // A null flag key, as a Java caller can pass, which Gson cannot write as a member name.
+                eventProcessor.recordEvaluationEvent(CONTEXT, null, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                recordEvaluation(eventProcessor, false, null);
+                eventProcessor.recordIdentifyEvent(CONTEXT);
+
+                // The summary is dropped whole, the valid flag's counter with it, and the flush says so.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(1, countEventsOfKind(events, "identify"));
+                assertEquals(0, countEventsOfKind(events, "summary"));
+                logging.assertErrorLogged("Dropping unserializable summary event");
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aFlushIsNotToldEventsArrivedWhenOneWasTooLargeToStore() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
