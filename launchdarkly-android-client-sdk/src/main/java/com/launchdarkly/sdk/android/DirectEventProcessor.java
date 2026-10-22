@@ -65,9 +65,13 @@ final class DirectEventProcessor implements EventProcessor {
      * nothing on the way out -- {@code SIGKILL}, a native crash, an ANR kill, and the system reclaiming a
      * backgrounded process. A {@code track} closes it too, because it commits.
      * <p>
-     * The second is the worst a {@code track} can cost, since it encodes whatever is held before returning.
-     * The common case is far below the bound, because the commit executor keeps the run drained; raising
-     * this trades that tail against the number of writes.
+     * The second is what a {@code track} usually costs, since it encodes whatever is held before returning.
+     * The commit executor keeps the run drained, so the common case is far below this; raising it trades that
+     * cost against the number of writes.
+     * <p>
+     * Neither is a ceiling. Reaching this only schedules a commit, and recording does not wait for it, so
+     * where events arrive faster than the commit executor encodes them, or the executor is starved, the run
+     * grows up to the event capacity, and the next commit point encodes all of it.
      */
     private static final int PENDING_COMMIT_THRESHOLD = 32;
 

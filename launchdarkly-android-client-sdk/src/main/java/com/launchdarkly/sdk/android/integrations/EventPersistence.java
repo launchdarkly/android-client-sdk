@@ -44,9 +44,12 @@ public enum EventPersistence {
      * Events are written to disk before {@code track} and {@code identify} return.
      * <p>
      * The write happens on the calling thread, costing tens to hundreds of microseconds depending on the
-     * device and on how many evaluations are waiting to be encoded alongside it. In exchange there is no
-     * window: a process that dies the instant after {@code track} returns still reports that event on the
-     * next run. Evaluating a flag stays in memory regardless.
+     * device and on how many evaluations are waiting to be encoded alongside it. Evaluations are usually
+     * written in the background before many build up. A burst of them faster than that can leave up to the
+     * event capacity waiting, and the {@code track} or {@code identify} that follows encodes them all, which
+     * can take milliseconds. In exchange there is no window: a process that dies the instant after
+     * {@code track} returns still reports that event on the next run. Evaluating a flag stays in memory
+     * regardless.
      * <p>
      * Because this is disk I/O on the calling thread, an application that calls {@code track} or
      * {@code identify} on the main thread with {@link android.os.StrictMode} detecting disk writes will see
