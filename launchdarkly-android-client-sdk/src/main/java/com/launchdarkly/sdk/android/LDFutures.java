@@ -89,6 +89,9 @@ public final class LDFutures {
      * <p>
      * Use this where a caller has a deadline but the work it is waiting for has no way to take one.
      * The call is left running if the caller stops waiting; nothing interrupts it.
+     * <p>
+     * This method is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
+     * It is experimental.
      *
      * @param task the blocking call
      * @param <T>  result type
