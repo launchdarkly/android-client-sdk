@@ -133,8 +133,13 @@ final class DiskEventLog {
             // the bytes in memory to deliver from there, so frames left here as well would be sent
             // twice: beside the memory copy when the log is closed this session, or by recovery on the
             // next launch.
-            if (start >= 0) {
-                truncate(stream, start);
+            if (start >= 0 && !truncate(stream, start) && start <= EventLogFormat.FILE_HEADER_SIZE) {
+                // A log with no events before this write is never closed into a batch, and a later run
+                // recovering it would send what landed under no count that leaves it out. Memory holds
+                // all of it.
+                if (!file.delete() && file.exists()) {
+                    logger.warn("Could not remove an event log holding only a failed write");
+                }
             }
             closeOutput();
             throw e;
@@ -145,13 +150,17 @@ final class DiskEventLog {
      * Truncates the log to {@code length}, where a failed write left it longer. Where it cannot, the
      * batch this log is closed into still delivers only the events it was closed holding, which leaves out
      * the frames left behind.
+     *
+     * @return false if the log could not be truncated
      */
-    private void truncate(FileOutputStream stream, long length) {
+    private boolean truncate(FileOutputStream stream, long length) {
         try {
             stream.getChannel().truncate(length);
+            return true;
         } catch (IOException | RuntimeException e) {
             logger.warn("Could not truncate a failed write to the event log: {}",
                     LogValues.exceptionSummary(e));
+            return false;
         }
     }
 

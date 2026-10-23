@@ -23,7 +23,12 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1013,6 +1018,146 @@ public class EventStoreMultiProcessTest {
         EventStore nextRun = storeFor();
         nextRun.preparePayloadsFromInterruptedLogs();
         assertEquals(0, nextRun.pendingBatches().size());
+    }
+
+    @Test
+    public void theNextRunHasNothingToRecoverFromAFirstWriteThatFailedPartwayAndCouldNotBeCutBack()
+            throws IOException {
+        // As above, but the whole frame the write left in the log stays there.
+        AtomicInteger writes = new AtomicInteger();
+        EventStore store = new EventStore(sharedDirectory(), CAPACITY, true, logger) {
+            @Override
+            FileOutputStream openForAppending(File file) throws IOException {
+                return new FileOutputStream(file, true) {
+                    @Override
+                    public void write(byte[] bytes) throws IOException {
+                        if (writes.incrementAndGet() <= 1) {
+                            super.write(bytes);
+                            return;
+                        }
+                        super.write(bytes, 0, bytes.length - 3);
+                        throw new IOException("No space left on device");
+                    }
+
+                    @Override
+                    public FileChannel getChannel() {
+                        return new RefusingToTruncate(super.getChannel());
+                    }
+                };
+            }
+        };
+
+        store.stage(event("landed"));
+        store.stage(event("torn"));
+        store.commit();
+        assertFalse(store.isPersisting());
+        EventStore.Batch fromMemory = closeOne(store);
+        assertEquals(Arrays.asList("landed", "torn"), keysIn(store.body(fromMemory)));
+        store.remove(fromMemory);
+        processDies(store);
+
+        EventStore nextRun = storeFor();
+        nextRun.preparePayloadsFromInterruptedLogs();
+        List<String> recovered = new ArrayList<>();
+        for (EventStore.Batch batch : nextRun.pendingBatches()) {
+            recovered.addAll(keysIn(nextRun.body(batch)));
+        }
+        assertEquals("delivered twice", new ArrayList<String>(), recovered);
+    }
+
+    /** A channel that does everything the one it wraps does, except truncate, as a device that refuses it. */
+    private static final class RefusingToTruncate extends FileChannel {
+        private final FileChannel channel;
+
+        RefusingToTruncate(FileChannel channel) {
+            this.channel = channel;
+        }
+
+        @Override
+        public FileChannel truncate(long size) throws IOException {
+            throw new IOException("I/O error");
+        }
+
+        @Override
+        public int read(ByteBuffer dst) throws IOException {
+            return channel.read(dst);
+        }
+
+        @Override
+        public long read(ByteBuffer[] dsts, int offset, int length) throws IOException {
+            return channel.read(dsts, offset, length);
+        }
+
+        @Override
+        public int write(ByteBuffer src) throws IOException {
+            return channel.write(src);
+        }
+
+        @Override
+        public long write(ByteBuffer[] srcs, int offset, int length) throws IOException {
+            return channel.write(srcs, offset, length);
+        }
+
+        @Override
+        public long position() throws IOException {
+            return channel.position();
+        }
+
+        @Override
+        public FileChannel position(long newPosition) throws IOException {
+            channel.position(newPosition);
+            return this;
+        }
+
+        @Override
+        public long size() throws IOException {
+            return channel.size();
+        }
+
+        @Override
+        public void force(boolean metaData) throws IOException {
+            channel.force(metaData);
+        }
+
+        @Override
+        public long transferTo(long position, long count, WritableByteChannel target) throws IOException {
+            return channel.transferTo(position, count, target);
+        }
+
+        @Override
+        public long transferFrom(ReadableByteChannel src, long position, long count) throws IOException {
+            return channel.transferFrom(src, position, count);
+        }
+
+        @Override
+        public int read(ByteBuffer dst, long position) throws IOException {
+            return channel.read(dst, position);
+        }
+
+        @Override
+        public int write(ByteBuffer src, long position) throws IOException {
+            return channel.write(src, position);
+        }
+
+        @Override
+        public MappedByteBuffer map(MapMode mode, long position, long size) throws IOException {
+            return channel.map(mode, position, size);
+        }
+
+        @Override
+        public FileLock lock(long position, long size, boolean shared) throws IOException {
+            return channel.lock(position, size, shared);
+        }
+
+        @Override
+        public FileLock tryLock(long position, long size, boolean shared) throws IOException {
+            return channel.tryLock(position, size, shared);
+        }
+
+        @Override
+        protected void implCloseChannel() throws IOException {
+            channel.close();
+        }
     }
 
     // MARK: the two together
