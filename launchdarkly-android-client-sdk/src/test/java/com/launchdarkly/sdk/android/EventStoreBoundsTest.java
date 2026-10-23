@@ -543,6 +543,30 @@ public class EventStoreBoundsTest {
     }
 
     @Test
+    public void leavesAStaleLogItCannotReadForALaterPassRatherThanDiscardingItUncounted() {
+        EventStore gone = environmentStore(MOBILE_KEY);
+        stageFrames(gone, 2);
+        gone.commit();
+        gone.close();
+        File[] logs = gone.getDirectory().listFiles((dir, name) -> name.startsWith(DiskEventLog.PREFIX));
+        assertNotNull(logs);
+        assertEquals(1, logs.length);
+        File log = logs[0];
+        age(log, 8);
+        EventStore store = environmentStore(MOBILE_KEY);
+
+        assertTrue(log.setReadable(false));
+        try {
+            assertEquals(0, store.discardExpired());
+            assertTrue(log.exists());
+        } finally {
+            assertTrue(log.setReadable(true));
+        }
+        assertEquals(2, store.discardExpired());
+        assertFalse(log.exists());
+    }
+
+    @Test
     public void removesTheDirectoryOfAnEnvironmentNothingHasWrittenToForTheMaximumAge() {
         EventStore abandoned = environmentStore(OTHER_MOBILE_KEY);
         stageFrames(abandoned, 3);

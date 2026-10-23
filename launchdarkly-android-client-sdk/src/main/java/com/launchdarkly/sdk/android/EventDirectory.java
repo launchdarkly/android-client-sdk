@@ -3,11 +3,9 @@ package com.launchdarkly.sdk.android;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -662,26 +660,32 @@ class EventDirectory {
      */
     private byte[] readFile(File file) throws IOException {
         try (FileInputStream in = reader.openForReading(file)) {
-            // Read into an array of the file's size, so a batch is held once rather than in a growing
-            // buffer and a copy of it. The size is the open descriptor's, not File.length(): that is a
-            // stat of its own, which answers 0 rather than failing, and an intact batch read as empty is
-            // removed as delivered by another process, its events lost without being counted.
-            byte[] contents = new byte[(int) Math.min(in.getChannel().size(), Integer.MAX_VALUE - 8)];
-            int filled = 0;
-            while (filled < contents.length) {
-                int read = in.read(contents, filled, contents.length - filled);
-                if (read < 0) {
-                    break;
-                }
-                filled += read;
-            }
-            return filled == contents.length ? contents : Arrays.copyOf(contents, filled);
+            return readAll(in);
         } catch (IOException e) {
             if (!file.exists()) {
                 return null;
             }
             throw e;
         }
+    }
+
+    /**
+     * Reads into an array of the file's size, so a batch is held once rather than in a growing buffer and a
+     * copy of it. The size is the open descriptor's, not File.length(): that is a stat of its own, which
+     * answers 0 rather than failing, and an intact batch read as empty is removed as delivered by another
+     * process, its events lost without being counted.
+     */
+    private static byte[] readAll(FileInputStream in) throws IOException {
+        byte[] contents = new byte[(int) Math.min(in.getChannel().size(), Integer.MAX_VALUE - 8)];
+        int filled = 0;
+        while (filled < contents.length) {
+            int read = in.read(contents, filled, contents.length - filled);
+            if (read < 0) {
+                break;
+            }
+            filled += read;
+        }
+        return filled == contents.length ? contents : Arrays.copyOf(contents, filled);
     }
 
     /** For inspecting the store, where a file that cannot be read is simply left out. */
@@ -849,6 +853,9 @@ class EventDirectory {
                 }
                 Stored known = stored.get(payloadId);
                 int held = named >= 0 ? named : known != null ? known.events : eventsReading(file);
+                if (held < 0) {
+                    continue;
+                }
                 if (!BatchLocks.deleteUnlessBeingSent(file)) {
                     if (!file.exists()) {
                         // Delivered by another process since the listing: no longer counted, and not dropped.
@@ -914,7 +921,7 @@ class EventDirectory {
                         }
                         int named = eventsInName(name);
                         int held = named >= 0 ? named : eventsReading(file);
-                        if (BatchLocks.deleteUnlessBeingSent(file)) {
+                        if (held >= 0 && BatchLocks.deleteUnlessBeingSent(file)) {
                             events += held;
                         }
                     } else {
@@ -951,23 +958,23 @@ class EventDirectory {
             return 0;
         }
         int held = eventsReading(file);
-        return delete(file) ? held : 0;
+        return held >= 0 && delete(file) ? held : 0;
     }
 
+    /**
+     * @return how many events a file being discarded holds, or -1 if it could not be read, in which case it is
+     *   left for a later pass: deleted now, its events would go uncounted
+     */
     // Files.newInputStream needs API 26.
     @SuppressWarnings("IOStreamConstructor")
     private static int eventsReading(File file) {
-        ByteArrayOutputStream contents = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        try (InputStream in = new FileInputStream(file)) {
-            int read;
-            while ((read = in.read(chunk)) > 0) {
-                contents.write(chunk, 0, read);
-            }
+        byte[] contents;
+        try (FileInputStream in = new FileInputStream(file)) {
+            contents = readAll(in);
         } catch (IOException e) {
-            return 0;
+            return -1;
         }
-        return Math.max(0, EventLogFormat.eventCount(contents.toByteArray()));
+        return Math.max(0, EventLogFormat.eventCount(contents));
     }
 
     private static boolean delete(File file) {
