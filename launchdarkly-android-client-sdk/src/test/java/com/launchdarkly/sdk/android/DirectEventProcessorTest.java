@@ -1145,10 +1145,12 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // LDClient.init builds the processor, usually on the main thread, and answering touches the disk:
         // the platform creates the no-backup directory when asked for it.
         Queue<Thread> askedOn = new ConcurrentLinkedQueue<>();
+        CountDownLatch asked = new CountDownLatch(1);
         MockPlatformState platformState = new MockPlatformState() {
             @Override
             public File getNoBackupFilesDir() {
                 askedOn.add(Thread.currentThread());
+                asked.countDown();
                 return eventsDirectory.getRoot();
             }
         };
@@ -1159,8 +1161,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                     true, platformState);
             eventProcessor.setOffline(false);
             eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
-            eventProcessor.flush();
-            eventProcessor.blockingFlush();
+            // Waits for the store to ask rather than flushing: a flush commits on the caller's thread where
+            // events persist, so whichever commit reaches the disk first would be the one asking.
+            awaitQuietly(asked, 5, TimeUnit.SECONDS);
             eventProcessor.close();
 
             assertFalse("the platform was never asked, so this proves nothing", askedOn.isEmpty());
