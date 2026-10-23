@@ -1,6 +1,7 @@
 package com.launchdarkly.testhelpers.httptest.impl;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
@@ -10,12 +11,15 @@ import org.junit.Test;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
-public class HttpServerBodyTest {
+public class NanoHttpdServerDelegateTest {
     @Test
     public void aBodySentInPartsIsRecordedWhole() throws Exception {
         char[] chars = new char[20_000];
@@ -48,6 +52,19 @@ public class HttpServerBodyTest {
                 n += read;
             }
             assertEquals("HTTP/1.1 202", new String(status, 0, n, StandardCharsets.US_ASCII));
+        }
+    }
+
+    @Test
+    public void aServerDoesNotShareAPortWithAnotherLoopbackListener() throws Exception {
+        // Stands in for another process listening on 127.0.0.1. Asking for its port forces what the
+        // kernel otherwise does now and then with port 0.
+        try (ServerSocket other = new ServerSocket()) {
+            other.setReuseAddress(true);
+            other.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0));
+
+            assertThrows(RuntimeException.class,
+                    () -> HttpServer.start(other.getLocalPort(), Handlers.status(202)).close());
         }
     }
 }

@@ -33,13 +33,22 @@ import javax.net.ssl.KeyManagerFactory;
 
 /**
  * A copy of the class of this name in com.launchdarkly:test-helpers 2.1.0, which it replaces on the
- * unit-test classpath, so it has to keep this package and name. The only change is in
- * {@code makeRequestInfo}: that release reads a request body with a single {@code read}, which returns
- * only the part that has arrived, so a body sent in more than one TCP segment was recorded truncated.
- * {@code HttpServerBodyTest} fails if this copy stops being the one loaded. Delete both once
- * test-helpers reads the whole body.
+ * unit-test classpath, so it has to keep this package and name. It differs in two ways:
+ * <ul>
+ *   <li>It reads a request body until Content-Length. That release reads it with a single {@code read},
+ *   which returns only the part that has arrived, so a body sent in more than one TCP segment was
+ *   recorded truncated.</li>
+ *   <li>It listens on 127.0.0.1 rather than on every address. Listening on every address with
+ *   SO_REUSEADDR, as NanoHTTPD does, the kernel can hand out a port another process already listens on
+ *   at 127.0.0.1 (Android Studio and the emulator hold several), and "localhost" then reaches that
+ *   process instead: the test sees a 404, a 401 or no answer at all.</li>
+ * </ul>
+ * {@code NanoHttpdServerDelegateTest} fails if this copy stops being the one loaded. Delete both once
+ * test-helpers does the same.
  */
 class NanoHttpdServerDelegate implements HttpServer.Delegate {
+  private static final String LOOPBACK = "127.0.0.1";
+
   private final ServerImpl server;
   
   public NanoHttpdServerDelegate(int port, Handler handler, ServerTLSConfiguration tlsConfig) {
@@ -62,7 +71,7 @@ class NanoHttpdServerDelegate implements HttpServer.Delegate {
     private final Handler handler;
     
     ServerImpl(int port, Handler handler, ServerTLSConfiguration tlsConfig) {
-      super(port);
+      super(LOOPBACK, port);
       this.handler = handler;
       
       if (tlsConfig != null) {
@@ -150,8 +159,7 @@ class NanoHttpdServerDelegate implements HttpServer.Delegate {
     }
     
     private String getBaseUri() {
-      return "http://" + (this.getHostname() == null ? "localhost" : this.getHostname())
-          + ":" + this.getListeningPort();
+      return "http://localhost:" + this.getListeningPort();
     }
   }
   
