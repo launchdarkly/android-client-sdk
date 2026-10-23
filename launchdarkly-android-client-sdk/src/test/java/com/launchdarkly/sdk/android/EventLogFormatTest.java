@@ -37,9 +37,9 @@ public class EventLogFormatTest {
     private static List<Integer> frameOffsets(byte[] log) {
         List<Integer> offsets = new ArrayList<>();
         int cursor = EventLogFormat.FILE_HEADER_SIZE;
-        while (cursor + EventLogFormat.FRAME_HEADER_SIZE <= log.length) {
+        while (cursor + EventLogFormat.FRAME_OVERHEAD <= log.length) {
             offsets.add(cursor);
-            cursor += EventLogFormat.FRAME_HEADER_SIZE + EventLogFormat.readInt32(log, cursor + 2);
+            cursor += EventLogFormat.FRAME_OVERHEAD + EventLogFormat.readInt32(log, cursor + 2);
         }
         return offsets;
     }
@@ -55,11 +55,15 @@ public class EventLogFormatTest {
     @Test
     public void writesTheFrameTheIosSdkWrites() {
         // The checksum is zlib's CRC-32, so these bytes are what the iOS SDK writes for the same event too.
+        byte[] event = "{\"kind\":\"custom\",\"key\":\"k\"}".getBytes(StandardCharsets.UTF_8);
         ByteArrayOutputStream frame = new ByteArrayOutputStream();
-        EventLogFormat.writeFrame(frame, "{\"kind\":\"custom\",\"key\":\"k\"}".getBytes(StandardCharsets.UTF_8));
+        EventLogFormat.writeFrame(frame, event);
 
-        byte[] header = Arrays.copyOf(frame.toByteArray(), EventLogFormat.FRAME_HEADER_SIZE);
-        assertArrayEquals(new byte[] {0x00, 0x01, 0x00, 0x00, 0x00, 0x1B, (byte) 0xCB, 0x2B, 0x5E, 0x6F}, header);
+        ByteArrayOutputStream expected = new ByteArrayOutputStream();
+        expected.write(new byte[] {0x00, 0x01, 0x00, 0x00, 0x00, 0x1B}, 0, 6);
+        expected.write(event, 0, event.length);
+        expected.write(new byte[] {(byte) 0xCB, 0x2B, 0x5E, 0x6F}, 0, 4);
+        assertArrayEquals(expected.toByteArray(), frame.toByteArray());
     }
 
     @Test
@@ -90,6 +94,17 @@ public class EventLogFormatTest {
                 second + EventLogFormat.FRAME_HEADER_SIZE + size, (byte) 0);
 
         assertEquals(Arrays.asList("event-0"), keys(log));
+    }
+
+    @Test
+    public void keepsEveryEventBeforeADamagedChecksum() {
+        byte[] log = log("event-0", "event-1", "event-2");
+        int second = frameOffsets(log).get(1);
+        int size = EventLogFormat.readInt32(log, second + 2);
+        log[second + EventLogFormat.FRAME_HEADER_SIZE + size + 1] ^= 0x10;
+
+        assertEquals(Arrays.asList("event-0"), keys(log));
+        assertTrue(EventLogFormat.isDamaged(log));
     }
 
     @Test

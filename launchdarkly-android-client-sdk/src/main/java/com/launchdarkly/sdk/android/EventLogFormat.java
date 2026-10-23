@@ -15,14 +15,14 @@ import java.util.zip.CRC32;
  * <p>
  * A log opens with a magic and a format version, and holds a sequence of frames:
  * <pre>
- *     +- 4 bytes -+- 2 bytes -+     +- 2 bytes -+- 4 bytes -+- 4 bytes -+- n bytes -+
- *     |   LDEV    |  version  | ... |   type    |  size (n) |   CRC-32  |  payload  |
+ *     +- 4 bytes -+- 2 bytes -+     +- 2 bytes -+- 4 bytes -+- n bytes -+- 4 bytes -+
+ *     |   LDEV    |  version  | ... |   type    |  size (n) |  payload  |   CRC-32  |
  *     +-----------+-----------+     +-----------+-----------+-----------+-----------+
  * </pre>
  * The size prefix is what makes a log recoverable: a reader can tell a frame the writer finished
  * from one it did not, without having to parse the event to find where it ends. The checksum, over
- * the type, the size and the payload, is what tells a frame the writer finished from one the storage
- * has since damaged; a reader treats either the same way. The version is what makes an upgrade safe
+ * the type, the size and the payload - everything before it in the frame - is what tells a frame the
+ * writer finished from one the storage has since damaged; a reader treats either the same way. The version is what makes an upgrade safe
  * - a log this version does not understand is discarded rather than misread - and the frame type
  * leaves room for a later version to write something new into a log this one still reads.
  * <p>
@@ -34,7 +34,12 @@ final class EventLogFormat {
     static final int VERSION = 1;
     static final byte[] MAGIC = {'L', 'D', 'E', 'V'};
     static final int FILE_HEADER_SIZE = 6;
-    static final int FRAME_HEADER_SIZE = 10;
+    /** The type and the size, before a frame's payload. */
+    static final int FRAME_HEADER_SIZE = 6;
+    /** The checksum, after a frame's payload. */
+    static final int FRAME_TRAILER_SIZE = 4;
+    /** What a frame takes beyond its payload. */
+    static final int FRAME_OVERHEAD = FRAME_HEADER_SIZE + FRAME_TRAILER_SIZE;
     /** The only frame type written today; a reader skips a frame whose type it does not know. */
     static final int EVENT_FRAME = 1;
     /**
@@ -46,7 +51,7 @@ final class EventLogFormat {
      * A ceiling on a single frame's payload: the most that still fits in a batch on its own. It is also
      * what keeps a corrupt size from making recovery allocate wildly.
      */
-    static final int MAX_FRAME_SIZE = MAX_BATCH_SIZE - FILE_HEADER_SIZE - FRAME_HEADER_SIZE;
+    static final int MAX_FRAME_SIZE = MAX_BATCH_SIZE - FILE_HEADER_SIZE - FRAME_OVERHEAD;
 
     private EventLogFormat() {
     }
@@ -66,11 +71,13 @@ final class EventLogFormat {
         header[1] = (byte) EVENT_FRAME;
         writeInt32(header, 2, length);
         CRC32 checksum = new CRC32();
-        checksum.update(header, 0, 6);
+        checksum.update(header, 0, FRAME_HEADER_SIZE);
         checksum.update(serializedEvent, 0, length);
-        writeInt32(header, 6, (int) checksum.getValue());
+        byte[] trailer = new byte[FRAME_TRAILER_SIZE];
+        writeInt32(trailer, 0, (int) checksum.getValue());
         target.write(header, 0, FRAME_HEADER_SIZE);
         target.write(serializedEvent, 0, length);
+        target.write(trailer, 0, FRAME_TRAILER_SIZE);
     }
 
     /**
@@ -146,8 +153,8 @@ final class EventLogFormat {
      * Turns the log into the JSON array LaunchDarkly expects, in the log's own array, without parsing
      * the events: they were serialized on the way in and are shipped exactly as they were recorded.
      * <p>
-     * The array always has room: the file header becomes the '[', and each frame header the ',' or ']'
-     * after its payload. Each payload moves towards the start only once its frame has been checked, and
+     * The array always has room: the file header becomes the '[', and each frame's header and trailer
+     * the ',' or ']' after its payload. Each payload moves towards the start only once its frame has been checked, and
      * never past where that frame began, so no frame still to be checked is written over.
      *
      * @return the payload of the first {@code maxEvents} events, leaving out any after them; or null if the
@@ -269,25 +276,25 @@ final class EventLogFormat {
             if (checked != null) {
                 return true;
             }
-            if (!readable || stopped || cursor + FRAME_HEADER_SIZE > log.length) {
+            if (!readable || stopped || cursor + FRAME_OVERHEAD > log.length) {
                 return false;
             }
             int type = readUInt16(log, cursor);
             int length = readInt32(log, cursor + 2);
             int start = cursor + FRAME_HEADER_SIZE;
-            if (length <= 0 || length > MAX_FRAME_SIZE || start + length > log.length) {
+            if (length <= 0 || length > MAX_FRAME_SIZE || start + length + FRAME_TRAILER_SIZE > log.length) {
                 stopped = true;
                 return false;
             }
+            int end = start + length;
             checksum.reset();
-            checksum.update(log, cursor, 6);
-            checksum.update(log, start, length);
-            if ((int) checksum.getValue() != readInt32(log, cursor + 6)) {
+            checksum.update(log, cursor, end - cursor);
+            if ((int) checksum.getValue() != readInt32(log, end)) {
                 stopped = true;
                 return false;
             }
             checked = new Frame(type, start, length);
-            cursor = start + length;
+            cursor = end + FRAME_TRAILER_SIZE;
             return true;
         }
 
@@ -314,9 +321,9 @@ final class EventLogFormat {
         }
     }
 
-    /** The size, header included, of the frame at {@code start} in frames this process wrote. */
+    /** The size, header and trailer included, of the frame at {@code start} in frames this process wrote. */
     static int frameSize(byte[] frames, int start) {
-        return FRAME_HEADER_SIZE + readInt32(frames, start + 2);
+        return FRAME_OVERHEAD + readInt32(frames, start + 2);
     }
 
     /**

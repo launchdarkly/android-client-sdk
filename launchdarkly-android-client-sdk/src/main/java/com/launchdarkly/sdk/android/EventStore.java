@@ -384,7 +384,7 @@ class EventStore implements Closeable {
                 || serializedEvent.length > EventLogFormat.MAX_FRAME_SIZE) {
             return false;
         }
-        long frameSize = (long) serializedEvent.length + EventLogFormat.FRAME_HEADER_SIZE;
+        long frameSize = (long) serializedEvent.length + EventLogFormat.FRAME_OVERHEAD;
         // Only a summary bypasses capacity without a reservation, and only a summary may use the bytes held
         // back.
         boolean isSummary = bypassingCapacity && !reserved;

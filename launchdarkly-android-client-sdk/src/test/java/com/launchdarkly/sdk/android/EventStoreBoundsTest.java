@@ -60,7 +60,7 @@ public class EventStoreBoundsTest {
     /** An event whose frame in the log, header included, is exactly {@code frameBytes} long. */
     private static byte[] event(int frameBytes, String key) {
         String bare = "{\"kind\":\"custom\",\"key\":\"" + key + "\",\"data\":\"\"}";
-        int padding = frameBytes - EventLogFormat.FRAME_HEADER_SIZE - bare.length();
+        int padding = frameBytes - EventLogFormat.FRAME_OVERHEAD - bare.length();
         StringBuilder data = new StringBuilder();
         for (int i = 0; i < padding; i++) {
             data.append('x');
@@ -363,7 +363,7 @@ public class EventStoreBoundsTest {
     @Test
     public void takesAnEventThatFillsABatchOnItsOwnAndRefusesAnyLarger() throws IOException {
         EventStore store = storeWithRoomForLargeBatches(true);
-        int largest = EventLogFormat.MAX_FRAME_SIZE + EventLogFormat.FRAME_HEADER_SIZE;
+        int largest = EventLogFormat.MAX_FRAME_SIZE + EventLogFormat.FRAME_OVERHEAD;
         assertFalse(store.stage(event(largest + 1, "too-large")));
         stageFrames(store, 1);
         assertTrue(store.stage(event(largest, "largest")));
