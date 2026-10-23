@@ -4,6 +4,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.HooksConfigurationBuilder;
 import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
@@ -20,14 +21,13 @@ import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.HookConfiguration;
 import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.android.subsystems.PluginsConfiguration;
-import com.launchdarkly.sdk.internal.events.DefaultEventProcessor;
 import com.launchdarkly.sdk.internal.events.DefaultEventSender;
-import com.launchdarkly.sdk.internal.events.Event;
-import com.launchdarkly.sdk.internal.events.EventsConfiguration;
+import com.launchdarkly.sdk.internal.events.EventSender;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.Future;
 
 /**
  * This class contains the package-private implementations of component factories and builders whose
@@ -76,6 +76,12 @@ abstract class ComponentsImpl {
         public void blockingFlush() {}
 
         @Override
+        public Future<Boolean> flushAsync() {
+            // Nothing was recorded, so there is nothing undelivered to warn the caller about.
+            return new LDSuccessFuture<>(true);
+        }
+
+        @Override
         public void setInBackground(boolean inBackground) {}
 
         @Override
@@ -98,36 +104,83 @@ abstract class ComponentsImpl {
 
     static final class EventProcessorBuilderImpl extends EventProcessorBuilder
             implements DiagnosticDescription {
+        // The backoff's delays, settable by tests the specified ones would hold for minutes; a negative
+        // normal ceiling means the specified delays.
+        private long retryInitialDelayMillis;
+        private long retryNormalCeilingMillis = -1;
+        private long retryExtendedCeilingMillis;
+
+        EventProcessorBuilderImpl retryDelaysForTesting(long initialDelayMillis, long normalCeilingMillis,
+                                                        long extendedCeilingMillis) {
+            retryInitialDelayMillis = initialDelayMillis;
+            retryNormalCeilingMillis = normalCeilingMillis;
+            retryExtendedCeilingMillis = extendedCeilingMillis;
+            return this;
+        }
+
+        private DeliveryRetryState makeRetryState() {
+            if (retryNormalCeilingMillis < 0) {
+                return new DeliveryRetryState(flushIntervalMillis);
+            }
+            return new DeliveryRetryState(retryInitialDelayMillis, retryNormalCeilingMillis,
+                    retryExtendedCeilingMillis, new Random());
+        }
+
         @Override
         public EventProcessor build(ClientContext clientContext) {
             ClientContextImpl clientContextImpl = ClientContextImpl.get(clientContext);
-            EventsConfiguration eventsConfig = new EventsConfiguration(
-                    allAttributesPrivate,
-                    capacity,
-                    null, // contextDeduplicator - not needed for client-side use
-                    diagnosticRecordingIntervalMillis,
-                    clientContextImpl.getDiagnosticStore(),
-                    new DefaultEventSender(
-                            LDUtil.makeHttpProperties(clientContext),
-                            StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
-                            StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
-                            0L, // use default retry delay
-                            false, // disable gzip compression for Android
+            EventSender diagnosticEventSender = new DefaultEventSender(
+                    LDUtil.makeHttpProperties(clientContext),
+                    StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
+                    StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
+                    0L, // use default retry delay
+                    false, // disable gzip compression for Android
+                    clientContext.getBaseLogger());
+            boolean commitOnCallerThread = eventPersistence == EventPersistence.IMMEDIATE;
+            return new DirectEventProcessor(
+                    new OutboundEventBuffer(
+                            allAttributesPrivate,
+                            privateAttributes,
+                            true, // perContextSummarization - enable for client SDK
+                            capacity,
                             clientContext.getBaseLogger()),
-                    1, // eventSendingThreadPoolSize
+                    makeEventStore(clientContext, clientContextImpl),
+                    diagnosticEventSender,
+                    new AnalyticsEventSender(LDUtil.makeHttpProperties(clientContext),
+                            clientContext.getBaseLogger()),
+                    makeRetryState(),
                     clientContext.getServiceEndpoints().getEventsBaseUri(),
+                    clientContextImpl.getDiagnosticStore(),
+                    capacity,
+                    commitOnCallerThread,
                     flushIntervalMillis,
+                    diagnosticRecordingIntervalMillis,
+                    DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
-                    privateAttributes,
-                    true // perContextSummarization - enable for client SDK
-            );
-            return new DefaultEventProcessorWrapper(new DefaultEventProcessor(
-                    eventsConfig,
                     EventUtil.makeEventsTaskExecutor(),
-                    Thread.NORM_PRIORITY, // note, we may want to make this configurable as it is in java-server-sdk
+                    EventUtil.makeEventsCommitExecutor(),
+                    EventUtil.makeDiagnosticsTaskExecutor(),
                     clientContext.getBaseLogger()
-            ));
+            );
+        }
+
+        /**
+         * Builds the store this environment's events are kept in until LaunchDarkly has them.
+         * <p>
+         * The mobile key and the process are both part of where it writes, so an application configured
+         * for several environments, or running the SDK in several processes, gets one store per
+         * combination and they never touch each other's events.
+         */
+        private EventStore makeEventStore(ClientContext clientContext, ClientContextImpl impl) {
+            return EventStore.create(
+                    impl.getPlatformState(),
+                    clientContext.getMobileKey(),
+                    capacity,
+                    capacityBytes,
+                    maxAgeMillis,
+                    eventPersistence != EventPersistence.DISABLED,
+                    clientContext.getBaseLogger());
         }
 
         @Override
@@ -136,75 +189,8 @@ abstract class ComponentsImpl {
                     .put("allAttributesPrivate", allAttributesPrivate)
                     .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsCapacity", capacity)
-                    .put("diagnosticRecordingIntervalMillis", diagnosticRecordingIntervalMillis)
                     .put("eventsFlushIntervalMillis", flushIntervalMillis)
                     .build();
-        }
-
-        /**
-         * Adapter from the public component interface of EventProcessor to the internal
-         * implementation class from java-sdk-internal.
-         */
-        private final class DefaultEventProcessorWrapper implements EventProcessor {
-            private final DefaultEventProcessor eventProcessor;
-
-            DefaultEventProcessorWrapper(DefaultEventProcessor eventProcessor) {
-                this.eventProcessor = eventProcessor;
-            }
-
-            @Override
-            public void recordEvaluationEvent(
-                    LDContext context,
-                    String flagKey,
-                    int flagVersion,
-                    int variation,
-                    LDValue value,
-                    EvaluationReason reason,
-                    LDValue defaultValue,
-                    boolean requireFullEvent,
-                    Long debugEventsUntilDate
-            ) {
-                eventProcessor.sendEvent(new Event.FeatureRequest(
-                        System.currentTimeMillis(), flagKey, context, flagVersion, variation,
-                        value, defaultValue, reason, null, requireFullEvent,
-                        debugEventsUntilDate, false));
-            }
-
-            @Override
-            public void recordIdentifyEvent(LDContext context) {
-                eventProcessor.sendEvent(new Event.Identify(System.currentTimeMillis(), context));
-            }
-
-            @Override
-            public void recordCustomEvent(LDContext context, String eventKey, LDValue data, Double metricValue) {
-                eventProcessor.sendEvent(new Event.Custom(System.currentTimeMillis(), eventKey,
-                        context, data, metricValue));
-            }
-
-            @Override
-            public void setInBackground(boolean inBackground) {
-                eventProcessor.setInBackground(inBackground);
-            }
-
-            @Override
-            public void setOffline(boolean offline) {
-                eventProcessor.setOffline(offline);
-            }
-
-            @Override
-            public void flush() {
-                eventProcessor.flushAsync();
-            }
-
-            @Override
-            public void blockingFlush() {
-                eventProcessor.flushBlocking();
-            }
-
-            @Override
-            public void close() throws IOException {
-                eventProcessor.close();
-            }
         }
     }
 
