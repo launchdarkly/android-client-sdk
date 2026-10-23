@@ -663,7 +663,10 @@ class EventDirectory {
     private byte[] readFile(File file) throws IOException {
         try (InputStream in = reader.openForReading(file)) {
             // Read into an array of the file's size, so a batch is held once rather than in a growing
-            // buffer and a copy of it. Only a log still being appended to can turn out longer.
+            // buffer and a copy of it. None of the files read here grows, but the read still goes on to
+            // the end of the file rather than stopping at that size: length() is a stat of its own, and
+            // answers 0 rather than failing. Trusted, it would make an intact batch read as empty, which
+            // is removed as delivered by another process, its events lost without being counted.
             byte[] contents = new byte[(int) Math.min(file.length(), Integer.MAX_VALUE - 8)];
             int filled = 0;
             while (true) {
