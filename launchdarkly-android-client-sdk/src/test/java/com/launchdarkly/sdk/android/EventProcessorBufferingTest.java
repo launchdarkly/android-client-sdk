@@ -43,8 +43,7 @@ public class EventProcessorBufferingTest extends EventProcessorTestBase {
     private static final int CAPACITY = 100;
 
     // For the tests that fill the summarizer to its context limit. Each counted context becomes its
-    // own summary event, so the flush is roughly this many summaries; at CAPACITY that came to about
-    // 28 KB, past what the test server reliably records with its single unlooped read of the body.
+    // own summary event, so the flush is roughly this many summaries.
     private static final int CONTEXT_LIMIT = 10;
 
     private static final int BURST_THREADS = 4;

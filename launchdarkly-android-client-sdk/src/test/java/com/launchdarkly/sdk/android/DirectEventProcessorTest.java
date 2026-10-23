@@ -17,6 +17,7 @@ import com.launchdarkly.sdk.android.subsystems.HttpConfiguration;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
+import com.launchdarkly.testhelpers.httptest.Handler;
 import com.launchdarkly.testhelpers.httptest.HandlerSwitcher;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
@@ -812,10 +813,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         int featureEventsSeen = 0;
         for (int trial = 0; trial < RACE_TRIALS; trial++) {
             try (HttpServer server = startEventsServer()) {
-                // Deliberately small. The recorders outrun the buffer, so capacity is the only thing
-                // bounding the payload, and the test server records the body with a single unlooped
-                // read -- so anything past one socket read's worth comes back truncated, at a point
-                // that moves from run to run. A few kilobytes stays well clear of that.
+                // The recorders outrun the buffer, so capacity is the only thing bounding the payload.
                 DirectEventProcessor eventProcessor =
                         (DirectEventProcessor) makeEventProcessor(server, RACE_CAPACITY);
                 // Guarantees the final delivery has something in it, so collectDelivered always has
@@ -2250,7 +2248,10 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aBatchAnUnheardDeliveryCouldNotSendGoesOutOnceTheServiceRecovers() throws Exception {
-        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
+        // Answers set up front: nothing waits for the retry's answer, so switching once the retry is seen
+        // could still answer it with the recovery.
+        Handler service = Handlers.sequential(Handlers.status(503), Handlers.status(503),
+                Handlers.status(202), Handlers.status(202));
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = makeEventProcessor(server,
                     eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
@@ -2261,7 +2262,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 String payloadId = server.getRecorder().requireRequest(10, TimeUnit.SECONDS)
                         .getHeader(PAYLOAD_ID_HEADER);
                 server.getRecorder().requireRequest(10, TimeUnit.SECONDS);
-                service.setTarget(Handlers.status(202));
 
                 // Nobody heard the failure, and the next flush still sends what it refused.
                 assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
@@ -2610,7 +2610,12 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // and a half here from the eight and a half minutes the SDK waits.
         long refusalWaitMillis = 1_500;
         long second = DirectEventProcessor.RETRY_DELAY_MILLIS;
-        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
+        // One answer per post, set up front: the server records a request before it answers it, so
+        // switching once the retry's posts are seen could change the answers they get.
+        Handler service = Handlers.sequential(
+                Handlers.status(401),
+                Handlers.status(202), Handlers.status(202),
+                Handlers.status(503), Handlers.status(202));
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = makeEventProcessor(server,
                     ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY))
@@ -2625,7 +2630,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.recordCustomEvent(CONTEXT, "recorded-meanwhile", LDValue.ofNull(), null);
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
                 server.getRecorder().requireNoRequests(refusalWaitMillis / 2, TimeUnit.MILLISECONDS);
-                service.setTarget(Handlers.status(202));
 
                 // The retry the refusal queued: the refused batch under the ID it was refused under, then what
                 // was recorded since.
@@ -2637,7 +2641,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 // One accepted delivery puts the backoff back: the next failure waits only the second a flush
                 // sits out, so the flush hears that its retry worked.
-                service.setTarget(Handlers.sequential(Handlers.status(503), Handlers.status(202)));
                 eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
                 assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
             } finally {
