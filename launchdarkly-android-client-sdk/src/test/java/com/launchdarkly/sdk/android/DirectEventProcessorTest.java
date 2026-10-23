@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.launchdarkly.sdk.EvaluationReason;
+import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
@@ -40,6 +41,9 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -1685,6 +1689,72 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void debugEventIsNotSentOnceTheServiceClockIsPastItsDate() throws Exception {
+        // The device clock can be behind, so a date the device still has ahead of it may be over already.
+        String serviceDate = DateTimeFormatter.RFC_1123_DATE_TIME.format(
+                ZonedDateTime.now(ZoneOffset.UTC).plusSeconds(10));
+        try (HttpServer server = HttpServer.start(Handlers.all(Handlers.header("Date", serviceDate),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "learns-the-service-clock", LDValue.ofNull(), null);
+                flushAndCollect(eventProcessor, server);
+
+                recordEvaluation(eventProcessor, false, System.currentTimeMillis() + 3_000);
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(0, countEventsOfKind(events, "debug"));
+                assertEquals(1, summaryCountFor(events, FLAG_KEY));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aTrackedEvaluationWhileDebuggingIsActiveSendsBothAFeatureAndADebugEvent() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                recordEvaluation(eventProcessor, true, System.currentTimeMillis() + 3_600_000);
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+
+                assertEquals(1, countEventsOfKind(events, "feature"));
+                assertEquals(1, countEventsOfKind(events, "debug"));
+                assertEquals(1, summaryCountFor(events, FLAG_KEY));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void anEvaluationTheSummarizerTurnsAwayCountsAsDroppedAndStillKeepsItsFullEvent() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            DirectEventProcessor eventProcessor = (DirectEventProcessor) makeEventProcessor(server, 2);
+            try {
+                // Capacity bounds the number of contexts counted as well as the number of events held.
+                for (String key : new String[] {"a", "b"}) {
+                    eventProcessor.recordEvaluationEvent(LDContext.create(key), FLAG_KEY, FLAG_VERSION,
+                            VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+                assertEquals(0, eventProcessor.getAndClearDroppedCount());
+
+                eventProcessor.recordEvaluationEvent(LDContext.create("c"), FLAG_KEY, FLAG_VERSION,
+                        VARIATION, FLAG_VALUE, null, DEFAULT_VALUE, true, null);
+                assertEquals(1, eventProcessor.getAndClearDroppedCount());
+
+                List<LDValue> events = flushAndCollect(eventProcessor, server);
+                assertEquals(LDValue.of("c"), requireEventOfKind(events, "feature").get("context").get("key"));
+                assertEquals(2, summaryCountFor(events, FLAG_KEY));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void recordingAfterCloseIsIgnored() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
@@ -2178,6 +2248,186 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void theStoreIsHeldToItsCapacityThroughFlushesThatEachFindADeliveryInFlight() throws Exception {
+        // A batch whose request is out stops counting against capacity. With a request per flush, a run of
+        // flushes each held up by a slow response would take the store a batch past capacity per flush.
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(202)),
+                Handlers.status(202), Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, 2);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "a-0", LDValue.ofNull(), null);
+                eventProcessor.recordCustomEvent(CONTEXT, "a-1", LDValue.ofNull(), null);
+                eventProcessor.flush();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                for (int round = 0; round < 3; round++) {
+                    eventProcessor.recordCustomEvent(CONTEXT, "b" + round + "-0", LDValue.ofNull(), null);
+                    eventProcessor.recordCustomEvent(CONTEXT, "b" + round + "-1", LDValue.ofNull(), null);
+                    eventProcessor.flush();
+                }
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
+
+                letFirstResponseFinish.release();
+                eventProcessor.blockingFlush();
+
+                // The batch out made room for one store's worth, and nothing past it was taken.
+                List<String> keys = new ArrayList<>();
+                for (LDValue event : collectDelivered(server)) {
+                    keys.add(event.get("key").stringValue());
+                }
+                assertEquals(Arrays.asList("b0-0", "b0-1"), keys);
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushIsAnsweredByTheFailureOfADeliveryHoldingTheBatchItWouldHaveSent() throws Exception {
+        // Everything stored belongs to the delivery already running, and that may include this caller's
+        // events, so this caller is answered by that delivery rather than told its events arrived.
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(503)),
+                Handlers.status(503), Handlers.status(503), Handlers.status(503)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                Future<Boolean> second = eventProcessor.flushAsync();
+                Thread.sleep(300);
+                assertFalse(second.isDone());
+
+                letFirstResponseFinish.release();
+                // Allows for the one-second retry, after which the batch is still stored and undelivered.
+                assertFalse(first.get(10, TimeUnit.SECONDS));
+                assertFalse(second.get(10, TimeUnit.SECONDS));
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void anEvaluatingThreadIsNotHeldUpWhileADeliveryListsTheStore() throws Exception {
+        // Standing in for the listing a delivery makes on a device whose disk is busy, which on the first one
+        // after launch reads every batch a previous run left behind.
+        AtomicBoolean slow = new AtomicBoolean();
+        CountDownLatch listing = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        EventStore store = new EventStore(new File(eventsDirectory.getRoot(), "events"), DEFAULT_CAPACITY,
+                persistence() != EventPersistence.DISABLED, logging.logger) {
+            @Override
+            Listing listPendingBatches() {
+                if (slow.get()) {
+                    listing.countDown();
+                    awaitQuietly(release, 10, TimeUnit.SECONDS);
+                }
+                return super.listPendingBatches();
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        try (HttpServer server = startEventsServer()) {
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(), server.getUri(),
+                    null, NO_PERIODIC_FLUSH_MILLIS, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(false);
+                slow.set(true);
+                eventProcessor.recordCustomEvent(CONTEXT, "tracked", LDValue.ofNull(), null);
+                eventProcessor.flush();
+                assertTrue("the delivery never listed the store", listing.await(5, TimeUnit.SECONDS));
+
+                CountDownLatch answered = new CountDownLatch(1);
+                new Thread(() -> {
+                    eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION, FLAG_VALUE,
+                            null, DEFAULT_VALUE, true, System.currentTimeMillis() + 3_600_000);
+                    eventProcessor.recordCustomEvent(CONTEXT, "meanwhile", LDValue.ofNull(), null);
+                    answered.countDown();
+                }).start();
+                assertTrue("the evaluation waited on the listing", answered.await(2, TimeUnit.SECONDS));
+
+                release.countDown();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+            } finally {
+                release.countDown();
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void aDeliveredBatchIsOutOfTheStoreBeforeTheFlushIsAnsweredEvenWhileACommitIsStuckWriting()
+            throws Exception {
+        assumePersisting();
+        // A slow disk, holding the store's I/O, which removing a delivered batch also needs.
+        AtomicBoolean blockNextWrite = new AtomicBoolean();
+        CountDownLatch writeStarted = new CountDownLatch(1);
+        CountDownLatch finishWrite = new CountDownLatch(1);
+        EventStore store = new EventStore(new File(eventsDirectory.getRoot(), "events"), DEFAULT_CAPACITY,
+                true, logging.logger) {
+            @Override
+            FileOutputStream openForAppending(File file) throws IOException {
+                if (blockNextWrite.getAndSet(false)) {
+                    writeStarted.countDown();
+                    awaitQuietly(finishWrite, 10, TimeUnit.SECONDS);
+                }
+                return super.openForAppending(file);
+            }
+        };
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(202)),
+                Handlers.status(202)))) {
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(), server.getUri(),
+                    null, NO_PERIODIC_FLUSH_MILLIS, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "delivered", LDValue.ofNull(), null);
+                Future<Boolean> flush = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                blockNextWrite.set(true);
+                new Thread(() -> eventProcessor.recordCustomEvent(CONTEXT, "written", LDValue.ofNull(), null))
+                        .start();
+                assertTrue(writeStarted.await(2, TimeUnit.SECONDS));
+                letFirstResponseFinish.release();
+
+                try {
+                    Boolean delivered = flush.get(500, TimeUnit.MILLISECONDS);
+                    // Only the event still being written. The delivered one was gone before anyone heard.
+                    int pendingWhenTold = store.getPendingEventCount();
+                    assertTrue(delivered);
+                    assertEquals(1, pendingWhenTold);
+                } catch (TimeoutException waitingOnTheWrite) {
+                    // Answered only once the removal gets the disk, which is as good.
+                }
+                finishWrite.countDown();
+                assertTrue(flush.get(5, TimeUnit.SECONDS));
+                assertEquals(1, store.getPendingEventCount());
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
+                finishWrite.countDown();
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     public void flushWithTimeoutReportsFailureWhenTheTimeoutExpiresFirst() throws Exception {
         Semaphore letResponseFinish = new Semaphore(0);
         try (HttpServer server = HttpServer.start(Handlers.all(Handlers.waitFor(letResponseFinish),
@@ -2572,6 +2822,37 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void aBatchRefusedWith503IsPostedOnlyAsTheBackoffAllows() throws Exception {
         assertPostedOnlyAsTheBackoffAllows(503);
+    }
+
+    @Test
+    public void aBatchRefusedWith429IsPostedOnlyAsTheBackoffAllows() throws Exception {
+        assertPostedOnlyAsTheBackoffAllows(429);
+    }
+
+    @Test
+    public void aDeliveryAskedForWhileARefusedPostWaitsToRetryStartsOnceThatRetryIsAnswered() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), null);
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // Well inside the one-second retry delay. The retry belongs to the delivery still running, so
+                // this one waits for it rather than posting beside it.
+                Future<Boolean> second = eventProcessor.flushAsync();
+                Thread.sleep(300);
+                assertFalse("answered before the retry it waits on", second.isDone());
+
+                // One retry and no more: the delivery behind it finds the backoff still waiting.
+                server.getRecorder().requireRequest(3, TimeUnit.SECONDS);
+                assertFalse(first.get(5, TimeUnit.SECONDS));
+                assertFalse(second.get(5, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(1_500, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
     }
 
     /**
