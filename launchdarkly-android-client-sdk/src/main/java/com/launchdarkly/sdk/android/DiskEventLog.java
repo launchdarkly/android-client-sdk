@@ -244,10 +244,10 @@ final class DiskEventLog {
         if (!directory.exists() && !directory.mkdirs() && !directory.isDirectory()) {
             throw new IOException("could not create " + directory);
         }
-        if (file.exists()) {
-            // Left by an earlier open in this session, and unlocked since, so no longer this store's to write.
-            file = newLogFile();
-        }
+        // Never the name of an earlier open in this session, whatever exists() says of it: that log is unlocked
+        // and no longer this store's to write, and exists() answers false where it cannot look, so the rename
+        // below would replace it and lose its events.
+        file = newLogFile();
         File opening = new File(directory, OPENING_PREFIX + file.getName().substring(PREFIX.length()));
         remember(file);
         FileOutputStream stream = null;
