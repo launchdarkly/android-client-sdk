@@ -469,7 +469,12 @@ class EventDirectory {
             // What the close knew of its summaries is kept; nothing in the file says.
             Stored previous = stored.get(payloadId);
             int summaries = previous != null && previous.events == events ? previous.summaries : 0;
-            stored.put(payloadId, new Stored(file, events, summaries, file.length(), entry.modified));
+            // length() answers 0 where it cannot look, and no batch is empty: it has a header at least.
+            long bytes = file.length();
+            if (bytes <= 0) {
+                bytes = previous != null ? previous.bytes : EventLogFormat.FILE_HEADER_SIZE;
+            }
+            stored.put(payloadId, new Stored(file, events, summaries, bytes, entry.modified));
             batches.add(new EventStore.Batch(payloadId, events));
         }
 
