@@ -822,8 +822,8 @@ class EventStore implements Closeable {
      * Removes a batch, which is only correct once LaunchDarkly has accepted it or permanently refused it.
      */
     void remove(Batch batch) {
-        // Only a count this call takes away stops counting. Two deliveries can both get to the same batch,
-        // and a listing drops a batch another process delivered before this one gets to remove it.
+        // Only a count this call takes away stops counting. A batch can already be gone: another process
+        // can deliver it from the disk, and a listing then drops it before this one gets to remove it.
         synchronized (heldLock) {
             HeldBatch held = inMemoryBatches.remove(batch.payloadId);
             if (held != null) {

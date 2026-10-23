@@ -50,6 +50,17 @@ import java.util.concurrent.atomic.AtomicLong;
  * Whether a commit point runs on the caller's thread is the application's choice, through
  * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence}. Only at
  * {@code IMMEDIATE} can {@code track} promise the event is on disk by the time it returns.
+ * <p>
+ * Threads. Recording runs on whichever thread evaluated or tracked. Commits run on {@link #commitExecutor},
+ * or on the caller's thread at a commit point, one at a time under {@link #commitLock}. Every delivery runs
+ * on {@link #scheduler}, a single thread: a requested one, the periodic one, the retry after a failure, and
+ * the final one {@code close()} queues. So no two deliveries of this processor overlap, and the final one
+ * waits behind a post or retry already running there, within the budget {@code close()} gives it.
+ * Diagnostic events go out on a thread of their own.
+ * <p>
+ * Overlap is across processes. Two processes of one application read the same directory, so both can send
+ * one stored batch. They send it under the same payload ID, and LaunchDarkly discards the repeat rather than
+ * counting the events twice.
  */
 final class DirectEventProcessor implements EventProcessor {
     /**
@@ -1039,7 +1050,9 @@ final class DirectEventProcessor implements EventProcessor {
         // forgetting because it is this run's last chance to send them. While offline that chance is
         // not taken: offline is the application telling the SDK to stay off the network, and shutting
         // down does not revoke that. The commit above has written those events down where persistence
-        // is on, so they go out on a later run; where it is off they are discarded.
+        // is on, so they go out on a later run; where it is off they are discarded. It is queued on the
+        // scheduler like every delivery, so it starts only once a post or retry already running there
+        // ends, and waiting for that comes out of the same budget.
         Callable<DeliveryOutcome> finalDelivery = this::deliverPayloadAndRetryLater;
         Future<DeliveryOutcome> delivery = submit(finalDelivery);
         if (delivery != null) {
@@ -1246,12 +1259,8 @@ final class DirectEventProcessor implements EventProcessor {
      * longer one, a refusal's or one grown through an outage, is the backoff saying not to post for a
      * while, and a flush that sat it out would hold its caller for minutes to say what it can say now.
      * <p>
-     * Runs on the scheduler thread for a requested or periodic delivery, and on the caller's thread
-     * at close. Deliveries can therefore overlap: a retry runs a second behind the delivery that
-     * queued it, and the one at close does not wait for the scheduler. Each closes a batch of its
-     * own under {@link #commitLock}, so no event is committed into two batches. A batch that two of
-     * them both send carries the same payload ID each time, and LaunchDarkly discards the repeat
-     * rather than counting the events twice.
+     * Runs on the scheduler thread, as every delivery does, so no two overlap; see the class
+     * documentation.
      */
     private DeliveryOutcome deliverPayloadAndRetryLater() {
         if (offline.get()) {
