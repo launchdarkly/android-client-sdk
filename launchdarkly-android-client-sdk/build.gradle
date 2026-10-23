@@ -126,6 +126,9 @@ dependencies {
     testImplementation("junit:junit:${versions.junit}")
     testImplementation("org.easymock:easymock:4.3")
     testImplementation("com.launchdarkly:test-helpers:${versions.testHelpers}")
+    // The test-helpers class copied into src/test compiles against Guava, which test-helpers only
+    // brings in at runtime. Keep this at the version it resolves to.
+    testCompileOnly("com.google.guava:guava:32.0.1-jre")
     testImplementation(project(":shared-test-code"))
     testImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
 
