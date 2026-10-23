@@ -18,6 +18,7 @@ import org.junit.rules.Timeout;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -311,7 +312,7 @@ public class EventStoreMultiProcessTest {
         AtomicInteger reads = new AtomicInteger();
         EventStore store = new EventStore(sharedDirectory(), CAPACITY, false, logger) {
             @Override
-            InputStream openForReading(File file) throws IOException {
+            FileInputStream openForReading(File file) throws IOException {
                 reads.incrementAndGet();
                 return super.openForReading(file);
             }
@@ -458,7 +459,7 @@ public class EventStoreMultiProcessTest {
         AtomicInteger reads = new AtomicInteger();
         EventStore main = new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
-            InputStream openForReading(File file) throws IOException {
+            FileInputStream openForReading(File file) throws IOException {
                 reads.incrementAndGet();
                 return super.openForReading(file);
             }
@@ -587,7 +588,7 @@ public class EventStoreMultiProcessTest {
         CountDownLatch readResumes = new CountDownLatch(1);
         EventStore secondRun = new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
-            InputStream openForReading(File file) throws IOException {
+            FileInputStream openForReading(File file) throws IOException {
                 if (file.getName().startsWith(DiskEventLog.PREFIX)) {
                     readStarted.countDown();
                     try {
@@ -630,7 +631,7 @@ public class EventStoreMultiProcessTest {
     private EventStore storeWithFailingReads(AtomicBoolean failing) {
         return new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
-            InputStream openForReading(File file) throws IOException {
+            FileInputStream openForReading(File file) throws IOException {
                 if (failing.get()) {
                     throw new FileNotFoundException(file + " (Too many open files)");
                 }

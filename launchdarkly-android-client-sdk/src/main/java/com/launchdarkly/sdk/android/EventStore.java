@@ -12,7 +12,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -1167,7 +1166,7 @@ class EventStore implements Closeable {
      */
     @SuppressWarnings("IOStreamConstructor")
     @VisibleForTesting
-    InputStream openForReading(File file) throws IOException {
+    FileInputStream openForReading(File file) throws IOException {
         return new FileInputStream(file);
     }
 

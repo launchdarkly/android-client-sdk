@@ -61,7 +61,7 @@ class EventDirectory {
 
     /** How a stored file is read, so a test can make a read fail while the file is intact. */
     interface Reader {
-        InputStream openForReading(File file) throws IOException;
+        FileInputStream openForReading(File file) throws IOException;
     }
 
     /**
@@ -661,23 +661,14 @@ class EventDirectory {
      *   gets, which is why existence is checked rather than the exception's type.
      */
     private byte[] readFile(File file) throws IOException {
-        try (InputStream in = reader.openForReading(file)) {
+        try (FileInputStream in = reader.openForReading(file)) {
             // Read into an array of the file's size, so a batch is held once rather than in a growing
-            // buffer and a copy of it. None of the files read here grows, but the read still goes on to
-            // the end of the file rather than stopping at that size: length() is a stat of its own, and
-            // answers 0 rather than failing. Trusted, it would make an intact batch read as empty, which
-            // is removed as delivered by another process, its events lost without being counted.
-            byte[] contents = new byte[(int) Math.min(file.length(), Integer.MAX_VALUE - 8)];
+            // buffer and a copy of it. The size is the open descriptor's, not File.length(): that is a
+            // stat of its own, which answers 0 rather than failing, and an intact batch read as empty is
+            // removed as delivered by another process, its events lost without being counted.
+            byte[] contents = new byte[(int) Math.min(in.getChannel().size(), Integer.MAX_VALUE - 8)];
             int filled = 0;
-            while (true) {
-                if (filled == contents.length) {
-                    int next = in.read();
-                    if (next < 0) {
-                        break;
-                    }
-                    contents = Arrays.copyOf(contents, Math.max(2 * contents.length, 8192));
-                    contents[filled++] = (byte) next;
-                }
+            while (filled < contents.length) {
                 int read = in.read(contents, filled, contents.length - filled);
                 if (read < 0) {
                     break;

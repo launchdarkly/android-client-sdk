@@ -212,7 +212,7 @@ public class EventStoreBoundsTest {
         EventStore other = new EventStore(directory, CAPACITY, BYTE_CAPACITY,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger) {
             @Override
-            InputStream openForReading(File file) throws IOException {
+            FileInputStream openForReading(File file) throws IOException {
                 reads.incrementAndGet();
                 return new FileInputStream(file);
             }

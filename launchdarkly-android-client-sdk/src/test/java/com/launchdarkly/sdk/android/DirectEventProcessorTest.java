@@ -33,10 +33,10 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -3436,7 +3436,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
-            InputStream openForReading(File file) throws IOException {
+            FileInputStream openForReading(File file) throws IOException {
                 if (failing.get()) {
                     // What a process out of file descriptors gets for a file that is there.
                     throw new FileNotFoundException(file + " (Too many open files)");
