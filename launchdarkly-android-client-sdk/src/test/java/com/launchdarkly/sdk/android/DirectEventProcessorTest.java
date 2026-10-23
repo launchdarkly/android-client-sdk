@@ -366,7 +366,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void flushesWaitingOnOneRetryAreEachToldOfALossBeforeTheirMark() throws Exception {
+    public void ofTwoFlushesWaitingOnOneRetryOnlyTheOneWhoseDeliveryLostAnEventIsTold() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
                 Handlers.status(202), Handlers.status(202)))) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
@@ -377,17 +377,91 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 // The first flush loses the poison event, is refused, and waits for the retry a second away.
                 Future<Boolean> first = eventProcessor.flushAsync();
                 server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
-                // The second finds the backoff waiting and joins the same retry, with the same mark.
+                // The second finds the backoff waiting and joins the same retry, with nothing of its own.
                 Future<Boolean> second = eventProcessor.flushAsync();
 
-                // The retry succeeds. Neither flush began after the loss was reported, so each is told.
+                // The retry succeeds. Whichever answers first, the loss is the first flush's.
                 assertEquals(false, first.get(10, TimeUnit.SECONDS));
-                assertEquals(false, second.get(10, TimeUnit.SECONDS));
+                assertEquals(true, second.get(10, TimeUnit.SECONDS));
                 server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
 
-                // A flush beginning once the loss was reported is not told again.
+                // A flush after both is not told again.
                 eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), 1.0);
                 assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aLossIsToldToTheFlushWhoseDeliveryPassedItNotWhicheverAnswersFirst() throws Exception {
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(202)),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                // The first closes a batch of its own and waits on it. Nothing has been lost at that point.
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // Lost after the first closed its batch, so the loss is the second's.
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(CONTEXT, "second", LDValue.ofNull(), null);
+                Future<Boolean> second = eventProcessor.flushAsync();
+                letFirstResponseFinish.release();
+
+                assertTrue(first.get(5, TimeUnit.SECONDS));
+                assertFalse(second.get(5, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushWithNothingOfItsOwnIsNotToldOfALossTheDeliveryBeforeItHad() throws Exception {
+        Semaphore letFirstResponseFinish = new Semaphore(0);
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(Handlers.waitFor(letFirstResponseFinish), Handlers.status(202)),
+                Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), null);
+                Future<Boolean> first = eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                // Told too, it would report a loss that was not its own.
+                Future<Boolean> second = eventProcessor.flushAsync();
+                letFirstResponseFinish.release();
+
+                assertFalse(first.get(5, TimeUnit.SECONDS));
+                assertTrue(second.get(5, TimeUnit.SECONDS));
+            } finally {
+                letFirstResponseFinish.release(Integer.MAX_VALUE);
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aLossADeliveryNobodyWaitedOnPassedIsToldToTheNextFlush() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "poison", LDValue.ofNull(), Double.NaN);
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), null);
+                // As the periodic flush or going online would, with nobody to tell.
+                eventProcessor.flush();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                assertFalse(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
+                assertTrue(awaitFlush(eventProcessor, 5, TimeUnit.SECONDS));
             } finally {
                 eventProcessor.close();
             }

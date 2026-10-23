@@ -243,9 +243,8 @@ final class DirectEventProcessor implements EventProcessor {
     // Guarded by flushLock.
 
     /**
-     * Guards {@link #pendingFlush}, {@link #pendingFlushAnswersACaller} and
-     * {@link #pendingFlushReportedLosses}. Taken on a caller's thread and on the delivery thread, never
-     * while holding {@link #recordLock}, and nothing blocking happens under it.
+     * Guards {@link #pendingFlush} and {@link #pendingFlushAnswersACaller}. Taken on a caller's thread and
+     * on the delivery thread, never while holding {@link #recordLock}, and nothing blocking happens under it.
      */
     private final Object flushLock = new Object();
 
@@ -261,12 +260,6 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link #pendingFlush}, as opposed to only callers that discard it.
      */
     private boolean pendingFlushAnswersACaller;
-
-    /**
-     * {@link #reportedLostEvents} as {@link #pendingFlush} was queued, before any caller joined it, so
-     * that it is no later than where any of them began.
-     */
-    private long pendingFlushReportedLosses;
 
     // Atomic or volatile, so read and written without a lock.
 
@@ -325,15 +318,18 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicLong lostEvents = new AtomicLong(0);
 
     /**
-     * The loss count through which losses have been reported to some {@link #flushAsync()} caller, so
-     * that a flush beginning later is not told about them again.
+     * The loss count through which losses belong to a delivery some {@link #flushAsync()} caller waits on,
+     * so that each loss is told to one caller: the first whose delivery passed it.
      * <p>
-     * A flush is told about every loss up to its mark that had not been reported when it began, whether or
-     * not another flush has reported it since. Two flushes in flight together can both be told about one
-     * loss, which is the safe direction; telling only whichever answers first can leave the flush whose
-     * delivery lost the events answering true once its retry works.
+     * Claimed as each pass ends, in the order deliveries run, rather than as each answers. A delivery
+     * waiting on a retry answers after the one behind it may have, and claiming on answering would hand
+     * that later delivery the losses before the earlier one's mark, leaving the flush whose delivery lost
+     * the events answering true once its retry works. A delivery nobody waits on claims nothing, so what
+     * it passed is told to the next caller instead of to no one.
+     * <p>
+     * Only read and written on the scheduler thread, which runs every delivery.
      */
-    private final AtomicLong reportedLostEvents = new AtomicLong(0);
+    private long claimedLostEvents;
 
     /**
      * How many 400s in a row drop a batch. A 400 is a payload the service cannot read, which posting it
@@ -736,23 +732,18 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Reports the losses up to a mark to one {@link #flushAsync()} caller.
+     * Claims the losses up to a mark for the delivery that just ended its pass, which a caller waits on.
+     * Runs on the scheduler thread.
      *
-     * @param reportedAtStart {@link #reportedLostEvents} as that caller's flush began
-     * @param mark the loss count as of the close of that caller's batch
-     * @return true if a loss at or before the mark had not been reported when the flush began
+     * @param mark the loss count as of the close of that delivery's batch
+     * @return true if a loss at or before the mark belonged to no earlier delivery a caller waited on
      */
-    private boolean reportEventsLost(long reportedAtStart, long mark) {
-        if (mark <= reportedAtStart) {
+    private boolean claimEventsLost(long mark) {
+        if (mark <= claimedLostEvents) {
             return false;
         }
-        // A loop rather than getAndUpdate, which this SDK cannot use below API 24.
-        while (true) {
-            long reported = reportedLostEvents.get();
-            if (mark <= reported || reportedLostEvents.compareAndSet(reported, mark)) {
-                return true;
-            }
-        }
+        claimedLostEvents = mark;
+        return true;
     }
 
     /**
@@ -946,7 +937,6 @@ final class DirectEventProcessor implements EventProcessor {
             }
             pendingFlush = result;
             pendingFlushAnswersACaller = answersACaller;
-            pendingFlushReportedLosses = reportedLostEvents.get();
             return result;
         }
     }
@@ -956,13 +946,12 @@ final class DirectEventProcessor implements EventProcessor {
      * went.
      * <p>
      * A caller who will hear the answer is told no if the delivery fails. It is also told no if events
-     * were dropped for good up to the batch this delivery closed and had not been reported when the flush
-     * began, because a delivery that finds nothing to send is not evidence that everything recorded
-     * arrived.
+     * were dropped for good up to the batch this delivery closed and no earlier delivery a caller waited
+     * on had passed them, because a delivery that finds nothing to send is not evidence that everything
+     * recorded arrived.
      */
     private void runDelivery(LDAwaitFuture<Boolean> result) {
         boolean answersACaller = false;
-        long reportedAtStart = 0;
         synchronized (flushLock) {
             // Requests arriving from here on need a delivery of their own: this one is about to take
             // the buffer, and what it takes is all it can speak for.
@@ -970,7 +959,6 @@ final class DirectEventProcessor implements EventProcessor {
                 pendingFlush = null;
                 answersACaller = pendingFlushAnswersACaller;
                 pendingFlushAnswersACaller = false;
-                reportedAtStart = pendingFlushReportedLosses;
             }
         }
         DeliveryOutcome outcome;
@@ -982,10 +970,12 @@ final class DirectEventProcessor implements EventProcessor {
             logUnexpectedError(t);
             outcome = DeliveryOutcome.CLOSED_NOTHING;
         }
+        // Claimed before the next delivery can run, however long this one's retry takes to answer.
+        boolean lostEvents = answersACaller && claimEventsLost(outcome.lostEventsMark);
         if (outcome.retry == null) {
-            answer(result, outcome.delivered, answersACaller, reportedAtStart, outcome.lostEventsMark);
+            answer(result, outcome.delivered, lostEvents);
         } else {
-            completeWhenRetryEnds(result, outcome, answersACaller, reportedAtStart);
+            completeWhenRetryEnds(result, outcome, lostEvents);
         }
     }
 
@@ -995,7 +985,7 @@ final class DirectEventProcessor implements EventProcessor {
      * second from now on this one, which must be free to take it.
      */
     private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, DeliveryOutcome outcome,
-                                       boolean answersACaller, long reportedAtStart) {
+                                       boolean lostEvents) {
         LDAwaitFuture<Boolean> retried = LDFutures.fromFuture(outcome.retry);
         retried.addListener(() -> {
             boolean delivered = false;
@@ -1006,23 +996,18 @@ final class DirectEventProcessor implements EventProcessor {
             } catch (ExecutionException e) {
                 // Reported as not delivered.
             }
-            // The mark the delivery took, not one taken now: a loss during the wait belongs to
+            // The losses the delivery claimed, not any since: a loss during the wait belongs to
             // whichever delivery closes the batch after it, not to this one.
-            answer(result, delivered, answersACaller, reportedAtStart, outcome.lostEventsMark);
+            answer(result, delivered, lostEvents);
         });
     }
 
     /**
-     * Completes a delivery's future. A caller who will hear the answer is told no if this delivery
-     * failed, or if events the SDK accepted were lost for good up to the mark it took and had not been
-     * reported when its flush began.
+     * Completes a delivery's future, telling its callers no if this delivery failed or lost events the
+     * SDK accepted.
      */
-    private void answer(LDAwaitFuture<Boolean> result, boolean delivered, boolean answersACaller,
-                        long reportedAtStart, long lostEventsMark) {
-        if (answersACaller) {
-            delivered &= !reportEventsLost(reportedAtStart, lostEventsMark);
-        }
-        result.set(delivered);
+    private void answer(LDAwaitFuture<Boolean> result, boolean delivered, boolean lostEvents) {
+        result.set(delivered && !lostEvents);
     }
 
     @Override
@@ -1226,7 +1211,7 @@ final class DirectEventProcessor implements EventProcessor {
         final Future<Boolean> retry;
         /**
          * The loss count as of the close of this delivery's batch, which is as far as it can answer
-         * for; see {@link #reportEventsLost(long, long)}.
+         * for; see {@link #claimEventsLost(long)}.
          */
         final long lostEventsMark;
 
@@ -1348,7 +1333,7 @@ final class DirectEventProcessor implements EventProcessor {
      * going online starts, the one recovery starts, and the final one at close all reach here without
      * that earlier commit.
      *
-     * @return the loss count as of the close, for {@link #reportEventsLost(long, long)}, and whether the
+     * @return the loss count as of the close, for {@link #claimEventsLost(long)}, and whether the
      *   close took every committed event into a batch; both under the lock, so they cover this close and
      *   nothing a later commit does
      */
@@ -1364,7 +1349,7 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link #commitAndCloseBatch()} for a pass that found an earlier batch blocked, and so closes nothing.
      * The mark is as of this commit, the last point anything the caller recorded was staged.
      *
-     * @return the loss count as of the commit, for {@link #reportEventsLost(long, long)}
+     * @return the loss count as of the commit, for {@link #claimEventsLost(long)}
      */
     private long commitLeavingTheLogOpen() {
         synchronized (commitLock) {
