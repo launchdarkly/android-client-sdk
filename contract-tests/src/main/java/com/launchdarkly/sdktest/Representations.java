@@ -41,6 +41,15 @@ public abstract class Representations {
         SdkConfigHookParams hooks;
         SdkConfigDataSystemParams dataSystem;
         SdkConfigWrapperParams wrapper;
+        SdkConfigTlsParams tls;
+    }
+
+    /** The v3 TLS data face (v3 service-spec tls params): `skipVerifyPeer`
+     * and `customCAFile` (the run CA path the {{runtime:ca_file}} placeholder
+     * resolves to at the grader). */
+    public static class SdkConfigTlsParams {
+        Boolean skipVerifyPeer;
+        String customCAFile;
     }
 
     public static class SdkConfigStreamParams {
@@ -148,7 +157,7 @@ public abstract class Representations {
     }
 
     public static class CommandParams {
-        String command;
+        public String command;
         EvaluateFlagParams evaluate;
         EvaluateAllFlagsParams evaluateAll;
         IdentifyEventParams identifyEvent;
@@ -163,6 +172,13 @@ public abstract class Representations {
         RemoveOverrideParams removeOverride;
         @com.google.gson.annotations.SerializedName("x-cp-closed-evaluate") EvaluateFlagParams xcpClosedEvaluate;
         @com.google.gson.annotations.SerializedName("x-cp-set-streaming") SetStreamingParams xcpSetStreaming;
+        public @com.google.gson.annotations.SerializedName("x-cp-logs") XcpLogsParams xcpLogs;
+    }
+
+    /** CP-SPEC 10 x-cp-logs params: `action: "drain"` (the only action the
+     * seat prices; other actions refuse named). */
+    public static class XcpLogsParams {
+        public String action;
     }
 
     /** x-cp-set-streaming arm params (cp.schema x-cp-set-streaming: `state`

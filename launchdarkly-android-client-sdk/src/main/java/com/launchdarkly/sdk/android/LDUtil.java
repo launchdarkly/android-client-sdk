@@ -20,6 +20,9 @@ import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.X509TrustManager;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -34,6 +37,14 @@ import okhttp3.Headers;
  */
 public class LDUtil {
     static final String USER_AGENT_HEADER_VALUE = LDPackageConsts.SDK_CLIENT_NAME + "/" + BuildConfig.VERSION_NAME;
+
+    // The seat-cell TLS seam (module-internal face, nothing public grows): the
+    // contract-test layer (ConfigHelper, this package) provisions the socket
+    // factory / trust manager per client, and makeHttpProperties rides the
+    // slots into the shared core's HttpProperties so the SDK's own HTTP stacks
+    // (poll / stream / events) honor them. Absent slots keep the stock faces.
+    static volatile SSLSocketFactory testTlsSocketFactory;
+    static volatile X509TrustManager testTlsTrustManager;
 
     static <T> Callback<T> noOpCallback() {
         return new Callback<T>() {
@@ -206,8 +217,8 @@ public class LDUtil {
                 null, // proxyAuth
                 null, // socketFactory
                 httpConfig.getConnectTimeoutMillis(),
-                null, // sslSocketFactory
-                null // trustManager
+                testTlsSocketFactory,
+                testTlsTrustManager
         );
     }
 

@@ -427,12 +427,23 @@ public class SdkClientEntity {
   private java.util.Map<String, Object> doXcpDataSourceStatus() {
     com.launchdarkly.sdk.android.ConnectionInformation ci = client.getConnectionInformation();
     java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
-    // the CP x-cp state law: VALID once the data source has initialized (the
-    // client's own CR-INIT faces ride the LDClient.isInitialized law).
-    out.put("state", client.isInitialized() ? "VALID" : "INITIALIZING");
+    // The CP x-cp state law (INITIALIZING / VALID / INTERRUPTED / OFF): VALID
+    // once the data source has initialized; INTERRUPTED when init has not
+    // completed and the SDK's own connection face recorded a failure (the
+    // ConnectivityManager's updateConnectionInfoForError face — a refused
+    // handshake / dead socket records it); INITIALIZING otherwise.
+    com.launchdarkly.sdk.android.LDFailure failure = ci.getLastFailure();
+    String state;
+    if (client.isInitialized()) {
+      state = "VALID";
+    } else if (failure != null) {
+      state = "INTERRUPTED";
+    } else {
+      state = "INITIALIZING";
+    }
+    out.put("state", state);
     out.put("stateSince", ci.getLastSuccessfulConnection());
     out.put("connectionMode", String.valueOf(ci.getConnectionMode()));
-    com.launchdarkly.sdk.android.LDFailure failure = ci.getLastFailure();
     if (failure != null && failure.getMessage() != null) {
       java.util.Map<String, Object> le = new java.util.LinkedHashMap<>();
       le.put("message", failure.getMessage());
@@ -649,6 +660,14 @@ public class SdkClientEntity {
 
     builder.mobileKey(params.credential);
     builder.logAdapter(logAdapter).loggerName(tag + ".sdk");
+
+    // CENTINEL seat-cell TLS seam (v3 tls data face): the seat provisions the
+    // socket factory / trust manager before the config builds, so every HTTP
+    // stack honors them for this client only.
+    Representations.SdkConfigTlsParams tls = params.tls;
+    com.launchdarkly.sdk.android.ConfigHelper.configureTls(builder,
+            tls == null ? null : tls.skipVerifyPeer,
+            tls == null ? null : tls.customCAFile);
 
     ServiceEndpointsBuilder endpoints = Components.serviceEndpoints();
 

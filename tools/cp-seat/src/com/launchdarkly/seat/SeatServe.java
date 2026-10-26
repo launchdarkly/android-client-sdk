@@ -13,6 +13,7 @@ import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.android.LDAndroidLogging;
 import com.launchdarkly.sdk.json.LDGson;
 
+import com.launchdarkly.sdktest.LogCapture;
 import com.launchdarkly.sdktest.Representations;
 import com.launchdarkly.sdktest.SdkClientEntity;
 
@@ -64,7 +65,10 @@ public final class SeatServe {
       "flag-change-listeners",
       "wrapper",
       "x-cp-storage-scope",
-      "inline-context"
+      "inline-context",
+      "tls:verify-peer",
+      "tls:custom-ca",
+      "tls:skip-verify-peer"
   };
 
   static final Gson gson = new GsonBuilder()
@@ -257,11 +261,17 @@ public final class SeatServe {
     });
   }
 
-  /** Seat-side stderr logging for honest causal faces (never on stdout; CP-SPEC 5.1). */
+  /** Seat-side stderr logging for honest causal faces (never on stdout; CP-SPEC 5.1).
+   * The chain carries the x-cp-logs capture face (CP-SPEC 10): every record both
+   * prints to stderr and joins the drain ring; the drain command owns its own ring. */
+  private static final LogCapture LOG_CAPTURE = new LogCapture(2000);
+
   static com.launchdarkly.logging.LDLogAdapter seatLogAdapter() {
-    return com.launchdarkly.logging.Logs.level(
-        com.launchdarkly.logging.Logs.toStream(System.err),
-        com.launchdarkly.logging.LDLogLevel.DEBUG);
+    return new LogCapture.CaptureLogAdapter(
+        com.launchdarkly.logging.Logs.level(
+            com.launchdarkly.logging.Logs.toStream(System.err),
+            com.launchdarkly.logging.LDLogLevel.DEBUG),
+        LOG_CAPTURE);
   }
 
   void dispatchCommand(Bus bus, JsonElement idEl, JsonElement bodyEl) {
@@ -269,13 +279,32 @@ public final class SeatServe {
       try {
         JsonObject b = bodyEl.getAsJsonObject();
         String clientId = str(b, "client");
+        JsonElement req = b.get("request");
+        Representations.CommandParams cmd = gson.fromJson(req, Representations.CommandParams.class);
+        // CP-SPEC 10: the x-cp-logs drain face is seat-level (the ring carries
+        // every SDK log since boot, whatever client rode it); it rides before
+        // the client-bound dispatch like its harness counterparts.
+        if ("x-cp-logs".equals(cmd.command)) {
+          Representations.XcpLogsParams logsParams = cmd.xcpLogs;
+          String action = logsParams == null ? null : logsParams.action;
+          if (!"drain".equals(action)) {
+            bus.err(idEl, "command", 400, "x-cp-logs action " + String.valueOf(action));
+            return;
+          }
+          JsonObject reply = new JsonObject();
+          JsonArray recs = new JsonArray();
+          for (java.util.Map<String, Object> row : LOG_CAPTURE.drain()) {
+            recs.add(gson.toJsonTree(row));
+          }
+          reply.add("records", recs);
+          bus.ok(idEl, "command", reply);
+          return;
+        }
         SdkClientEntity entity = clients.get(clientId);
         if (entity == null) {
           bus.err(idEl, "command", 404, "unknown client id");
           return;
         }
-        JsonElement req = b.get("request");
-        Representations.CommandParams cmd = gson.fromJson(req, Representations.CommandParams.class);
         Object result = entity.doCommand(cmd);
         JsonElement bodyEl2 = result == null ? JsonNull.INSTANCE : gson.toJsonTree(result);
         bus.ok(idEl, "command", bodyEl2);

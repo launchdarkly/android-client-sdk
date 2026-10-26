@@ -13,6 +13,72 @@ public class ConfigHelper {
     }
 
     /**
+     * CENTINEL seat-cell TLS seam (the v3 TLS data face: skipVerifyPeer /
+     * customCAFile): provisions the socket factory + trust manager the SDK's
+     * own {@code LDUtil.makeHttpProperties} honors for every HTTP stack
+     * (poll / stream / events). Module-internal, no public API grows;
+     * absent params reset the slots so one scenario's TLS faces never leak
+     * into the next client.
+     */
+    public static void configureTls(LDConfig.Builder builder,
+            Boolean skipVerifyPeer, String customCAFile) {
+        javax.net.ssl.SSLSocketFactory socketFactory = null;
+        javax.net.ssl.X509TrustManager trustManager = null;
+        if (Boolean.TRUE.equals(skipVerifyPeer)) {
+            trustManager = new LenientTrustManager();
+        } else if (customCAFile != null) {
+            try {
+                java.io.FileInputStream in = new java.io.FileInputStream(customCAFile);
+                java.security.cert.CertificateFactory certFactory =
+                        java.security.cert.CertificateFactory.getInstance("X.509");
+                java.util.Collection<? extends java.security.cert.Certificate> cas =
+                        certFactory.generateCertificates(in);
+                in.close();
+                java.security.KeyStore ks = java.security.KeyStore.getInstance(
+                        java.security.KeyStore.getDefaultType());
+                ks.load(null, null);
+                int i = 0;
+                for (java.security.cert.Certificate ca : cas) {
+                    ks.setCertificateEntry("ca" + i++, ca);
+                }
+                javax.net.ssl.TrustManagerFactory tmf =
+                        javax.net.ssl.TrustManagerFactory.getInstance(
+                                javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+                tmf.init(ks);
+                for (javax.net.ssl.TrustManager tm : tmf.getTrustManagers()) {
+                    if (tm instanceof javax.net.ssl.X509TrustManager) {
+                        trustManager = (javax.net.ssl.X509TrustManager) tm;
+                    }
+                }
+                javax.net.ssl.SSLContext sslContext = javax.net.ssl.SSLContext.getInstance("TLS");
+                sslContext.init(null, new javax.net.ssl.TrustManager[] {trustManager}, null);
+                socketFactory = sslContext.getSocketFactory();
+            } catch (java.security.GeneralSecurityException | java.io.IOException e) {
+                throw new RuntimeException("TLS provisioning failed: " + customCAFile, e);
+            }
+        }
+        LDUtil.testTlsSocketFactory = socketFactory;
+        LDUtil.testTlsTrustManager = trustManager;
+    }
+
+    /** The skip-verify face's trust manager: no certificate validation. */
+    private static final class LenientTrustManager implements javax.net.ssl.X509TrustManager {
+        @Override
+        public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {
+        }
+
+        @Override
+        public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {
+        }
+
+        @Override
+        public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+            return new java.security.cert.X509Certificate[0];
+        }
+    }
+
+
+    /**
      * CENTINEL client-lane extension (campaign client-INTERFACE section 5, PERSIST.5):
      * with a storage scope every client created under the same scope tag shares one local
      * store (successive launches of one app); without one each client stays isolated as
