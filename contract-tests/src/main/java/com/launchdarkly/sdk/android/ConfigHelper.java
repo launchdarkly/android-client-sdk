@@ -26,6 +26,18 @@ public class ConfigHelper {
         javax.net.ssl.X509TrustManager trustManager = null;
         if (Boolean.TRUE.equals(skipVerifyPeer)) {
             trustManager = new LenientTrustManager();
+            // OkHttp binds the stack via sslSocketFactory(factory, trustManager)
+            // (the shared core's HttpProperties applies the pair together), so
+            // the skip-verify face needs a factory that matches the permissive
+            // trust manager — a plain default-JSSE context wraps fine when the
+            // trust manager rides in from the caller.
+            try {
+                javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
+                ssl.init(null, new javax.net.ssl.TrustManager[] {trustManager}, null);
+                socketFactory = ssl.getSocketFactory();
+            } catch (java.security.GeneralSecurityException e) {
+                throw new RuntimeException("TLS provisioning failed", e);
+            }
         } else if (customCAFile != null) {
             try {
                 java.io.FileInputStream in = new java.io.FileInputStream(customCAFile);
