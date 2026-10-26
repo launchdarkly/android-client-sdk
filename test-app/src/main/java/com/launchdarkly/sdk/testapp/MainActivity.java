@@ -1,25 +1,33 @@
 package com.launchdarkly.sdk.testapp;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.SharedPreferences;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.HorizontalScrollView;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConnectionInformation;
+import com.launchdarkly.sdk.android.EventPersistenceBenchmarkRunner;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
@@ -31,7 +39,12 @@ import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.LDCrashHandler;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Locale;
@@ -144,6 +157,7 @@ public class MainActivity extends AppCompatActivity {
         setupCrashNowButton();
         setupOverRefreshButton();
         setupFillBatchesButton();
+        setupBenchmarkButton();
         setupOfflineSwitch();
         setupPersistenceSpinner();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
@@ -510,6 +524,81 @@ public class MainActivity extends AppCompatActivity {
             Timber.w(result);
             ((TextView) findViewById(R.id.result_textView)).setText(result);
         });
+    }
+
+    /**
+     * Runs the event persistence benchmark in this process and shows its tables. Off the main thread, since
+     * it takes up to a few minutes; the button stays disabled until it is done, so runs never overlap and
+     * never measure each other. Needs no client: it measures its own stores, in a cache directory.
+     * <p>
+     * The tables are also logged and appended to {@code files/event-bench.txt}, which
+     * {@code adb shell run-as com.launchdarkly.sdk.testapp cat files/event-bench.txt} reads back.
+     */
+    private void setupBenchmarkButton() {
+        final Button benchmarkButton = findViewById(R.id.benchmark_button);
+        benchmarkButton.setOnClickListener(v -> {
+            benchmarkButton.setEnabled(false);
+            final TextView status = findViewById(R.id.result_textView);
+            final Handler main = new Handler(getMainLooper());
+            final File scratch = new File(getCacheDir(), "event-bench");
+            status.setText("Benchmark starting");
+            new Thread(() -> {
+                String results;
+                try {
+                    results = EventPersistenceBenchmarkRunner.run(scratch,
+                            title -> main.post(() -> status.setText("Benchmark: " + title)));
+                    appendBenchmarkResults(results);
+                    Timber.w("event persistence benchmark\n%s", results);
+                } catch (IOException | RuntimeException e) {
+                    Timber.e(e, "event persistence benchmark failed");
+                    results = "Benchmark failed: " + e;
+                }
+                final String shown = results;
+                main.post(() -> {
+                    benchmarkButton.setEnabled(true);
+                    status.setText("Benchmark finished");
+                    if (!isFinishing() && !isDestroyed()) {
+                        showBenchmarkResults(shown);
+                    }
+                });
+            }, "testapp-benchmark").start();
+        });
+    }
+
+    private void appendBenchmarkResults(String results) throws IOException {
+        try (Writer out = new OutputStreamWriter(
+                new FileOutputStream(new File(getFilesDir(), "event-bench.txt"), true), StandardCharsets.UTF_8)) {
+            out.write(results);
+            out.write('\n');
+        }
+    }
+
+    /** Monospaced and scrollable both ways, because the tables are aligned in columns wider than a phone. */
+    private void showBenchmarkResults(final String results) {
+        TextView text = new TextView(this);
+        text.setText(results);
+        text.setTypeface(Typeface.MONOSPACE);
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        text.setTextIsSelectable(true);
+        int padding = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12,
+                getResources().getDisplayMetrics());
+        text.setPadding(padding, padding, padding, padding);
+
+        HorizontalScrollView wide = new HorizontalScrollView(this);
+        wide.addView(text);
+        ScrollView tall = new ScrollView(this);
+        tall.addView(wide);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Event persistence benchmark")
+                .setView(tall)
+                .setPositiveButton("Close", null)
+                .setNeutralButton("Copy", (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Event persistence benchmark", results));
+                    Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+                })
+                .show();
     }
 
     /**
