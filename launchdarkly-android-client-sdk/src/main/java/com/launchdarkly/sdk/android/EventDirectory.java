@@ -22,10 +22,8 @@ import java.util.UUID;
  * that have been closed off for delivery.
  * <p>
  * Everything about the filesystem lives here: where the directory is, what the files in it are called, and
- * how they are listed, read, moved and deleted. That leaves {@link EventStore} with the buffer, the
- * capacity arithmetic, and the batches it holds in memory, none of which need a disk at all. A store the
- * application told to keep events off the disk has no {@code EventDirectory}, rather than one it is careful
- * never to use.
+ * how they are listed, read, moved and deleted. A store the application told to keep events off the disk
+ * has no {@code EventDirectory}, rather than one it is careful never to use.
  * <p>
  * The directory's location is worked out on first use rather than at construction. A store that never
  * reaches for the disk then makes no filesystem call at all, not even to find out where it would have
