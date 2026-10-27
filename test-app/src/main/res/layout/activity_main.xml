@@ -131,6 +131,16 @@
         android:layout_alignParentLeft="true"
         android:text="Benchmark" />
 
+    <!-- One 20 MB post past the SDK: see MainActivity#setupOversizedPostButton. -->
+    <Button
+        android:id="@+id/oversized_post_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignTop="@+id/benchmark_button"
+        android:layout_toEndOf="@+id/benchmark_button"
+        android:layout_toRightOf="@+id/benchmark_button"
+        android:text="Post 20 MB" />
+
     <TextView
         android:id="@+id/dedupe_status"
         android:layout_width="match_parent"

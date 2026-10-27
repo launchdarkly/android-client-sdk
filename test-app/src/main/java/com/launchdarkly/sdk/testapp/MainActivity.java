@@ -158,6 +158,7 @@ public class MainActivity extends AppCompatActivity {
         setupOverRefreshButton();
         setupFillBatchesButton();
         setupBenchmarkButton();
+        setupOversizedPostButton();
         setupOfflineSwitch();
         setupPersistenceSpinner();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
@@ -558,10 +559,43 @@ public class MainActivity extends AppCompatActivity {
                     benchmarkButton.setEnabled(true);
                     status.setText("Benchmark finished");
                     if (!isFinishing() && !isDestroyed()) {
-                        showBenchmarkResults(shown);
+                        showResults("Event persistence benchmark", shown);
                     }
                 });
             }, "testapp-benchmark").start();
+        });
+    }
+
+    /**
+     * Posts one payload of {@link OversizedPostProbe#TARGET_BYTES} to the events service on a connection of
+     * its own, so what the service answers a body that size is seen directly rather than through the
+     * store and the retry state. The client is not involved, and need not be running.
+     */
+    private void setupOversizedPostButton() {
+        final Button postButton = findViewById(R.id.oversized_post_button);
+        postButton.setOnClickListener(v -> {
+            if (BuildConfig.MOBILE_KEY.isEmpty()) {
+                Toast.makeText(this, "Set launchdarkly.mobileKey in local.properties and rebuild.",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            postButton.setEnabled(false);
+            final TextView status = findViewById(R.id.result_textView);
+            final Handler main = new Handler(getMainLooper());
+            final String eventsBaseUri = isStaging() ? "https://mobile." + STAGING_DOMAIN
+                    : "https://mobile.launchdarkly.com";
+            status.setText("Posting 20 MB…");
+            new Thread(() -> {
+                String report = OversizedPostProbe.run(BuildConfig.MOBILE_KEY, eventsBaseUri);
+                Timber.w("oversized post\n%s", report);
+                main.post(() -> {
+                    postButton.setEnabled(true);
+                    status.setText("Oversized post finished");
+                    if (!isFinishing() && !isDestroyed()) {
+                        showResults("Oversized post", report);
+                    }
+                });
+            }, "testapp-oversized-post").start();
         });
     }
 
@@ -574,7 +608,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Monospaced and scrollable both ways, because the tables are aligned in columns wider than a phone. */
-    private void showBenchmarkResults(final String results) {
+    private void showResults(final String title, final String results) {
         TextView text = new TextView(this);
         text.setText(results);
         text.setTypeface(Typeface.MONOSPACE);
@@ -590,12 +624,12 @@ public class MainActivity extends AppCompatActivity {
         tall.addView(wide);
 
         new AlertDialog.Builder(this)
-                .setTitle("Event persistence benchmark")
+                .setTitle(title)
                 .setView(tall)
                 .setPositiveButton("Close", null)
                 .setNeutralButton("Copy", (dialog, which) -> {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Event persistence benchmark", results));
+                    clipboard.setPrimaryClip(ClipData.newPlainText(title, results));
                     Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
                 })
                 .show();
