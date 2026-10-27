@@ -130,7 +130,7 @@ public class EventStoreMultiProcessTest {
 
         // Two logs, not one. This is the property that makes a spliced frame impossible: only one
         // process ever has the file open for writing.
-        assertEquals(2, filesNamed(DiskEventLog.PREFIX).size());
+        assertEquals(2, filesNamed(EventDirectory.LOG_PREFIX).size());
         assertEquals(Arrays.asList("main-1", "main-2"), visibleKeys(main));
         assertEquals(Arrays.asList("service-1"), visibleKeys(service));
     }
@@ -141,9 +141,9 @@ public class EventStoreMultiProcessTest {
         main.stage(event("main-1"));
         main.commit();
 
-        List<File> logs = filesNamed(DiskEventLog.PREFIX);
+        List<File> logs = filesNamed(EventDirectory.LOG_PREFIX);
         assertEquals(1, logs.size());
-        String uuid = logs.get(0).getName().substring(DiskEventLog.PREFIX.length());
+        String uuid = logs.get(0).getName().substring(EventDirectory.LOG_PREFIX.length());
         assertEquals(uuid, UUID.fromString(uuid).toString());
         assertTrue("a log was left under the name it is opened under", filesNamed("new-").isEmpty());
     }
@@ -169,7 +169,7 @@ public class EventStoreMultiProcessTest {
         EventStore main = storeFor();
         main.preparePayloadsFromInterruptedLogs();
 
-        assertEquals("the other process's log was taken away", 1, filesNamed(DiskEventLog.PREFIX).size());
+        assertEquals("the other process's log was taken away", 1, filesNamed(EventDirectory.LOG_PREFIX).size());
         assertTrue("another process's events were claimed as recovered", main.pendingBatches().isEmpty());
 
         // And the service process can still append to it and read back both events.
@@ -184,7 +184,7 @@ public class EventStoreMultiProcessTest {
         service.stage(event("service-1"));
         service.commit();
         processDies(service);
-        File log = filesNamed(DiskEventLog.PREFIX).get(0);
+        File log = filesNamed(EventDirectory.LOG_PREFIX).get(0);
 
         // A process this one knows nothing about, holding the lock on the log as its owner does.
         try (RandomAccessFile owner = new RandomAccessFile(log, "rw");
@@ -215,7 +215,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(1, recovered.size());
         assertEquals(1, recovered.get(0).eventCount);
         assertEquals(Arrays.asList("before-the-crash"), visibleKeys(main));
-        assertTrue("the recovered log should no longer be open", filesNamed(DiskEventLog.PREFIX).isEmpty());
+        assertTrue("the recovered log should no longer be open", filesNamed(EventDirectory.LOG_PREFIX).isEmpty());
     }
 
     @Test
@@ -235,7 +235,7 @@ public class EventStoreMultiProcessTest {
 
         assertEquals(2, secondRun.pendingBatches().size());
         assertEquals(3, secondRun.getPendingEventCount());
-        assertTrue(filesNamed(DiskEventLog.PREFIX).isEmpty());
+        assertTrue(filesNamed(EventDirectory.LOG_PREFIX).isEmpty());
     }
 
     @Test
@@ -255,7 +255,7 @@ public class EventStoreMultiProcessTest {
         List<EventStore.Batch> recovered = secondRun.pendingBatches();
         assertEquals(1, recovered.size());
         assertEquals("this run's event was counted as a previous run's", 1, recovered.get(0).eventCount);
-        assertEquals(1, filesNamed(DiskEventLog.PREFIX).size());
+        assertEquals(1, filesNamed(EventDirectory.LOG_PREFIX).size());
         assertEquals(Arrays.asList("previous-run", "this-run"), visibleKeys(secondRun));
     }
 
@@ -264,14 +264,14 @@ public class EventStoreMultiProcessTest {
         EventStore store = storeFor();
         store.stage(event("before-close"));
         store.commit();
-        File first = filesNamed(DiskEventLog.PREFIX).get(0);
+        File first = filesNamed(EventDirectory.LOG_PREFIX).get(0);
         store.close();
 
         // Unlocked once closed, and so another process's to recover from then on.
         store.stage(event("after-close"));
         store.commit();
 
-        assertEquals(2, filesNamed(DiskEventLog.PREFIX).size());
+        assertEquals(2, filesNamed(EventDirectory.LOG_PREFIX).size());
         assertTrue(first.exists());
         assertEquals(Arrays.asList("after-close"), visibleKeys(store));
     }
@@ -298,7 +298,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(Arrays.asList(own), withoutPersistence.pendingBatches());
 
         assertEquals(1, filesNamed("ready-").size());
-        assertEquals(1, filesNamed(DiskEventLog.PREFIX).size());
+        assertEquals(1, filesNamed(EventDirectory.LOG_PREFIX).size());
 
         // Still there for the next run that has persistence turned on.
         EventStore persistentAgain = storeFor();
@@ -589,7 +589,7 @@ public class EventStoreMultiProcessTest {
         EventStore secondRun = new EventStore(sharedDirectory(), CAPACITY, true, logger) {
             @Override
             FileInputStream openForReading(File file) throws IOException {
-                if (file.getName().startsWith(DiskEventLog.PREFIX)) {
+                if (file.getName().startsWith(EventDirectory.LOG_PREFIX)) {
                     readStarted.countDown();
                     try {
                         readResumes.await(10, TimeUnit.SECONDS);
@@ -715,7 +715,7 @@ public class EventStoreMultiProcessTest {
         EventStore secondRun = storeWithFailingReads(failing);
         secondRun.preparePayloadsFromInterruptedLogs();
         // Closed off uncounted for a listing to count, and not deleted.
-        assertTrue(filesNamed(DiskEventLog.PREFIX).isEmpty());
+        assertTrue(filesNamed(EventDirectory.LOG_PREFIX).isEmpty());
         assertEquals(1, filesNamed("ready-").size());
 
         secondRun.stage(event("this-run"));

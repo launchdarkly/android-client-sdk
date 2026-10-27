@@ -666,7 +666,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
         for (File file : files) {
             String name = file.getName();
-            if (name.startsWith(DiskEventLog.PREFIX) || name.startsWith("ready-")) {
+            if (name.startsWith(EventDirectory.LOG_PREFIX) || name.startsWith("ready-")) {
                 try {
                     payloads.addAll(EventLogFormat.eventPayloads(Files.readAllBytes(file.toPath())));
                 } catch (NoSuchFileException e) {
@@ -2844,7 +2844,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         EventLogFormat.writeFrame(log, "{\"kind\":\"custom\",\"key\":\"damaged\"}".getBytes("UTF-8"));
         byte[] damaged = log.toByteArray();
         damaged[damaged.length - 1] ^= 0x01;
-        Files.write(new File(directory, DiskEventLog.PREFIX + UUID.randomUUID()).toPath(), damaged);
+        Files.write(new File(directory, EventDirectory.LOG_PREFIX + UUID.randomUUID()).toPath(), damaged);
 
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);

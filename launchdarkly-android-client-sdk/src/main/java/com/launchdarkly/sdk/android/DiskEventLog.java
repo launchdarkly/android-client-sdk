@@ -13,13 +13,13 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * The file of events on disk this process appends to, not to be confused with diagnostic logging.
  * <p>
  * One per store rather than one per directory, so that only one writer ever appends to a given log. Each is
- * named for a UUID picked when it is opened, which is what keeps two writers apart: nothing about it comes from
+ * named, by {@link EventDirectory} as every file there is, for a UUID picked when it is opened, which is what
+ * keeps two writers apart: nothing about it comes from
  * the application, and no two processes, or two stores in one, ever pick the same one.
  * <p>
  * The owner holds an exclusive lock on its log for as long as it is open, and the kernel releases it when the
@@ -36,17 +36,6 @@ import java.util.UUID;
  * to be ordered against the store's.
  */
 final class DiskEventLog {
-    /**
-     * Names a log whose events are not yet in a batch: one its owner is appending to, or one left by an owner
-     * that is gone, for recovery to close off. The rest of the name is the UUID it was opened under.
-     */
-    static final String PREFIX = "pending-";
-    /**
-     * Names a log while it is being opened, before it is locked and has its header. Recovery never looks at
-     * these; one left by a process that died while opening it holds no events, and expiry removes it.
-     */
-    static final String OPENING_PREFIX = "new-";
-
     /** How the log is opened, so a test can make a write fail partway through a session, as a full disk does. */
     interface Opener {
         FileOutputStream openForAppending(File file) throws IOException;
@@ -66,14 +55,10 @@ final class DiskEventLog {
 
     DiskEventLog(File directory, Object ioLock, Opener opener, LDLogger logger) {
         this.directory = directory;
-        this.file = newLogFile();
+        this.file = EventDirectory.newLogFile(directory);
         this.ioLock = ioLock;
         this.opener = opener;
         this.logger = logger;
-    }
-
-    private File newLogFile() {
-        return new File(directory, PREFIX + UUID.randomUUID());
     }
 
     /**
@@ -232,8 +217,8 @@ final class DiskEventLog {
     }
 
     /**
-     * Opens a new log under a name of its own: created under {@link #OPENING_PREFIX}, locked, given its
-     * header, and only then moved to the name recovery looks for.
+     * Opens a new log under a name of its own: created under {@link EventDirectory#OPENING_LOG_PREFIX},
+     * locked, given its header, and only then moved to the name recovery looks for.
      * <p>
      * Requires {@code ioLock}.
      */
@@ -247,8 +232,8 @@ final class DiskEventLog {
         // Never the name of an earlier open in this session, whatever exists() says of it: that log is unlocked
         // and no longer this store's to write, and exists() answers false where it cannot look, so the rename
         // below would replace it and lose its events.
-        file = newLogFile();
-        File opening = new File(directory, OPENING_PREFIX + file.getName().substring(PREFIX.length()));
+        file = EventDirectory.newLogFile(directory);
+        File opening = EventDirectory.openingFileFor(file);
         remember(file);
         FileOutputStream stream = null;
         try {

@@ -527,7 +527,7 @@ public class EventStoreBoundsTest {
         stageFrames(gone, 2);
         gone.commit();
         gone.close();
-        File opening = new File(store.getDirectory(), DiskEventLog.OPENING_PREFIX + "left-by-a-crash");
+        File opening = new File(store.getDirectory(), EventDirectory.OPENING_LOG_PREFIX + "left-by-a-crash");
         assertTrue(opening.createNewFile());
         ageContents(store.getDirectory(), 8);
 
@@ -538,7 +538,7 @@ public class EventStoreBoundsTest {
             remaining.add(file.getName());
         }
         assertEquals(1, remaining.size());
-        assertTrue(remaining.get(0).startsWith(DiskEventLog.PREFIX));
+        assertTrue(remaining.get(0).startsWith(EventDirectory.LOG_PREFIX));
         assertTrue("the live store's log was discarded", store.pendingEventPayloads().size() == 1);
     }
 
@@ -548,7 +548,7 @@ public class EventStoreBoundsTest {
         stageFrames(gone, 2);
         gone.commit();
         gone.close();
-        File[] logs = gone.getDirectory().listFiles((dir, name) -> name.startsWith(DiskEventLog.PREFIX));
+        File[] logs = gone.getDirectory().listFiles((dir, name) -> name.startsWith(EventDirectory.LOG_PREFIX));
         assertNotNull(logs);
         assertEquals(1, logs.length);
         File log = logs[0];

@@ -50,6 +50,16 @@ class EventDirectory {
      */
     private static final String BATCH_PREFIX = "ready-";
     private static final char NAME_FIELD_SEPARATOR = '.';
+    /**
+     * Names a log whose events are not yet in a batch: one its owner is appending to, or one left by an owner
+     * that is gone, for recovery to close off. The rest of the name is the UUID it was opened under.
+     */
+    static final String LOG_PREFIX = "pending-";
+    /**
+     * Names a log while it is being opened, before it is locked and has its header. Recovery never looks at
+     * these; one left by a process that died while opening it holds no events, and expiry removes it.
+     */
+    static final String OPENING_LOG_PREFIX = "new-";
     private static final String DIRECTORY_NAME = "com.launchdarkly.events";
 
     /** Where one store keeps its files. */
@@ -288,6 +298,16 @@ class EventDirectory {
         String rest = fileName.substring(BATCH_PREFIX.length());
         int end = rest.indexOf(NAME_FIELD_SEPARATOR);
         return end < 0 ? rest : rest.substring(0, end);
+    }
+
+    /** A name for a new log in {@code directory}, under a UUID no other writer picks. */
+    static File newLogFile(File directory) {
+        return new File(directory, LOG_PREFIX + UUID.randomUUID());
+    }
+
+    /** Where {@code log} is created and given its header, before it is moved to its own name. */
+    static File openingFileFor(File log) {
+        return new File(log.getParentFile(), OPENING_LOG_PREFIX + log.getName().substring(LOG_PREFIX.length()));
     }
 
     // MARK: writing
@@ -729,7 +749,7 @@ class EventDirectory {
             return logs;
         }
         for (File file : files) {
-            if (file.getName().startsWith(DiskEventLog.PREFIX) && !DiskEventLog.isHeldByLiveProcess(file)) {
+            if (file.getName().startsWith(LOG_PREFIX) && !DiskEventLog.isHeldByLiveProcess(file)) {
                 logs.add(file);
             }
         }
@@ -996,11 +1016,11 @@ class EventDirectory {
      */
     private static int discardIfAbandonedLog(File file) {
         String name = file.getName();
-        if (name.startsWith(DiskEventLog.OPENING_PREFIX)) {
+        if (name.startsWith(OPENING_LOG_PREFIX)) {
             delete(file);
             return 0;
         }
-        if (!name.startsWith(DiskEventLog.PREFIX) || DiskEventLog.isHeldByLiveProcess(file)) {
+        if (!name.startsWith(LOG_PREFIX) || DiskEventLog.isHeldByLiveProcess(file)) {
             return 0;
         }
         int held = eventsReading(file);

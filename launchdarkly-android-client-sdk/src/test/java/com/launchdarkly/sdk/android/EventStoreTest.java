@@ -172,7 +172,7 @@ public class EventStoreTest {
         store.close();
 
         // A process killed partway through a write leaves the last frame short of its declared length.
-        File log = onlyFileNamed(DiskEventLog.PREFIX);
+        File log = onlyFileNamed(EventDirectory.LOG_PREFIX);
         byte[] whole = Files.readAllBytes(log.toPath());
         Files.write(log.toPath(), Arrays.copyOf(whole, whole.length - 8));
 
@@ -190,7 +190,7 @@ public class EventStoreTest {
         store.stage(event("damaged"));
         store.commit();
         store.close();
-        File log = onlyFileNamed(DiskEventLog.PREFIX);
+        File log = onlyFileNamed(EventDirectory.LOG_PREFIX);
         byte[] damaged = Files.readAllBytes(log.toPath());
         damaged[EventLogFormat.FILE_HEADER_SIZE + EventLogFormat.FRAME_HEADER_SIZE] ^= 0x01;
         Files.write(log.toPath(), damaged);
@@ -207,7 +207,7 @@ public class EventStoreTest {
         store.stage(event("unreadable"));
         store.commit();
         store.close();
-        File log = onlyFileNamed(DiskEventLog.PREFIX);
+        File log = onlyFileNamed(EventDirectory.LOG_PREFIX);
         byte[] unreadable = Files.readAllBytes(log.toPath());
         unreadable[4] = (byte) 0xFF;
         unreadable[5] = (byte) 0xFF;
@@ -222,10 +222,10 @@ public class EventStoreTest {
     @Test
     public void aLogFromAPreviousRunHoldingNothingIsDeletedWithoutALoss() throws IOException {
         assertTrue(directory().mkdirs() || directory().isDirectory());
-        File headerOnly = new File(directory(), DiskEventLog.PREFIX + UUID.randomUUID());
+        File headerOnly = new File(directory(), EventDirectory.LOG_PREFIX + UUID.randomUUID());
         Files.write(headerOnly.toPath(), EventLogFormat.fileHeader());
         // A log whose first write never reached the disk.
-        File empty = new File(directory(), DiskEventLog.PREFIX + UUID.randomUUID());
+        File empty = new File(directory(), EventDirectory.LOG_PREFIX + UUID.randomUUID());
         Files.write(empty.toPath(), new byte[0]);
 
         EventStore nextRun = store();
