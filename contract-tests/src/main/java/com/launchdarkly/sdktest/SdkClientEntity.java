@@ -148,18 +148,40 @@ public class SdkClientEntity {
         return null;
       case "flushEvents":
         // CENTINEL census seat-cell seam (the events POST's own completion
-        // law): the SDK's own EventProcessor.blockingFlush interface face —
-        // "sent immediately, blocking until done" — prices the harness's
-        // flush law: the FlushEvents + ExpectAnalyticsEvents pair grades the
-        // flush's POST as complete before the reply. The package-private
-        // field, public method (the same reflection coupling the
-        // x-cp-set-streaming arm rides).
+        // law): the SDK's own blocking faces — EventProcessor.blockingFlush
+        // ("sent immediately, blocking until done") plus the internal
+        // processor's SYNC message (waitUntilInactive: "wait until all flush
+        // workers are inactive"), the drain the close() face itself rides —
+        // price the harness's flush law: the FlushEvents +
+        // ExpectAnalyticsEvents pair grades the flush's POST as complete
+        // before the reply. The package-private field, public face (the same
+        // reflection coupling the x-cp-set-streaming arm rides).
         try {
           java.lang.reflect.Field epField = LDClient.class.getDeclaredField("eventProcessor");
           epField.setAccessible(true);
+          Object wrapper = epField.get(client);
           com.launchdarkly.sdk.android.subsystems.EventProcessor ep =
-                  (com.launchdarkly.sdk.android.subsystems.EventProcessor) epField.get(client);
+                  (com.launchdarkly.sdk.android.subsystems.EventProcessor) wrapper;
           ep.blockingFlush();
+          // the flush workers' own drain: the internal DefaultEventProcessor's
+          // SYNC message (package-private waitUntilInactive) — the flush
+          // worker's POST rides every byte of its okhttp round trip before
+          // the drain returns
+          java.lang.reflect.Field innerField = wrapper.getClass().getDeclaredField("eventProcessor");
+          innerField.setAccessible(true);
+          Object internal = innerField.get(wrapper);
+          java.lang.reflect.Method drain = internal.getClass()
+                  .getDeclaredMethod("waitUntilInactive");
+          drain.setAccessible(true);
+          try {
+            drain.invoke(internal);
+          } catch (java.lang.reflect.InvocationTargetException ite) {
+            Throwable cause = ite.getCause();
+            if (cause instanceof java.io.IOException) {
+              throw (java.io.IOException) cause;
+            }
+            throw ite;
+          }
         } catch (ReflectiveOperationException | IllegalArgumentException e) {
           logger.warn("blocking-flush seam unavailable; riding the SDK's own async flush: {}", e.toString());
           client.flush();
