@@ -392,7 +392,8 @@ final class DirectEventProcessor implements EventProcessor {
 
         // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem.
         submit(() -> {
-            store.preparePayloadsFromInterruptedLogs();
+            // Lost as a damaged batch is, and told the same way: to the next flush a caller waits on.
+            lostEvents.addAndGet(store.preparePayloadsFromInterruptedLogs());
             reportDiscarded(store.discardExpired());
             if (store.pendingBatches().isEmpty()) {
                 return;

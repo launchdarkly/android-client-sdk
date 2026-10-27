@@ -744,14 +744,39 @@ class EventDirectory {
         final boolean gone;
         /** As {@link EventLogFormat#eventCount}. */
         final int events;
+        /**
+         * Whether it holds something this version cannot read back, which is lost: frames after {@link #events}
+         * that are torn or fail their checksum, or the whole log, in a format this version does not read.
+         */
+        final boolean damaged;
         final long bytes;
 
-        private InterruptedLog(File file, IOException failure, boolean gone, int events, long bytes) {
+        private InterruptedLog(File file, IOException failure, boolean gone, int events, boolean damaged,
+                               long bytes) {
             this.file = file;
             this.failure = failure;
             this.gone = gone;
             this.events = events;
+            this.damaged = damaged;
             this.bytes = bytes;
+        }
+    }
+
+    /** What {@link #preparePayload} did with a log a previous run left. */
+    static final class Recovery {
+        static final Recovery NONE = new Recovery(Tally.NONE, 0);
+
+        /** What it closed off into a batch to deliver. */
+        final Tally prepared;
+        /**
+         * How many events it found lost to damage. One for a damaged log: nothing in it says how many the damage
+         * took, and it took at least one.
+         */
+        final int lost;
+
+        Recovery(Tally prepared, int lost) {
+            this.prepared = prepared;
+            this.lost = lost;
         }
     }
 
@@ -763,11 +788,17 @@ class EventDirectory {
         try {
             byte[] contents = readFile(log);
             if (contents == null) {
-                return new InterruptedLog(log, null, true, 0, 0);
+                return new InterruptedLog(log, null, true, 0, false, 0);
             }
-            return new InterruptedLog(log, null, false, EventLogFormat.eventCount(contents), contents.length);
+            int events = EventLogFormat.eventCount(contents);
+            // Shorter than a header, it is a log whose first write never reached the disk, so nothing was durable
+            // in it to lose.
+            boolean damaged = events < 0
+                    ? contents.length >= EventLogFormat.FILE_HEADER_SIZE
+                    : EventLogFormat.isDamaged(contents);
+            return new InterruptedLog(log, null, false, events, damaged, contents.length);
         } catch (IOException e) {
-            return new InterruptedLog(log, e, false, 0, 0);
+            return new InterruptedLog(log, e, false, 0, false, 0);
         }
     }
 
@@ -776,14 +807,14 @@ class EventDirectory {
      * the rename and what this store counts for the batch are one step to a listing, which would otherwise
      * count it twice.
      *
-     * @return what it closed off
+     * @return what it closed off, and what it found lost
      */
-    Tally preparePayload(InterruptedLog interrupted) {
+    Recovery preparePayload(InterruptedLog interrupted) {
         assert Thread.holdsLock(ioLock);
         File log = interrupted.file;
         if (interrupted.gone || !log.exists()) {
             // Recovered by another store or process since it was listed.
-            return Tally.NONE;
+            return Recovery.NONE;
         }
         if (interrupted.failure != null) {
             // Deleting it would lose events that may be intact. Named without a count, which is what a batch
@@ -797,13 +828,18 @@ class EventDirectory {
                 logger.warn("Could not read events from a previous run, will try again at the next launch: {}",
                         LogValues.exceptionSummary(interrupted.failure));
             }
-            return Tally.NONE;
+            return Recovery.NONE;
         }
         int events = interrupted.events;
         if (events <= 0) {
-            // Holds nothing, or nothing this version reads.
             tryDelete(log);
-            return Tally.NONE;
+            if (!interrupted.damaged) {
+                // Holds nothing.
+                return Recovery.NONE;
+            }
+            logger.error("Dropping an event log from a previous run that is damaged, or in a format this version"
+                    + " does not read; the events in it are lost");
+            return new Recovery(Tally.NONE, 1);
         }
         String payloadId = UUID.randomUUID().toString();
         File file = newBatchFile(payloadId, events);
@@ -813,12 +849,17 @@ class EventDirectory {
                 logger.warn("Could not prepare {} event(s) from a previous run, will try again at the next launch",
                         events);
             }
-            return Tally.NONE;
+            return Recovery.NONE;
         }
         Stored recovered = new Stored(file, events, 0, interrupted.bytes, file.lastModified());
         stored.put(payloadId, recovered);
         logger.debug("Prepared {} event(s) from a previous run of this application for delivery", events);
-        return recovered.tally();
+        if (!interrupted.damaged) {
+            return new Recovery(recovered.tally(), 0);
+        }
+        // The batch is named for the frames that read back, so the damage after them is never sent.
+        logger.error("Dropped the damaged event(s) after the first {} in a log from a previous run", events);
+        return new Recovery(recovered.tally(), 1);
     }
 
     // MARK: expiry

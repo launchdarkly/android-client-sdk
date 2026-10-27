@@ -945,10 +945,12 @@ class EventStore implements Closeable {
      * <p>
      * The events in them were recorded by processes that are gone, so there is no one left to add to them.
      * A log a live process holds, this store's own included, is left alone.
+     *
+     * @return how many events the logs had lost to damage; see {@link EventDirectory.Recovery#lost}
      */
-    void preparePayloadsFromInterruptedLogs() {
+    int preparePayloadsFromInterruptedLogs() {
         if (disk == null) {
-            return;
+            return 0;
         }
         // Each log is read without ioLock, one at a time, and the lock taken only to move it and count it. A
         // commit at a commit point then waits for at most one rename rather than for every log a crash left to
@@ -957,12 +959,16 @@ class EventStore implements Closeable {
         synchronized (ioLock) {
             logs = disk.interruptedLogs();
         }
+        int lost = 0;
         for (File log : logs) {
             EventDirectory.InterruptedLog interrupted = disk.read(log);
             synchronized (ioLock) {
-                countRecoveredHoldingIoLock(disk.preparePayload(interrupted));
+                EventDirectory.Recovery recovery = disk.preparePayload(interrupted);
+                countRecoveredHoldingIoLock(recovery.prepared);
+                lost += recovery.lost;
             }
         }
+        return lost;
     }
 
     /**

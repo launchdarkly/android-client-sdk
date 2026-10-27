@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * One store on its own: what staging, committing and closing a batch leave on the disk and in the count,
@@ -176,11 +177,62 @@ public class EventStoreTest {
         Files.write(log.toPath(), Arrays.copyOf(whole, whole.length - 8));
 
         EventStore nextRun = store();
-        nextRun.preparePayloadsFromInterruptedLogs();
+        assertEquals("the torn frame's event, counted lost", 1, nextRun.preparePayloadsFromInterruptedLogs());
         List<EventStore.Batch> recovered = nextRun.pendingBatches();
         assertEquals(1, recovered.size());
         assertEquals(2, recovered.get(0).eventCount);
         assertEquals(Arrays.asList("event-0", "event-1"), keysIn(nextRun.body(recovered.get(0))));
+    }
+
+    @Test
+    public void aLogFromAPreviousRunWhoseFirstFrameIsDamagedIsDeletedAndCountedLost() throws IOException {
+        EventStore store = store();
+        store.stage(event("damaged"));
+        store.commit();
+        store.close();
+        File log = onlyFileNamed(DiskEventLog.PREFIX);
+        byte[] damaged = Files.readAllBytes(log.toPath());
+        damaged[EventLogFormat.FILE_HEADER_SIZE + EventLogFormat.FRAME_HEADER_SIZE] ^= 0x01;
+        Files.write(log.toPath(), damaged);
+
+        EventStore nextRun = store();
+        assertEquals(1, nextRun.preparePayloadsFromInterruptedLogs());
+        assertEquals(Collections.emptyList(), nextRun.pendingBatches());
+        assertFalse(log.exists());
+    }
+
+    @Test
+    public void aLogFromAPreviousRunInAFormatThisVersionDoesNotReadIsDeletedAndCountedLost() throws IOException {
+        EventStore store = store();
+        store.stage(event("unreadable"));
+        store.commit();
+        store.close();
+        File log = onlyFileNamed(DiskEventLog.PREFIX);
+        byte[] unreadable = Files.readAllBytes(log.toPath());
+        unreadable[4] = (byte) 0xFF;
+        unreadable[5] = (byte) 0xFF;
+        Files.write(log.toPath(), unreadable);
+
+        EventStore nextRun = store();
+        assertEquals(1, nextRun.preparePayloadsFromInterruptedLogs());
+        assertEquals(Collections.emptyList(), nextRun.pendingBatches());
+        assertFalse(log.exists());
+    }
+
+    @Test
+    public void aLogFromAPreviousRunHoldingNothingIsDeletedWithoutALoss() throws IOException {
+        assertTrue(directory().mkdirs() || directory().isDirectory());
+        File headerOnly = new File(directory(), DiskEventLog.PREFIX + UUID.randomUUID());
+        Files.write(headerOnly.toPath(), EventLogFormat.fileHeader());
+        // A log whose first write never reached the disk.
+        File empty = new File(directory(), DiskEventLog.PREFIX + UUID.randomUUID());
+        Files.write(empty.toPath(), new byte[0]);
+
+        EventStore nextRun = store();
+        assertEquals(0, nextRun.preparePayloadsFromInterruptedLogs());
+        assertEquals(Collections.emptyList(), nextRun.pendingBatches());
+        assertFalse(headerOnly.exists());
+        assertFalse(empty.exists());
     }
 
     @Test

@@ -32,6 +32,7 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -51,6 +52,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -2825,6 +2827,31 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertFalse(first.getBody().contains("second-event"));
                 assertTrue(second.getBody().contains("\"key\":\"second-event\""));
                 assertFalse(second.getBody().contains("first-event"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void theFirstFlushAfterADamagedLogFromAPreviousRunHearsOfTheLoss() throws Exception {
+        assumePersisting();
+        File directory = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY);
+        assertTrue(directory.mkdirs() || directory.isDirectory());
+        // A header and then a frame whose checksum does not match, as storage that damaged it leaves it.
+        ByteArrayOutputStream log = new ByteArrayOutputStream();
+        log.write(EventLogFormat.fileHeader());
+        EventLogFormat.writeFrame(log, "{\"kind\":\"custom\",\"key\":\"damaged\"}".getBytes("UTF-8"));
+        byte[] damaged = log.toByteArray();
+        damaged[damaged.length - 1] ^= 0x01;
+        Files.write(new File(directory, DiskEventLog.PREFIX + UUID.randomUUID()).toPath(), damaged);
+
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+                assertTrue("told twice", awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
             } finally {
                 eventProcessor.close();
             }
