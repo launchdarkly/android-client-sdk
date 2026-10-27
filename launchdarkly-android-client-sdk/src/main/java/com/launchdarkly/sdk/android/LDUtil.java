@@ -46,6 +46,28 @@ public class LDUtil {
     static volatile SSLSocketFactory testTlsSocketFactory;
     static volatile X509TrustManager testTlsTrustManager;
 
+    // The seat-cell HTTP seams (module-internal, nothing public grows): the
+    // contract-test layer provisions the HTTP proxy (java.net.Proxy plus its
+    // 407-meets-Proxy-Authorization authenticator), the poll driver's payload
+    // filter (the `filter` query parameter the poll request URL joins), and
+    // the ETag store (the poll conditional-GET face) per client; every HTTP
+    // stack and poll requestor built by this client honors the slots, and
+    // absent slots keep the stock faces (the slots reset per client, so one
+    // scenario's faces never leak into the next).
+    static volatile java.net.Proxy testHttpProxy;
+    static volatile okhttp3.Authenticator testHttpProxyAuth;
+    static volatile String testPayloadFilter;
+    static volatile PollEtagStore testPollEtags;
+
+    /** The ETag store the poll requestor consults: the seat provisioned one
+     * when the client was built, else the client's own default slot map. */
+    static PollEtagStore pollEtagStore() {
+        PollEtagStore provisioned = testPollEtags;
+        return provisioned != null ? provisioned : pollEtags;
+    }
+
+    private static final PollEtagStore pollEtags = new PollEtagStore();
+
     static <T> Callback<T> noOpCallback() {
         return new Callback<T>() {
             @Override
@@ -213,8 +235,8 @@ public class LDUtil {
                 httpConfig.getConnectTimeoutMillis(),
                 baseHeaders,
                 headersTransformer,
-                null, // proxy
-                null, // proxyAuth
+                testHttpProxy,
+                testHttpProxyAuth,
                 null, // socketFactory
                 httpConfig.getConnectTimeoutMillis(),
                 testTlsSocketFactory,

@@ -42,6 +42,7 @@ public abstract class Representations {
         SdkConfigDataSystemParams dataSystem;
         SdkConfigWrapperParams wrapper;
         SdkConfigTlsParams tls;
+        SdkConfigProxyParams proxy;
     }
 
     /** The v3 TLS data face (v3 service-spec tls params): `skipVerifyPeer`
@@ -50,6 +51,13 @@ public abstract class Representations {
     public static class SdkConfigTlsParams {
         Boolean skipVerifyPeer;
         String customCAFile;
+    }
+
+    /** The harness `proxy` shape (service_spec 387-388, the `http-proxy`
+     * capability): the SDK routes every connection through the named proxy
+     * (the `httpProxy` URL carries its own optional userinfo credentials). */
+    public static class SdkConfigProxyParams {
+        String httpProxy;
     }
 
     public static class SdkConfigStreamParams {
@@ -97,12 +105,20 @@ public abstract class Representations {
         boolean evaluationReasons;
         boolean useReport;
         boolean includeEnvironmentAttributes;
+        /** The harness client-side environment face: the payload filter the
+         * poll request URL joins (the ENVFILTER law's own `filter` query
+         * parameter). */
+        SdkConfigEnvironmentParams environment;
 
         // CENTINEL seat extensions (campaign client-INTERFACE section 5): a blind storage
         // scope tag whose clients share one local store (PERSIST.5), and bootstrap flag
         // data in the all-flags-state shape for the SDK's pre-connection serve.
         @SerializedName("x-cp-storage-scope") String xCpStorageScope;
         @SerializedName("x-cp-bootstrap") java.util.Map<String, Object> xCpBootstrap;
+    }
+
+    public static class SdkConfigEnvironmentParams {
+        String filter;
     }
 
     public static class SdkConfigHookParams {

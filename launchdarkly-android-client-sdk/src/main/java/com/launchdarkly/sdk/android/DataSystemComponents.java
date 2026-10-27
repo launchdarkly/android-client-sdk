@@ -363,6 +363,7 @@ public abstract class DataSystemComponents {
                 StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
                 StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
                 httpProps, inputs.getHttp().isUseReport(),
-                inputs.isEvaluationReasons(), null, inputs.getBaseLogger());
+                inputs.isEvaluationReasons(), LDUtil.testPayloadFilter,
+                inputs.getBaseLogger());
     }
 }

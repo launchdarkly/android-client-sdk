@@ -682,6 +682,15 @@ public class SdkClientEntity {
     // data is written through the SDK's own persisted-store pathway so the real cache
     // initializer serves it during initialization (the LD offline-cache bootstrapping).
     Representations.SdkConfigClientSideParams cs = params.clientSide;
+    // CENTINEL seat-cell HTTP seams (the harness `proxy` shape, the poll's
+    // `filter` query face, the poll conditional-GET store): the seats
+    // provision per client (each seam resets its slots here), so one
+    // scenario's faces never leak into the next.
+    com.launchdarkly.sdk.android.ConfigHelper.configureHttpProxy(builder,
+            params.proxy == null ? null : params.proxy.httpProxy);
+    com.launchdarkly.sdk.android.ConfigHelper.configureEnvironmentFilter(builder,
+            cs == null || cs.environment == null ? null : cs.environment.filter);
+    com.launchdarkly.sdk.android.ConfigHelper.configurePollEtagStore(cs == null ? null : cs.xCpStorageScope);
     com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
             com.launchdarkly.sdk.android.ConfigHelper.configureInMemoryPersistence(builder,
             cs == null ? null : cs.xCpStorageScope);

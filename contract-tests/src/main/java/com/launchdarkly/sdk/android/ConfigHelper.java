@@ -73,6 +73,76 @@ public class ConfigHelper {
         LDUtil.testTlsTrustManager = trustManager;
     }
 
+    /**
+     * CENTINEL seat-cell HTTP proxy seam (the harness `proxy` shape, the
+     * `http-proxy` capability): binds the SDK's own HTTP stacks (poll /
+     * stream / events) to the named proxy, so every connection rides the
+     * proxy's absolute-form forward face. Optional userinfo credentials on
+     * the URL provision the 407-replies-Proxy-Authorization authenticator.
+     * Module-internal, no public API grows; a null URL resets the slots so
+     * one scenario's proxy faces never leak into the next client.
+     */
+    public static void configureHttpProxy(LDConfig.Builder builder, String httpProxy) {
+        java.net.Proxy proxy = null;
+        okhttp3.Authenticator proxyAuth = null;
+        if (httpProxy != null && !httpProxy.isEmpty()) {
+            try {
+                java.net.URI uri = new java.net.URI(httpProxy);
+                String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+                if (!"http".equals(scheme) && !"https".equals(scheme)) {
+                    throw new IllegalArgumentException("unsupported proxy scheme: " + scheme);
+                }
+                proxy = new java.net.Proxy(java.net.Proxy.Type.HTTP, new java.net.InetSocketAddress(
+                        uri.getHost(),
+                        uri.getPort() == -1 ? ("https".equals(scheme) ? 443 : 80) : uri.getPort()));
+                if (uri.getUserInfo() != null) {
+                    int colon = uri.getUserInfo().indexOf(':');
+                    String user = colon < 0 ? uri.getUserInfo() : uri.getUserInfo().substring(0, colon);
+                    String pass = colon < 0 ? "" : uri.getUserInfo().substring(colon + 1);
+                    final String token = okhttp3.Credentials.basic(user, pass,
+                            java.nio.charset.StandardCharsets.UTF_8);
+                    proxyAuth = (route, response) -> {
+                        if (response.request().header("Proxy-Authorization") != null) {
+                            return null; // the proxy refused the provisioned credentials
+                        }
+                        return response.request().newBuilder()
+                                .header("Proxy-Authorization", token).build();
+                    };
+                }
+            } catch (java.net.URISyntaxException e) {
+                throw new RuntimeException("proxy provisioning failed: " + httpProxy, e);
+            }
+        }
+        LDUtil.testHttpProxy = proxy;
+        LDUtil.testHttpProxyAuth = proxyAuth;
+    }
+
+    /**
+     * CENTINEL seat-cell payload filter seam (the ENVFILTER law's poll face):
+     * the poll requestor joins the configured environment filter as the
+     * {@code filter} query parameter (the poll driver's own relay). A null
+     * filter resets the slot per client.
+     */
+    public static void configureEnvironmentFilter(LDConfig.Builder builder, String filter) {
+        LDUtil.testPayloadFilter = (filter == null || filter.isEmpty()) ? null : filter;
+    }
+
+    /**
+     * CENTINEL seat-cell ETag store seam (the poll conditional-GET face):
+     * a scope-less client gets a fresh store; clients of one storage scope
+     * share one store (the same slot inventory the shared persistent store
+     * carries) so a relaunch re-keys the stored tags. The slot resets per
+     * client exactly like the TLS/proxy seams.
+     */
+    private static final ConcurrentHashMap<String, PollEtagStore> SCOPED_ETAGS =
+            new ConcurrentHashMap<String, PollEtagStore>();
+
+    public static void configurePollEtagStore(String storageScope) {
+        LDUtil.testPollEtags = storageScope == null
+                ? new PollEtagStore()
+                : SCOPED_ETAGS.computeIfAbsent(storageScope, k -> new PollEtagStore());
+    }
+
     /** The skip-verify face's trust manager: no certificate validation. */
     private static final class LenientTrustManager implements javax.net.ssl.X509TrustManager {
         @Override

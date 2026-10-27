@@ -68,7 +68,9 @@ public final class SeatServe {
       "inline-context",
       "tls:verify-peer",
       "tls:custom-ca",
-      "tls:skip-verify-peer"
+      "tls:skip-verify-peer",
+      "http-proxy",
+      "etag-caching"
   };
 
   static final Gson gson = new GsonBuilder()
