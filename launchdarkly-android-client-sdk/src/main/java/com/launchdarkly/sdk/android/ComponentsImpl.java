@@ -109,7 +109,7 @@ abstract class ComponentsImpl {
                     clientContextImpl.getDiagnosticStore(),
                     new DefaultEventSender(
                             LDUtil.makeHttpProperties(clientContext),
-                            StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
+                            StandardEndpoints.analyticsEventsRequestPath(clientContext.getMobileKey()),
                             StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
                             0L, // use default retry delay
                             false, // disable gzip compression for Android

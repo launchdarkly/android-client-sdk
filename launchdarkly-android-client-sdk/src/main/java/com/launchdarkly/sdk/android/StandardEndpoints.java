@@ -14,8 +14,19 @@ abstract class StandardEndpoints {
     static final String STREAMING_REQUEST_BASE_PATH = "/meval";
     static final String POLLING_REQUEST_GET_BASE_PATH = "/msdk/evalx/contexts";
     static final String POLLING_REQUEST_REPORT_BASE_PATH = "/msdk/evalx/context";
-    static final String ANALYTICS_EVENTS_REQUEST_PATH = "/mobile/events/bulk";
     static final String DIAGNOSTIC_EVENTS_REQUEST_PATH = "/mobile/events/diagnostic";
+
+    // The client-side events wire law of record (client-coverage-v0's
+    // C-PY-EVENTS-URL-PATH / C-WF-REQUEST-FACES faces, the js-client route
+    // the mock's mobile table serves additively): the events POST joins
+    // `/events/bulk/{environmentId}` — the js-client events posting law
+    // (`utils.appendUrlPath(options.eventsUrl, '/events/bulk/' +
+    // environmentId)`, js-client-sdk-common@5.8.3 EventProcessor.js:19) —
+    // with the environment id as the {env} segment instead of the old
+    // /mobile/events/bulk template.
+    static String analyticsEventsRequestPath(String mobileKey) {
+        return "/events/bulk/" + (mobileKey == null || mobileKey.isEmpty() ? "" : mobileKey);
+    }
 
     static final String FDV2_POLLING_REQUEST_GET_BASE_PATH = "/sdk/poll/eval";
     static final String FDV2_POLLING_REQUEST_REPORT_BASE_PATH = "/sdk/poll/eval";
