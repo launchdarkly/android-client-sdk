@@ -1173,7 +1173,7 @@ final class DirectEventProcessor implements EventProcessor {
      * before it has finished and these cannot pile up the way requested flushes could.
      */
     private void deliverPayload() {
-        deliverPayloadAndRetryLater();
+        commitAndDeliverReportingOutcome();
     }
 
     /**
@@ -1183,7 +1183,9 @@ final class DirectEventProcessor implements EventProcessor {
      * second finds nothing pending and returns. It is kept for the case where it is the only one. A
      * delivery refused for being offline returns before {@code commitAndCloseBatch}. Without
      * this, a flush while offline would leave everything recorded in memory, and a process that then
-     * died would lose it -- the case persistence exists for.
+     * died would lose it -- the case persistence exists for. The periodic flush needs it most: evaluations
+     * short of a full pending run, with no track or identify among them, are otherwise committed by
+     * nothing for as long as an outage lasts.
      * <p>
      * Only where events persist. Otherwise the commit makes nothing durable: online, the one in
      * {@code commitAndCloseBatch} is the drain, and offline it would encode events that cannot be sent
@@ -1328,10 +1330,9 @@ final class DirectEventProcessor implements EventProcessor {
      * has to be the count as of the close, because that is what this delivery can answer for: a loss
      * after it is one whose events were never in this batch.
      * <p>
-     * A requested flush has usually just committed in {@link #commitAndDeliverReportingOutcome()}, so this
-     * commit often finds nothing to do. It cannot be the one left out: the periodic delivery, the one
-     * going online starts, the one recovery starts, and the final one at close all reach here without
-     * that earlier commit.
+     * A flush, requested or periodic, has usually just committed in {@link #commitAndDeliverReportingOutcome()},
+     * so this commit often finds nothing to do. It cannot be the one left out: that earlier commit is only
+     * where events persist, and the retry and the final delivery at close reach here without it.
      *
      * @return the loss count as of the close, for {@link #claimEventsLost(long)}, and whether the
      *   close took every committed event into a batch; both under the lock, so they cover this close and
@@ -1716,7 +1717,7 @@ final class DirectEventProcessor implements EventProcessor {
     private void updateScheduledTasks(boolean inBackground, boolean offline) {
         boolean stopped = closed.get();
         // Flushing stays scheduled even while we are offline or in the background; a run while
-        // offline returns without doing anything. Canceling it for an outage would restart the
+        // offline commits, where events persist, and sends nothing. Canceling it for an outage would restart the
         // interval on every reconnect, and a run of brief outages would then hold events back for
         // far longer than one interval. Left running, what an outage buffered goes out at the first
         // run after it ends.

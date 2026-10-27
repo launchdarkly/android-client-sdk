@@ -179,6 +179,27 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void thePeriodicFlushPersistsEvaluationsWhileOffline() throws Exception {
+        assumePersisting();
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilder(DEFAULT_CAPACITY).flushIntervalMillis(50), true);
+            try {
+                eventProcessor.setOffline(true);
+                // Fewer than a full pending run and no track or identify, so nothing else commits them: an
+                // outage would otherwise leave them in memory for as long as it lasts.
+                recordEvaluation(eventProcessor, true, null);
+
+                assertEquals(1, kindsOnDiskSoon("feature"));
+                assertEquals(1, kindsOnDiskSoon("summary"));
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void immediatePersistencePutsATrackOnDiskBeforeItReturns() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server,
