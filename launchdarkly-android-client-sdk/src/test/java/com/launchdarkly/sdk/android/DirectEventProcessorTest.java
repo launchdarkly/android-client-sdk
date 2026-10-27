@@ -2791,8 +2791,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void everyFailingStatusKeepsTheBatchPastTheRetry() throws Exception {
         // Each has to keep the batch, not just 503: a refusal such as a 401 only waits longer. Not a 400,
-        // which drops the batch when it comes twice in a row; see the tests below.
-        for (int status : new int[] { 401, 403, 404, 408, 413, 429, 500, 502, 504 }) {
+        // 413, 415 or 422, which drop the batch when they come twice in a row; see the tests below.
+        for (int status : new int[] { 401, 403, 404, 408, 429, 500, 502, 504 }) {
             assertKeptThroughRefusalsAndDeliveredOnRecovery(status, eventsBuilderWithoutBackoff(DEFAULT_CAPACITY),
                     2);
         }
@@ -2887,7 +2887,49 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aBatchRefusedWith400TwiceInARowIsDroppedAndNoLongerHoldsTheOnesBehindIt() throws Exception {
-        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(400));
+        assertDroppedForTwoRefusalsOfThePayload(400);
+    }
+
+    @Test
+    public void aBatchRefusedWith413TwiceInARowIsDroppedAndNoLongerHoldsTheOnesBehindIt() throws Exception {
+        assertDroppedForTwoRefusalsOfThePayload(413);
+    }
+
+    @Test
+    public void aBatchRefusedWith415TwiceInARowIsDroppedAndNoLongerHoldsTheOnesBehindIt() throws Exception {
+        assertDroppedForTwoRefusalsOfThePayload(415);
+    }
+
+    @Test
+    public void aBatchRefusedWith422TwiceInARowIsDroppedAndNoLongerHoldsTheOnesBehindIt() throws Exception {
+        assertDroppedForTwoRefusalsOfThePayload(422);
+    }
+
+    @Test
+    public void differentRefusalsOfThePayloadInARowCountTogether() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(413),
+                Handlers.status(400), Handlers.status(202)))) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "next", LDValue.ofNull(), null);
+                assertFalse("hears of the loss", awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                RequestInfo next = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                assertTrue(next.getBody().contains("\"key\":\"next\""));
+                assertFalse(next.getBody().contains("refused"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    private void assertDroppedForTwoRefusalsOfThePayload(int status) throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(status));
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = makeEventProcessor(server,
                     eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true);
@@ -2918,8 +2960,18 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void whatIsFlushedAfterABatchDroppedFor400sIsPostedOnceTheBackoffAllows() throws Exception {
+        assertFlushedAfterADropPostedOnceTheBackoffAllows(400);
+    }
+
+    /** Within seconds, so also that a 413 waits as a 400 does rather than the extended wait of a refusal. */
+    @Test
+    public void whatIsFlushedAfterABatchDroppedFor413sIsPostedOnceTheBackoffAllows() throws Exception {
+        assertFlushedAfterADropPostedOnceTheBackoffAllows(413);
+    }
+
+    private void assertFlushedAfterADropPostedOnceTheBackoffAllows(int status) throws Exception {
         long second = DirectEventProcessor.RETRY_DELAY_MILLIS;
-        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(400));
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(status));
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
@@ -2931,7 +2983,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                     eventProcessor.recordCustomEvent(CONTEXT, "next-" + flush, LDValue.ofNull(), null);
                     eventProcessor.flushAsync();
                 }
-                // The retry, whose second 400 drops the batch and starts a two second wait for the one behind it.
+                // The retry, whose second refusal drops the batch and starts a two second wait for the one behind it.
                 server.getRecorder().requireRequest(2 * second, TimeUnit.MILLISECONDS);
                 service.setTarget(Handlers.status(202));
 

@@ -262,6 +262,26 @@ public class LDUtil {
         return !isHttpErrorRecoverable(statusCode);
     }
 
+    /**
+     * Tests whether the events service refused an event payload for what it holds rather than for who sent
+     * it: one it cannot read (400), too large for it (413), of a type it does not take (415), or read but
+     * not accepted (422). Posting the same body again will not change the answer, though another body may
+     * be taken.
+     * @param statusCode the HTTP status
+     * @return true for a refusal of the payload
+     */
+    static boolean isEventPayloadRefused(int statusCode) {
+        switch (statusCode) {
+            case 400: // bad request
+            case 413: // content too large
+            case 415: // unsupported media type
+            case 422: // unprocessable content
+                return true;
+            default:
+                return false;
+        }
+    }
+
     static void logExceptionAtErrorLevel(LDLogger logger, Throwable ex, String msgFormat, Object... msgArgs) {
         logException(logger, ex, true, msgFormat, msgArgs);
     }

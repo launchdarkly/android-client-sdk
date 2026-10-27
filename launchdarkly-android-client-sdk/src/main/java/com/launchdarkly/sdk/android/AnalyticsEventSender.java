@@ -64,8 +64,9 @@ final class AnalyticsEventSender implements Closeable {
         /** Whether the service took the events. */
         final boolean success;
         /**
-         * For a failure, whether it is unlikely to pass soon: a 4xx other than 400, 408 and 429, or a TLS or
-         * certificate failure. The batch is kept either way; this only decides how long the next post waits.
+         * For a failure, whether it is unlikely to pass soon: a 4xx other than a refusal of the payload
+         * ({@link LDUtil#isEventPayloadRefused}), 408 and 429, or a TLS or certificate failure. This only
+         * decides how long the next post waits.
          */
         final boolean unexpected;
         /** The HTTP status, or 0 where no response arrived. */
@@ -111,8 +112,11 @@ final class AnalyticsEventSender implements Closeable {
                 return new Result(true, false, response.code(), -1, parseDate(response));
             }
             logger.warn("Error posting events: HTTP status {}", response.code());
-            return new Result(false, LDUtil.isHttpErrorUnexpected(response.code()), response.code(),
-                    retryAfterMillis(response), null);
+            // A refusal of the payload waits like a 400: the caller drops the batch after a second in a row,
+            // and the batches behind it are not to be held back an extended wait meanwhile.
+            boolean unexpected = LDUtil.isHttpErrorUnexpected(response.code())
+                    && !LDUtil.isEventPayloadRefused(response.code());
+            return new Result(false, unexpected, response.code(), retryAfterMillis(response), null);
         } catch (IOException e) {
             logger.warn("Error posting events: {}", LogValues.exceptionSummary(e));
             // A certificate that will not validate is a misconfiguration, which waits like a refusal.

@@ -72,7 +72,8 @@ final class DeliveryRetryState {
     }
 
     /**
-     * @param unexpected whether the failure is unlikely to pass soon: a 4xx other than 400, 408 and 429, or
+     * @param unexpected whether the failure is unlikely to pass soon: a 4xx other than 400, 408, 413, 415,
+     *   422 and 429, or
      *   a TLS or certificate failure
      * @param retryAfterMillis the wait the response asked for, or a negative number where it gave none
      * @return how long nothing may be posted

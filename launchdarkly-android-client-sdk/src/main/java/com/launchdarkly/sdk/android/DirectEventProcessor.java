@@ -305,7 +305,7 @@ final class DirectEventProcessor implements EventProcessor {
      * How many events the SDK accepted and then dropped for good.
      * <p>
      * A batch the service refuses is kept and retried, so it is not a loss, unless the refusal is a
-     * second 400 in a row. Otherwise what is lost is what the store never received: an event or a
+     * second refusal of the payload in a row. Otherwise what is lost is what the store never received: an event or a
      * summary that could not be serialized when it was committed, or that serialized too large to
      * store. A delivery that
      * finds nothing to send cannot tell those apart from events that arrived, so without this it
@@ -338,15 +338,16 @@ final class DirectEventProcessor implements EventProcessor {
     private long claimedLostEvents;
 
     /**
-     * How many 400s in a row drop a batch. A 400 is a payload the service cannot read, which posting it
-     * again will not change, and a kept batch is the oldest and so the next posted: kept for good, it would
-     * hold every batch behind it. Two rather than one, so a 400 from a proxy or an incident costs nothing.
+     * How many refusals of the payload in a row drop a batch: a 400, 413, 415 or 422, in any mix
+     * ({@link LDUtil#isEventPayloadRefused}). Each says the service will not take this body, which posting
+     * it again will not change, and a kept batch is the oldest and so the next posted: kept for good, it
+     * would hold every batch behind it. Two rather than one, so one from a proxy or an incident costs nothing.
      */
     static final int BAD_REQUESTS_BEFORE_DROPPING = 2;
 
-    // The batch that last got a 400 and how many in a row: delivery goes oldest first and stops at a kept
-    // failure, so the next post is that batch's unless capacity dropped it. Held only in memory, so a new
-    // run of the application counts again.
+    // The batch that last had its payload refused and how many times in a row: delivery goes oldest first
+    // and stops at a kept failure, so the next post is that batch's unless capacity dropped it. Held only in
+    // memory, so a new run of the application counts again.
     private final Object badRequestLock = new Object();
     private String badRequestPayloadId;
     private int badRequestsInARow;
@@ -1459,7 +1460,7 @@ final class DirectEventProcessor implements EventProcessor {
      * retry for when it will.
      * <p>
      * Stopped by the backoff instead, it queues itself again for when the wait is up. That wait is one a
-     * post of its own began, such as the second 400 that dropped a batch ahead of the ones it stopped at,
+     * post of its own began, such as the second refusal that dropped a batch ahead of the ones it stopped at,
      * or one a post in the meantime made longer; either way nothing has been tried, and the flushes that
      * took this retry as theirs, while it was queued, queued no other.
      * <p>
@@ -1495,7 +1496,7 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * @return DELIVERED if the batch arrived, or held nothing left to send; FAILED if events were lost,
-     *   whether the batch could not be read, arrived short, or was refused as malformed
+     *   whether the batch could not be read, arrived short, or had its payload refused
      *   {@link #BAD_REQUESTS_BEFORE_DROPPING} times in a row; RETRYABLE if it is kept to be sent again,
      *   which is every other failure to post it; HELD for a post the backoff did not allow
      */
@@ -1539,8 +1540,8 @@ final class DirectEventProcessor implements EventProcessor {
                 retryState.recordFailure(result.unexpected, result.retryAfterMillis);
                 if (countBadRequest(batch, result.status) >= BAD_REQUESTS_BEFORE_DROPPING) {
                     // The rest are still attempted, once the backoff allows.
-                    logger.error("Dropping {} event(s) the service refused as malformed {} times in a row",
-                            batch.eventCount, BAD_REQUESTS_BEFORE_DROPPING);
+                    logger.error("Dropping {} event(s) whose payload the service refused {} times in a row, "
+                            + "last with HTTP {}", batch.eventCount, BAD_REQUESTS_BEFORE_DROPPING, result.status);
                     store.remove(batch);
                     reportBatchLost(batch);
                     return BatchesOutcome.FAILED;
@@ -1572,12 +1573,12 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * @return how many 400s in a row this batch has had, counting this response; zero for any other
-     *   status, which ends the run, and once the batch is dropped
+     * @return how many refusals of the payload in a row this batch has had, counting this response; zero
+     *   for any other status, which ends the run, and once the batch is dropped
      */
     private int countBadRequest(EventStore.Batch batch, int status) {
         synchronized (badRequestLock) {
-            if (status != 400) {
+            if (!LDUtil.isEventPayloadRefused(status)) {
                 badRequestPayloadId = null;
                 badRequestsInARow = 0;
                 return 0;
