@@ -44,6 +44,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * The event store's behavior when an application runs the SDK in more than one process.
@@ -930,8 +931,10 @@ public class EventStoreMultiProcessTest {
             Thread lister = new Thread(() -> {
                 while (!done.get()) {
                     store.pendingBatches();
-                    // Without it the listings can hold the locks so continuously that the closes starve.
-                    Thread.yield();
+                    // Paced, or the listings hold the locks so continuously that the closes starve: a monitor is
+                    // not fair, and a yield returns at once when the closing thread is blocked on it rather than
+                    // runnable. A listing still overlaps every close.
+                    LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(200));
                 }
             });
             lister.start();
