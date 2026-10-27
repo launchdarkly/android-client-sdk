@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 
 import java.io.ByteArrayOutputStream;
@@ -178,6 +179,8 @@ class EventStore implements Closeable {
      */
     private boolean hasDiscardedAbandonedEnvironments;
 
+    private final LDLogger logger;
+
     EventStore(final File directory, int capacity, boolean persistEvents, LDLogger logger) {
         this(() -> directory, capacity, EventProcessorBuilder.DEFAULT_CAPACITY_BYTES,
                 EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, persistEvents, logger);
@@ -200,6 +203,7 @@ class EventStore implements Closeable {
         // It also skips every read, so batches a run with persistence turned on left behind stay on disk
         // until persistence is turned back on.
         this.persistEvents = persistEvents;
+        this.logger = logger;
         this.disk = persistEvents
                 ? new EventDirectory(location, ioLock, logger, this::openForReading, this::openForAppending)
                 : null;
@@ -774,8 +778,8 @@ class EventStore implements Closeable {
     }
 
     /**
-     * A batch that is there to read and holds nothing this version can send: damaged, or written in a
-     * format it does not read. Unlike a batch that is gone, its events are lost, and unlike any other
+     * A batch that is there to read and holds nothing this version can send: damaged, written in a format
+     * it does not read, or larger than it reads at all. Unlike a batch that is gone, its events are lost, and unlike any other
      * {@link IOException}, no later attempt changes that.
      */
     static final class UnreadableBatchException extends IOException {
@@ -961,11 +965,18 @@ class EventStore implements Closeable {
         }
         int lost = 0;
         for (File log : logs) {
-            EventDirectory.InterruptedLog interrupted = disk.read(log);
-            synchronized (ioLock) {
-                EventDirectory.Recovery recovery = disk.preparePayload(interrupted);
-                countRecoveredHoldingIoLock(recovery.prepared);
-                lost += recovery.lost;
+            // A log that fails is left where it is for the next launch, rather than keeping the ones after it
+            // from being recovered.
+            try {
+                EventDirectory.InterruptedLog interrupted = disk.read(log);
+                synchronized (ioLock) {
+                    EventDirectory.Recovery recovery = disk.preparePayload(interrupted);
+                    countRecoveredHoldingIoLock(recovery.prepared);
+                    lost += recovery.lost;
+                }
+            } catch (RuntimeException e) {
+                logger.warn("Could not read events from a previous run, will try again at the next launch: {}",
+                        LogValues.exceptionSummary(e));
             }
         }
         return lost;

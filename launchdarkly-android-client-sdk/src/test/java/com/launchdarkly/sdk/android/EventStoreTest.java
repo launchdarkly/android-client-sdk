@@ -6,6 +6,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.Logs;
@@ -26,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * One store on its own: what staging, committing and closing a batch leave on the disk and in the count,
@@ -253,6 +255,72 @@ public class EventStoreTest {
         assertEquals(Collections.emptyList(), reader.pendingBatches());
         // A batch that can never be delivered is not left to occupy the device either.
         assertFalse(uncounted.exists());
+    }
+
+    // files larger than this version reads
+
+    /** A file of this version's format, but larger than it ever writes one. */
+    private File tooLargeFile(String name) throws IOException {
+        assertTrue(directory().mkdirs() || directory().isDirectory());
+        File file = new File(directory(), name);
+        Files.write(file.toPath(),
+                Arrays.copyOf(EventLogFormat.fileHeader(), (int) EventDirectory.MAX_READ_SIZE + 1));
+        return file;
+    }
+
+    private static void assertUnreadable(EventStore store, EventStore.Batch batch) throws IOException {
+        try {
+            store.payload(batch);
+            fail("read a batch larger than this version reads");
+        } catch (EventStore.UnreadableBatchException expected) {
+        }
+    }
+
+    @Test
+    public void aLogFromAPreviousRunLargerThanThisVersionReadsIsDeletedAndCountedLost() throws IOException {
+        File log = tooLargeFile(EventDirectory.LOG_PREFIX + UUID.randomUUID());
+
+        EventStore nextRun = store();
+        assertEquals(1, nextRun.preparePayloadsFromInterruptedLogs());
+        assertEquals(Collections.emptyList(), nextRun.pendingBatches());
+        assertFalse(log.exists());
+    }
+
+    @Test
+    public void aBatchLargerThanThisVersionReadsIsUnreadable() throws IOException {
+        tooLargeFile("ready-" + UUID.randomUUID() + ".3");
+
+        EventStore store = store();
+        List<EventStore.Batch> batches = store.pendingBatches();
+        assertEquals(1, batches.size());
+        assertEquals(3, batches.get(0).eventCount);
+        assertUnreadable(store, batches.get(0));
+    }
+
+    @Test
+    public void aBatchNamedWithoutACountLargerThanThisVersionReadsIsListedAsOneEventAndUnreadable()
+            throws IOException {
+        tooLargeFile("ready-" + UUID.randomUUID());
+
+        EventStore store = store();
+        List<EventStore.Batch> batches = store.pendingBatches();
+        assertEquals(1, batches.size());
+        assertEquals("the fewest it can hold, never having been read", 1, batches.get(0).eventCount);
+        assertUnreadable(store, batches.get(0));
+    }
+
+    @Test
+    public void expiredFilesLargerThanThisVersionReadsAreDiscardedAsOneEventEach() throws IOException {
+        File uncounted = tooLargeFile("ready-" + UUID.randomUUID());
+        File log = tooLargeFile(EventDirectory.LOG_PREFIX + UUID.randomUUID());
+        long expired = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(8);
+        assertTrue(uncounted.setLastModified(expired));
+        assertTrue(log.setLastModified(expired));
+
+        // Counted without being read, rather than left for every later pass to fail on.
+        assertEquals(2, store().discardExpired());
+        assertFalse(uncounted.exists());
+        assertFalse(log.exists());
     }
 
     // closing batches

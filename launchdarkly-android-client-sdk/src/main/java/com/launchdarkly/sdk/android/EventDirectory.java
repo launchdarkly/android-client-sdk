@@ -60,6 +60,21 @@ class EventDirectory {
      * these; one left by a process that died while opening it holds no events, and expiry removes it.
      */
     static final String OPENING_LOG_PREFIX = "new-";
+
+    /**
+     * The largest file this version reads. It writes none larger than {@link EventLogFormat#MAX_BATCH_SIZE},
+     * so one past this is not its own, whatever it holds. Read anyway, it would be held in memory whole, and
+     * one large enough would fail every pass that reached it, without ever being deleted. Twice the batch size,
+     * so that a later version may raise its own a little without an earlier one losing what it wrote.
+     */
+    static final long MAX_READ_SIZE = 2L * EventLogFormat.MAX_BATCH_SIZE;
+
+    /** A stored file larger than {@link #MAX_READ_SIZE}, which is never read and so can never be delivered. */
+    static final class TooLargeException extends IOException {
+        TooLargeException(long size) {
+            super("a stored file of " + size + " bytes, larger than this version reads");
+        }
+    }
     private static final String DIRECTORY_NAME = "com.launchdarkly.events";
 
     /** Where one store keeps its files. */
@@ -466,6 +481,11 @@ class EventDirectory {
                     byte[] log;
                     try {
                         log = readFile(file);
+                    } catch (TooLargeException e) {
+                        // Never read, so never counted. Listed as holding one event, the fewest it can, so
+                        // that the delivery reaching it drops it and counts the loss.
+                        log = null;
+                        events = 1;
                     } catch (IOException e) {
                         // Left for a later listing rather than deleted: the read may pass, and the events in
                         // it may be intact. Without a count it cannot be delivered now.
@@ -473,11 +493,12 @@ class EventDirectory {
                                 LogValues.exceptionSummary(e));
                         continue;
                     }
-                    if (log == null) {
+                    if (log != null) {
+                        events = EventLogFormat.eventCount(log);
+                    } else if (events < 0) {
                         // Delivered and removed by another process since the listing.
                         continue;
                     }
-                    events = EventLogFormat.eventCount(log);
                 }
                 if (events < 0) {
                     // Written by a version whose format this one does not read, or damaged beyond what the
@@ -575,12 +596,17 @@ class EventDirectory {
      * @return the JSON payload for a batch, assembled in the array the file was read into; or null if it is
      *   gone or holds no events
      * @throws EventStore.UnreadableBatchException if the batch is there but holds nothing this version can
-     *   send
+     *   send, which includes one larger than {@link #MAX_READ_SIZE}
      * @throws IOException if the batch is there but could not be read this time
      */
     EventLogFormat.Payload payload(String payloadId, int events) throws IOException {
         assert Thread.holdsLock(ioLock);
-        byte[] log = readFile(batchFile(payloadId, events));
+        byte[] log;
+        try {
+            log = readFile(batchFile(payloadId, events));
+        } catch (TooLargeException e) {
+            throw new EventStore.UnreadableBatchException(payloadId);
+        }
         if (log == null) {
             return null;
         }
@@ -679,6 +705,7 @@ class EventDirectory {
 
     /**
      * @return the file's bytes, or null if it no longer exists
+     * @throws TooLargeException if it is larger than {@link #MAX_READ_SIZE}, which will not pass
      * @throws IOException if it exists but could not be read. That may pass, and the file is intact:
      *   a process out of file descriptors fails to open it with the same exception a missing file
      *   gets, which is why existence is checked rather than the exception's type.
@@ -701,7 +728,18 @@ class EventDirectory {
      * process, its events lost without being counted.
      */
     private static byte[] readAll(FileInputStream in) throws IOException {
-        byte[] contents = new byte[(int) Math.min(in.getChannel().size(), Integer.MAX_VALUE - 8)];
+        long size = in.getChannel().size();
+        if (size > MAX_READ_SIZE) {
+            throw new TooLargeException(size);
+        }
+        byte[] contents;
+        try {
+            contents = new byte[(int) size];
+        } catch (OutOfMemoryError e) {
+            // Memory is short for now, which may pass, and the file is intact: tried again by a later pass
+            // rather than deleted, and rather than ending this one.
+            throw new IOException("not enough memory to read " + size + " bytes", e);
+        }
         int filled = 0;
         while (filled < contents.length) {
             int read = in.read(contents, filled, contents.length - filled);
@@ -817,6 +855,9 @@ class EventDirectory {
                     ? contents.length >= EventLogFormat.FILE_HEADER_SIZE
                     : EventLogFormat.isDamaged(contents);
             return new InterruptedLog(log, null, false, events, damaged, contents.length);
+        } catch (TooLargeException e) {
+            // Not this version's, so deleted and counted lost as a log in a format it does not read is.
+            return new InterruptedLog(log, null, false, -1, true, 0);
         } catch (IOException e) {
             return new InterruptedLog(log, e, false, 0, false, 0);
         }
@@ -906,39 +947,46 @@ class EventDirectory {
             return new Discarded(0, counted);
         }
         for (File file : files) {
-            if (isWrittenSince(file, cutoffMillis)) {
-                continue;
-            }
-            String name = file.getName();
-            if (name.startsWith(BATCH_PREFIX)) {
-                int named = eventsInName(name);
-                String payloadId = payloadIdInName(name);
-                if (sending.contains(payloadId) || deliveredButUndeleted.contains(payloadId)
-                        || BatchLocks.isSentInThisProcess(file)) {
+            // Expiry comes first in every delivery, so a file that fails it is left for a later pass rather than
+            // ending this one, and every one after it.
+            try {
+                if (isWrittenSince(file, cutoffMillis)) {
                     continue;
                 }
-                Stored known = stored.get(payloadId);
-                int held = named >= 0 ? named : known != null ? known.events : eventsReading(file);
-                if (held < 0) {
-                    continue;
-                }
-                if (!BatchLocks.deleteUnlessBeingSent(file)) {
-                    if (!file.exists()) {
-                        // Delivered by another process since the listing: no longer counted, and not dropped.
-                        Stored removed = stored.remove(payloadId);
-                        if (removed != null) {
-                            counted = counted.plus(removed.tally());
-                        }
+                String name = file.getName();
+                if (name.startsWith(BATCH_PREFIX)) {
+                    int named = eventsInName(name);
+                    String payloadId = payloadIdInName(name);
+                    if (sending.contains(payloadId) || deliveredButUndeleted.contains(payloadId)
+                            || BatchLocks.isSentInThisProcess(file)) {
+                        continue;
                     }
-                    continue;
+                    Stored known = stored.get(payloadId);
+                    int held = named >= 0 ? named : known != null ? known.events : eventsReading(file);
+                    if (held < 0) {
+                        continue;
+                    }
+                    if (!BatchLocks.deleteUnlessBeingSent(file)) {
+                        if (!file.exists()) {
+                            // Delivered by another process since the listing: no longer counted, and not dropped.
+                            Stored removed = stored.remove(payloadId);
+                            if (removed != null) {
+                                counted = counted.plus(removed.tally());
+                            }
+                        }
+                        continue;
+                    }
+                    events += held;
+                    Stored removed = stored.remove(payloadId);
+                    if (removed != null) {
+                        counted = counted.plus(removed.tally());
+                    }
+                } else {
+                    events += discardIfAbandonedLog(file);
                 }
-                events += held;
-                Stored removed = stored.remove(payloadId);
-                if (removed != null) {
-                    counted = counted.plus(removed.tally());
-                }
-            } else {
-                events += discardIfAbandonedLog(file);
+            } catch (RuntimeException e) {
+                logger.debug("Could not discard expired events, will try again at the next delivery: {}",
+                        LogValues.exceptionSummary(e));
             }
         }
         return new Discarded(events, counted);
@@ -977,21 +1025,25 @@ class EventDirectory {
             File[] files = environment.listFiles();
             if (files != null) {
                 for (File file : files) {
-                    if (isWrittenSince(file, cutoffMillis)) {
-                        continue;
-                    }
-                    String name = file.getName();
-                    if (name.startsWith(BATCH_PREFIX)) {
-                        if (BatchLocks.isSentInThisProcess(file)) {
+                    // As in discard(): a file that fails is left for a later pass.
+                    try {
+                        if (isWrittenSince(file, cutoffMillis)) {
                             continue;
                         }
-                        int named = eventsInName(name);
-                        int held = named >= 0 ? named : eventsReading(file);
-                        if (held >= 0 && BatchLocks.deleteUnlessBeingSent(file)) {
-                            events += held;
+                        String name = file.getName();
+                        if (name.startsWith(BATCH_PREFIX)) {
+                            if (BatchLocks.isSentInThisProcess(file)) {
+                                continue;
+                            }
+                            int named = eventsInName(name);
+                            int held = named >= 0 ? named : eventsReading(file);
+                            if (held >= 0 && BatchLocks.deleteUnlessBeingSent(file)) {
+                                events += held;
+                            }
+                        } else {
+                            events += discardIfAbandonedLog(file);
                         }
-                    } else {
-                        events += discardIfAbandonedLog(file);
+                    } catch (RuntimeException ignored) {
                     }
                 }
             }
@@ -1029,7 +1081,9 @@ class EventDirectory {
 
     /**
      * @return how many events a file being discarded holds, or -1 if it could not be read, in which case it is
-     *   left for a later pass: deleted now, its events would go uncounted
+     *   left for a later pass: deleted now, its events would go uncounted. One larger than
+     *   {@link #MAX_READ_SIZE} counts as one, the fewest it can hold: it will never be read, and left, it would
+     *   be tried by every pass.
      */
     // Files.newInputStream needs API 26.
     @SuppressWarnings("IOStreamConstructor")
@@ -1037,6 +1091,8 @@ class EventDirectory {
         byte[] contents;
         try (FileInputStream in = new FileInputStream(file)) {
             contents = readAll(in);
+        } catch (TooLargeException e) {
+            return 1;
         } catch (IOException e) {
             return -1;
         }
