@@ -250,7 +250,7 @@ class EventStore implements Closeable {
         return new EventStore(location, capacity, byteCapacity, maxAgeMillis, persistEvents, logger);
     }
 
-    // MARK: recording
+    // ---- recording ----
 
     /**
      * A batch being sent is left out so that a flush makes room as soon as it sends, as it did when events
@@ -514,7 +514,7 @@ class EventStore implements Closeable {
         }
     }
 
-    // MARK: delivery
+    // ---- delivery ----
 
     /**
      * Commits, then closes the open log into a batch to deliver, and whatever is still staged in memory
@@ -1029,7 +1029,7 @@ class EventStore implements Closeable {
         return discarded;
     }
 
-    // MARK: writing
+    // ---- writing ----
 
     /**
      * Requires {@code ioLock}.

@@ -310,7 +310,7 @@ class EventDirectory {
         return new File(log.getParentFile(), OPENING_LOG_PREFIX + log.getName().substring(LOG_PREFIX.length()));
     }
 
-    // MARK: writing
+    // ---- writing ----
 
     /**
      * Appends to the open log, opening a new one where none is open.
@@ -428,7 +428,7 @@ class EventDirectory {
         }
     }
 
-    // MARK: listing and reading
+    // ---- listing and reading ----
 
     /**
      * Requires {@code ioLock}.
@@ -728,7 +728,7 @@ class EventDirectory {
         }
     }
 
-    // MARK: recovery
+    // ---- recovery ----
 
     /**
      * Every log in the directory that no live process holds, for recovery to read with {@link #read} and
@@ -882,7 +882,7 @@ class EventDirectory {
         return new Recovery(recovered.tally(), 1);
     }
 
-    // MARK: expiry
+    // ---- expiry ----
 
     /**
      * Deletes the batches in this directory last written before {@code cutoffMillis}, and the logs no live
@@ -1047,7 +1047,7 @@ class EventDirectory {
         return file.delete() || !file.exists();
     }
 
-    // MARK: naming
+    // ---- naming ----
 
     /** The directory the store for one environment belongs in. */
     static File defaultDirectory(File noBackupFilesDir, String mobileKey) {

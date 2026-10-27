@@ -97,7 +97,7 @@ public final class EventPersistenceBenchmarkRunner {
         }
     }
 
-    // MARK: Sections
+    // ---- Sections ----
 
     private void encodingCostByContextShape() {
         progress.section("encoding cost by context shape");
@@ -279,7 +279,7 @@ public final class EventPersistenceBenchmarkRunner {
         report("turning counters into a summary event", results);
     }
 
-    // MARK: Corpus
+    // ---- Corpus ----
 
     private enum ContextShape {
         KEY_ONLY("key only"),
@@ -385,7 +385,7 @@ public final class EventPersistenceBenchmarkRunner {
                 false);
     }
 
-    // MARK: Harness
+    // ---- Harness ----
 
     /**
      * Times {@code body}, returning nanoseconds per iteration: warmed first, then the fastest of several

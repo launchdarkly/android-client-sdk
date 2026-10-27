@@ -114,7 +114,7 @@ public class EventStoreMultiProcessTest {
         return matching;
     }
 
-    // MARK: each process writes only its own log
+    // ---- each process writes only its own log ----
 
     @Test
     public void eachProcessAppendsToItsOwnLog() {
@@ -148,7 +148,7 @@ public class EventStoreMultiProcessTest {
         assertTrue("a log was left under the name it is opened under", filesNamed("new-").isEmpty());
     }
 
-    // MARK: recovery takes what no live process holds
+    // ---- recovery takes what no live process holds ----
 
     /**
      * What the kernel does to a store's log when its process dies: closes the descriptor, which releases the
@@ -355,7 +355,7 @@ public class EventStoreMultiProcessTest {
         assertTrue(main.pendingBatches().contains(fromService));
     }
 
-    // MARK: closed batches are shared on purpose
+    // ---- closed batches are shared on purpose ----
 
     @Test
     public void aBatchClosedByOneProcessIsDeliverableByAnother() throws IOException {
@@ -573,7 +573,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(3, main.getPendingEventCount());
     }
 
-    // MARK: a read that fails is no reason to delete
+    // ---- a read that fails is no reason to delete ----
 
     @Test
     public void recoveryReadsWhatAPreviousRunLeftWithoutHoldingUpACommit() throws Exception {
@@ -727,7 +727,7 @@ public class EventStoreMultiProcessTest {
         assertEquals(Arrays.asList("before-the-crash", "this-run"), visibleKeys(secondRun));
     }
 
-    // MARK: a write that fails partway
+    // ---- a write that fails partway ----
 
     /**
      * A store whose writes land whole until {@code whole} of them have, after which each gets all but
@@ -1161,7 +1161,7 @@ public class EventStoreMultiProcessTest {
         }
     }
 
-    // MARK: the two together
+    // ---- the two together ----
 
     @Test
     public void concurrentRecordingFromTwoProcessesLosesAndCorruptsNothing() throws Exception {

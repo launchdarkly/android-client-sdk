@@ -345,7 +345,7 @@ public class EventPersistenceBenchmark {
         report("turning counters into a summary event", results);
     }
 
-    // MARK: Corpus
+    // ---- Corpus ----
 
     /**
      * The same five shapes the iOS benchmark uses, so the two sets of numbers describe the same
@@ -459,7 +459,7 @@ public class EventPersistenceBenchmark {
                 false);
     }
 
-    // MARK: Harness
+    // ---- Harness ----
 
     /**
      * Times {@code body}, returning nanoseconds per iteration.
