@@ -288,7 +288,7 @@ public class EventStoreTest {
 
     @Test
     public void aBatchLargerThanThisVersionReadsIsUnreadable() throws IOException {
-        tooLargeFile("ready-" + UUID.randomUUID() + ".3");
+        tooLargeFile("ready-v1-" + UUID.randomUUID() + ".3");
 
         EventStore store = store();
         List<EventStore.Batch> batches = store.pendingBatches();
@@ -300,7 +300,7 @@ public class EventStoreTest {
     @Test
     public void aBatchNamedWithoutACountLargerThanThisVersionReadsIsListedAsOneEventAndUnreadable()
             throws IOException {
-        tooLargeFile("ready-" + UUID.randomUUID());
+        tooLargeFile("ready-v1-" + UUID.randomUUID());
 
         EventStore store = store();
         List<EventStore.Batch> batches = store.pendingBatches();
@@ -311,7 +311,7 @@ public class EventStoreTest {
 
     @Test
     public void expiredFilesLargerThanThisVersionReadsAreDiscardedAsOneEventEach() throws IOException {
-        File uncounted = tooLargeFile("ready-" + UUID.randomUUID());
+        File uncounted = tooLargeFile("ready-v1-" + UUID.randomUUID());
         File log = tooLargeFile(EventDirectory.LOG_PREFIX + UUID.randomUUID());
         long expired = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(8);
         assertTrue(uncounted.setLastModified(expired));

@@ -396,7 +396,7 @@ public class EventStoreMultiProcessTest {
         // apart: a listing that read would refuse this batch.
         List<File> ready = filesNamed("ready-");
         assertEquals(1, ready.size());
-        assertEquals("ready-" + batch.payloadId + ".2", ready.get(0).getName());
+        assertEquals("ready-v1-" + batch.payloadId + ".2", ready.get(0).getName());
         overwrite(ready.get(0), "not an event log".getBytes(Charset.forName("UTF-8")));
 
         // The process that closed it and one that did not both count it from the name alone.
@@ -488,12 +488,47 @@ public class EventStoreMultiProcessTest {
         File batch = filesNamed("ready-").get(0);
         // Its last group fits an int once the leading zeros are dropped.
         String payloadId = "6F9619FF-8B86-D011-B42D-000012345678";
-        assertTrue(batch.renameTo(new File(batch.getParentFile(), "ready-" + payloadId)));
+        assertTrue(batch.renameTo(new File(batch.getParentFile(), "ready-v1-" + payloadId)));
 
         List<EventStore.Batch> pending = storeFor().pendingBatches();
         assertEquals(1, pending.size());
         assertEquals(payloadId, pending.get(0).payloadId);
         assertEquals(1, pending.get(0).eventCount);
+    }
+
+    @Test
+    public void nothingIsTakenFromTheNameOfAnotherVersion() throws IOException {
+        EventStore later = storeFor();
+        later.stage(event("first"));
+        later.stage(event("second"));
+        closeOne(later);
+        File file = filesNamed("ready-").get(0);
+        // Fields this version would take for a payload ID and a count, were the name its own.
+        File renamed = new File(file.getParentFile(), "ready-v2-7." + UUID.randomUUID());
+        assertTrue(file.renameTo(renamed));
+
+        EventStore store = storeFor();
+        List<EventStore.Batch> pending = store.pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals("counted by reading", 2, pending.get(0).eventCount);
+        assertEquals(Arrays.asList("first", "second"), keysIn(store.body(pending.get(0))));
+
+        store.remove(pending.get(0));
+        assertFalse(renamed.exists());
+    }
+
+    @Test
+    public void aBatchNamedByAnotherVersionHasTheSamePayloadIdInEveryProcess() {
+        EventStore later = storeFor();
+        later.stage(event("only"));
+        closeOne(later);
+        File file = filesNamed("ready-").get(0);
+        assertTrue(file.renameTo(new File(file.getParentFile(), "ready-v2-" + UUID.randomUUID())));
+
+        // So that a retry of it, from any process, is one the service can tell is a retry.
+        String payloadId = storeFor().pendingBatches().get(0).payloadId;
+        assertEquals(payloadId, storeFor().pendingBatches().get(0).payloadId);
+        assertEquals(payloadId, UUID.fromString(payloadId).toString());
     }
 
     @Test
@@ -838,7 +873,7 @@ public class EventStoreMultiProcessTest {
 
         // The listing that can delete it does, rather than leaving it for a run that would send it again.
         store.pendingBatches();
-        assertTrue(filesNamed("ready-" + first.payloadId).isEmpty());
+        assertTrue(filesNamed("ready-v1-" + first.payloadId).isEmpty());
     }
 
     @Test
