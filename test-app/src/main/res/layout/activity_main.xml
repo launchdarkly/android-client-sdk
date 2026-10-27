@@ -114,12 +114,22 @@
         android:id="@+id/result_textView"
         android:layout_width="wrap_content"
         android:layout_height="0dp"
-        android:layout_above="@+id/dedupe_status"
+        android:layout_above="@+id/benchmark_button"
         android:layout_below="@+id/space"
         android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
         android:layout_alignParentEnd="true"
         android:layout_alignParentRight="true" />
+
+    <!-- The event persistence benchmark: see MainActivity#setupBenchmarkButton. -->
+    <Button
+        android:id="@+id/benchmark_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/dedupe_status"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:text="Benchmark" />
 
     <TextView
         android:id="@+id/dedupe_status"
@@ -184,8 +194,7 @@
     <!--
         Many evaluations of one flag in a row, timed either side of the event store filling up. See
         MainActivity#setupOverRefreshButton for what the two numbers mean. Next to it, events too large
-        to fit in one batch: see MainActivity#setupFillBatchesButton. Then the event persistence
-        benchmark: see MainActivity#setupBenchmarkButton.
+        to fit in one batch: see MainActivity#setupFillBatchesButton.
     -->
     <LinearLayout
         android:id="@+id/over_refresh_row"
@@ -211,13 +220,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Fill 3 Batches" />
-
-        <Button
-            android:id="@+id/benchmark_button"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Benchmark" />
     </LinearLayout>
 
     <Space
