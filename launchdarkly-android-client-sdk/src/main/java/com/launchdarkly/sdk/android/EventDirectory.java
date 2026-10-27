@@ -6,7 +6,6 @@ import com.launchdarkly.logging.LogValues;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -50,12 +49,14 @@ class EventDirectory {
      */
     private static final String BATCH_PREFIX = "ready-";
     /**
-     * The version of how the rest of a batch's name reads. Nothing is taken from the name of another version,
-     * which is counted by reading it, as the file's own header allows, and delivered under a payload ID its
-     * name gives: a change to the name, however large, costs an earlier version a read rather than a
-     * misread count. A payload ID is a UUID, which cannot start with a {@code v}.
+     * The version of how the rest of a batch's name reads, so that a later version may change it without this
+     * one misreading the count. A batch another version named is never listed, counted or sent: reading it is
+     * that version's to do. Expiry still removes it, as it does any batch, so that a file this version does not
+     * read cannot stay on the device for good. A payload ID is a UUID, which cannot start with a {@code v}.
      */
     private static final String BATCH_NAME_VERSION = "v1-";
+    /** Names a batch this version named, and so reads. */
+    private static final String OWN_BATCH_PREFIX = BATCH_PREFIX + BATCH_NAME_VERSION;
     private static final char NAME_FIELD_SEPARATOR = '.';
     /**
      * Names a log whose events are not yet in a batch: one its owner is appending to, or one left by an owner
@@ -284,36 +285,31 @@ class EventDirectory {
 
     /** Requires {@code ioLock}. */
     private File newBatchFile(String payloadId, int events) {
-        return new File(directory(), BATCH_PREFIX + BATCH_NAME_VERSION + payloadId + NAME_FIELD_SEPARATOR + events);
+        return new File(directory(), OWN_BATCH_PREFIX + payloadId + NAME_FIELD_SEPARATOR + events);
     }
 
     /** A name for a batch of events not yet counted, which the first listing to read it counts. */
     private File newUncountedBatchFile() {
-        return new File(directory(), BATCH_PREFIX + BATCH_NAME_VERSION + UUID.randomUUID());
+        return new File(directory(), OWN_BATCH_PREFIX + UUID.randomUUID());
     }
 
-    /** What follows the version in a batch's name, or null where it is named by another version. */
-    private static String fieldsInName(String fileName) {
-        String versioned = BATCH_PREFIX + BATCH_NAME_VERSION;
-        return fileName.startsWith(versioned) ? fileName.substring(versioned.length()) : null;
+    /** Whether a file is a batch some other version named, which this one leaves to expiry. */
+    private static boolean isAnotherVersionsBatch(String fileName) {
+        return fileName.startsWith(BATCH_PREFIX) && !fileName.startsWith(OWN_BATCH_PREFIX);
     }
 
     /**
-     * The count in a batch's name, {@code ready-v1-<payloadId>.<count>}: the second field, by position.
+     * The count in the name of a batch this version named, {@code ready-v1-<payloadId>.<count>}: the second
+     * field, by position.
      * <p>
      * Fields are split at {@link #NAME_FIELD_SEPARATOR}, which a payload ID never contains, so nothing
-     * about the count's own characters is needed to tell it apart. Fields after it, which a later
-     * version might add, are ignored.
+     * about the count's own characters is needed to tell it apart. Fields after it are ignored.
      *
-     * @return the count, or -1 where the name has none, it does not parse, or the name is another version's:
-     *   a batch read once to count it
+     * @return the count, or -1 where the name has none or it does not parse - a batch a recovery could not
+     *   read, which is read once to count it
      */
     private static int eventsInName(String fileName) {
-        String rest = fieldsInName(fileName);
-        if (rest == null) {
-            return -1;
-        }
-        String[] fields = rest.split("\\" + NAME_FIELD_SEPARATOR, -1);
+        String[] fields = fileName.substring(OWN_BATCH_PREFIX.length()).split("\\" + NAME_FIELD_SEPARATOR, -1);
         if (fields.length < 2 || fields[1].isEmpty()) {
             return -1;
         }
@@ -330,15 +326,9 @@ class EventDirectory {
         }
     }
 
-    /**
-     * The payload ID in a batch's name: the first field, whatever follows it. One named by another version
-     * is given a UUID made from the whole name, so that every attempt at it, from any process, sends the same.
-     */
+    /** The payload ID in the name of a batch this version named: the first field, whatever follows it. */
     private static String payloadIdInName(String fileName) {
-        String rest = fieldsInName(fileName);
-        if (rest == null) {
-            return UUID.nameUUIDFromBytes(fileName.getBytes(StandardCharsets.UTF_8)).toString();
-        }
+        String rest = fileName.substring(OWN_BATCH_PREFIX.length());
         int end = rest.indexOf(NAME_FIELD_SEPARATOR);
         return end < 0 ? rest : rest.substring(0, end);
     }
@@ -499,8 +489,8 @@ class EventDirectory {
             if (isDeliveredButUndeleted(payloadId, file)) {
                 continue;
             }
-            // Reading is only for a batch whose name does not count it - one a recovery could not read, or one
-            // another version named - and then only the once.
+            // Reading is only for a batch whose name does not count it, which is one a recovery could not read,
+            // and then only the once.
             byte[] log = null;
             if (events < 0) {
                 Stored known = stored.get(payloadId);
@@ -723,7 +713,7 @@ class EventDirectory {
             return directory().exists() ? null : ready;
         }
         for (File file : files) {
-            if (file.getName().startsWith(BATCH_PREFIX)) {
+            if (file.getName().startsWith(OWN_BATCH_PREFIX)) {
                 ready.add(new ReadyFile(file));
             }
         }
@@ -960,6 +950,7 @@ class EventDirectory {
      * A batch's modification time is when its newest event was written, since a batch is renamed rather than
      * rewritten when it is closed, so a batch is discarded only once everything in it is that old. A log is
      * usually recovered rather than left to grow old, so one that gets here is one recovery could not move.
+     * A batch another version named is deleted too, without being read or counted.
      *
      * A batch whose request is out is left alone however old it is, whichever store or process sent it; see
      * {@link BatchLocks}.
@@ -982,7 +973,10 @@ class EventDirectory {
                     continue;
                 }
                 String name = file.getName();
-                if (name.startsWith(BATCH_PREFIX)) {
+                if (isAnotherVersionsBatch(name)) {
+                    // Never counted, so nothing to stop counting, and its events were never this version's to lose.
+                    BatchLocks.deleteUnlessBeingSent(file);
+                } else if (name.startsWith(OWN_BATCH_PREFIX)) {
                     int named = eventsInName(name);
                     String payloadId = payloadIdInName(name);
                     if (sending.contains(payloadId) || deliveredButUndeleted.contains(payloadId)
@@ -1059,7 +1053,9 @@ class EventDirectory {
                             continue;
                         }
                         String name = file.getName();
-                        if (name.startsWith(BATCH_PREFIX)) {
+                        if (isAnotherVersionsBatch(name)) {
+                            BatchLocks.deleteUnlessBeingSent(file);
+                        } else if (name.startsWith(OWN_BATCH_PREFIX)) {
                             if (BatchLocks.isSentInThisProcess(file)) {
                                 continue;
                             }

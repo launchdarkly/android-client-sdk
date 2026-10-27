@@ -496,39 +496,37 @@ public class EventStoreMultiProcessTest {
         assertEquals(1, pending.get(0).eventCount);
     }
 
-    @Test
-    public void nothingIsTakenFromTheNameOfAnotherVersion() throws IOException {
+    /** A batch as a later version might name it, holding events this version would otherwise read. */
+    private File asAnotherVersionsBatch() {
         EventStore later = storeFor();
         later.stage(event("first"));
         later.stage(event("second"));
         closeOne(later);
+        later.close();
         File file = filesNamed("ready-").get(0);
         // Fields this version would take for a payload ID and a count, were the name its own.
         File renamed = new File(file.getParentFile(), "ready-v2-7." + UUID.randomUUID());
         assertTrue(file.renameTo(renamed));
-
-        EventStore store = storeFor();
-        List<EventStore.Batch> pending = store.pendingBatches();
-        assertEquals(1, pending.size());
-        assertEquals("counted by reading", 2, pending.get(0).eventCount);
-        assertEquals(Arrays.asList("first", "second"), keysIn(store.body(pending.get(0))));
-
-        store.remove(pending.get(0));
-        assertFalse(renamed.exists());
+        return renamed;
     }
 
     @Test
-    public void aBatchNamedByAnotherVersionHasTheSamePayloadIdInEveryProcess() {
-        EventStore later = storeFor();
-        later.stage(event("only"));
-        closeOne(later);
-        File file = filesNamed("ready-").get(0);
-        assertTrue(file.renameTo(new File(file.getParentFile(), "ready-v2-" + UUID.randomUUID())));
+    public void aBatchAnotherVersionNamedIsNeitherCountedNorSent() {
+        File batch = asAnotherVersionsBatch();
 
-        // So that a retry of it, from any process, is one the service can tell is a retry.
-        String payloadId = storeFor().pendingBatches().get(0).payloadId;
-        assertEquals(payloadId, storeFor().pendingBatches().get(0).payloadId);
-        assertEquals(payloadId, UUID.fromString(payloadId).toString());
+        EventStore store = storeFor();
+        assertTrue(store.pendingBatches().isEmpty());
+        assertEquals(0, store.getPendingEventCount());
+        assertTrue(batch.exists());
+    }
+
+    @Test
+    public void anExpiredBatchAnotherVersionNamedIsDeletedWithoutBeingCounted() {
+        File batch = asAnotherVersionsBatch();
+        assertTrue(batch.setLastModified(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(8)));
+
+        assertEquals(0, storeFor().discardExpired());
+        assertFalse(batch.exists());
     }
 
     @Test
