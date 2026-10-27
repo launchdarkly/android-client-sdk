@@ -95,7 +95,20 @@ public class SdkClientEntity {
     long startWaitMs = params.configuration.startWaitTimeMs != null ?
             params.configuration.startWaitTimeMs.longValue() : 5000;
     Representations.SdkConfigClientSideParams clientSideParams = params.configuration.clientSide;
-    Future<LDClient> initFuture = LDClient.init(application, config, clientSideParams.initialContext);
+    // CENTINEL census seat-cell seam (the user-type class's own law): the
+    // harness's legacy initial-user face rides the LDUser wire shape
+    // ({email, key, name, ...}); when served, the SDK's initial context
+    // derives from that legacy user (LDContext.fromUser) — the harness's own
+    // WithClientSideConfig(InitialUser: user) face — and takes precedence over
+    // the generic initial-context wire the clientSideParams also carries.
+    LDContext initialContextForInit = clientSideParams.initialContext;
+    if (clientSideParams.initialUser != null && clientSideParams.initialUser.isJsonObject()) {
+      LDContext legacy = buildLegacyUserContext(clientSideParams.initialUser);
+      if (legacy != null && legacy.isValid()) {
+        initialContextForInit = legacy;
+      }
+    }
+    Future<LDClient> initFuture = LDClient.init(application, config, initialContextForInit);
     // Try to initialize client, but if it fails, keep going in case the test harness wants us to
     // work with an uninitialized client
     try {
@@ -134,7 +147,23 @@ public class SdkClientEntity {
         doCustomEvent(params.customEvent);
         return null;
       case "flushEvents":
-        client.flush();
+        // CENTINEL census seat-cell seam (the events POST's own completion
+        // law): the SDK's own EventProcessor.blockingFlush interface face —
+        // "sent immediately, blocking until done" — prices the harness's
+        // flush law: the FlushEvents + ExpectAnalyticsEvents pair grades the
+        // flush's POST as complete before the reply. The package-private
+        // field, public method (the same reflection coupling the
+        // x-cp-set-streaming arm rides).
+        try {
+          java.lang.reflect.Field epField = LDClient.class.getDeclaredField("eventProcessor");
+          epField.setAccessible(true);
+          com.launchdarkly.sdk.android.subsystems.EventProcessor ep =
+                  (com.launchdarkly.sdk.android.subsystems.EventProcessor) epField.get(client);
+          ep.blockingFlush();
+        } catch (ReflectiveOperationException | IllegalArgumentException e) {
+          logger.warn("blocking-flush seam unavailable; riding the SDK's own async flush: {}", e.toString());
+          client.flush();
+        }
         return null;
       case "contextBuild":
         return doContextBuild(params.contextBuild);
@@ -652,6 +681,53 @@ public class SdkClientEntity {
       return a;
     }
     return e;
+  }
+
+  /** CENTINEL census seat-cell seam (the user-type class's own law): the
+   * harness's legacy initial-user wire parses through the SDK's own legacy
+   * user builder (LDUser.Builder + LDContext.fromUser) — the built-ins
+   * (name/email/avatar/ip/country plus anonymous) ride the user's own
+   * built-in setters, the custom envelope rides LDValue-shaped custom
+   * attributes, so the fromUser context carries the harness's own
+   * representContextAsOldUser transcription (email/name/custom unboxed at the
+   * context's own top level). */
+  private static LDContext buildLegacyUserContext(com.google.gson.JsonElement wire) {
+    com.google.gson.JsonObject o;
+    try {
+      o = wire.getAsJsonObject();
+    } catch (IllegalStateException e) {
+      return null;
+    }
+    if (o == null || !o.has("key")) {
+      return null;
+    }
+    com.launchdarkly.sdk.LDUser.Builder b =
+            new com.launchdarkly.sdk.LDUser.Builder(o.get("key").isJsonNull() ? null : o.get("key").getAsString());
+    String[] strings = {"name", "firstName", "lastName", "email", "avatar", "ip", "country"};
+    for (String field : strings) {
+      if (!o.has(field) || o.get(field).isJsonNull()) continue;
+      String v = o.get(field).getAsString();
+      switch (field) {
+        case "name": b.name(v); break;
+        case "firstName": b.firstName(v); break;
+        case "lastName": b.lastName(v); break;
+        case "email": b.email(v); break;
+        case "avatar": b.avatar(v); break;
+        case "ip": b.ip(v); break;
+        case "country": b.country(v); break;
+        default: break;
+      }
+    }
+    if (o.has("anonymous") && o.get("anonymous").isJsonPrimitive()) {
+      b.anonymous(o.get("anonymous").getAsBoolean());
+    }
+    if (o.has("custom") && o.get("custom").isJsonObject()) {
+      for (java.util.Map.Entry<String, com.google.gson.JsonElement> kv :
+              o.get("custom").getAsJsonObject().entrySet()) {
+        b.custom(kv.getKey(), com.launchdarkly.sdk.LDValue.parse(TestService.gson.toJson(kv.getValue())));
+      }
+    }
+    return LDContext.fromUser(b.build());
   }
 
   private LDConfig buildSdkConfig(SdkConfigParams params, LDLogAdapter logAdapter, String tag) {

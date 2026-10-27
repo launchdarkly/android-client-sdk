@@ -102,6 +102,12 @@ public abstract class Representations {
 
     public static class SdkConfigClientSideParams {
         LDContext initialContext;
+        /** CENTINEL census seat-cell seam (the user-type class's own law): the
+         * harness's legacy initial-user wire (the LDUser JSON shape the harness's
+         * InitialUser face serves; {email, key, name, ...}). Raw JsonElement:
+         * the legacy-user wire parses through the seat's own legacy-user arm
+         * (buildLegacyUserContext), not the context deserializer. */
+        com.google.gson.JsonElement initialUser;
         boolean evaluationReasons;
         boolean useReport;
         boolean includeEnvironmentAttributes;

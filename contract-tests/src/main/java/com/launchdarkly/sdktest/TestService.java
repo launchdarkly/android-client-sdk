@@ -8,6 +8,8 @@ import com.google.gson.JsonSyntaxException;
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.logging.LogValues;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdktest.Representations.CommandParams;
 import com.launchdarkly.sdktest.Representations.CreateInstanceParams;
 import com.launchdarkly.sdktest.Representations.Status;
@@ -48,8 +50,39 @@ public class TestService extends NanoHTTPD {
             "retry-conformance-fdv1-polling"
     };
     private static final String MIME_JSON = "application/json";
+    /**
+     * CENTINEL census-context wire seam (the events_ctx classes' own close
+     * law): a single-kind context wire may omit the explicit kind member (the
+     * census bank's own initial_context bytes; the harness's implicit default
+     * kind law, CONTEXT 1.2). The shared core's own context deserializer
+     * prices its top-level custom attributes only on the kinded shape, so the
+     * seat injects the default kind member on the kind-less, custom-free
+     * single-kind wire before the core's own parse. Shapes that already carry
+     * kind (incl. kind:"multi") and the legacy-user wire (the custom-envelope
+     * form the harness's old-user rows ride) parse through the core's own
+     * deserializer byte-true.
+     */
+    private static final com.google.gson.JsonDeserializer<LDContext> CENSUS_CONTEXT_WIRE =
+            (json, typeOfT, context) -> {
+                com.google.gson.JsonElement el =
+                        com.google.gson.JsonParser.parseString(json.toString());
+                if (el.isJsonObject() && !el.getAsJsonObject().has("kind")) {
+                    el.getAsJsonObject().addProperty("kind", "user");
+                }
+                try {
+                    return JsonSerialization.deserialize(el.toString(), LDContext.class);
+                } catch (com.launchdarkly.sdk.json.SerializationException e) {
+                    // the core's own parse refusal prices named (the census
+                    // context wire seam never swallows the wire)
+                    throw new com.google.gson.JsonSyntaxException("census context wire: " + e.getMessage(), e);
+                }
+            };
+
     static final Gson gson = new GsonBuilder()
             .registerTypeAdapterFactory(LDGson.typeAdapters())
+            // the explicit context wire seam: later registration wins over the
+            // factory's own LDContext adapter (kinded shapes ride byte-true)
+            .registerTypeAdapter(LDContext.class, CENSUS_CONTEXT_WIRE)
             .create();
 
     static final OkHttpClient client = new OkHttpClient();
