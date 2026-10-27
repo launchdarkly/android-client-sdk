@@ -87,6 +87,33 @@ public class EventProcessorPrivacyTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void allAttributesPrivateReportsEachNameAsTheReferenceThatNamesIt() throws Exception {
+        // redactedAttributes holds attribute references. An attribute literally named "/ssn" is
+        // the reference "/~1ssn"; "/ssn" would be the path to an attribute named "ssn". A name
+        // without a leading slash is already a reference to itself, so it is reported unchanged.
+        LDContext context = LDContext.builder("user-key")
+                .set("/ssn", "123-45-6789")
+                .set("/a~b", "secret")
+                .set("c/d", "value")
+                .build();
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server,
+                    eventsBuilder(DEFAULT_CAPACITY).allAttributesPrivate(true), true);
+            try {
+                eventProcessor.recordIdentifyEvent(context);
+
+                LDValue delivered = requireEventOfKind(flushAndCollect(eventProcessor, server),
+                        "identify").get("context");
+
+                assertEquals(LDValue.ofNull(), delivered.get("/ssn"));
+                assertEquals(redacted("/~1a~0b", "/~1ssn", "c/d"), redactedAttributes(delivered));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aPrivateSubAttributeRedactsOnlyThatProperty() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = makeEventProcessor(server,
