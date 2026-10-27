@@ -1253,7 +1253,7 @@ final class DirectEventProcessor implements EventProcessor {
         }
 
         DeliveryPass pass = deliverWaitingThenNew();
-        if (pass.outcome == BatchesOutcome.RETRYABLE) {
+        if (pass.outcome.kept()) {
             // A batch kept for a reason other than the network, such as a read that failed, has no wait of its
             // own, and is retried after the first one.
             long waitNanos = retryState.remainingWaitNanos();
@@ -1291,15 +1291,15 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private DeliveryPass deliverWaitingThenNew() {
         BatchesOutcome waiting = deliverPendingBatches();
-        if (waiting == BatchesOutcome.RETRYABLE) {
+        if (waiting.kept()) {
             return new DeliveryPass(waiting, commitLeavingTheLogOpen());
         }
         Close close = commitAndCloseBatch();
         BatchesOutcome closed = deliverListedBatches();
-        if (closed == BatchesOutcome.RETRYABLE || !close.closedEverything) {
+        if (closed.kept() || !close.closedEverything) {
             // Events left in a log that would not close are still on the disk, for the next close to try again
             // with; this pass cannot say they got out.
-            return new DeliveryPass(BatchesOutcome.RETRYABLE, close.lostEventsMark);
+            return new DeliveryPass(closed.kept() ? closed : BatchesOutcome.RETRYABLE, close.lostEventsMark);
         }
         boolean delivered = waiting == BatchesOutcome.DELIVERED && closed == BatchesOutcome.DELIVERED;
         return new DeliveryPass(delivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED, close.lostEventsMark);
@@ -1358,7 +1358,18 @@ final class DirectEventProcessor implements EventProcessor {
         }
     }
 
-    private enum BatchesOutcome { DELIVERED, FAILED, RETRYABLE }
+    private enum BatchesOutcome {
+        DELIVERED,
+        FAILED,
+        /** Kept after an attempt that failed in a way that may pass, or a read or listing that did. */
+        RETRYABLE,
+        /** Kept without an attempt, the backoff not allowing one yet. */
+        HELD;
+
+        boolean kept() {
+            return this == RETRYABLE || this == HELD;
+        }
+    }
 
     /**
      * Makes one attempt at every batch waiting, oldest first: the others are deliveries an earlier attempt
@@ -1387,7 +1398,7 @@ final class DirectEventProcessor implements EventProcessor {
                 return BatchesOutcome.FAILED;
             }
             BatchesOutcome outcome = deliver(batch);
-            if (outcome == BatchesOutcome.RETRYABLE) {
+            if (outcome.kept()) {
                 return outcome;
             }
             allDelivered &= outcome == BatchesOutcome.DELIVERED;
@@ -1429,6 +1440,11 @@ final class DirectEventProcessor implements EventProcessor {
      * flush, which posts once the backoff allows. Until it does, the periodic one each time queues this
      * retry for when it will.
      * <p>
+     * Stopped by the backoff instead, it queues itself again for when the wait is up. That wait is one a
+     * post of its own began, such as the second 400 that dropped a batch ahead of the ones it stopped at,
+     * or one a post in the meantime made longer; either way nothing has been tried, and the flushes that
+     * took this retry as theirs, while it was queued, queued no other.
+     * <p>
      * A pass like the delivery's rather than only the batches it left: the delivery may have closed
      * nothing, behind a batch that was blocked, and a {@code true} has to mean that the events the
      * caller was waiting on went too.
@@ -1444,7 +1460,15 @@ final class DirectEventProcessor implements EventProcessor {
             return false;
         }
         try {
-            return deliverWaitingThenNew().outcome == BatchesOutcome.DELIVERED;
+            BatchesOutcome outcome = deliverWaitingThenNew().outcome;
+            if (outcome == BatchesOutcome.HELD) {
+                synchronized (submitLock) {
+                    // This one, which is running, so that it does not stand in for the next.
+                    pendingRetry = null;
+                }
+                scheduleRetry(retryState.remainingWaitNanos());
+            }
+            return outcome == BatchesOutcome.DELIVERED;
         } catch (RuntimeException e) {
             logUnexpectedError(e);
             return false;
@@ -1455,12 +1479,12 @@ final class DirectEventProcessor implements EventProcessor {
      * @return DELIVERED if the batch arrived, or held nothing left to send; FAILED if events were lost,
      *   whether the batch could not be read, arrived short, or was refused as malformed
      *   {@link #BAD_REQUESTS_BEFORE_DROPPING} times in a row; RETRYABLE if it is kept to be sent again,
-     *   which is every other failure to post it, and a post the backoff did not allow
+     *   which is every other failure to post it; HELD for a post the backoff did not allow
      */
     private BatchesOutcome deliver(EventStore.Batch batch) {
         if (retryState.remainingWaitNanos() > 0) {
             // Not an attempt, so it moves nothing in the backoff.
-            return BatchesOutcome.RETRYABLE;
+            return BatchesOutcome.HELD;
         }
         EventLogFormat.Payload payload;
         try {

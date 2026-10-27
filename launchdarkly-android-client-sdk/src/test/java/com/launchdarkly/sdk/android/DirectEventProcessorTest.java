@@ -2869,6 +2869,42 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void whatIsFlushedAfterABatchDroppedFor400sIsPostedOnceTheBackoffAllows() throws Exception {
+        long second = DirectEventProcessor.RETRY_DELAY_MILLIS;
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(400));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "malformed", LDValue.ofNull(), null);
+                eventProcessor.flushAsync();
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                // Flushes asked for while the retry a second later is queued, which take that retry as theirs.
+                for (int flush = 0; flush < 4; flush++) {
+                    eventProcessor.recordCustomEvent(CONTEXT, "next-" + flush, LDValue.ofNull(), null);
+                    eventProcessor.flushAsync();
+                }
+                // The retry, whose second 400 drops the batch and starts a two second wait for the one behind it.
+                server.getRecorder().requireRequest(2 * second, TimeUnit.MILLISECONDS);
+                service.setTarget(Handlers.status(202));
+
+                String posted = "";
+                long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(3 * second);
+                while (!posted.contains("next-3")) {
+                    posted += server.getRecorder().requireRequest(
+                            Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS).getBody();
+                }
+                for (int flush = 0; flush < 4; flush++) {
+                    assertTrue("next-" + flush + " posted once the wait was up",
+                            posted.contains("\"key\":\"next-" + flush + "\""));
+                }
+                assertFalse(posted.contains("malformed"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aBatchIsDroppedOnlyForTwo400sInARow() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(400),
                 Handlers.status(503), Handlers.status(400), Handlers.status(202)))) {
