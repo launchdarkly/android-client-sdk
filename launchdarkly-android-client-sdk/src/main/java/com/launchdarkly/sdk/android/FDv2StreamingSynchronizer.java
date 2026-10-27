@@ -443,19 +443,20 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             heldPutVersion = intMember(put, "version", 0);
         }
 
-        // The census streaming-wire's own held-basis arm: in the mode where
-        // the synchronizer chain is the sole data source (no polling
-        // initializer), the xfer-full basis content arrives with no
-        // payload-transferred marker yet; the census's own law prices "the
-        // buffered set applies nothing and the caller reads its default" and
-        // the caller's client face rides initialized. The held-basis arm
+        // The census streaming-wire's own held-basis law: the basis content's
+        // served bytes (the put-object's face) hold until the marker closes
+        // the transfer — updates are not complete until payload transferred
+        // is sent. When the xfer-full intent established this connection's
+        // basis and no marker has closed it yet, the census's own law prices
+        // "the buffered set applies nothing and the caller reads its default"
+        // and the caller's client face rides "a client": the held-basis arm
         // emits the empty full basis once per connection so the data system
-        // prices the client alive; the marker's own changeset applies the
-        // held set (the put's flags never ride the empty basis).
+        // completes init on the held set (the marker's own changeset applies
+        // the held set byte-true when it arrives).
         if (EVENT_PUT_OBJECT.equals(eventName)
                 && action.getAction() == FDv2ProtocolHandler.FDv2ProtocolActionType.NONE
-                && requestor == null
                 && basisFullIntentSeen
+                && !markerSinceBasis
                 && !basisReadyArmFired) {
             basisReadyArmFired = true;
             enqueEmptyFullBasis(fdv1Fallback);
