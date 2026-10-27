@@ -133,8 +133,9 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
         };
         EventsService service = new EventsService();
         // Refused and refused again on the retry; then the batch held from that and the next one are
-        // accepted; then the service says the key is no good, after which nothing is posted for a while.
-        // The waits are cut to milliseconds, which makes that while about four seconds.
+        // accepted; then the service says the key is no good, after which nothing is posted for a while
+        // but the last chance at shutdown. The waits are cut to milliseconds, which makes that while about
+        // four seconds.
         service.statusForPost = post -> post <= 2 ? 503 : post <= 4 ? 202 : 401;
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = buildOfflineEventProcessor(server,
@@ -155,7 +156,8 @@ public class EventProcessorWithoutPersistenceTest extends EventProcessorTestBase
             }
 
             assertEquals(Arrays.asList("refused", "accepted"), service.acceptedKeys());
-            assertEquals("posted after the service said the key is no good", 5, service.posts.get());
+            assertEquals("posted after the service said the key is no good, other than at shutdown", 6,
+                    service.posts.get());
         }
         assertEquals("a store without persistence looked for its directory", 0, asked.get());
         String[] written = eventsDirectory.getRoot().list();

@@ -2926,6 +2926,30 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void closingPostsWhatIsBufferedThroughTheBackoffsWait() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+            // A refusal, after which the backoff allows nothing for about eight and a half minutes.
+            assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+            service.setTarget(Handlers.status(202));
+            eventProcessor.recordCustomEvent(CONTEXT, "at-close", LDValue.ofNull(), null);
+            assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+
+            eventProcessor.close();
+
+            String posted = "";
+            while (!posted.contains("at-close")) {
+                posted += server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody();
+            }
+            assertTrue(posted.contains("\"key\":\"refused\""));
+        }
+    }
+
+    @Test
     public void aBatchIsDroppedOnlyForTwo400sInARow() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(400),
                 Handlers.status(503), Handlers.status(400), Handlers.status(202)))) {

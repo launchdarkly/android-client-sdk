@@ -240,6 +240,12 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private ScheduledFuture<Boolean> pendingRetry;
 
+    /**
+     * Set for the length of close()'s final delivery, which may post while the backoff would not allow it.
+     * Only ever read and written on the scheduler thread, where every delivery runs.
+     */
+    private boolean postingThroughTheBackoff;
+
     // Guarded by flushLock.
 
     /**
@@ -1038,7 +1044,17 @@ final class DirectEventProcessor implements EventProcessor {
         // is on, so they go out on a later run; where it is off they are discarded. It is queued on the
         // scheduler like every delivery, so it starts only once a post or retry already running there
         // ends, and waiting for that comes out of the same budget.
-        Callable<DeliveryOutcome> finalDelivery = this::deliverPayloadAndRetryLater;
+        //
+        // It posts whatever wait the backoff is in, which shutting down cuts short. After a refusal
+        // that wait is minutes to an hour, and where nothing persists the events would not outlive it.
+        Callable<DeliveryOutcome> finalDelivery = () -> {
+            postingThroughTheBackoff = true;
+            try {
+                return deliverPayloadAndRetryLater();
+            } finally {
+                postingThroughTheBackoff = false;
+            }
+        };
         Future<DeliveryOutcome> delivery = submit(finalDelivery);
         if (delivery != null) {
             try {
@@ -1483,7 +1499,7 @@ final class DirectEventProcessor implements EventProcessor {
      *   which is every other failure to post it; HELD for a post the backoff did not allow
      */
     private BatchesOutcome deliver(EventStore.Batch batch) {
-        if (retryState.remainingWaitNanos() > 0) {
+        if (!postingThroughTheBackoff && retryState.remainingWaitNanos() > 0) {
             // Not an attempt, so it moves nothing in the backoff.
             return BatchesOutcome.HELD;
         }
