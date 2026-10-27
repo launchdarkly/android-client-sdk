@@ -503,18 +503,17 @@ class EventDirectory {
             }
             // Reading is only for a batch whose name does not count it - one a recovery could not read, or one
             // another version named - and then only the once.
+            byte[] log = null;
             if (events < 0) {
                 Stored known = stored.get(payloadId);
                 if (known != null) {
                     events = known.events;
                 } else {
-                    byte[] log;
                     try {
                         log = readFile(file);
                     } catch (TooLargeException e) {
                         // Never read, so never counted. Listed as holding one event, the fewest it can, so
                         // that the delivery reaching it drops it and counts the loss.
-                        log = null;
                         events = 1;
                     } catch (IOException e) {
                         // Left for a later listing rather than deleted: the read may pass, and the events in
@@ -540,8 +539,9 @@ class EventDirectory {
             // What the close knew of its summaries is kept; nothing in the file says.
             Stored previous = stored.get(payloadId);
             int summaries = previous != null && previous.events == events ? previous.summaries : 0;
-            // length() answers 0 where it cannot look, and no batch is empty: it has a header at least.
-            long bytes = file.length();
+            // A batch just read is as big as what was read. length() is a stat of its own, which answers 0 where
+            // it cannot look, and no batch is empty: it has a header at least.
+            long bytes = log != null ? log.length : file.length();
             if (bytes <= 0) {
                 bytes = previous != null ? previous.bytes : EventLogFormat.FILE_HEADER_SIZE;
             }

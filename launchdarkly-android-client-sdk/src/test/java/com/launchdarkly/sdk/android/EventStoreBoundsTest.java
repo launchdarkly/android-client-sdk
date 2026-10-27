@@ -225,6 +225,33 @@ public class EventStoreBoundsTest {
     }
 
     @Test
+    public void countsTheBytesOfABatchItReadToCountFromWhatItRead() {
+        File directory = new File(tempFolder.getRoot(), "events");
+        EventStore writer = new EventStore(directory, CAPACITY, true, logger);
+        stageFrames(writer, 8);
+        assertEquals(1, writer.closeBatch().size());
+        File batch = onlyBatchFile(writer);
+        String name = batch.getName();
+        assertTrue(batch.renameTo(new File(directory, name.substring(0, name.lastIndexOf('.')))));
+
+        EventStore other = new EventStore(directory, CAPACITY, BYTE_CAPACITY,
+                EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger) {
+            @Override
+            FileInputStream openForReading(File file) throws IOException {
+                FileInputStream in = new FileInputStream(file);
+                // Read all the same through the open descriptor, while a stat of the file finds nothing.
+                assertTrue(file.delete());
+                return in;
+            }
+        };
+        List<EventStore.Batch> pending = other.pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals(8, pending.get(0).eventCount);
+
+        assertFalse(other.hasRoomForEventBytes());
+    }
+
+    @Test
     public void boundsTheBatchesItHoldsInMemoryOnceItHasGivenUpOnTheDisk() {
         EventStore store = new EventStore(new File(tempFolder.getRoot(), "events"), CAPACITY,
                 BYTE_CAPACITY, EventProcessorBuilder.DEFAULT_MAX_AGE_MILLIS, true, logger) {
