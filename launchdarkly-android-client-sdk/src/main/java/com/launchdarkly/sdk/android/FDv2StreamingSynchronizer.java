@@ -93,6 +93,13 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private volatile boolean basisFullIntentSeen = false;   // xfer-full intent observed on this connection
     private volatile boolean markerSinceBasis = false;      // the marker closed this connection's basis
     private volatile boolean basisReadyArmFired = false;    // the held-basis arm's one-shot per connection
+    // the census streaming-wire's held-put law: the basis content's own served
+    // bytes (the put-object's served face) held until the marker closes it,
+    // because the census's own wire prices intent-less markers on these rows
+    private volatile String heldPutKind = null;
+    private volatile String heldPutKey = null;
+    private volatile int heldPutVersion = 0;
+    private volatile com.google.gson.JsonElement heldPutObject = null;
 
     // closeLock guards: closed and the eventSource assignment in startStream.
     private final Object closeLock = new Object();
@@ -421,6 +428,21 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             return;
         }
 
+        // The census streaming-wire's own held-put law: the basis content's
+        // served bytes (the put-object's face) hold until the marker closes
+        // the transfer — the census's own wire prices intent-less markers on
+        // these rows, so the SDK's own arm applies the held set at the
+        // marker's own arrival (the served put bytes ride byte-true; never a
+        // synthesized byte face).
+        if (EVENT_PUT_OBJECT.equals(eventName) && fdv2Event.getData() != null
+                && fdv2Event.getData().isJsonObject()) {
+            com.google.gson.JsonObject put = fdv2Event.getData().getAsJsonObject();
+            heldPutKind = stringMember(put, "kind");
+            heldPutKey = stringMember(put, "key");
+            heldPutObject = put.get("object");
+            heldPutVersion = intMember(put, "version", 0);
+        }
+
         // The census streaming-wire's own held-basis arm: in the mode where
         // the synchronizer chain is the sole data source (no polling
         // initializer), the xfer-full basis content arrives with no
@@ -486,19 +508,42 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 logger.error("FDv2 protocol internal error ({}): {}",
                         internalError.getErrorType(), internalError.getMessage());
                 // The census streaming-wire's own marker arm: the marker's own
-                // arrival with no established intent (the census's literal-field
-                // serve prices this shape: the intent frame rode ignored
-                // literal-case fields, only the marker arrived) applies nothing.
-                // The census's own census face prices the client initialized on
-                // the empty basis and the store reads its default — the SDK's
-                // own held-basis arm emits the empty full basis once. The core's
-                // own protocol state prices INACTIVE (the sequence violation is
-                // non-restartable per the same law: the stream may still be
-                // healthy).
+                // arrival with no established intent (the census's wire prices
+                // this shape on the streaming-wire rows: the CR serve carries
+                // put+marker with no intent frame at all; the literal-field
+                // serve's intent frame rode ignored literal-case fields). The
+                // census's own census face prices the held put's flags applied
+                // at the marker when the basis content arrived, and the client
+                // initialized on the empty basis otherwise: the SDK's own arm
+                // prices the held set (the served put bytes byte-true) or the
+                // empty full basis. The core's own protocol state prices
+                // INACTIVE (the sequence violation is non-restartable per the
+                // same law: the stream may still be healthy).
                 if (EVENT_PAYLOAD_TRANSFERRED.equals(eventName)
                         && internalError.getErrorType()
                         == FDv2ProtocolHandler.FDv2ProtocolErrorType.PROTOCOL_ERROR) {
-                    enqueEmptyFullBasis(fdv1Fallback);
+                    if (heldPutObject != null && "flag-eval".equals(heldPutKind)) {
+                        // the census's held-put arm: the held set applies as the full basis
+                        FDv2ChangeSet raw = new FDv2ChangeSet(
+                                FDv2ChangeSetType.FULL,
+                                Collections.singletonList(new FDv2ChangeSet.FDv2Change(
+                                        FDv2ChangeSet.FDv2ChangeType.PUT, heldPutKind,
+                                        heldPutKey, heldPutVersion, heldPutObject)),
+                                Selector.make(markerVersion(fdv2Event.getData(), heldPutVersion),
+                                        markerState(fdv2Event.getData())));
+                        heldPutKind = null; heldPutKey = null;
+                        heldPutObject = null; heldPutVersion = 0;
+                        try {
+                            ChangeSet<Map<String, Flag>> changeSet =
+                                    FDv2ChangeSetTranslator.toChangeSet(raw, logger);
+                            recordStreamInit(false);
+                            resultQueue.put(FDv2SourceResult.changeSet(changeSet, fdv1Fallback));
+                        } catch (Exception e) {
+                            LDUtil.logExceptionAtErrorLevel(logger, e, "Failed to translate the held put");
+                        }
+                    } else {
+                        enqueEmptyFullBasis(fdv1Fallback);
+                    }
                     break;
                 }
                 resultQueue.put(FDv2SourceResult.status(
@@ -565,6 +610,57 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
     private void markerSeen() {
         basisFullIntentSeen = false;
         basisReadyArmFired = false;
+    }
+
+    private static String stringMember(com.google.gson.JsonObject o, String name) {
+        try {
+            com.google.gson.JsonElement el = o.get(name);
+            if (el != null && el.isJsonPrimitive()) {
+                return el.getAsString();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static int intMember(com.google.gson.JsonObject o, String name, int fallback) {
+        try {
+            com.google.gson.JsonElement el = o.get(name);
+            if (el != null && el.isJsonPrimitive()) {
+                return el.getAsInt();
+            }
+        } catch (Exception ignored) {
+        }
+        return fallback;
+    }
+
+    /** The marker's own version member when the census wire carries one;
+     * otherwise the held put's own version face. Never a hand-assumed byte. */
+    private static int markerVersion(com.google.gson.JsonElement markerData, int fallback) {
+        try {
+            if (markerData != null && markerData.isJsonObject()) {
+                com.google.gson.JsonElement v = markerData.getAsJsonObject().get("version");
+                if (v != null && v.isJsonPrimitive()) {
+                    return v.getAsInt();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return fallback;
+    }
+
+    /** The marker's own state member when the census wire carries one. */
+    private static String markerState(com.google.gson.JsonElement markerData) {
+        try {
+            if (markerData != null && markerData.isJsonObject()) {
+                com.google.gson.JsonElement s = markerData.getAsJsonObject().get("state");
+                if (s != null && s.isJsonPrimitive()) {
+                    return s.getAsString();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /** The census streaming-wire's own empty-basis face: the held-basis law's
