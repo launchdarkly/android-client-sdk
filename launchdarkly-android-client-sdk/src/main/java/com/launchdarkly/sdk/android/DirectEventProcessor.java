@@ -6,17 +6,14 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
-import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventSender;
 import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.Sampler;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -56,7 +53,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * on {@link #scheduler}, a single thread: a requested one, the periodic one, the retry after a failure, and
  * the final one {@code close()} queues. So no two deliveries of this processor overlap, and the final one
  * waits behind a post or retry already running there, within the budget {@code close()} gives it.
- * Diagnostic events go out on a thread of their own.
+ * Diagnostic events go out through {@link DiagnosticReporter}, on a thread of their own.
  * <p>
  * Overlap is across processes. Two processes of one application read the same directory, so both can send
  * one stored batch. They send it under the same payload ID, and LaunchDarkly discards the repeat rather than
@@ -138,14 +135,12 @@ final class DirectEventProcessor implements EventProcessor {
     // Set in the constructor and never changed.
 
     private final EventStore store;
-    private final EventSender diagnosticEventSender;
     private final AnalyticsEventSender analyticsEventSender;
     /** When the next post may go, after a failure. Consulted before every post, and only there. */
     private final DeliveryRetryState retryState;
     private final URI eventsUri;
-    private final DiagnosticStore diagnosticStore;
+    private final DiagnosticReporter diagnostics;
     private final long flushIntervalMillis;
-    private final long diagnosticRecordingIntervalMillis;
     private final long closeBudgetMillis;
     private final ScheduledExecutorService scheduler;
     /**
@@ -156,7 +151,6 @@ final class DirectEventProcessor implements EventProcessor {
      * let the pending run fill toward capacity meanwhile.
      */
     private final ExecutorService commitExecutor;
-    private final ExecutorService diagnosticExecutor;
     private final LDLogger logger;
 
     /**
@@ -238,13 +232,12 @@ final class DirectEventProcessor implements EventProcessor {
     // Guarded by stateLock.
 
     /**
-     * Guards {@link #flushTask} and {@link #diagnosticTask}, and every change to {@link #inBackground}
-     * and {@link #offline}, so the tasks are rescheduled in the order the changes happen. Those two
-     * are atomic so they can be read without it.
+     * Guards {@link #flushTask} and every {@link DiagnosticReporter#setMode}, and every change to
+     * {@link #inBackground} and {@link #offline}, so the tasks are rescheduled in the order the changes
+     * happen. Those two are atomic so they can be read without it.
      */
     private final Object stateLock = new Object();
     private ScheduledFuture<?> flushTask;
-    private ScheduledFuture<?> diagnosticTask;
     private final AtomicBoolean inBackground;
     private final AtomicBoolean offline;
 
@@ -296,7 +289,6 @@ final class DirectEventProcessor implements EventProcessor {
     // Atomic or volatile, so read and written without a lock.
 
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private volatile boolean diagnosticInitSent = false;
     private final AtomicLong lastKnownPastTime = new AtomicLong(0);
     /**
      * Whether a previous run of the application left events behind.
@@ -356,12 +348,6 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicBoolean summaryContextsExceeded = new AtomicBoolean(false);
 
     private final AtomicLong droppedEvents = new AtomicLong(0);
-
-    /**
-     * True while a diagnostic event is on its way to the service, so that a later one is dropped
-     * rather than queued behind it.
-     */
-    private final AtomicBoolean diagnosticPostInFlight = new AtomicBoolean(false);
 
     /**
      * How many events the SDK accepted and then dropped for good.
@@ -438,24 +424,34 @@ final class DirectEventProcessor implements EventProcessor {
         this.eventBuffer = eventBuffer;
         this.store = store;
         this.commitOnCallerThread = commitOnCallerThread;
-        this.diagnosticEventSender = diagnosticEventSender;
         this.analyticsEventSender = analyticsEventSender;
         this.retryState = retryState;
         this.eventsUri = eventsUri;
-        this.diagnosticStore = diagnosticStore;
         this.capacity = capacity;
         this.flushIntervalMillis = flushIntervalMillis;
-        this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
         this.pacing = pacing;
         this.givesWayToFlags = store.isPersisting();
         this.launchGateOpen = !givesWayToFlags;
         this.scheduler = scheduler;
         this.commitExecutor = commitExecutor;
-        this.diagnosticExecutor = diagnosticExecutor;
         this.logger = logger;
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
+        this.diagnostics = new DiagnosticReporter(diagnosticStore, diagnosticEventSender, eventsUri,
+                diagnosticRecordingIntervalMillis, scheduler, diagnosticExecutor,
+                new DiagnosticReporter.Processor() {
+                    @Override
+                    public long getAndClearDroppedCount() {
+                        return DirectEventProcessor.this.getAndClearDroppedCount();
+                    }
+
+                    @Override
+                    public void recordPastTime(long timeFromServer) {
+                        DirectEventProcessor.this.recordPastTime(timeFromServer);
+                    }
+                },
+                logger);
 
         // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem. Only where
         // events persist, since memory holds nothing from a previous run.
@@ -1200,9 +1196,8 @@ final class DirectEventProcessor implements EventProcessor {
             } catch (RuntimeException e) { // the executor was shut down under us
                 releaseDeliveryResources();
             }
-            queueRelease(diagnosticExecutor, this::releaseDiagnosticResources);
+            diagnostics.close();
             scheduler.shutdown();
-            diagnosticExecutor.shutdown();
             // Commits already queued there still run, and find the processor closed.
             commitExecutor.shutdown();
         }
@@ -1257,32 +1252,10 @@ final class DirectEventProcessor implements EventProcessor {
         }
     }
 
-    /** Queues a release on the thread that owns those resources, or runs it here if that thread has gone. */
-    private void queueRelease(ExecutorService executor, Runnable release) {
-        try {
-            executor.submit(guarded(release));
-        } catch (RuntimeException e) { // the executor was shut down under us
-            release.run(); // so nothing can still be using them
-        }
-    }
-
     /** What the delivery thread owns: the store it drains and the sender it posts batches through. */
     private void releaseDeliveryResources() {
         store.close();
-        closeQuietly(analyticsEventSender);
-    }
-
-    /** What the diagnostics thread owns: the sender nothing else posts through. */
-    private void releaseDiagnosticResources() {
-        closeQuietly(diagnosticEventSender);
-    }
-
-    private void closeQuietly(Closeable closeable) {
-        try {
-            closeable.close();
-        } catch (IOException e) {
-            logUnexpectedError(e);
-        }
+        analyticsEventSender.close();
     }
 
     /**
@@ -1645,9 +1618,7 @@ final class DirectEventProcessor implements EventProcessor {
         // Damage after the first frame: what came before it is sent, and the rest is gone with the file. Counted
         // once the batch is removed rather than now, since one kept for a retry is read, and found short, again.
         int leftOut = Math.max(0, batch.eventCount - payload.eventCount);
-        if (diagnosticStore != null) {
-            diagnosticStore.recordEventsInBatch(payload.eventCount);
-        }
+        diagnostics.recordEventsInBatch(payload.eventCount);
         store.startedSending(batch);
         try {
             AnalyticsEventSender.Result result = analyticsEventSender.sendBatch(payload, payload.eventCount,
@@ -1714,107 +1685,6 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Posts an event that has already been built. Requires the caller to have checked
-     * {@link #diagnosticsSuspended()}, because for the periodic event building it is what consumes
-     * the period.
-     */
-    private void sendDiagnosticEvent(DiagnosticEvent diagnosticEvent, boolean isInit) {
-        try {
-            byte[] data = diagnosticEvent.getJsonValue().toJsonString()
-                    .getBytes(StandardCharsets.UTF_8);
-            handleResponse(diagnosticEventSender.sendDiagnosticEvent(data, eventsUri));
-            if (isInit) {
-                // Attempted, not delivered. A failed post gives back an unsuccessful Result rather
-                // than throwing, so this marks the init event done either way and the process never
-                // retries it. That matches DefaultEventProcessor, which is the behavior to keep:
-                // diagnostics are best-effort telemetry about the SDK, and a retry that outlived
-                // its own init would describe a configuration the application has moved on from.
-                diagnosticInitSent = true;
-            }
-        } catch (Exception e) {
-            logUnexpectedError(e);
-        }
-    }
-
-    private void sendDiagnosticStats() {
-        if (diagnosticsSuspended() || diagnosticStore == null || !claimDiagnosticPost()) {
-            return;
-        }
-        DiagnosticStore store = diagnosticStore;
-        postDiagnostic(() -> {
-            // The check that decides the outcome, and it has to come before the event is built rather
-            // than after. createEventAndReset hands back the period and clears it: the stream init
-            // records, the events-in-batch count and the period start all move. getAndClearDroppedCount
-            // does the same for the dropped count. This runs on the diagnostics thread, which may have
-            // been busy with an earlier post for as long as that post took, so the state can easily
-            // have changed since the checks above. Bailing out after the event was built would discard
-            // a period outright and leave the next event describing a window that begins after the
-            // reset. Bailing out here leaves everything where it is, for the next period to carry.
-            if (diagnosticsSuspended()) {
-                return;
-            }
-            sendDiagnosticEvent(store.createEventAndReset(getAndClearDroppedCount(), 0), false);
-        });
-    }
-
-    /**
-     * Takes the diagnostic posting thread, or reports that the last event is still on it.
-     * <p>
-     * A new event is dropped rather than queued behind the old one. Diagnostics are best-effort
-     * telemetry, and a post can take tens of seconds against a network that never answers. Queuing
-     * would let an outage accumulate events describing an SDK state the application has since moved
-     * past. The same reasoning makes a failed init event final rather than retried.
-     */
-    private boolean claimDiagnosticPost() {
-        if (diagnosticPostInFlight.compareAndSet(false, true)) {
-            return true;
-        }
-        logger.debug("Skipped a diagnostic event because the previous one is still being posted");
-        return false;
-    }
-
-    /**
-     * Hands a claimed post to the diagnostics thread, releasing the claim once it ends.
-     *
-     * @param post what to run there, which must hold a claim from {@link #claimDiagnosticPost()}
-     */
-    private void postDiagnostic(Runnable post) {
-        Runnable releasing = () -> {
-            try {
-                post.run();
-            } finally {
-                diagnosticPostInFlight.set(false);
-            }
-        };
-        try {
-            diagnosticExecutor.submit(guarded(releasing));
-        } catch (RuntimeException e) { // the executor was shut down under us
-            diagnosticPostInFlight.set(false);
-        }
-    }
-
-    /**
-     * Unlike analytics events, diagnostics are not sent while offline or in the background.
-     * <p>
-     * {@link #updateScheduledTasks} cancels the periodic task when either becomes true, but that is
-     * not enough on its own. Canceling does not stop a run already underway, and the init event is
-     * submitted before it reaches the executor. Either can arrive here after the state changed.
-     */
-    private boolean diagnosticsSuspended() {
-        return isStopped() || offline.get() || inBackground.get();
-    }
-
-    /**
-     * A diagnostic response is only read for the service's clock. One the service refused stops nothing:
-     * analytics delivery backs off on its own responses, and a diagnostic is not retried anyway.
-     */
-    private void handleResponse(EventSender.Result result) {
-        if (result != null && result.getTimeFromServer() != null) {
-            recordPastTime(result.getTimeFromServer().getTime());
-        }
-    }
-
-    /**
      * Moves the threshold forwards only. Analytics and diagnostic responses are handled on separate
      * threads, so a plain assignment would let an older reading of the service clock overwrite a
      * newer one and keep debug events alive past the date the service set. A loop rather than
@@ -1855,8 +1725,8 @@ final class DirectEventProcessor implements EventProcessor {
         // interval on every reconnect, and a run of brief outages would then hold events back for
         // far longer than one interval. Left running, what an outage buffered goes out at the first
         // run after it ends.
-        flushTask = enableOrDisableTask(!stopped, flushTask, flushIntervalMillis,
-                this::deliverPayload);
+        flushTask = EventUtil.enableOrDisableTask(scheduler, !stopped, flushTask, flushIntervalMillis,
+                guarded(this::deliverPayload));
         if (!stopped && !offline && !wentOnline) {
             wentOnlineNanos = System.nanoTime();
             wentOnline = true;
@@ -1870,22 +1740,7 @@ final class DirectEventProcessor implements EventProcessor {
         if (!stopped && !offline && launchGateOpen && hasEventsFromPreviousRun.compareAndSet(true, false)) {
             submit(this::deliverPayload);
         }
-        boolean diagnosticsEnabled = !stopped && diagnosticStore != null && !offline && !inBackground;
-        diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
-                diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
-        if (diagnosticsEnabled && launchGateOpen && !diagnosticInitSent && claimDiagnosticPost()) {
-            DiagnosticStore store = diagnosticStore;
-            postDiagnostic(() -> {
-                // Re-checked on the posting thread: going online and coming to the foreground are
-                // two separate calls, and both want to send the init event we never got to send.
-                // Suspension is re-checked for the same reason it is for the periodic event, and
-                // costs nothing here: getInitEvent consumes nothing, so a skipped init is simply
-                // built again the next time diagnostics are enabled.
-                if (!diagnosticInitSent && !diagnosticsSuspended()) {
-                    sendDiagnosticEvent(store.getInitEvent(), true);
-                }
-            });
-        }
+        diagnostics.setMode(!stopped && !offline && !inBackground, launchGateOpen);
     }
 
     /**
@@ -1953,38 +1808,6 @@ final class DirectEventProcessor implements EventProcessor {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             pacedPass = false;
-        }
-    }
-
-    private ScheduledFuture<?> enableOrDisableTask(
-            boolean shouldEnable,
-            ScheduledFuture<?> currentTask,
-            long intervalMillis,
-            Runnable task
-    ) {
-        if (!shouldEnable) {
-            if (currentTask != null) {
-                currentTask.cancel(false);
-            }
-            return null;
-        }
-        if (currentTask != null && !currentTask.isDone()) {
-            return currentTask;
-        }
-        if (currentTask != null) {
-            // Backstop for a throwable that escaped guarded() anyway, such as one thrown while
-            // logging the first. The executor marks the repeating future done and never fires it
-            // again, and holding that future here would make every later enable a no-op.
-            currentTask.cancel(false);
-        }
-        try {
-            // Fixed delay rather than fixed rate: a cached process stops running its tasks without
-            // stopping the clock, so at a fixed rate it would come back owing every run it missed and
-            // fire them one after another.
-            return scheduler.scheduleWithFixedDelay(guarded(task), intervalMillis, intervalMillis,
-                    TimeUnit.MILLISECONDS);
-        } catch (RuntimeException e) { // the executor was shut down under us
-            return null;
         }
     }
 

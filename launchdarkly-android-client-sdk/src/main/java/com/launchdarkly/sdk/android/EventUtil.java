@@ -18,7 +18,9 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 abstract class EventUtil {
@@ -50,6 +52,45 @@ abstract class EventUtil {
     static ExecutorService makeEventsCommitExecutor() {
         return Executors.newSingleThreadExecutor(
                 makeThreadFactory("LaunchDarkly-event-store-%d"));
+    }
+
+    /**
+     * Keeps a repeating task scheduled while it should be, and canceled while it should not.
+     *
+     * @param task what to run, already wrapped so that nothing escapes it
+     * @return the task now scheduled, or null if there is none
+     */
+    static ScheduledFuture<?> enableOrDisableTask(
+            ScheduledExecutorService scheduler,
+            boolean shouldEnable,
+            ScheduledFuture<?> currentTask,
+            long intervalMillis,
+            Runnable task
+    ) {
+        if (!shouldEnable) {
+            if (currentTask != null) {
+                currentTask.cancel(false);
+            }
+            return null;
+        }
+        if (currentTask != null && !currentTask.isDone()) {
+            return currentTask;
+        }
+        if (currentTask != null) {
+            // Backstop for a throwable that escaped the wrapping anyway, such as one thrown while
+            // logging the first. The executor marks the repeating future done and never fires it
+            // again, and holding that future here would make every later enable a no-op.
+            currentTask.cancel(false);
+        }
+        try {
+            // Fixed delay rather than fixed rate: a cached process stops running its tasks without
+            // stopping the clock, so at a fixed rate it would come back owing every run it missed and
+            // fire them one after another.
+            return scheduler.scheduleWithFixedDelay(task, intervalMillis, intervalMillis,
+                    TimeUnit.MILLISECONDS);
+        } catch (RuntimeException e) { // the executor was shut down under us
+            return null;
+        }
     }
 
     private static ThreadFactory makeThreadFactory(String nameFormat) {
