@@ -48,8 +48,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -1239,6 +1241,40 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertEquals(0, eventProcessor.getAndClearDroppedCount());
             } finally {
                 eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void theByteCapacityIsSharedEquallyByTheConfiguredEnvironments() throws Exception {
+        assumePersisting();
+        StringBuilder data = new StringBuilder();
+        for (int i = 0; i < 700; i++) {
+            data.append('x');
+        }
+        Map<String, String> secondaryMobileKeys = new HashMap<>();
+        secondaryMobileKeys.put("second", "mob-second");
+        secondaryMobileKeys.put("third", "mob-third");
+        secondaryMobileKeys.put("fourth", "mob-fourth");
+        for (boolean shared : new boolean[]{false, true}) {
+            try (HttpServer server = startEventsServer()) {
+                EventProcessor eventProcessor = buildOfflineEventProcessor(server.getUri(),
+                        eventsBuilder(DEFAULT_CAPACITY).capacityBytes(2_400), true, platformState(),
+                        shared ? secondaryMobileKeys : null);
+                eventProcessor.setOffline(false);
+                try {
+                    // About 850 bytes: within the full 2,400 bytes, and past a quarter of them.
+                    eventProcessor.recordCustomEvent(CONTEXT, "large", LDValue.of(data.toString()), null);
+
+                    assertEquals(!shared, awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    if (shared) {
+                        assertEquals(0, server.getRecorder().count());
+                    } else {
+                        assertEquals(1, collectDelivered(server).size());
+                    }
+                } finally {
+                    eventProcessor.close();
+                }
             }
         }
     }

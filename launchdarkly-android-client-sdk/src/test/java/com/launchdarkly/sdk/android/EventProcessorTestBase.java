@@ -24,6 +24,7 @@ import org.junit.rules.Timeout;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -136,8 +137,17 @@ public abstract class EventProcessorTestBase {
     protected EventProcessor buildOfflineEventProcessor(URI eventsUri, EventProcessorBuilder events,
                                                         boolean diagnosticOptOut,
                                                         PlatformState platformState) {
+        return buildOfflineEventProcessor(eventsUri, events, diagnosticOptOut, platformState, null);
+    }
+
+    /** @param secondaryMobileKeys the application's other environments, or null for none */
+    protected EventProcessor buildOfflineEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState,
+                                                        Map<String, String> secondaryMobileKeys) {
         LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
+                .secondaryMobileKeys(secondaryMobileKeys)
                 .diagnosticOptOut(diagnosticOptOut)
                 .events(events)
                 .serviceEndpoints(Components.serviceEndpoints().events(eventsUri))

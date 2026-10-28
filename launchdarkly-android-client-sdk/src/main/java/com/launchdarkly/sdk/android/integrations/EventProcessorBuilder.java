@@ -87,7 +87,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     protected EventPersistence eventPersistence = DEFAULT_EVENT_PERSISTENCE;
 
     /**
-     * The most bytes of events kept per environment where events are persisted
+     * The most bytes of events kept for all environments together where events are persisted
      */
     protected long capacityBytes = DEFAULT_CAPACITY_BYTES;
 
@@ -191,13 +191,18 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     }
 
     /**
-     * Sets the maximum number of bytes of events the SDK keeps for each environment where
+     * Sets the maximum number of bytes of events the SDK keeps where
      * {@link #eventPersistence(EventPersistence)} keeps events across launches, on disk and in memory
      * together.
      * <p>
-     * When it is reached, the SDK discards new events until it successfully delivers the stored ones, as
+     * It is for every environment the application configures together: with
+     * {@link com.launchdarkly.sdk.android.LDConfig.Builder#secondaryMobileKeys(java.util.Map)}, each
+     * environment gets an equal share of it. That is unlike {@link #capacity(int)}, which each environment
+     * has in full.
+     * <p>
+     * When an environment reaches its share, the SDK discards new events until it successfully delivers the stored ones, as
      * it does when {@link #capacity(int)} is reached; it never deletes stored events to make room. A fifth
-     * of it is kept for the summaries of flag evaluations, so that evaluations are still counted after
+     * of each share is kept for the summaries of flag evaluations, so that evaluations are still counted after
      * full events start being discarded.
      * <p>
      * Where event persistence is {@link EventPersistence#DISABLED}, full events are bounded by
@@ -205,7 +210,7 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * delivery that keeps failing would otherwise leave them growing for the life of the process. The
      * default value is {@link #DEFAULT_CAPACITY_BYTES}; a value of zero or less means the default.
      *
-     * @param capacityBytes the most bytes of events to keep for each environment
+     * @param capacityBytes the most bytes of events to keep, for all environments together
      * @return the builder
      */
     public EventProcessorBuilder capacityBytes(long capacityBytes) {

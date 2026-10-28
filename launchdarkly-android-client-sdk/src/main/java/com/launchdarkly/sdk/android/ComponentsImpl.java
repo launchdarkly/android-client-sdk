@@ -186,10 +186,20 @@ abstract class ComponentsImpl {
                     impl.getPlatformState(),
                     clientContext.getMobileKey(),
                     capacity,
-                    capacityBytes,
+                    shareOfCapacityBytes(clientContext.getConfig()),
                     maxAgeMillis,
                     eventPersistence != EventPersistence.DISABLED,
                     clientContext.getBaseLogger());
+        }
+
+        /**
+         * This environment's share of the byte capacity, which is for every environment the application configured
+         * together, where the event capacity is for each one.
+         */
+        private long shareOfCapacityBytes(LDConfig config) {
+            int environments = config == null ? 1 : Math.max(1, config.getMobileKeys().size());
+            // At least one byte, since the store reads zero as the default.
+            return Math.max(1, capacityBytes / environments);
         }
 
         @Override
