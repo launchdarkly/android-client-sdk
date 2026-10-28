@@ -4,6 +4,8 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 
+import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
@@ -52,6 +54,29 @@ abstract class EventUtil {
     static ExecutorService makeEventsCommitExecutor() {
         return Executors.newSingleThreadExecutor(
                 makeThreadFactory("LaunchDarkly-event-store-%d"));
+    }
+
+    /**
+     * Keeps an unexpected failure from killing a repeating task or bubbling out of the executor.
+     * Anything that escapes a run suppresses the rest of a {@code scheduleWithFixedDelay} series,
+     * so this catches {@code Throwable} and not just {@code Exception}. Otherwise a
+     * {@code StackOverflowError} from nested {@code LDValue} data, or an {@code OutOfMemoryError}
+     * growing the payload stream, would stop flushing for the life of the process with nothing
+     * logged.
+     */
+    static Runnable guarded(LDLogger logger, Runnable task) {
+        return () -> {
+            try {
+                task.run();
+            } catch (Throwable t) {
+                logUnexpectedError(logger, t);
+            }
+        };
+    }
+
+    static void logUnexpectedError(LDLogger logger, Throwable e) {
+        logger.error("Unexpected error in event processor: {}", LogValues.exceptionSummary(e));
+        logger.debug("{}", LogValues.exceptionTrace(e));
     }
 
     /**

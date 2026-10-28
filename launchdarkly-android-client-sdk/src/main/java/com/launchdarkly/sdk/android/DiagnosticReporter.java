@@ -1,7 +1,6 @@
 package com.launchdarkly.sdk.android;
 
 import com.launchdarkly.logging.LDLogger;
-import com.launchdarkly.logging.LogValues;
 import com.launchdarkly.sdk.internal.events.DiagnosticEvent;
 import com.launchdarkly.sdk.internal.events.DiagnosticStore;
 import com.launchdarkly.sdk.internal.events.EventSender;
@@ -220,19 +219,11 @@ final class DiagnosticReporter {
         }
     }
 
-    /** As in {@link DirectEventProcessor}: nothing that escapes a run may stop the repeating task. */
     private Runnable guarded(Runnable task) {
-        return () -> {
-            try {
-                task.run();
-            } catch (Throwable t) {
-                logUnexpectedError(t);
-            }
-        };
+        return EventUtil.guarded(logger, task);
     }
 
     private void logUnexpectedError(Throwable e) {
-        logger.error("Unexpected error in event processor: {}", LogValues.exceptionSummary(e));
-        logger.debug("{}", LogValues.exceptionTrace(e));
+        EventUtil.logUnexpectedError(logger, e);
     }
 }
