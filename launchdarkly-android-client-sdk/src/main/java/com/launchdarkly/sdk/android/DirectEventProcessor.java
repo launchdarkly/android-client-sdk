@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * says which calls are commit points and which thread each commit runs on. This class delivers what is
  * committed, and runs the processor's life: flushes, going offline and into the background, and close.
  * <p>
- * Threads. Every delivery runs on {@link #scheduler}, a single thread, queued there by {@link DeliveryScheduler}:
+ * Threads. Every delivery runs on {@link #scheduler}, a single thread, queued there by {@link EventDeliveryScheduler}:
  * a requested one, the periodic one, the retry after a failure, and the final one {@code close()} queues. So no two deliveries of this processor overlap, and the final one
  * waits behind a post or retry already running there, within the budget {@code close()} gives it.
  * Diagnostic events go out through {@link DiagnosticReporter}, on a thread of their own.
@@ -116,7 +116,7 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicBoolean offline;
 
     /** Queues deliveries on {@link #scheduler}, holds the one retry, and decides when that thread stops. */
-    private final DeliveryScheduler deliveryScheduler;
+    private final EventDeliveryScheduler deliveryScheduler;
 
     // Atomic or volatile, so read and written without a lock.
 
@@ -241,7 +241,7 @@ final class DirectEventProcessor implements EventProcessor {
                 closed, lostEvents, droppedEvents, logger);
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
-        this.deliveryScheduler = new DeliveryScheduler(scheduler, givesWayToFlags, pacing.gapMillis,
+        this.deliveryScheduler = new EventDeliveryScheduler(scheduler, givesWayToFlags, pacing.gapMillis,
                 () -> closed.get() || offline.get(), logger);
         this.diagnostics = new DiagnosticReporter(diagnosticStore, diagnosticEventSender, eventsUri,
                 diagnosticRecordingIntervalMillis, scheduler, diagnosticExecutor,
@@ -440,7 +440,7 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * Queues a delivery, or joins one that is already queued and has not started; see
-     * {@link DeliveryScheduler#queue}.
+     * {@link EventDeliveryScheduler#queue}.
      *
      * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
      *   any events lost up to the batch it closes, and false if the caller discards it

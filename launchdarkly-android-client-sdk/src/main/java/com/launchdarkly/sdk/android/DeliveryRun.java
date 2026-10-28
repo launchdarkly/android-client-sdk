@@ -6,7 +6,7 @@ import java.util.concurrent.TimeUnit;
  * One delivery's pass over the batches: whether it may post while the backoff would not allow it, and, for one
  * the processor started on its own, the gap it keeps between batches.
  * <p>
- * Made by {@link DeliveryScheduler} as the pass begins, and only used on the scheduler thread that runs it.
+ * Made by {@link EventDeliveryScheduler} as the pass begins, and only used on the scheduler thread that runs it.
  */
 final class DeliveryRun {
     /** Whether something has happened that ends a paced run's wait for good: close, going offline, a flush. */
@@ -16,7 +16,7 @@ final class DeliveryRun {
 
     private final boolean throughTheBackoff;
     private final long gapNanos;
-    /** What {@link #awaitTurn()} waits on, which {@link DeliveryScheduler#wakePacedDelivery()} notifies. */
+    /** What {@link #awaitTurn()} waits on, which {@link EventDeliveryScheduler#wakePacedDelivery()} notifies. */
     private final Object turnLock;
     private final PacingEnd pacingEnd;
 

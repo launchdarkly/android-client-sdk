@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  * that needs across threads: the requested delivery that is queued and has not started, the one retry, and the
  * handover from running to shut down.
  */
-final class DeliveryScheduler {
+final class EventDeliveryScheduler {
     /** A requested delivery, given the future its callers wait on and whether one of them hears the outcome. */
     interface RequestedDelivery {
         void run(LDAwaitFuture<Boolean> result, boolean answersACaller);
@@ -84,7 +84,7 @@ final class DeliveryScheduler {
      * @param gapMillis the least time between one paced batch's answer and the next batch's request
      * @param pacingEnd what else, besides a requested delivery queuing, ends a paced delivery's wait
      */
-    DeliveryScheduler(ScheduledExecutorService scheduler, boolean pacesDeliveries, long gapMillis,
+    EventDeliveryScheduler(ScheduledExecutorService scheduler, boolean pacesDeliveries, long gapMillis,
                       DeliveryRun.PacingEnd pacingEnd, LDLogger logger) {
         this.scheduler = scheduler;
         this.pacesDeliveries = pacesDeliveries;
