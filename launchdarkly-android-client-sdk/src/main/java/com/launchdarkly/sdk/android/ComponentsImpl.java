@@ -118,11 +118,11 @@ abstract class ComponentsImpl {
             return this;
         }
 
-        // How long events give way to flag requests, settable by tests the specified waits would slow.
-        private FlagTraffic.Timings flagTimings = FlagTraffic.Timings.SPECIFIED;
+        // How long events give way to flag values, settable by tests the specified waits would slow.
+        private DirectEventProcessor.Pacing pacing = DirectEventProcessor.Pacing.SPECIFIED;
 
-        EventProcessorBuilderImpl flagTimingsForTesting(FlagTraffic.Timings flagTimings) {
-            this.flagTimings = flagTimings;
+        EventProcessorBuilderImpl pacingForTesting(DirectEventProcessor.Pacing pacing) {
+            this.pacing = pacing;
             return this;
         }
 
@@ -164,7 +164,7 @@ abstract class ComponentsImpl {
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
-                    flagTimings,
+                    pacing,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),

@@ -74,15 +74,15 @@ public abstract class EventProcessorTestBase {
     }
 
     /**
-     * @return an events builder with the capacity set, periodic flushing effectively off, and no waiting
-     *   on flag requests, for tests that need to configure something else on top such as private attributes
+     * @return an events builder with the capacity set, periodic flushing effectively off, and no launch delay
+     *   or pacing, for tests that need to configure something else on top such as private attributes
      */
     protected EventProcessorBuilder eventsBuilder(int capacity) {
         return ((ComponentsImpl.EventProcessorBuilderImpl) Components.sendEvents()
                 .capacity(capacity)
                 .eventPersistence(persistence())
                 .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS))
-                .flagTimingsForTesting(FlagTraffic.Timings.NONE);
+                .pacingForTesting(DirectEventProcessor.Pacing.NONE);
     }
 
     /**

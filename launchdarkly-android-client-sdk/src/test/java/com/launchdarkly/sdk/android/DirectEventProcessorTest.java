@@ -107,9 +107,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private final List<ExecutorService> diagnosticExecutors = new ArrayList<>();
     /** The commit executor the last processor made here commits on, for a test to wait behind. */
     private ExecutorService lastCommitExecutor;
-    /** How long the processors made here give way to flag requests: not at all, unless a test is about that. */
-    private FlagTraffic.Timings flagTimings = FlagTraffic.Timings.NONE;
-
     @After
     public void shutDownDiagnosticExecutors() {
         for (ExecutorService executor : diagnosticExecutors) {
@@ -3312,61 +3309,20 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void eventsFromAPreviousRunWaitOutTheFloorAfterGoingOnline() throws Exception {
+    public void eventsFromAPreviousRunWaitOutTheLaunchDelayAfterGoingOnline() throws Exception {
         assumePersisting();
         leaveEventsFromAPreviousRun(1);
         try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(600, 5_000, 0, 0), true);
+            EventProcessor nextRun = nextRunOffline(server, new DirectEventProcessor.Pacing(800, 0), true);
             try {
-                nextRun.setOffline(false);
-
-                server.getRecorder().requireNoRequests(400, TimeUnit.MILLISECONDS);
-                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
-                        .contains("\"key\":\"previous-run-0\""));
-                awaitLogged("Sending events from a previous run after no flag request at launch");
-            } finally {
-                nextRun.close();
-            }
-        }
-    }
-
-    @Test
-    public void eventsFromAPreviousRunWaitForTheFlagRequestInFlight() throws Exception {
-        assumePersisting();
-        leaveEventsFromAPreviousRun(1);
-        try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(100, 5_000, 0, 0), true);
-            try {
-                ((FlagRequestListener) nextRun).flagRequestStarted();
-                nextRun.setOffline(false);
-                server.getRecorder().requireNoRequests(800, TimeUnit.MILLISECONDS);
-
-                ((FlagRequestListener) nextRun).flagRequestSettled(FlagRequestListener.Outcome.LOADED);
-
-                assertTrue(server.getRecorder().requireRequest(2, TimeUnit.SECONDS).getBody()
-                        .contains("\"key\":\"previous-run-0\""));
-                awaitLogged("Sending events from a previous run after flags loaded");
-            } finally {
-                nextRun.close();
-            }
-        }
-    }
-
-    @Test
-    public void eventsFromAPreviousRunWaitForAFlagRequestOnlyUntilTheCap() throws Exception {
-        assumePersisting();
-        leaveEventsFromAPreviousRun(1);
-        try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(100, 800, 0, 0), true);
-            try {
-                ((FlagRequestListener) nextRun).flagRequestStarted();
                 long wentOnline = System.nanoTime();
                 nextRun.setOffline(false);
 
+                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
                 assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
                         .contains("\"key\":\"previous-run-0\""));
-                assertTrue(System.nanoTime() - wentOnline >= TimeUnit.MILLISECONDS.toNanos(700));
-                awaitLogged("Sending events from a previous run after waiting 800ms for flags");
+                assertTrue(System.nanoTime() - wentOnline >= TimeUnit.MILLISECONDS.toNanos(800));
+                awaitLogged("Sending events from a previous run, 800ms after going online");
             } finally {
                 nextRun.close();
             }
@@ -3374,26 +3330,17 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aFlagRequestPastTheCapHoldsNoBatchAnyLonger() throws Exception {
+    public void theLaunchDelayCountsFromGoingOnlineRatherThanFromConstruction() throws Exception {
         assumePersisting();
-        leaveEventsFromAPreviousRun(2);
+        leaveEventsFromAPreviousRun(1);
         try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(100, 2_000, 300, 2_000), true);
+            EventProcessor nextRun = nextRunOffline(server, new DirectEventProcessor.Pacing(600, 0), true);
             try {
-                ((FlagRequestListener) nextRun).flagRequestStarted();
-                long wentOnline = System.nanoTime();
+                Thread.sleep(800);
                 nextRun.setOffline(false);
 
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
                 server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
-                long first = System.nanoTime();
-                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
-                long second = System.nanoTime();
-
-                // Waiting on the request again would add the 2,000ms wait to each batch.
-                assertTrue("the first batch went " + TimeUnit.NANOSECONDS.toMillis(first - wentOnline)
-                        + "ms after going online", first - wentOnline < TimeUnit.MILLISECONDS.toNanos(3_000));
-                assertTrue("the second batch went " + TimeUnit.NANOSECONDS.toMillis(second - first)
-                        + "ms after the first", second - first < TimeUnit.MILLISECONDS.toNanos(1_500));
             } finally {
                 nextRun.close();
             }
@@ -3405,9 +3352,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         assumePersisting();
         leaveEventsFromAPreviousRun(1);
         try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(5_000, 10_000, 0, 0), true);
+            EventProcessor nextRun = nextRunOffline(server, new DirectEventProcessor.Pacing(5_000, 0), true);
             try {
-                ((FlagRequestListener) nextRun).flagRequestStarted();
                 nextRun.setOffline(false);
 
                 assertTrue(awaitFlush(nextRun, 3, TimeUnit.SECONDS));
@@ -3424,7 +3370,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         assumePersisting();
         leaveEventsFromAPreviousRun(3);
         try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 400, 0), true);
+            EventProcessor nextRun = nextRunOffline(server, new DirectEventProcessor.Pacing(0, 400), true);
             try {
                 nextRun.setOffline(false);
 
@@ -3449,7 +3395,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         assumePersisting();
         leaveEventsFromAPreviousRun(3);
         try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 10_000, 0), true);
+            EventProcessor nextRun = nextRunOffline(server, new DirectEventProcessor.Pacing(0, 10_000), true);
             try {
                 nextRun.setOffline(false);
                 server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
@@ -3465,32 +3411,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aPacedBatchWaitsForAFlagRequestInFlight() throws Exception {
-        assumePersisting();
-        leaveEventsFromAPreviousRun(2);
-        try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 300, 5_000), true);
-            try {
-                nextRun.setOffline(false);
-                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
-                ((FlagRequestListener) nextRun).flagRequestStarted();
-                server.getRecorder().requireNoRequests(1_000, TimeUnit.MILLISECONDS);
-
-                ((FlagRequestListener) nextRun).flagRequestSettled(FlagRequestListener.Outcome.LOADED);
-
-                server.getRecorder().requireRequest(2, TimeUnit.SECONDS);
-            } finally {
-                nextRun.close();
-            }
-        }
-    }
-
-    @Test
     public void goingOfflineStopsAPacedDeliveryAndKeepsTheRest() throws Exception {
         assumePersisting();
         leaveEventsFromAPreviousRun(3);
         try (HttpServer server = startEventsServer()) {
-            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 500, 0), true);
+            EventProcessor nextRun = nextRunOffline(server, new DirectEventProcessor.Pacing(0, 500), true);
             try {
                 nextRun.setOffline(false);
                 server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
@@ -3530,13 +3455,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void theDiagnosticInitEventWaitsForTheLaunchGateOnlyWhereEventsPersist() throws Exception {
         try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = nextRunOffline(server, new FlagTraffic.Timings(100, 5_000, 0, 0), false);
+            EventProcessor eventProcessor = nextRunOffline(server, new DirectEventProcessor.Pacing(1_000, 0), false);
             try {
-                ((FlagRequestListener) eventProcessor).flagRequestStarted();
                 eventProcessor.setOffline(false);
                 if (persistence() != EventPersistence.DISABLED) {
                     server.getRecorder().requireNoRequests(600, TimeUnit.MILLISECONDS);
-                    ((FlagRequestListener) eventProcessor).flagRequestSettled(FlagRequestListener.Outcome.FAILED);
                 }
 
                 assertEquals("/mobile/events/diagnostic",
@@ -3548,26 +3471,23 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aFlagRequestInFlightHoldsAPeriodicDeliveryOnlyWhereEventsPersist() throws Exception {
+    public void aPeriodicDeliveryOfABacklogIsPacedToo() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(2);
         try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = buildOfflineEventProcessor(server,
+            // A launch delay longer than the test, so that the interval rather than the gate starts the delivery.
+            EventProcessor nextRun = buildOfflineEventProcessor(server,
                     ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY).flushIntervalMillis(200))
-                            .flagTimingsForTesting(new FlagTraffic.Timings(0, 0, 0, 10_000)),
+                            .pacingForTesting(new DirectEventProcessor.Pacing(60_000, 1_000)),
                     true);
             try {
-                boolean persists = persistence() != EventPersistence.DISABLED;
-                assertEquals(persists, ((FlagRequestListener) eventProcessor).givesWayToFlags());
-                ((FlagRequestListener) eventProcessor).flagRequestStarted();
-                eventProcessor.setOffline(false);
-                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                nextRun.setOffline(false);
 
-                if (persists) {
-                    server.getRecorder().requireNoRequests(1_000, TimeUnit.MILLISECONDS);
-                } else {
-                    server.getRecorder().requireRequest(2, TimeUnit.SECONDS);
-                }
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                server.getRecorder().requireNoRequests(600, TimeUnit.MILLISECONDS);
+                server.getRecorder().requireRequest(2, TimeUnit.SECONDS);
             } finally {
-                eventProcessor.close();
+                nextRun.close();
             }
         }
     }
@@ -3586,11 +3506,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
-    private EventProcessor nextRunOffline(HttpServer server, FlagTraffic.Timings timings,
+    private EventProcessor nextRunOffline(HttpServer server, DirectEventProcessor.Pacing pacing,
                                           boolean diagnosticOptOut) {
         return buildOfflineEventProcessor(server,
                 ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY))
-                        .flagTimingsForTesting(timings),
+                        .pacingForTesting(pacing),
                 diagnosticOptOut);
     }
 
@@ -4325,7 +4245,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 flushIntervalMillis,
                 diagnosticIntervalMillis,
                 closeBudgetMillis,
-                flagTimings,
+                DirectEventProcessor.Pacing.NONE,
                 false,
                 true, // initiallyOffline, as the SDK builds it
                 scheduler,

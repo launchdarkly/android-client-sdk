@@ -60,8 +60,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final EventProcessor eventProcessor;
-    /** The event processor, where it gives way to flags; otherwise null, and no flag request is tracked. */
-    private final FlagRequestListener flagRequests;
     private final PlatformState.ForegroundChangeListener foregroundListener;
     private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final TaskExecutor taskExecutor;
@@ -73,8 +71,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
     private final AtomicReference<ModeState> previousModeState = new AtomicReference<>();
-    /** Whether the current data source's first flag request has been reported settled to the event processor. */
-    private volatile AtomicBoolean flagRequestAnswered = new AtomicBoolean(true);
     private final LDLogger logger;
     private volatile boolean initialized = false;
     private final boolean useFDv2ModeResolution;
@@ -156,9 +152,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         this.dataSourceFactory = dataSourceFactory;
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.eventProcessor = eventProcessor;
-        this.flagRequests = eventProcessor instanceof FlagRequestListener
-                && ((FlagRequestListener) eventProcessor).givesWayToFlags()
-                ? (FlagRequestListener) eventProcessor : null;
         this.environmentStore = environmentStore;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
@@ -345,7 +338,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             if (oldDataSource != null) {
                 logger.debug("Stopping current data source");
                 oldDataSource.stop(LDUtil.noOpCallback());
-                reportFlagRequestStopped();
             }
         }
         if (!shouldStartDataSourceIfStopped || currentDataSource.get() != null) {
@@ -379,52 +371,22 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         currentDataSource.set(dataSource);
         previousModeState.set(newState);
 
-        // A poll a fresh cache put off makes no request at launch, and events do not wait for the later one.
-        boolean reportsRequest = flagRequests != null && !(dataSource instanceof PollingDataSource
-                && ((PollingDataSource) dataSource).initialDelayMillis > 0);
-        AtomicBoolean answered = new AtomicBoolean(!reportsRequest);
-        flagRequestAnswered = answered;
-        if (reportsRequest) {
-            flagRequests.flagRequestStarted();
-        }
-
         dataSource.start(new Callback<Boolean>() {
             @Override
             public void onSuccess(Boolean result) {
                 initialized = true;
                 updateConnectionInfoForSuccess(connectionInformation.getConnectionMode());
-                settled(FlagRequestListener.Outcome.LOADED);
                 onCompletion.onSuccess(null);
             }
 
             @Override
             public void onError(Throwable error) {
                 updateConnectionInfoForError(connectionInformation.getConnectionMode(), error);
-                settled(FlagRequestListener.Outcome.FAILED);
                 onCompletion.onSuccess(null);
-            }
-
-            // Once, and not after the source was stopped, which reported it then.
-            private void settled(FlagRequestListener.Outcome outcome) {
-                if (!answered.getAndSet(true)) {
-                    reportFlagRequestSettled(outcome);
-                }
             }
         });
 
         return true;
-    }
-
-    /** Reports the stopped source's request as stopped, unless it already answered. */
-    private void reportFlagRequestStopped() {
-        if (!flagRequestAnswered.getAndSet(true)) {
-            reportFlagRequestSettled(FlagRequestListener.Outcome.STOPPED);
-        }
-    }
-
-    /** Only for a request reported started, so only where {@link #flagRequests} is set. */
-    private void reportFlagRequestSettled(FlagRequestListener.Outcome outcome) {
-        flagRequests.flagRequestSettled(outcome);
     }
 
     boolean isInitialized() {
@@ -633,7 +595,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         DataSource oldDataSource = currentDataSource.getAndSet(null);
         if (oldDataSource != null) {
             oldDataSource.stop(LDUtil.noOpCallback());
-            reportFlagRequestStopped();
         }
         if (dataSourceFactory instanceof Closeable) {
             try {

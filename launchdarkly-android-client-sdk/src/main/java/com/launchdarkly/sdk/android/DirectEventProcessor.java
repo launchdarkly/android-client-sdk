@@ -62,12 +62,33 @@ import java.util.concurrent.atomic.AtomicLong;
  * one stored batch. They send it under the same payload ID, and LaunchDarkly discards the repeat rather than
  * counting the events twice.
  * <p>
- * Flag values come first. Where events persist, what a previous run left waits at launch for the first flag
- * request, and the deliveries this processor starts on its own send one batch at a time, giving way to any flag
- * request in flight. {@link ConnectivityManager} says what the flag data source is doing through
- * {@link FlagRequestListener}. A delivery the application asks for is never held.
+ * Flag values come first. Where events persist, what a previous run left waits at launch until a fixed time
+ * after the SDK first goes online, and the deliveries this processor starts on its own send one batch at a time,
+ * a gap apart, leaving room for flag requests. Both go by time alone: nothing here hears what the flag data
+ * source is doing. A delivery the application asks for is never held.
  */
-final class DirectEventProcessor implements EventProcessor, FlagRequestListener {
+final class DirectEventProcessor implements EventProcessor {
+    /** How long the deliveries this processor starts on its own wait, so that flag values come first. */
+    static final class Pacing {
+        static final Pacing SPECIFIED = new Pacing(2_000, 1_000);
+        /** No waits at all, for tests about something else. */
+        static final Pacing NONE = new Pacing(0, 0);
+
+        /**
+         * How long after the SDK first goes online that a previous run's events, and the diagnostic init event,
+         * wait. It gives the application's startup traffic, the first flag request among it, the network first,
+         * and is short enough for an application that dies a few seconds after every launch to still send them.
+         */
+        final long launchDelayMillis;
+        /** The least time between one paced batch's answer and the next batch's request. */
+        final long gapMillis;
+
+        Pacing(long launchDelayMillis, long gapMillis) {
+            this.launchDelayMillis = launchDelayMillis;
+            this.gapMillis = gapMillis;
+        }
+    }
+
     /**
      * How many full events may be held unencoded before one of them pays for a commit.
      * <p>
@@ -287,23 +308,22 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
      */
     private final AtomicBoolean hasEventsFromPreviousRun = new AtomicBoolean(false);
 
-    private final FlagTraffic.Timings flagTimings;
+    private final Pacing pacing;
 
     /**
      * Whether events give way to flag values: only where the application asked for persistence, like the
      * rest of what persistence brings. Without it there is no previous run to hold back, and delivery is
-     * what it was before persistence: no launch gate, no pacing, and nothing heard about flag requests.
+     * what it was before persistence: no launch gate and no pacing.
      */
     private final boolean givesWayToFlags;
 
-    /** Only where events give way to flags; null otherwise, so that nothing of it runs. */
-    private final FlagTraffic flagTraffic;
+    /** What a paced delivery waits on for its gap, so that a flush, going offline or close can end the wait. */
+    private final Object pacingLock = new Object();
 
     /**
-     * Whether the launch gate has opened. It opens once the floor has passed since the SDK first went online,
-     * and the first flag request has settled, or there was none, or the cap has passed too. Until then neither
-     * a previous run's events nor the diagnostic init event are sent. Open from the start where events do not
-     * give way. Only set on the scheduler thread.
+     * Whether the launch gate has opened. It opens once the launch delay has passed since the SDK first went
+     * online. Until then neither a previous run's events nor the diagnostic init event are sent. Open from the
+     * start where events do not give way. Only set on the scheduler thread.
      */
     private volatile boolean launchGateOpen;
 
@@ -407,7 +427,7 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
             long flushIntervalMillis,
             long diagnosticRecordingIntervalMillis,
             long closeBudgetMillis,
-            FlagTraffic.Timings flagTimings,
+            Pacing pacing,
             boolean initiallyInBackground,
             boolean initiallyOffline,
             ScheduledExecutorService scheduler,
@@ -427,9 +447,8 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
         this.flushIntervalMillis = flushIntervalMillis;
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
-        this.flagTimings = flagTimings;
+        this.pacing = pacing;
         this.givesWayToFlags = store.isPersisting();
-        this.flagTraffic = givesWayToFlags ? new FlagTraffic() : null;
         this.launchGateOpen = !givesWayToFlags;
         this.scheduler = scheduler;
         this.commitExecutor = commitExecutor;
@@ -891,33 +910,12 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
         wakePacedDelivery();
     }
 
-    @Override
-    public boolean givesWayToFlags() {
-        return givesWayToFlags;
-    }
-
-    @Override
-    public void flagRequestStarted() {
-        if (flagTraffic != null) {
-            flagTraffic.started();
-        }
-    }
-
-    @Override
-    public void flagRequestSettled(Outcome outcome) {
-        if (flagTraffic == null) {
-            return;
-        }
-        flagTraffic.settled(outcome);
-        if (!launchGateOpen && wentOnline) {
-            submit(this::checkLaunchGate);
-        }
-    }
-
     /** Has a paced delivery waiting for its turn look again at whether it should stop waiting. */
     private void wakePacedDelivery() {
-        if (flagTraffic != null) {
-            flagTraffic.wake();
+        if (givesWayToFlags) {
+            synchronized (pacingLock) {
+                pacingLock.notifyAll();
+            }
         }
     }
 
@@ -1863,7 +1861,7 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
             wentOnlineNanos = System.nanoTime();
             wentOnline = true;
             if (!launchGateOpen) {
-                scheduleLaunchGateCheck(TimeUnit.MILLISECONDS.toNanos(flagTimings.launchFloorMillis));
+                scheduleLaunchGateCheck(TimeUnit.MILLISECONDS.toNanos(pacing.launchDelayMillis));
             }
         }
         // Events a previous run left on disk have already waited out a whole process, so they do not
@@ -1891,28 +1889,21 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
     }
 
     /**
-     * Opens the launch gate if it may open now, and otherwise looks again when it next could: at the floor,
-     * then at the cap, or sooner once the flag request settles. On the scheduler thread.
+     * Opens the launch gate once the launch delay has passed since the SDK first went online, and otherwise
+     * looks again then. On the scheduler thread.
      */
     private void checkLaunchGate() {
         if (launchGateOpen || isStopped()) {
             return;
         }
-        long sinceOnline = System.nanoTime() - wentOnlineNanos;
-        long floor = TimeUnit.MILLISECONDS.toNanos(flagTimings.launchFloorMillis);
-        long cap = TimeUnit.MILLISECONDS.toNanos(flagTimings.launchCapMillis);
-        if (sinceOnline < floor) {
-            scheduleLaunchGateCheck(floor - sinceOnline);
-            return;
-        }
-        String why = flagTraffic.launchGateReason(sinceOnline >= cap, flagTimings.launchCapMillis);
-        if (why == null) {
-            scheduleLaunchGateCheck(cap - sinceOnline);
+        long remaining = TimeUnit.MILLISECONDS.toNanos(pacing.launchDelayMillis) - (System.nanoTime() - wentOnlineNanos);
+        if (remaining > 0) {
+            scheduleLaunchGateCheck(remaining);
             return;
         }
         launchGateOpen = true;
         if (hasEventsFromPreviousRun.get()) {
-            logger.debug("Sending events from a previous run after {}", why);
+            logger.debug("Sending events from a previous run, {}ms after going online", pacing.launchDelayMillis);
         }
         synchronized (stateLock) {
             updateScheduledTasks(inBackground.get(), offline.get());
@@ -1932,22 +1923,32 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
     }
 
     /**
-     * Holds the next batch of a delivery this processor started on its own: until a gap has passed since the
-     * last one answered, and then while a flag request is in flight, up to a limit. A backlog this sends
-     * unasked otherwise takes the network for as long as it lasts, an {@code identify}'s flag request
-     * included.
+     * Holds the next batch of a delivery this processor started on its own until a gap has passed since the
+     * last one answered. A backlog this sends unasked otherwise takes the network for as long as it lasts, an
+     * {@code identify}'s flag request included. The first batch of a pass does not wait.
      * <p>
      * A delivery someone asked for, or close, ends the pacing, and the rest go out back to back: the delivery
      * either queues runs on this thread, behind this one. Going offline ends the wait too, but the pass then
      * stops before its next post, leaving the rest for a later delivery.
      */
     private void awaitTurnToPost() {
-        long gapEnds = pacedPostsInPass == 0 ? System.nanoTime()
-                : lastPacedPostEndedNanos + TimeUnit.MILLISECONDS.toNanos(flagTimings.gapMillis);
+        if (pacedPostsInPass == 0) {
+            return;
+        }
+        long gapEnds = lastPacedPostEndedNanos + TimeUnit.MILLISECONDS.toNanos(pacing.gapMillis);
         try {
-            if (!flagTraffic.awaitTurn(gapEnds, TimeUnit.MILLISECONDS.toNanos(flagTimings.flagRequestWaitMillis),
-                    () -> closed.get() || offline.get() || requestedDeliveryQueued)) {
-                pacedPass = false;
+            synchronized (pacingLock) {
+                while (true) {
+                    if (closed.get() || offline.get() || requestedDeliveryQueued) {
+                        pacedPass = false;
+                        return;
+                    }
+                    long remaining = gapEnds - System.nanoTime();
+                    if (remaining <= 0) {
+                        return;
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(pacingLock, remaining);
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
