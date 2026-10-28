@@ -30,8 +30,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * says which calls are commit points and which thread each commit runs on. This class delivers what is
  * committed, and runs the processor's life: flushes, going offline and into the background, and close.
  * <p>
- * Threads. Every delivery runs on {@link #scheduler}, a single thread: a requested one, the periodic one, the retry after a failure, and
- * the final one {@code close()} queues. So no two deliveries of this processor overlap, and the final one
+ * Threads. Every delivery runs on {@link #scheduler}, a single thread, queued there by {@link DeliveryScheduler}:
+ * a requested one, the periodic one, the retry after a failure, and the final one {@code close()} queues. So no two deliveries of this processor overlap, and the final one
  * waits behind a post or retry already running there, within the budget {@code close()} gives it.
  * Diagnostic events go out through {@link DiagnosticReporter}, on a thread of their own.
  * <p>
@@ -115,51 +115,8 @@ final class DirectEventProcessor implements EventProcessor {
     private final AtomicBoolean inBackground;
     private final AtomicBoolean offline;
 
-    // Guarded by submitLock.
-
-    /**
-     * Guards the handover from running to shut down: held for the length of a submit, and by
-     * {@link #close()} while it queues the release of each thread's resources and stops the
-     * executors accepting work. Nothing blocking happens under it.
-     */
-    private final Object submitLock = new Object();
-
-    /** Set under {@link #submitLock} once close() has queued the release of those resources. */
-    private boolean shuttingDown = false;
-
-    /**
-     * The retry queued after a delivery failed in a way that may pass, guarded by {@link #submitLock}.
-     * One at a time: it retries every batch still waiting, so a second would only repeat it.
-     */
-    private ScheduledFuture<Boolean> pendingRetry;
-
-    /**
-     * Set for the length of close()'s final delivery, which may post while the backoff would not allow it.
-     * Only ever read and written on the scheduler thread, where every delivery runs.
-     */
-    private boolean postingThroughTheBackoff;
-
-    // Guarded by flushLock.
-
-    /**
-     * Guards {@link #pendingFlush} and {@link #pendingFlushAnswersACaller}. Taken on a caller's thread and
-     * on the delivery thread, never while holding the committer's record lock, and nothing blocking happens
-     * under it.
-     */
-    private final Object flushLock = new Object();
-
-    /**
-     * The delivery that is queued but has not started, which a flush request arriving now can wait
-     * on instead of queuing another. Null while nothing is queued, and cleared again as the queued
-     * delivery begins, which is the point past which it can no longer speak for what is recorded.
-     */
-    private LDAwaitFuture<Boolean> pendingFlush;
-
-    /**
-     * Whether a {@link #flushAsync()} caller, who is there to hear the outcome, is waiting on
-     * {@link #pendingFlush}, as opposed to only callers that discard it.
-     */
-    private boolean pendingFlushAnswersACaller;
+    /** Queues deliveries on {@link #scheduler}, holds the one retry, and decides when that thread stops. */
+    private final DeliveryScheduler deliveryScheduler;
 
     // Atomic or volatile, so read and written without a lock.
 
@@ -183,9 +140,6 @@ final class DirectEventProcessor implements EventProcessor {
      */
     private final boolean givesWayToFlags;
 
-    /** What a paced delivery waits on for its gap, so that a flush, going offline or close can end the wait. */
-    private final Object pacingLock = new Object();
-
     /**
      * Whether the launch gate has opened. It opens once the launch delay has passed since the SDK first went
      * online. Until then neither a previous run's events nor the diagnostic init event are sent. Open from the
@@ -196,19 +150,6 @@ final class DirectEventProcessor implements EventProcessor {
     /** Set once, under {@link #stateLock}, when the SDK first goes online; the gate counts from then. */
     private volatile boolean wentOnline;
     private volatile long wentOnlineNanos;
-
-    /**
-     * Whether a delivery someone asked for is queued, which a paced delivery holding the scheduler stops
-     * pacing for. Mirrors {@code pendingFlush != null}, written under {@link #flushLock}.
-     */
-    private volatile boolean requestedDeliveryQueued;
-
-    // Only read and written on the scheduler thread.
-
-    /** Whether the delivery running is one this processor started on its own, and so paced. */
-    private boolean pacedPass;
-    private int pacedPostsInPass;
-    private long lastPacedPostEndedNanos;
 
     /** Events dropped for capacity, and evaluations the summarizer turned away, which diagnostics carry. */
     private final AtomicLong droppedEvents = new AtomicLong(0);
@@ -300,6 +241,8 @@ final class DirectEventProcessor implements EventProcessor {
                 closed, lostEvents, droppedEvents, logger);
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
+        this.deliveryScheduler = new DeliveryScheduler(scheduler, givesWayToFlags, pacing.gapMillis,
+                () -> closed.get() || offline.get(), logger);
         this.diagnostics = new DiagnosticReporter(diagnosticStore, diagnosticEventSender, eventsUri,
                 diagnosticRecordingIntervalMillis, scheduler, diagnosticExecutor,
                 new DiagnosticReporter.Processor() {
@@ -318,7 +261,7 @@ final class DirectEventProcessor implements EventProcessor {
         // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem. Only where
         // events persist, since memory holds nothing from a previous run.
         if (store.isPersisting()) {
-            submit(this::recoverEventsFromPreviousRun);
+            deliveryScheduler.submit(this::recoverEventsFromPreviousRun);
         }
 
         synchronized (stateLock) {
@@ -458,16 +401,7 @@ final class DirectEventProcessor implements EventProcessor {
             }
             updateScheduledTasks(inBackground.get(), offline);
         }
-        wakePacedDelivery();
-    }
-
-    /** Has a paced delivery waiting for its turn look again at whether it should stop waiting. */
-    private void wakePacedDelivery() {
-        if (givesWayToFlags) {
-            synchronized (pacingLock) {
-                pacingLock.notifyAll();
-            }
-        }
+        deliveryScheduler.wakePacedDelivery();
     }
 
     @Override
@@ -505,35 +439,14 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Queues a delivery, or hands back one that is already queued and has not started.
-     * <p>
-     * A delivery that has not started yet will send everything recorded before it starts. That
-     * includes the caller's events, so waiting on it is as good as queuing a new one. Without this,
-     * flushes arriving faster than a post completes each queue their own, and the one that matters --
-     * the {@code flushAndWait} at shutdown -- waits behind all of them.
+     * Queues a delivery, or joins one that is already queued and has not started; see
+     * {@link DeliveryScheduler#queue}.
      *
      * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
      *   any events lost up to the batch it closes, and false if the caller discards it
      */
     private Future<Boolean> queueDelivery(boolean answersACaller) {
-        LDAwaitFuture<Boolean> result;
-        synchronized (flushLock) {
-            if (pendingFlush != null) {
-                pendingFlushAnswersACaller |= answersACaller;
-                return pendingFlush;
-            }
-            result = new LDAwaitFuture<>();
-            if (submit(() -> runDelivery(result)) == null) {
-                // Shutting down, so there is no thread left to deliver on and nothing will be sent.
-                return new LDSuccessFuture<>(false);
-            }
-            pendingFlush = result;
-            pendingFlushAnswersACaller = answersACaller;
-            requestedDeliveryQueued = true;
-        }
-        // A paced delivery holding the scheduler sends the rest back to back, so this one is not held behind it.
-        wakePacedDelivery();
-        return result;
+        return deliveryScheduler.queue(answersACaller, this::runDelivery);
     }
 
     /**
@@ -545,21 +458,10 @@ final class DirectEventProcessor implements EventProcessor {
      * on had passed them, because a delivery that finds nothing to send is not evidence that everything
      * recorded arrived.
      */
-    private void runDelivery(LDAwaitFuture<Boolean> result) {
-        boolean answersACaller = false;
-        synchronized (flushLock) {
-            // Requests arriving from here on need a delivery of their own: this one is about to take
-            // the buffer, and what it takes is all it can speak for.
-            if (pendingFlush == result) {
-                pendingFlush = null;
-                requestedDeliveryQueued = false;
-                answersACaller = pendingFlushAnswersACaller;
-                pendingFlushAnswersACaller = false;
-            }
-        }
+    private void runDelivery(LDAwaitFuture<Boolean> result, boolean answersACaller) {
         DeliveryOutcome outcome;
         try {
-            outcome = commitAndDeliverReportingOutcome();
+            outcome = commitAndDeliverReportingOutcome(deliveryScheduler.requestedRun());
         } catch (Throwable t) {
             // Caught here rather than left to guarded(), because a caller is waiting on the future
             // and completing it matters more than the stack reaching the executor.
@@ -615,7 +517,7 @@ final class DirectEventProcessor implements EventProcessor {
             updateScheduledTasks(inBackground.get(), offline.get());
         }
         // A paced delivery holding the scheduler sends the rest back to back, ahead of the final one.
-        wakePacedDelivery();
+        deliveryScheduler.wakePacedDelivery();
         // One budget for the whole of close(), which runs on the caller's thread. For an application
         // shutting down that is usually the main one, so it has to stay well inside the five seconds
         // Android allows before an unanswered input event becomes an ANR. The budget bounds the caller, not
@@ -640,15 +542,9 @@ final class DirectEventProcessor implements EventProcessor {
         //
         // It posts whatever wait the backoff is in, which shutting down cuts short. After a refusal
         // that wait is minutes to an hour, and where nothing persists the events would not outlive it.
-        Callable<DeliveryOutcome> finalDelivery = () -> {
-            postingThroughTheBackoff = true;
-            try {
-                return deliverPayloadAndRetryLater();
-            } finally {
-                postingThroughTheBackoff = false;
-            }
-        };
-        Future<DeliveryOutcome> delivery = submit(finalDelivery);
+        Callable<DeliveryOutcome> finalDelivery =
+                () -> deliverPayloadAndRetryLater(deliveryScheduler.closingRun());
+        Future<DeliveryOutcome> delivery = deliveryScheduler.submit(finalDelivery);
         if (delivery != null) {
             try {
                 awaitDelivery(delivery, Math.max(0, deadlineNanos - System.nanoTime()));
@@ -665,50 +561,12 @@ final class DirectEventProcessor implements EventProcessor {
             }
         }
         // The store and the senders, by contrast, are released on whichever thread uses them, after
-        // whatever is still in flight there. Closing them inline would pull them out from under a
-        // delivery, or a diagnostic post, that we just decided not to wait for. shutdown() then
-        // refuses new work while letting what is already queued finish -- unlike shutdownNow(), which
-        // would interrupt those and strand the futures of anything it discarded.
-        //
-        // Queueing and shutting down are one step under submitLock, so that a flush cannot land in
-        // between them and put a delivery behind the release, where it would find the store closed.
-        synchronized (submitLock) {
-            shuttingDown = true;
-            if (pendingRetry != null) {
-                // Not interrupted if it is already posting: it checks shuttingDown before it starts, and
-                // one that got past that runs ahead of the release queued below on the same thread.
-                pendingRetry.cancel(false);
-                pendingRetry = null;
-            }
-            // The store is released only once the final commit is through with it, which may be after
-            // the budget if the disk stalled. That waits here, on the scheduler thread, and never on the
-            // caller's.
-            try {
-                scheduler.submit(guarded(() -> {
-                    awaitQuietly(finalCommit);
-                    releaseDeliveryResources();
-                }));
-            } catch (RuntimeException e) { // the executor was shut down under us
-                releaseDeliveryResources();
-            }
-            diagnostics.close();
-            scheduler.shutdown();
-            committer.shutdown();
-        }
-    }
-
-    /** Waits for a task to finish however it ends. Only for threads that are not the caller's. */
-    private static void awaitQuietly(Future<?> task) {
-        if (task == null) {
-            return;
-        }
-        try {
-            task.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            // Logged where it ran.
-        }
+        // whatever is still in flight there: a delivery, or a diagnostic post, that we just decided not to
+        // wait for. The store goes only once the final commit is through with it, which may be after the
+        // budget if the disk stalled.
+        deliveryScheduler.shutDown(finalCommit, this::releaseDeliveryResources);
+        diagnostics.close();
+        committer.shutdown();
     }
 
     /** What the delivery thread owns: the store it drains and the sender it posts batches through. */
@@ -723,16 +581,10 @@ final class DirectEventProcessor implements EventProcessor {
      * is only ever scheduled once the one before it has finished and these cannot pile up the way requested
      * flushes could.
      * <p>
-     * Paced where events give way to flags, since nobody asked for it now: see {@link #awaitTurnToPost()}.
+     * Paced where events give way to flags, since nobody asked for it now: see {@link DeliveryRun#awaitTurn()}.
      */
     private void deliverPayload() {
-        pacedPass = givesWayToFlags;
-        pacedPostsInPass = 0;
-        try {
-            commitAndDeliverReportingOutcome();
-        } finally {
-            pacedPass = false;
-        }
+        commitAndDeliverReportingOutcome(deliveryScheduler.ownRun());
     }
 
     /**
@@ -750,11 +602,11 @@ final class DirectEventProcessor implements EventProcessor {
      * {@code commitAndCloseBatch} is the drain, and offline it would encode events that cannot be sent
      * into bytes that wait in memory exactly as the events would have.
      */
-    private DeliveryOutcome commitAndDeliverReportingOutcome() {
+    private DeliveryOutcome commitAndDeliverReportingOutcome(DeliveryRun run) {
         if (store.isPersisting()) {
             committer.commitDurably();
         }
-        return deliverPayloadAndRetryLater();
+        return deliverPayloadAndRetryLater(run);
     }
 
     /**
@@ -808,19 +660,19 @@ final class DirectEventProcessor implements EventProcessor {
      * Runs on the scheduler thread, as every delivery does, so no two overlap; see the class
      * documentation.
      */
-    private DeliveryOutcome deliverPayloadAndRetryLater() {
+    private DeliveryOutcome deliverPayloadAndRetryLater(DeliveryRun run) {
         if (offline.get()) {
             return DeliveryOutcome.CLOSED_NOTHING;
         }
 
-        DeliveryPass pass = deliverWaitingThenNew();
+        DeliveryPass pass = deliverWaitingThenNew(run);
         if (pass.outcome.kept()) {
             // A batch kept for a reason other than the network, such as a read that failed, has no wait of its
             // own, and is retried after the first one.
             long waitNanos = retryState.remainingWaitNanos();
             long delayNanos = waitNanos > 0 ? waitNanos
                     : TimeUnit.MILLISECONDS.toNanos(retryState.initialDelayMillis());
-            Future<Boolean> retry = scheduleRetry(delayNanos);
+            Future<Boolean> retry = deliveryScheduler.scheduleRetry(this::retryPendingBatches, delayNanos);
             boolean awaited = delayNanos <= TimeUnit.MILLISECONDS.toNanos(retryState.initialDelayMillis());
             return new DeliveryOutcome(false, awaited ? retry : null, pass.lostEventsMark);
         }
@@ -850,13 +702,13 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link EventLogFormat#MAX_BATCH_SIZE} rather than one per pass. It is committed all the same, since
      * a pass is a commit point.
      */
-    private DeliveryPass deliverWaitingThenNew() {
-        BatchesOutcome waiting = deliverPendingBatches();
+    private DeliveryPass deliverWaitingThenNew(DeliveryRun run) {
+        BatchesOutcome waiting = deliverPendingBatches(run);
         if (waiting.kept()) {
             return new DeliveryPass(waiting, committer.commitLeavingTheLogOpen());
         }
         EventCommitter.Close close = committer.commitAndCloseBatch();
-        BatchesOutcome closed = deliverListedBatches();
+        BatchesOutcome closed = deliverListedBatches(run);
         if (closed.kept() || !close.closedEverything) {
             // Events left in a log that would not close are still on the disk, for the next close to try again
             // with; this pass cannot say they got out.
@@ -886,9 +738,9 @@ final class DirectEventProcessor implements EventProcessor {
      * Stops at the first failure that may pass. The batches behind it would most likely meet the same
      * network, and the retry takes all of them again.
      */
-    private BatchesOutcome deliverPendingBatches() {
+    private BatchesOutcome deliverPendingBatches(DeliveryRun run) {
         reportDiscarded(store.discardExpired());
-        return deliverListedBatches();
+        return deliverListedBatches(run);
     }
 
     /**
@@ -898,21 +750,16 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link BatchesOutcome#RETRYABLE}: a batch the listing could not see is still on the disk, and the
      * listing may work next time.
      */
-    private BatchesOutcome deliverListedBatches() {
+    private BatchesOutcome deliverListedBatches(DeliveryRun run) {
         EventStore.Listing listing = store.listPendingBatches();
         boolean allDelivered = true;
         for (EventStore.Batch batch : listing.batches) {
-            if (pacedPass) {
-                awaitTurnToPost();
-            }
+            run.awaitTurn();
             if (offline.get()) {
                 return BatchesOutcome.FAILED;
             }
-            BatchesOutcome outcome = deliver(batch);
-            if (pacedPass) {
-                pacedPostsInPass++;
-                lastPacedPostEndedNanos = System.nanoTime();
-            }
+            BatchesOutcome outcome = deliver(batch, run);
+            run.postEnded();
             if (outcome.kept()) {
                 return outcome;
             }
@@ -922,32 +769,6 @@ final class DirectEventProcessor implements EventProcessor {
             return BatchesOutcome.RETRYABLE;
         }
         return allDelivered ? BatchesOutcome.DELIVERED : BatchesOutcome.FAILED;
-    }
-
-    /**
-     * Queues the retry on the scheduler rather than sleeping for it there, which would hold every flush,
-     * and close()'s final delivery, behind the wait.
-     *
-     * @param delayNanos how long until the backoff allows the next post
-     * @return the retry, a retry already queued, or null if the processor is shutting down
-     */
-    private Future<Boolean> scheduleRetry(long delayNanos) {
-        synchronized (submitLock) {
-            if (shuttingDown) {
-                return null;
-            }
-            if (pendingRetry != null && !pendingRetry.isDone()) {
-                return pendingRetry;
-            }
-            try {
-                pendingRetry = scheduler.schedule(this::retryPendingBatches, delayNanos, TimeUnit.NANOSECONDS);
-            } catch (RuntimeException e) { // the executor was shut down under us
-                return null;
-            }
-            logger.warn("Will retry posting events in {}ms after a failure",
-                    TimeUnit.NANOSECONDS.toMillis(delayNanos));
-            return pendingRetry;
-        }
     }
 
     /**
@@ -965,23 +786,17 @@ final class DirectEventProcessor implements EventProcessor {
      * caller was waiting on went too.
      */
     private boolean retryPendingBatches() {
-        synchronized (submitLock) {
-            if (shuttingDown) {
-                // close() has queued the release of the store and the sender behind this.
-                return false;
-            }
+        if (deliveryScheduler.isShuttingDown()) {
+            // close() has queued the release of the store and the sender behind this.
+            return false;
         }
         if (offline.get()) {
             return false;
         }
         try {
-            BatchesOutcome outcome = deliverWaitingThenNew().outcome;
+            BatchesOutcome outcome = deliverWaitingThenNew(deliveryScheduler.requestedRun()).outcome;
             if (outcome == BatchesOutcome.HELD) {
-                synchronized (submitLock) {
-                    // This one, which is running, so that it does not stand in for the next.
-                    pendingRetry = null;
-                }
-                scheduleRetry(retryState.remainingWaitNanos());
+                deliveryScheduler.scheduleRetryAgain(this::retryPendingBatches, retryState.remainingWaitNanos());
             }
             return outcome == BatchesOutcome.DELIVERED;
         } catch (RuntimeException e) {
@@ -996,8 +811,8 @@ final class DirectEventProcessor implements EventProcessor {
      *   {@link #BAD_REQUESTS_BEFORE_DROPPING} times in a row; RETRYABLE if it is kept to be sent again,
      *   which is every other failure to post it; HELD for a post the backoff did not allow
      */
-    private BatchesOutcome deliver(EventStore.Batch batch) {
-        if (!postingThroughTheBackoff && retryState.remainingWaitNanos() > 0) {
+    private BatchesOutcome deliver(EventStore.Batch batch, DeliveryRun run) {
+        if (!run.postsThroughTheBackoff() && retryState.remainingWaitNanos() > 0) {
             // Not an attempt, so it moves nothing in the backoff.
             return BatchesOutcome.HELD;
         }
@@ -1116,7 +931,7 @@ final class DirectEventProcessor implements EventProcessor {
         // wait out an interval as well, only the launch gate. An application that dies within one interval
         // of every start would otherwise never deliver them.
         if (!stopped && !offline && launchGateOpen && hasEventsFromPreviousRun.compareAndSet(true, false)) {
-            submit(this::deliverPayload);
+            deliveryScheduler.submit(this::deliverPayload);
         }
         diagnostics.setMode(!stopped && !offline && !inBackground, launchGateOpen);
     }
@@ -1144,92 +959,7 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     private void scheduleLaunchGateCheck(long delayNanos) {
-        synchronized (submitLock) {
-            if (shuttingDown) {
-                return;
-            }
-            try {
-                scheduler.schedule(guarded(this::checkLaunchGate), delayNanos, TimeUnit.NANOSECONDS);
-            } catch (RuntimeException e) { // the executor was shut down under us
-            }
-        }
-    }
-
-    /**
-     * Holds the next batch of a delivery this processor started on its own until a gap has passed since the
-     * last one answered. A backlog this sends unasked otherwise takes the network for as long as it lasts, an
-     * {@code identify}'s flag request included. The first batch of a pass does not wait.
-     * <p>
-     * A delivery someone asked for, or close, ends the pacing, and the rest go out back to back: the delivery
-     * either queues runs on this thread, behind this one. Going offline ends the wait too, but the pass then
-     * stops before its next post, leaving the rest for a later delivery.
-     */
-    private void awaitTurnToPost() {
-        if (pacedPostsInPass == 0) {
-            return;
-        }
-        long gapEnds = lastPacedPostEndedNanos + TimeUnit.MILLISECONDS.toNanos(pacing.gapMillis);
-        try {
-            synchronized (pacingLock) {
-                while (true) {
-                    if (closed.get() || offline.get() || requestedDeliveryQueued) {
-                        pacedPass = false;
-                        return;
-                    }
-                    long remaining = gapEnds - System.nanoTime();
-                    if (remaining <= 0) {
-                        return;
-                    }
-                    TimeUnit.NANOSECONDS.timedWait(pacingLock, remaining);
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            pacedPass = false;
-        }
-    }
-
-    /**
-     * Puts work on the delivery thread, and is the one place that decides whether there is still a
-     * thread willing to take it. The {@code isStopped} tests the callers make first are a fast path
-     * that saves the work of getting here, not a guarantee; this is what a delivery is actually
-     * ordered against close().
-     *
-     * @return the submitted task, or null if the processor is shutting down or already has
-     */
-    private Future<?> submit(Runnable task) {
-        synchronized (submitLock) {
-            if (shuttingDown) {
-                // close() has already queued the release of the sender. Work accepted now would be
-                // behind it in the queue and would run against a sender that had been closed.
-                return null;
-            }
-            try {
-                return scheduler.submit(guarded(task));
-            } catch (RuntimeException e) { // the executor was shut down under us
-                return null;
-            }
-        }
-    }
-
-    /**
-     * As {@link #submit(Runnable)}, for the final delivery at close(), whose outcome close() waits
-     * for. Not wrapped in {@link #guarded}, because here the caller is there to receive what
-     * escapes.
-     *
-     * @return the submitted task, or null if the processor is shutting down or already has
-     */
-    private <T> Future<T> submit(Callable<T> task) {
-        synchronized (submitLock) {
-            if (shuttingDown) {
-                return null;
-            }
-            try {
-                return scheduler.submit(task);
-            } catch (RuntimeException e) { // the executor was shut down under us
-                return null;
-            }
-        }
+        deliveryScheduler.schedule(this::checkLaunchGate, delayNanos);
     }
 
     /** As {@link EventUtil#guarded}. */
