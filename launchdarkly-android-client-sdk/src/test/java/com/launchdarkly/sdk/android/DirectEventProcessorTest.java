@@ -3547,6 +3547,31 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void aFlagRequestInFlightHoldsAPeriodicDeliveryOnlyWhereEventsPersist() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = buildOfflineEventProcessor(server,
+                    ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY).flushIntervalMillis(200))
+                            .flagTimingsForTesting(new FlagTraffic.Timings(0, 0, 0, 10_000)),
+                    true);
+            try {
+                boolean persists = persistence() != EventPersistence.DISABLED;
+                assertEquals(persists, ((FlagRequestListener) eventProcessor).givesWayToFlags());
+                ((FlagRequestListener) eventProcessor).flagRequestStarted();
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+
+                if (persists) {
+                    server.getRecorder().requireNoRequests(1_000, TimeUnit.MILLISECONDS);
+                } else {
+                    server.getRecorder().requireRequest(2, TimeUnit.SECONDS);
+                }
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
     /**
      * Leaves {@code batches} batches on disk, one event each, from as many runs the service refused: one run
      * leaves only two however often it flushes, since behind a batch it cannot send the log stays open.

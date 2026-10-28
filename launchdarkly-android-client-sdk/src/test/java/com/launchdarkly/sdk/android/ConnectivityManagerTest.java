@@ -892,6 +892,18 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     }
 
     @Test
+    public void anEventProcessorThatDoesNotGiveWayToFlagsHearsNothing() {
+        FlagRequestRecorder recorder = new FlagRequestRecorder(false);
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory(), recorder);
+
+        awaitStartUp();
+        connectivityManager.setForceOffline(true);
+        connectivityManager.shutDown();
+
+        recorder.requireNoMore();
+    }
+
+    @Test
     public void aDataSourceThatFailsReportsTheRequestAndThatItFailed() {
         FlagRequestRecorder recorder = new FlagRequestRecorder();
         ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext ->
@@ -979,6 +991,20 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     /** An event processor that only records what it hears about flag requests. */
     private static final class FlagRequestRecorder implements EventProcessor, FlagRequestListener {
         private final BlockingQueue<String> reports = new LinkedBlockingQueue<>();
+        private final boolean givesWayToFlags;
+
+        FlagRequestRecorder() {
+            this(true);
+        }
+
+        FlagRequestRecorder(boolean givesWayToFlags) {
+            this.givesWayToFlags = givesWayToFlags;
+        }
+
+        @Override
+        public boolean givesWayToFlags() {
+            return givesWayToFlags;
+        }
 
         @Override
         public void flagRequestStarted() {

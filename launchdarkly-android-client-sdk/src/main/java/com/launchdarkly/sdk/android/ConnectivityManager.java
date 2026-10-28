@@ -60,6 +60,8 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final ConnectionInformationState connectionInformation;
     private final PersistentDataStoreWrapper.PerEnvironmentData environmentStore;
     private final EventProcessor eventProcessor;
+    /** The event processor, where it gives way to flags; otherwise null, and no flag request is tracked. */
+    private final FlagRequestListener flagRequests;
     private final PlatformState.ForegroundChangeListener foregroundListener;
     private final PlatformState.ConnectivityChangeListener connectivityChangeListener;
     private final TaskExecutor taskExecutor;
@@ -154,6 +156,9 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         this.dataSourceFactory = dataSourceFactory;
         this.platformState = ClientContextImpl.get(clientContext).getPlatformState();
         this.eventProcessor = eventProcessor;
+        this.flagRequests = eventProcessor instanceof FlagRequestListener
+                && ((FlagRequestListener) eventProcessor).givesWayToFlags()
+                ? (FlagRequestListener) eventProcessor : null;
         this.environmentStore = environmentStore;
         this.taskExecutor = ClientContextImpl.get(clientContext).getTaskExecutor();
         this.logger = clientContext.getBaseLogger();
@@ -375,12 +380,12 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         previousModeState.set(newState);
 
         // A poll a fresh cache put off makes no request at launch, and events do not wait for the later one.
-        boolean requestsFlags = !(dataSource instanceof PollingDataSource
+        boolean reportsRequest = flagRequests != null && !(dataSource instanceof PollingDataSource
                 && ((PollingDataSource) dataSource).initialDelayMillis > 0);
-        AtomicBoolean answered = new AtomicBoolean(!requestsFlags);
+        AtomicBoolean answered = new AtomicBoolean(!reportsRequest);
         flagRequestAnswered = answered;
-        if (requestsFlags && eventProcessor instanceof FlagRequestListener) {
-            ((FlagRequestListener) eventProcessor).flagRequestStarted();
+        if (reportsRequest) {
+            flagRequests.flagRequestStarted();
         }
 
         dataSource.start(new Callback<Boolean>() {
@@ -417,10 +422,9 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         }
     }
 
+    /** Only for a request reported started, so only where {@link #flagRequests} is set. */
     private void reportFlagRequestSettled(FlagRequestListener.Outcome outcome) {
-        if (eventProcessor instanceof FlagRequestListener) {
-            ((FlagRequestListener) eventProcessor).flagRequestSettled(outcome);
-        }
+        flagRequests.flagRequestSettled(outcome);
     }
 
     boolean isInitialized() {

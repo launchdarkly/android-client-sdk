@@ -287,14 +287,17 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
      */
     private final AtomicBoolean hasEventsFromPreviousRun = new AtomicBoolean(false);
 
-    private final FlagTraffic flagTraffic = new FlagTraffic();
     private final FlagTraffic.Timings flagTimings;
 
     /**
      * Whether events give way to flag values: only where the application asked for persistence, like the
-     * rest of what persistence brings. Without it there is no previous run to hold back.
+     * rest of what persistence brings. Without it there is no previous run to hold back, and delivery is
+     * what it was before persistence: no launch gate, no pacing, and nothing heard about flag requests.
      */
     private final boolean givesWayToFlags;
+
+    /** Only where events give way to flags; null otherwise, so that nothing of it runs. */
+    private final FlagTraffic flagTraffic;
 
     /**
      * Whether the launch gate has opened. It opens once the floor has passed since the SDK first went online,
@@ -426,6 +429,7 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
         this.closeBudgetMillis = closeBudgetMillis;
         this.flagTimings = flagTimings;
         this.givesWayToFlags = store.isPersisting();
+        this.flagTraffic = givesWayToFlags ? new FlagTraffic() : null;
         this.launchGateOpen = !givesWayToFlags;
         this.scheduler = scheduler;
         this.commitExecutor = commitExecutor;
@@ -434,38 +438,43 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
         this.inBackground = new AtomicBoolean(initiallyInBackground);
         this.offline = new AtomicBoolean(initiallyOffline);
 
-        // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem.
-        submit(() -> {
-            boolean found;
-            // Below the threads loading flags, which matter more at launch than what a previous run left.
-            Thread thread = Thread.currentThread();
-            int priority = thread.getPriority();
-            thread.setPriority(Thread.MIN_PRIORITY);
-            try {
-                // Lost as a damaged batch is, and told the same way: to the next flush a caller waits on.
-                lostEvents.addAndGet(store.preparePayloadsFromInterruptedLogs());
-                reportDiscarded(store.discardExpired());
-                found = !store.pendingBatches().isEmpty();
-            } finally {
-                thread.setPriority(priority);
-            }
-            if (!found) {
-                return;
-            }
-            // Raised before the gate and offline are read, and claimed by whichever side sees both: opening
-            // the gate, and going online after it, write their state and then claim the flag, so at least one
-            // of the two finds the other's write, and the claim makes it exactly one. Reading them first left
-            // a window where the other side found no flag yet and this then found the SDK still offline, and
-            // neither sent them.
-            hasEventsFromPreviousRun.set(true);
-            if (launchGateOpen && !offline.get() && !isStopped()
-                    && hasEventsFromPreviousRun.compareAndSet(true, false)) {
-                deliverPayload();
-            }
-        });
+        // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem. Only where
+        // events persist, since memory holds nothing from a previous run.
+        if (store.isPersisting()) {
+            submit(this::recoverEventsFromPreviousRun);
+        }
 
         synchronized (stateLock) {
             updateScheduledTasks(initiallyInBackground, initiallyOffline);
+        }
+    }
+
+    private void recoverEventsFromPreviousRun() {
+        boolean found;
+        // Below the threads loading flags, which matter more at launch than what a previous run left.
+        Thread thread = Thread.currentThread();
+        int priority = thread.getPriority();
+        thread.setPriority(Thread.MIN_PRIORITY);
+        try {
+            // Lost as a damaged batch is, and told the same way: to the next flush a caller waits on.
+            lostEvents.addAndGet(store.preparePayloadsFromInterruptedLogs());
+            reportDiscarded(store.discardExpired());
+            found = !store.pendingBatches().isEmpty();
+        } finally {
+            thread.setPriority(priority);
+        }
+        if (!found) {
+            return;
+        }
+        // Raised before the gate and offline are read, and claimed by whichever side sees both: opening
+        // the gate, and going online after it, write their state and then claim the flag, so at least one
+        // of the two finds the other's write, and the claim makes it exactly one. Reading them first left
+        // a window where the other side found no flag yet and this then found the SDK still offline, and
+        // neither sent them.
+        hasEventsFromPreviousRun.set(true);
+        if (launchGateOpen && !offline.get() && !isStopped()
+                && hasEventsFromPreviousRun.compareAndSet(true, false)) {
+            deliverPayload();
         }
     }
 
@@ -879,19 +888,36 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
             }
             updateScheduledTasks(inBackground.get(), offline);
         }
-        flagTraffic.wake();
+        wakePacedDelivery();
+    }
+
+    @Override
+    public boolean givesWayToFlags() {
+        return givesWayToFlags;
     }
 
     @Override
     public void flagRequestStarted() {
-        flagTraffic.started();
+        if (flagTraffic != null) {
+            flagTraffic.started();
+        }
     }
 
     @Override
     public void flagRequestSettled(Outcome outcome) {
+        if (flagTraffic == null) {
+            return;
+        }
         flagTraffic.settled(outcome);
         if (!launchGateOpen && wentOnline) {
             submit(this::checkLaunchGate);
+        }
+    }
+
+    /** Has a paced delivery waiting for its turn look again at whether it should stop waiting. */
+    private void wakePacedDelivery() {
+        if (flagTraffic != null) {
+            flagTraffic.wake();
         }
     }
 
@@ -1018,7 +1044,7 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
             requestedDeliveryQueued = true;
         }
         // A paced delivery holding the scheduler sends the rest back to back, so this one is not held behind it.
-        flagTraffic.wake();
+        wakePacedDelivery();
         return result;
     }
 
@@ -1101,7 +1127,7 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
             updateScheduledTasks(inBackground.get(), offline.get());
         }
         // A paced delivery holding the scheduler sends the rest back to back, ahead of the final one.
-        flagTraffic.wake();
+        wakePacedDelivery();
         // One budget for the whole of close(), which runs on the caller's thread. For an application
         // shutting down that is usually the main one, so it has to stay well inside the five seconds
         // Android allows before an unanswered input event becomes an ANR. The budget bounds the caller, not
@@ -1911,9 +1937,9 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
      * unasked otherwise takes the network for as long as it lasts, an {@code identify}'s flag request
      * included.
      * <p>
-     * A delivery someone asked for ends the pacing, and the rest go out back to back: the delivery it queues
-     * runs on this thread, behind this one. Going offline or close ends the wait too, but the pass then stops
-     * before its next post, leaving the rest for a later delivery.
+     * A delivery someone asked for, or close, ends the pacing, and the rest go out back to back: the delivery
+     * either queues runs on this thread, behind this one. Going offline ends the wait too, but the pass then
+     * stops before its next post, leaving the rest for a later delivery.
      */
     private void awaitTurnToPost() {
         long gapEnds = pacedPostsInPass == 0 ? System.nanoTime()
