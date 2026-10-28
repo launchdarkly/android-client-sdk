@@ -17,6 +17,7 @@ import static org.junit.Assert.fail;
 
 import androidx.annotation.NonNull;
 
+import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.DataModel.Flag;
@@ -125,6 +126,14 @@ public class ConnectivityManagerTest extends EasyMockSupport {
     private void createTestManager(
             @NonNull LDConfig config,
             ComponentConfigurer<DataSource> dataSourceConfigurer
+    ) {
+        createTestManager(config, dataSourceConfigurer, eventProcessor);
+    }
+
+    private void createTestManager(
+            @NonNull LDConfig config,
+            ComponentConfigurer<DataSource> dataSourceConfigurer,
+            EventProcessor eventProcessor
     ) {
         ClientContext clientContext = ClientContextImpl.fromConfig(
                 config,
@@ -867,6 +876,122 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         AwaitableCallback<Void> callback = new AwaitableCallback<>();
         connectivityManager.startUp(contextDataManager, callback);
         callback.await();
+    }
+
+    @Test
+    public void aDataSourceThatLoadsFlagsReportsTheRequestAndThatItLoaded() {
+        FlagRequestRecorder recorder = new FlagRequestRecorder();
+        createTestManager(defaultTestConfig(false, false), makeSuccessfulDataSourceFactory(), recorder);
+
+        awaitStartUp();
+
+        assertEquals("started", recorder.require());
+        assertEquals("settled LOADED", recorder.require());
+        recorder.requireNoMore();
+    }
+
+    @Test
+    public void aDataSourceThatFailsReportsTheRequestAndThatItFailed() {
+        FlagRequestRecorder recorder = new FlagRequestRecorder();
+        ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext ->
+                MockComponents.failingDataSource(clientContext, ConnectionMode.POLLING, new Throwable());
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer, recorder);
+
+        awaitStartUp();
+
+        assertEquals("started", recorder.require());
+        assertEquals("settled FAILED", recorder.require());
+        recorder.requireNoMore();
+    }
+
+    @Test
+    public void aPollAFreshCachePutOffReportsNoRequest() {
+        FlagRequestRecorder recorder = new FlagRequestRecorder();
+        ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext -> new PollingDataSource(
+                clientContext.getEvaluationContext(), clientContext.getDataSourceUpdateSink(),
+                60_000, 60_000, Long.MAX_VALUE, null, taskExecutor, logging.logger);
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer, recorder);
+
+        connectivityManager.startUp(contextDataManager, LDUtil.noOpCallback());
+
+        recorder.requireNoMore();
+    }
+
+    @Test
+    public void stoppingADataSourceBeforeItAnswersReportsTheRequestStopped() {
+        FlagRequestRecorder recorder = new FlagRequestRecorder();
+        BlockingQueue<Callback<Boolean>> answers = new LinkedBlockingQueue<>();
+        ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext -> new DataSource() {
+            @Override
+            public void start(@NonNull Callback<Boolean> resultCallback) {
+                answers.add(resultCallback);
+            }
+
+            @Override
+            public void stop(@NonNull Callback<Void> completionCallback) {
+                completionCallback.onSuccess(null);
+            }
+        };
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer, recorder);
+        connectivityManager.startUp(contextDataManager, LDUtil.noOpCallback());
+        assertEquals("started", recorder.require());
+        Callback<Boolean> answer = requireValue(answers, 1, TimeUnit.SECONDS, "starting of data source");
+
+        connectivityManager.setForceOffline(true);
+
+        assertEquals("settled STOPPED", recorder.require());
+        // The stopped source answering late is not mistaken for the next one's request.
+        answer.onSuccess(true);
+        recorder.requireNoMore();
+    }
+
+    /** An event processor that only records what it hears about flag requests. */
+    private static final class FlagRequestRecorder implements EventProcessor, FlagRequestListener {
+        private final BlockingQueue<String> reports = new LinkedBlockingQueue<>();
+
+        @Override
+        public void flagRequestStarted() {
+            reports.add("started");
+        }
+
+        @Override
+        public void flagRequestSettled(Outcome outcome) {
+            reports.add("settled " + outcome);
+        }
+
+        String require() {
+            return requireValue(reports, 1, TimeUnit.SECONDS, "a flag request report");
+        }
+
+        void requireNoMore() {
+            requireNoMoreValues(reports, 100, TimeUnit.MILLISECONDS, "another flag request report");
+        }
+
+        @Override
+        public void flush() {}
+
+        @Override
+        public void blockingFlush() {}
+
+        @Override
+        public void setInBackground(boolean inBackground) {}
+
+        @Override
+        public void setOffline(boolean offline) {}
+
+        @Override
+        public void close() {}
+
+        @Override
+        public void recordEvaluationEvent(LDContext context, String flagKey, int flagVersion, int variation,
+                                          LDValue value, EvaluationReason reason, LDValue defaultValue,
+                                          boolean requireFullEvent, Long debugEventsUntilDate) {}
+
+        @Override
+        public void recordIdentifyEvent(LDContext context) {}
+
+        @Override
+        public void recordCustomEvent(LDContext context, String eventKey, LDValue data, Double metricValue) {}
     }
 
     private ComponentConfigurer<DataSource> makeSuccessfulDataSourceFactory() {

@@ -71,6 +71,8 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<DataSource> currentDataSource = new AtomicReference<>();
     private final AtomicReference<ModeState> previousModeState = new AtomicReference<>();
+    /** Whether the current data source's first flag request has been reported settled to the event processor. */
+    private volatile AtomicBoolean flagRequestAnswered = new AtomicBoolean(true);
     private final LDLogger logger;
     private volatile boolean initialized = false;
     private final boolean useFDv2ModeResolution;
@@ -338,6 +340,9 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             if (oldDataSource != null) {
                 logger.debug("Stopping current data source");
                 oldDataSource.stop(LDUtil.noOpCallback());
+                if (!flagRequestAnswered.getAndSet(true)) {
+                    reportFlagRequestSettled(FlagRequestListener.Outcome.STOPPED);
+                }
             }
         }
         if (!shouldStartDataSourceIfStopped || currentDataSource.get() != null) {
@@ -371,22 +376,46 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         currentDataSource.set(dataSource);
         previousModeState.set(newState);
 
+        // A poll a fresh cache put off makes no request at launch, and events do not wait for the later one.
+        boolean requestsFlags = !(dataSource instanceof PollingDataSource
+                && ((PollingDataSource) dataSource).initialDelayMillis > 0);
+        AtomicBoolean answered = new AtomicBoolean(!requestsFlags);
+        flagRequestAnswered = answered;
+        if (requestsFlags && eventProcessor instanceof FlagRequestListener) {
+            ((FlagRequestListener) eventProcessor).flagRequestStarted();
+        }
+
         dataSource.start(new Callback<Boolean>() {
             @Override
             public void onSuccess(Boolean result) {
                 initialized = true;
                 updateConnectionInfoForSuccess(connectionInformation.getConnectionMode());
+                settled(FlagRequestListener.Outcome.LOADED);
                 onCompletion.onSuccess(null);
             }
 
             @Override
             public void onError(Throwable error) {
                 updateConnectionInfoForError(connectionInformation.getConnectionMode(), error);
+                settled(FlagRequestListener.Outcome.FAILED);
                 onCompletion.onSuccess(null);
+            }
+
+            // Once, and not after the source was stopped, which reported it then.
+            private void settled(FlagRequestListener.Outcome outcome) {
+                if (!answered.getAndSet(true)) {
+                    reportFlagRequestSettled(outcome);
+                }
             }
         });
 
         return true;
+    }
+
+    private void reportFlagRequestSettled(FlagRequestListener.Outcome outcome) {
+        if (eventProcessor instanceof FlagRequestListener) {
+            ((FlagRequestListener) eventProcessor).flagRequestSettled(outcome);
+        }
     }
 
     boolean isInitialized() {
