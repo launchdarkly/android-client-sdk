@@ -3486,6 +3486,48 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void goingOfflineStopsAPacedDeliveryAndKeepsTheRest() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(3);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 500, 0), true);
+            try {
+                nextRun.setOffline(false);
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                nextRun.setOffline(true);
+                server.getRecorder().requireNoRequests(1_500, TimeUnit.MILLISECONDS);
+
+                nextRun.setOffline(false);
+                assertTrue(awaitFlush(nextRun, 3, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void goingOfflineStopsTheRetryOfAFailedPost() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(503))) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.flush();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                eventProcessor.setOffline(true);
+
+                server.getRecorder().requireNoRequests(DirectEventProcessor.RETRY_DELAY_MILLIS * 2,
+                        TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void theDiagnosticInitEventWaitsForTheLaunchGateOnlyWhereEventsPersist() throws Exception {
         try (HttpServer server = startEventsServer()) {
             EventProcessor eventProcessor = nextRunOffline(server, new FlagTraffic.Timings(100, 5_000, 0, 0), false);

@@ -1911,8 +1911,9 @@ final class DirectEventProcessor implements EventProcessor, FlagRequestListener 
      * unasked otherwise takes the network for as long as it lasts, an {@code identify}'s flag request
      * included.
      * <p>
-     * A delivery someone asked for, going offline, or close ends the pacing, and the rest go out back to
-     * back: the delivery they queue runs on this thread, behind this one.
+     * A delivery someone asked for ends the pacing, and the rest go out back to back: the delivery it queues
+     * runs on this thread, behind this one. Going offline or close ends the wait too, but the pass then stops
+     * before its next post, leaving the rest for a later delivery.
      */
     private void awaitTurnToPost() {
         long gapEnds = pacedPostsInPass == 0 ? System.nanoTime()
