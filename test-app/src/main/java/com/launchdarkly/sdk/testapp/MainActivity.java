@@ -7,6 +7,9 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
 import android.util.TypedValue;
 import android.view.View;
 import android.widget.AdapterView;
@@ -573,6 +576,14 @@ public class MainActivity extends AppCompatActivity {
      */
     private void setupOversizedPostButton() {
         final Button postButton = findViewById(R.id.oversized_post_button);
+        // Production answers a body this size with 413 Request Entity Too Large.
+        String title = "Post 20 MB";
+        SpannableString label = new SpannableString(title + "\nExpected: HTTP 413");
+        label.setSpan(new RelativeSizeSpan(0.7f), title.length(), label.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        // All caps would drop the span.
+        postButton.setAllCaps(false);
+        postButton.setText(label);
         postButton.setOnClickListener(v -> {
             if (BuildConfig.MOBILE_KEY.isEmpty()) {
                 Toast.makeText(this, "Set launchdarkly.mobileKey in local.properties and rebuild.",
