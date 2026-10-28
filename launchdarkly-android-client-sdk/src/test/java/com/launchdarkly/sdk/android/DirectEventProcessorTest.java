@@ -105,6 +105,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private final List<ExecutorService> diagnosticExecutors = new ArrayList<>();
     /** The commit executor the last processor made here commits on, for a test to wait behind. */
     private ExecutorService lastCommitExecutor;
+    /** How long the processors made here give way to flag requests: not at all, unless a test is about that. */
+    private FlagTraffic.Timings flagTimings = FlagTraffic.Timings.NONE;
 
     @After
     public void shutDownDiagnosticExecutors() {
@@ -3273,6 +3275,195 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void eventsFromAPreviousRunWaitOutTheFloorAfterGoingOnline() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(1);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(600, 5_000, 0, 0), true);
+            try {
+                nextRun.setOffline(false);
+
+                server.getRecorder().requireNoRequests(400, TimeUnit.MILLISECONDS);
+                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"previous-run-0\""));
+                awaitLogged("Sending events from a previous run after no flag request at launch");
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void eventsFromAPreviousRunWaitForTheFlagRequestInFlight() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(1);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(100, 5_000, 0, 0), true);
+            try {
+                ((FlagRequestListener) nextRun).flagRequestStarted();
+                nextRun.setOffline(false);
+                server.getRecorder().requireNoRequests(800, TimeUnit.MILLISECONDS);
+
+                ((FlagRequestListener) nextRun).flagRequestSettled(FlagRequestListener.Outcome.LOADED);
+
+                assertTrue(server.getRecorder().requireRequest(2, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"previous-run-0\""));
+                awaitLogged("Sending events from a previous run after flags loaded");
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void eventsFromAPreviousRunWaitForAFlagRequestOnlyUntilTheCap() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(1);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(100, 800, 0, 0), true);
+            try {
+                ((FlagRequestListener) nextRun).flagRequestStarted();
+                long wentOnline = System.nanoTime();
+                nextRun.setOffline(false);
+
+                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"previous-run-0\""));
+                assertTrue(System.nanoTime() - wentOnline >= TimeUnit.MILLISECONDS.toNanos(700));
+                awaitLogged("Sending events from a previous run after waiting 800ms for flags");
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushSendsEventsFromAPreviousRunWithoutWaitingForTheLaunchGate() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(1);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(5_000, 10_000, 0, 0), true);
+            try {
+                ((FlagRequestListener) nextRun).flagRequestStarted();
+                nextRun.setOffline(false);
+
+                assertTrue(awaitFlush(nextRun, 3, TimeUnit.SECONDS));
+                assertTrue(server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"previous-run-0\""));
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void eventsFromAPreviousRunGoOutABatchAtATimeWithAGapBetween() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(3);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 400, 0), true);
+            try {
+                nextRun.setOffline(false);
+
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                long previous = System.nanoTime();
+                for (int batch = 1; batch < 3; batch++) {
+                    server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                    long now = System.nanoTime();
+                    assertTrue("batch " + batch + " followed the one before it "
+                                    + TimeUnit.NANOSECONDS.toMillis(now - previous) + "ms later",
+                            now - previous >= TimeUnit.MILLISECONDS.toNanos(300));
+                    previous = now;
+                }
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushEndsThePacingAndSendsTheRestAtOnce() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(3);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 10_000, 0), true);
+            try {
+                nextRun.setOffline(false);
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+
+                assertTrue(awaitFlush(nextRun, 3, TimeUnit.SECONDS));
+
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void aPacedBatchWaitsForAFlagRequestInFlight() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(2);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(0, 0, 300, 5_000), true);
+            try {
+                nextRun.setOffline(false);
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                ((FlagRequestListener) nextRun).flagRequestStarted();
+                server.getRecorder().requireNoRequests(1_000, TimeUnit.MILLISECONDS);
+
+                ((FlagRequestListener) nextRun).flagRequestSettled(FlagRequestListener.Outcome.LOADED);
+
+                server.getRecorder().requireRequest(2, TimeUnit.SECONDS);
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void theDiagnosticInitEventWaitsForTheLaunchGateOnlyWhereEventsPersist() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = nextRunOffline(server, new FlagTraffic.Timings(100, 5_000, 0, 0), false);
+            try {
+                ((FlagRequestListener) eventProcessor).flagRequestStarted();
+                eventProcessor.setOffline(false);
+                if (persistence() != EventPersistence.DISABLED) {
+                    server.getRecorder().requireNoRequests(600, TimeUnit.MILLISECONDS);
+                    ((FlagRequestListener) eventProcessor).flagRequestSettled(FlagRequestListener.Outcome.FAILED);
+                }
+
+                assertEquals("/mobile/events/diagnostic",
+                        server.getRecorder().requireRequest(2, TimeUnit.SECONDS).getPath());
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    /**
+     * Leaves {@code batches} batches on disk, one event each, from as many runs the service refused: one run
+     * leaves only two however often it flushes, since behind a batch it cannot send the log stays open.
+     */
+    private void leaveEventsFromAPreviousRun(int batches) throws Exception {
+        try (HttpServer refusing = HttpServer.start(Handlers.status(503))) {
+            for (int batch = 0; batch < batches; batch++) {
+                EventProcessor run = makeEventProcessor(refusing, DEFAULT_CAPACITY);
+                run.recordCustomEvent(CONTEXT, "previous-run-" + batch, LDValue.ofNull(), null);
+                run.close();
+            }
+        }
+    }
+
+    private EventProcessor nextRunOffline(HttpServer server, FlagTraffic.Timings timings,
+                                          boolean diagnosticOptOut) {
+        return buildOfflineEventProcessor(server,
+                ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY))
+                        .flagTimingsForTesting(timings),
+                diagnosticOptOut);
+    }
+
     /**
      * Refuses a batch with {@code status} for several flushes in a row, each of which attempts it and
      * retries it once, then lets the service recover and checks that the batch arrives exactly once,
@@ -4004,6 +4195,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 flushIntervalMillis,
                 diagnosticIntervalMillis,
                 closeBudgetMillis,
+                flagTimings,
                 false,
                 true, // initiallyOffline, as the SDK builds it
                 scheduler,

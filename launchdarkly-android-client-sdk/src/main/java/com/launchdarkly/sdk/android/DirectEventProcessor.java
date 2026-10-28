@@ -61,8 +61,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * Overlap is across processes. Two processes of one application read the same directory, so both can send
  * one stored batch. They send it under the same payload ID, and LaunchDarkly discards the repeat rather than
  * counting the events twice.
+ * <p>
+ * Flag values come first. Where events persist, what a previous run left waits at launch for the first flag
+ * request, and the deliveries this processor starts on its own send one batch at a time, giving way to any flag
+ * request in flight. {@link ConnectivityManager} says what the flag data source is doing through
+ * {@link FlagRequestListener}. A delivery the application asks for is never held.
  */
-final class DirectEventProcessor implements EventProcessor {
+final class DirectEventProcessor implements EventProcessor, FlagRequestListener {
     /**
      * How many full events may be held unencoded before one of them pays for a commit.
      * <p>
@@ -275,12 +280,46 @@ final class DirectEventProcessor implements EventProcessor {
     /**
      * Whether a previous run of the application left events behind.
      * <p>
-     * Those events are already as old as whatever happened to that run, so they are sent as soon as the
-     * SDK is allowed to send anything rather than at the next interval. The application in front of the
-     * user has moved on; an error report about a crash is not worth much thirty seconds late, and the
-     * process might not live that long either.
+     * Those events are already as old as whatever happened to that run, so they are sent once the launch
+     * gate opens rather than at the next interval. The application in front of the user has moved on; an
+     * error report about a crash is not worth much thirty seconds late, and the process might not live that
+     * long either.
      */
     private final AtomicBoolean hasEventsFromPreviousRun = new AtomicBoolean(false);
+
+    private final FlagTraffic flagTraffic = new FlagTraffic();
+    private final FlagTraffic.Timings flagTimings;
+
+    /**
+     * Whether events give way to flag values: only where the application asked for persistence, like the
+     * rest of what persistence brings. Without it there is no previous run to hold back.
+     */
+    private final boolean givesWayToFlags;
+
+    /**
+     * Whether the launch gate has opened. It opens once the floor has passed since the SDK first went online,
+     * and the first flag request has settled, or there was none, or the cap has passed too. Until then neither
+     * a previous run's events nor the diagnostic init event are sent. Open from the start where events do not
+     * give way. Only set on the scheduler thread.
+     */
+    private volatile boolean launchGateOpen;
+
+    /** Set once, under {@link #stateLock}, when the SDK first goes online; the gate counts from then. */
+    private volatile boolean wentOnline;
+    private volatile long wentOnlineNanos;
+
+    /**
+     * Whether a delivery someone asked for is queued, which a paced delivery holding the scheduler stops
+     * pacing for. Mirrors {@code pendingFlush != null}, written under {@link #flushLock}.
+     */
+    private volatile boolean requestedDeliveryQueued;
+
+    // Only read and written on the scheduler thread.
+
+    /** Whether the delivery running is one this processor started on its own, and so paced. */
+    private boolean pacedPass;
+    private int pacedPostsInPass;
+    private long lastPacedPostEndedNanos;
 
     /**
      * Whether a commit is already queued, so a run of recordings past the threshold submits one task rather
@@ -365,6 +404,7 @@ final class DirectEventProcessor implements EventProcessor {
             long flushIntervalMillis,
             long diagnosticRecordingIntervalMillis,
             long closeBudgetMillis,
+            FlagTraffic.Timings flagTimings,
             boolean initiallyInBackground,
             boolean initiallyOffline,
             ScheduledExecutorService scheduler,
@@ -384,6 +424,9 @@ final class DirectEventProcessor implements EventProcessor {
         this.flushIntervalMillis = flushIntervalMillis;
         this.diagnosticRecordingIntervalMillis = diagnosticRecordingIntervalMillis;
         this.closeBudgetMillis = closeBudgetMillis;
+        this.flagTimings = flagTimings;
+        this.givesWayToFlags = store.isPersisting();
+        this.launchGateOpen = !givesWayToFlags;
         this.scheduler = scheduler;
         this.commitExecutor = commitExecutor;
         this.diagnosticExecutor = diagnosticExecutor;
@@ -393,18 +436,30 @@ final class DirectEventProcessor implements EventProcessor {
 
         // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem.
         submit(() -> {
-            // Lost as a damaged batch is, and told the same way: to the next flush a caller waits on.
-            lostEvents.addAndGet(store.preparePayloadsFromInterruptedLogs());
-            reportDiscarded(store.discardExpired());
-            if (store.pendingBatches().isEmpty()) {
+            boolean found;
+            // Below the threads loading flags, which matter more at launch than what a previous run left.
+            Thread thread = Thread.currentThread();
+            int priority = thread.getPriority();
+            thread.setPriority(Thread.MIN_PRIORITY);
+            try {
+                // Lost as a damaged batch is, and told the same way: to the next flush a caller waits on.
+                lostEvents.addAndGet(store.preparePayloadsFromInterruptedLogs());
+                reportDiscarded(store.discardExpired());
+                found = !store.pendingBatches().isEmpty();
+            } finally {
+                thread.setPriority(priority);
+            }
+            if (!found) {
                 return;
             }
-            // Raised before offline is read, and claimed by whichever side sees both: going online writes
-            // offline and then claims the flag, so at least one of the two finds the other's write, and
-            // the claim makes it exactly one. Reading offline first left a window where going online
-            // found no flag yet and this then found the SDK still offline, and neither sent them.
+            // Raised before the gate and offline are read, and claimed by whichever side sees both: opening
+            // the gate, and going online after it, write their state and then claim the flag, so at least one
+            // of the two finds the other's write, and the claim makes it exactly one. Reading them first left
+            // a window where the other side found no flag yet and this then found the SDK still offline, and
+            // neither sent them.
             hasEventsFromPreviousRun.set(true);
-            if (!offline.get() && !isStopped() && hasEventsFromPreviousRun.compareAndSet(true, false)) {
+            if (launchGateOpen && !offline.get() && !isStopped()
+                    && hasEventsFromPreviousRun.compareAndSet(true, false)) {
                 deliverPayload();
             }
         });
@@ -824,6 +879,20 @@ final class DirectEventProcessor implements EventProcessor {
             }
             updateScheduledTasks(inBackground.get(), offline);
         }
+        flagTraffic.wake();
+    }
+
+    @Override
+    public void flagRequestStarted() {
+        flagTraffic.started();
+    }
+
+    @Override
+    public void flagRequestSettled(Outcome outcome) {
+        flagTraffic.settled(outcome);
+        if (!launchGateOpen && wentOnline) {
+            submit(this::checkLaunchGate);
+        }
     }
 
     @Override
@@ -933,20 +1002,24 @@ final class DirectEventProcessor implements EventProcessor {
      *   any events lost up to the batch it closes, and false if the caller discards it
      */
     private Future<Boolean> queueDelivery(boolean answersACaller) {
+        LDAwaitFuture<Boolean> result;
         synchronized (flushLock) {
             if (pendingFlush != null) {
                 pendingFlushAnswersACaller |= answersACaller;
                 return pendingFlush;
             }
-            LDAwaitFuture<Boolean> result = new LDAwaitFuture<>();
+            result = new LDAwaitFuture<>();
             if (submit(() -> runDelivery(result)) == null) {
                 // Shutting down, so there is no thread left to deliver on and nothing will be sent.
                 return new LDSuccessFuture<>(false);
             }
             pendingFlush = result;
             pendingFlushAnswersACaller = answersACaller;
-            return result;
+            requestedDeliveryQueued = true;
         }
+        // A paced delivery holding the scheduler sends the rest back to back, so this one is not held behind it.
+        flagTraffic.wake();
+        return result;
     }
 
     /**
@@ -965,6 +1038,7 @@ final class DirectEventProcessor implements EventProcessor {
             // the buffer, and what it takes is all it can speak for.
             if (pendingFlush == result) {
                 pendingFlush = null;
+                requestedDeliveryQueued = false;
                 answersACaller = pendingFlushAnswersACaller;
                 pendingFlushAnswersACaller = false;
             }
@@ -1026,6 +1100,8 @@ final class DirectEventProcessor implements EventProcessor {
         synchronized (stateLock) {
             updateScheduledTasks(inBackground.get(), offline.get());
         }
+        // A paced delivery holding the scheduler sends the rest back to back, ahead of the final one.
+        flagTraffic.wake();
         // One budget for the whole of close(), which runs on the caller's thread. For an application
         // shutting down that is usually the main one, so it has to stay well inside the five seconds
         // Android allows before an unanswered input event becomes an ANR. The budget bounds the caller, not
@@ -1186,12 +1262,21 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * Serializes and sends everything buffered, for the periodic flush, which has nobody waiting to
-     * find out how it went. It is a fixed-delay series, so a run is only ever scheduled once the one
-     * before it has finished and these cannot pile up the way requested flushes could.
+     * Serializes and sends everything buffered, for the periodic flush and for what a previous run left,
+     * which have nobody waiting to find out how it went. The periodic one is a fixed-delay series, so a run
+     * is only ever scheduled once the one before it has finished and these cannot pile up the way requested
+     * flushes could.
+     * <p>
+     * Paced where events give way to flags, since nobody asked for it now: see {@link #awaitTurnToPost()}.
      */
     private void deliverPayload() {
-        commitAndDeliverReportingOutcome();
+        pacedPass = givesWayToFlags;
+        pacedPostsInPass = 0;
+        try {
+            commitAndDeliverReportingOutcome();
+        } finally {
+            pacedPass = false;
+        }
     }
 
     /**
@@ -1413,10 +1498,17 @@ final class DirectEventProcessor implements EventProcessor {
         EventStore.Listing listing = store.listPendingBatches();
         boolean allDelivered = true;
         for (EventStore.Batch batch : listing.batches) {
+            if (pacedPass) {
+                awaitTurnToPost();
+            }
             if (offline.get()) {
                 return BatchesOutcome.FAILED;
             }
             BatchesOutcome outcome = deliver(batch);
+            if (pacedPass) {
+                pacedPostsInPass++;
+                lastPacedPostEndedNanos = System.nanoTime();
+            }
             if (outcome.kept()) {
                 return outcome;
             }
@@ -1741,16 +1833,23 @@ final class DirectEventProcessor implements EventProcessor {
         // run after it ends.
         flushTask = enableOrDisableTask(!stopped, flushTask, flushIntervalMillis,
                 this::deliverPayload);
+        if (!stopped && !offline && !wentOnline) {
+            wentOnlineNanos = System.nanoTime();
+            wentOnline = true;
+            if (!launchGateOpen) {
+                scheduleLaunchGateCheck(TimeUnit.MILLISECONDS.toNanos(flagTimings.launchFloorMillis));
+            }
+        }
         // Events a previous run left on disk have already waited out a whole process, so they do not
-        // wait out an interval as well. An application that dies within one interval of every start
-        // would otherwise never deliver them.
-        if (!stopped && !offline && hasEventsFromPreviousRun.compareAndSet(true, false)) {
+        // wait out an interval as well, only the launch gate. An application that dies within one interval
+        // of every start would otherwise never deliver them.
+        if (!stopped && !offline && launchGateOpen && hasEventsFromPreviousRun.compareAndSet(true, false)) {
             submit(this::deliverPayload);
         }
         boolean diagnosticsEnabled = !stopped && diagnosticStore != null && !offline && !inBackground;
         diagnosticTask = enableOrDisableTask(diagnosticsEnabled, diagnosticTask,
                 diagnosticRecordingIntervalMillis, this::sendDiagnosticStats);
-        if (diagnosticsEnabled && !diagnosticInitSent && claimDiagnosticPost()) {
+        if (diagnosticsEnabled && launchGateOpen && !diagnosticInitSent && claimDiagnosticPost()) {
             DiagnosticStore store = diagnosticStore;
             postDiagnostic(() -> {
                 // Re-checked on the posting thread: going online and coming to the foreground are
@@ -1762,6 +1861,70 @@ final class DirectEventProcessor implements EventProcessor {
                     sendDiagnosticEvent(store.getInitEvent(), true);
                 }
             });
+        }
+    }
+
+    /**
+     * Opens the launch gate if it may open now, and otherwise looks again when it next could: at the floor,
+     * then at the cap, or sooner once the flag request settles. On the scheduler thread.
+     */
+    private void checkLaunchGate() {
+        if (launchGateOpen || isStopped()) {
+            return;
+        }
+        long sinceOnline = System.nanoTime() - wentOnlineNanos;
+        long floor = TimeUnit.MILLISECONDS.toNanos(flagTimings.launchFloorMillis);
+        long cap = TimeUnit.MILLISECONDS.toNanos(flagTimings.launchCapMillis);
+        if (sinceOnline < floor) {
+            scheduleLaunchGateCheck(floor - sinceOnline);
+            return;
+        }
+        String why = flagTraffic.launchGateReason(sinceOnline >= cap, flagTimings.launchCapMillis);
+        if (why == null) {
+            scheduleLaunchGateCheck(cap - sinceOnline);
+            return;
+        }
+        launchGateOpen = true;
+        if (hasEventsFromPreviousRun.get()) {
+            logger.debug("Sending events from a previous run after {}", why);
+        }
+        synchronized (stateLock) {
+            updateScheduledTasks(inBackground.get(), offline.get());
+        }
+    }
+
+    private void scheduleLaunchGateCheck(long delayNanos) {
+        synchronized (submitLock) {
+            if (shuttingDown) {
+                return;
+            }
+            try {
+                scheduler.schedule(guarded(this::checkLaunchGate), delayNanos, TimeUnit.NANOSECONDS);
+            } catch (RuntimeException e) { // the executor was shut down under us
+            }
+        }
+    }
+
+    /**
+     * Holds the next batch of a delivery this processor started on its own: until a gap has passed since the
+     * last one answered, and then while a flag request is in flight, up to a limit. A backlog this sends
+     * unasked otherwise takes the network for as long as it lasts, an {@code identify}'s flag request
+     * included.
+     * <p>
+     * A delivery someone asked for, going offline, or close ends the pacing, and the rest go out back to
+     * back: the delivery they queue runs on this thread, behind this one.
+     */
+    private void awaitTurnToPost() {
+        long gapEnds = pacedPostsInPass == 0 ? System.nanoTime()
+                : lastPacedPostEndedNanos + TimeUnit.MILLISECONDS.toNanos(flagTimings.gapMillis);
+        try {
+            if (!flagTraffic.awaitTurn(gapEnds, TimeUnit.MILLISECONDS.toNanos(flagTimings.flagRequestWaitMillis),
+                    () -> closed.get() || offline.get() || requestedDeliveryQueued)) {
+                pacedPass = false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            pacedPass = false;
         }
     }
 

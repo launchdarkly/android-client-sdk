@@ -118,6 +118,14 @@ abstract class ComponentsImpl {
             return this;
         }
 
+        // How long events give way to flag requests, settable by tests the specified waits would slow.
+        private FlagTraffic.Timings flagTimings = FlagTraffic.Timings.SPECIFIED;
+
+        EventProcessorBuilderImpl flagTimingsForTesting(FlagTraffic.Timings flagTimings) {
+            this.flagTimings = flagTimings;
+            return this;
+        }
+
         private DeliveryRetryState makeRetryState() {
             if (retryNormalCeilingMillis < 0) {
                 return new DeliveryRetryState(flushIntervalMillis);
@@ -156,6 +164,7 @@ abstract class ComponentsImpl {
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    flagTimings,
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),
