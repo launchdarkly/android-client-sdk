@@ -3374,6 +3374,33 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlagRequestPastTheCapHoldsNoBatchAnyLonger() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(2);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = nextRunOffline(server, new FlagTraffic.Timings(100, 2_000, 300, 2_000), true);
+            try {
+                ((FlagRequestListener) nextRun).flagRequestStarted();
+                long wentOnline = System.nanoTime();
+                nextRun.setOffline(false);
+
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                long first = System.nanoTime();
+                server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
+                long second = System.nanoTime();
+
+                // Waiting on the request again would add the 2,000ms wait to each batch.
+                assertTrue("the first batch went " + TimeUnit.NANOSECONDS.toMillis(first - wentOnline)
+                        + "ms after going online", first - wentOnline < TimeUnit.MILLISECONDS.toNanos(3_000));
+                assertTrue("the second batch went " + TimeUnit.NANOSECONDS.toMillis(second - first)
+                        + "ms after the first", second - first < TimeUnit.MILLISECONDS.toNanos(1_500));
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
     public void aFlushSendsEventsFromAPreviousRunWithoutWaitingForTheLaunchGate() throws Exception {
         assumePersisting();
         leaveEventsFromAPreviousRun(1);

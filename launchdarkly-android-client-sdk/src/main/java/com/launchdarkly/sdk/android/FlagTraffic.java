@@ -33,7 +33,11 @@ final class FlagTraffic {
         final long launchCapMillis;
         /** The least time between one paced batch's answer and the next batch's request. */
         final long gapMillis;
-        /** The longest a paced batch waits for a flag request in flight, so that a hung one cannot stop delivery. */
+        /**
+         * How long after a flag request starts that paced batches stop waiting for it, so that a hung one cannot stop
+         * delivery. It counts from the request rather than from each batch, so the launch gate's cap and the batches
+         * after it never wait on the same request again.
+         */
         final long flagRequestWaitMillis;
 
         Timings(long launchFloorMillis, long launchCapMillis, long gapMillis, long flagRequestWaitMillis) {
@@ -52,12 +56,16 @@ final class FlagTraffic {
     private final Object lock = new Object();
     // Guarded by lock.
     private boolean inFlight;
+    /** When the request in flight started, on {@link System#nanoTime()}. */
+    private long startedNanos;
     /** How the last flag request ended, or null if none has. */
     private FlagRequestListener.Outcome lastOutcome;
 
     void started() {
         synchronized (lock) {
             inFlight = true;
+            startedNanos = System.nanoTime();
+            lock.notifyAll();
         }
     }
 
@@ -98,14 +106,12 @@ final class FlagTraffic {
     }
 
     /**
-     * Waits until {@code gapEndsNanos}, and then for as long as a flag request is in flight, up to
-     * {@code flagWaitNanos} of that.
+     * Waits until {@code gapEndsNanos}, and then for as long as a flag request is in flight, until
+     * {@code flagWaitNanos} after that request started.
      *
      * @return true when it is the batch's turn; false if {@code stop} ended the wait
      */
     boolean awaitTurn(long gapEndsNanos, long flagWaitNanos, Stop stop) throws InterruptedException {
-        boolean waitingOnFlags = false;
-        long flagWaitEndsNanos = 0;
         synchronized (lock) {
             while (true) {
                 if (stop.now()) {
@@ -117,11 +123,7 @@ final class FlagTraffic {
                     if (!inFlight) {
                         return true;
                     }
-                    if (!waitingOnFlags) {
-                        waitingOnFlags = true;
-                        flagWaitEndsNanos = now + flagWaitNanos;
-                    }
-                    remaining = flagWaitEndsNanos - now;
+                    remaining = startedNanos + flagWaitNanos - now;
                     if (remaining <= 0) {
                         return true;
                     }
