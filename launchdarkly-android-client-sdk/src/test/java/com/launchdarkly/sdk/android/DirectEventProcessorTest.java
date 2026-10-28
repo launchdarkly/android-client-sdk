@@ -3471,14 +3471,36 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aPeriodicDeliveryOfABacklogIsPacedToo() throws Exception {
+    public void aFlushIntervalShorterThanTheLaunchDelayDoesNotSendEventsFromAPreviousRun() throws Exception {
+        assumePersisting();
+        leaveEventsFromAPreviousRun(1);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor nextRun = buildOfflineEventProcessor(server,
+                    ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY).flushIntervalMillis(100))
+                            .pacingForTesting(new DirectEventProcessor.Pacing(800, 0)),
+                    true);
+            try {
+                long wentOnline = System.nanoTime();
+                nextRun.setOffline(false);
+
+                server.getRecorder().requireNoRequests(500, TimeUnit.MILLISECONDS);
+                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"previous-run-0\""));
+                assertTrue(System.nanoTime() - wentOnline >= TimeUnit.MILLISECONDS.toNanos(800));
+            } finally {
+                nextRun.close();
+            }
+        }
+    }
+
+    @Test
+    public void aBacklogStaysPacedThroughTheFlushIntervalsThatEndDuringIt() throws Exception {
         assumePersisting();
         leaveEventsFromAPreviousRun(2);
         try (HttpServer server = startEventsServer()) {
-            // A launch delay longer than the test, so that the interval rather than the gate starts the delivery.
             EventProcessor nextRun = buildOfflineEventProcessor(server,
                     ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY).flushIntervalMillis(200))
-                            .pacingForTesting(new DirectEventProcessor.Pacing(60_000, 1_000)),
+                            .pacingForTesting(new DirectEventProcessor.Pacing(200, 1_000)),
                     true);
             try {
                 nextRun.setOffline(false);

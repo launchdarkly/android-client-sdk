@@ -588,6 +588,21 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
+     * The periodic flush, on the scheduler thread. Until the launch gate opens it only commits, where events persist:
+     * a delivery sends the oldest batches first, which are what a previous run left, so one now would send them ahead
+     * of the gate. What this run recorded goes with the first delivery after the gate opens.
+     */
+    private void flushIntervalEnded() {
+        if (!launchGateOpen) {
+            if (store.isPersisting()) {
+                committer.commitDurably();
+            }
+            return;
+        }
+        deliverPayload();
+    }
+
+    /**
      * Writes everything accepted so far, then delivers.
      * <p>
      * This commit looks redundant with the one in {@link EventCommitter#commitAndCloseBatch()}, and online it is: the
@@ -919,7 +934,7 @@ final class DirectEventProcessor implements EventProcessor {
         // far longer than one interval. Left running, what an outage buffered goes out at the first
         // run after it ends.
         flushTask = EventUtil.enableOrDisableTask(scheduler, !stopped, flushTask, flushIntervalMillis,
-                guarded(this::deliverPayload));
+                guarded(this::flushIntervalEnded));
         if (!stopped && !offline && !wentOnline) {
             wentOnlineNanos = System.nanoTime();
             wentOnline = true;
