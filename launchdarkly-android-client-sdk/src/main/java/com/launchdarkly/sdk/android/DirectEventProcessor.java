@@ -581,7 +581,7 @@ final class DirectEventProcessor implements EventProcessor {
      * is only ever scheduled once the one before it has finished and these cannot pile up the way requested
      * flushes could.
      * <p>
-     * Paced where events give way to flags, since nobody asked for it now: see {@link DeliveryRun#awaitTurn()}.
+     * Paced where events give way to flags, since nobody asked for it now: see {@link EventDeliveryRun#awaitTurn()}.
      */
     private void deliverPayload() {
         commitAndDeliverReportingOutcome(deliveryScheduler.ownRun());
@@ -602,7 +602,7 @@ final class DirectEventProcessor implements EventProcessor {
      * {@code commitAndCloseBatch} is the drain, and offline it would encode events that cannot be sent
      * into bytes that wait in memory exactly as the events would have.
      */
-    private DeliveryOutcome commitAndDeliverReportingOutcome(DeliveryRun run) {
+    private DeliveryOutcome commitAndDeliverReportingOutcome(EventDeliveryRun run) {
         if (store.isPersisting()) {
             committer.commitDurably();
         }
@@ -660,7 +660,7 @@ final class DirectEventProcessor implements EventProcessor {
      * Runs on the scheduler thread, as every delivery does, so no two overlap; see the class
      * documentation.
      */
-    private DeliveryOutcome deliverPayloadAndRetryLater(DeliveryRun run) {
+    private DeliveryOutcome deliverPayloadAndRetryLater(EventDeliveryRun run) {
         if (offline.get()) {
             return DeliveryOutcome.CLOSED_NOTHING;
         }
@@ -702,7 +702,7 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link EventLogFormat#MAX_BATCH_SIZE} rather than one per pass. It is committed all the same, since
      * a pass is a commit point.
      */
-    private DeliveryPass deliverWaitingThenNew(DeliveryRun run) {
+    private DeliveryPass deliverWaitingThenNew(EventDeliveryRun run) {
         BatchesOutcome waiting = deliverPendingBatches(run);
         if (waiting.kept()) {
             return new DeliveryPass(waiting, committer.commitLeavingTheLogOpen());
@@ -738,7 +738,7 @@ final class DirectEventProcessor implements EventProcessor {
      * Stops at the first failure that may pass. The batches behind it would most likely meet the same
      * network, and the retry takes all of them again.
      */
-    private BatchesOutcome deliverPendingBatches(DeliveryRun run) {
+    private BatchesOutcome deliverPendingBatches(EventDeliveryRun run) {
         reportDiscarded(store.discardExpired());
         return deliverListedBatches(run);
     }
@@ -750,7 +750,7 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link BatchesOutcome#RETRYABLE}: a batch the listing could not see is still on the disk, and the
      * listing may work next time.
      */
-    private BatchesOutcome deliverListedBatches(DeliveryRun run) {
+    private BatchesOutcome deliverListedBatches(EventDeliveryRun run) {
         EventStore.Listing listing = store.listPendingBatches();
         boolean allDelivered = true;
         for (EventStore.Batch batch : listing.batches) {
@@ -811,7 +811,7 @@ final class DirectEventProcessor implements EventProcessor {
      *   {@link #BAD_REQUESTS_BEFORE_DROPPING} times in a row; RETRYABLE if it is kept to be sent again,
      *   which is every other failure to post it; HELD for a post the backoff did not allow
      */
-    private BatchesOutcome deliver(EventStore.Batch batch, DeliveryRun run) {
+    private BatchesOutcome deliver(EventStore.Batch batch, EventDeliveryRun run) {
         if (!run.postsThroughTheBackoff() && retryState.remainingWaitNanos() > 0) {
             // Not an attempt, so it moves nothing in the backoff.
             return BatchesOutcome.HELD;

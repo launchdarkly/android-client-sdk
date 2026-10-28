@@ -27,7 +27,7 @@ final class EventDeliveryScheduler {
     private final ScheduledExecutorService scheduler;
     private final boolean pacesDeliveries;
     private final long gapMillis;
-    private final DeliveryRun.PacingEnd pacingEnd;
+    private final EventDeliveryRun.PacingEnd pacingEnd;
     private final LDLogger logger;
 
     // Guarded by submitLock.
@@ -85,7 +85,7 @@ final class EventDeliveryScheduler {
      * @param pacingEnd what else, besides a requested delivery queuing, ends a paced delivery's wait
      */
     EventDeliveryScheduler(ScheduledExecutorService scheduler, boolean pacesDeliveries, long gapMillis,
-                      DeliveryRun.PacingEnd pacingEnd, LDLogger logger) {
+                      EventDeliveryRun.PacingEnd pacingEnd, LDLogger logger) {
         this.scheduler = scheduler;
         this.pacesDeliveries = pacesDeliveries;
         this.gapMillis = gapMillis;
@@ -97,22 +97,22 @@ final class EventDeliveryScheduler {
      * Starts a run of the processor's own, which is paced where deliveries are, since nobody asked for it now.
      * On the scheduler thread.
      */
-    DeliveryRun ownRun() {
+    EventDeliveryRun ownRun() {
         return newRun(false, pacesDeliveries);
     }
 
     /** Starts a run someone asked for, or a retry, which goes out back to back. On the scheduler thread. */
-    DeliveryRun requestedRun() {
+    EventDeliveryRun requestedRun() {
         return newRun(false, false);
     }
 
     /** Starts close()'s final run, which posts whatever wait the backoff is in. On the scheduler thread. */
-    DeliveryRun closingRun() {
+    EventDeliveryRun closingRun() {
         return newRun(true, false);
     }
 
-    private DeliveryRun newRun(boolean throughTheBackoff, boolean paced) {
-        return new DeliveryRun(throughTheBackoff, paced, gapMillis, pacingLock,
+    private EventDeliveryRun newRun(boolean throughTheBackoff, boolean paced) {
+        return new EventDeliveryRun(throughTheBackoff, paced, gapMillis, pacingLock,
                 () -> requestedDeliveryQueued || pacingEnd.reached());
     }
 

@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * Made by {@link EventDeliveryScheduler} as the pass begins, and only used on the scheduler thread that runs it.
  */
-final class DeliveryRun {
+final class EventDeliveryRun {
     /** Whether something has happened that ends a paced run's wait for good: close, going offline, a flush. */
     interface PacingEnd {
         boolean reached();
@@ -24,7 +24,7 @@ final class DeliveryRun {
     private int posts;
     private long lastPostEndedNanos;
 
-    DeliveryRun(boolean throughTheBackoff, boolean paced, long gapMillis, Object turnLock, PacingEnd pacingEnd) {
+    EventDeliveryRun(boolean throughTheBackoff, boolean paced, long gapMillis, Object turnLock, PacingEnd pacingEnd) {
         this.throughTheBackoff = throughTheBackoff;
         this.paced = paced;
         this.gapNanos = TimeUnit.MILLISECONDS.toNanos(gapMillis);
