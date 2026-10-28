@@ -340,9 +340,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             if (oldDataSource != null) {
                 logger.debug("Stopping current data source");
                 oldDataSource.stop(LDUtil.noOpCallback());
-                if (!flagRequestAnswered.getAndSet(true)) {
-                    reportFlagRequestSettled(FlagRequestListener.Outcome.STOPPED);
-                }
+                reportFlagRequestStopped();
             }
         }
         if (!shouldStartDataSourceIfStopped || currentDataSource.get() != null) {
@@ -410,6 +408,13 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         });
 
         return true;
+    }
+
+    /** Reports the stopped source's request as stopped, unless it already answered. */
+    private void reportFlagRequestStopped() {
+        if (!flagRequestAnswered.getAndSet(true)) {
+            reportFlagRequestSettled(FlagRequestListener.Outcome.STOPPED);
+        }
     }
 
     private void reportFlagRequestSettled(FlagRequestListener.Outcome outcome) {
@@ -624,6 +629,7 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         DataSource oldDataSource = currentDataSource.getAndSet(null);
         if (oldDataSource != null) {
             oldDataSource.stop(LDUtil.noOpCallback());
+            reportFlagRequestStopped();
         }
         if (dataSourceFactory instanceof Closeable) {
             try {

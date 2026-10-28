@@ -33,6 +33,7 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSink;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import org.easymock.EasyMockRule;
@@ -942,6 +943,36 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertEquals("settled STOPPED", recorder.require());
         // The stopped source answering late is not mistaken for the next one's request.
         answer.onSuccess(true);
+        recorder.requireNoMore();
+    }
+
+    @Test
+    public void aDataSourceShuttingTheClientDownBeforeItAnswersReportsTheRequestStopped() {
+        FlagRequestRecorder recorder = new FlagRequestRecorder();
+        BlockingQueue<Callback<Boolean>> answers = new LinkedBlockingQueue<>();
+        BlockingQueue<DataSourceUpdateSink> sinks = new LinkedBlockingQueue<>();
+        ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext -> new DataSource() {
+            @Override
+            public void start(@NonNull Callback<Boolean> resultCallback) {
+                sinks.add(clientContext.getDataSourceUpdateSink());
+                answers.add(resultCallback);
+            }
+
+            @Override
+            public void stop(@NonNull Callback<Void> completionCallback) {
+                completionCallback.onSuccess(null);
+            }
+        };
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer, recorder);
+        connectivityManager.startUp(contextDataManager, LDUtil.noOpCallback());
+        assertEquals("started", recorder.require());
+        Callback<Boolean> answer = requireValue(answers, 1, TimeUnit.SECONDS, "starting of data source");
+
+        // What a data source does on a 401, before it reports the error.
+        requireValue(sinks, 1, TimeUnit.SECONDS, "the data source's sink").shutDown();
+
+        assertEquals("settled STOPPED", recorder.require());
+        answer.onError(new Throwable());
         recorder.requireNoMore();
     }
 
