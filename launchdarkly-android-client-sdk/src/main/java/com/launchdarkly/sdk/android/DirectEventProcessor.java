@@ -439,14 +439,13 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * {@link #flushAsync()} for a caller about to lose the ability to send the events, such as an uncaught
-     * exception handler: {@code LDClient.flushAndWait}, and {@code LDCrashHandler} through it.
-     * <p>
-     * It posts whatever wait the backoff is in, as close() does. After a refusal that wait is minutes to an
-     * hour, and where nothing persists the events would not outlive it. The caller's timeout bounds how long
-     * it waits for the answer.
+     * {@link #flushAsync()} that bypasses the backoff: it posts whatever wait the backoff is in, as close()
+     * does. For a caller about to lose the ability to send the events, such as an uncaught exception
+     * handler: {@code LDClient.flushAndWait}, and {@code LDCrashHandler} through it. After a refusal that wait
+     * is minutes to an hour, and where nothing persists the events would not outlive it. The caller's timeout
+     * bounds how long it waits for the answer.
      */
-    Future<Boolean> flushAsLastChance() {
+    Future<Boolean> flushBypassingBackoff() {
         if (isStopped()) {
             return new LDSuccessFuture<>(false);
         }
@@ -460,10 +459,10 @@ final class DirectEventProcessor implements EventProcessor {
      *
      * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
      *   any events lost up to the batch it closes, and false if the caller discards it
-     * @param lastChance true if the delivery is to post through the backoff
+     * @param bypassBackoff true if the delivery is to post whatever wait the backoff is in
      */
-    private Future<Boolean> queueDelivery(boolean answersACaller, boolean lastChance) {
-        return deliveryScheduler.queue(answersACaller, lastChance, this::runDelivery);
+    private Future<Boolean> queueDelivery(boolean answersACaller, boolean bypassBackoff) {
+        return deliveryScheduler.queue(answersACaller, bypassBackoff, this::runDelivery);
     }
 
     /**
@@ -478,7 +477,7 @@ final class DirectEventProcessor implements EventProcessor {
     private void runDelivery(LDAwaitFuture<Boolean> result, EventDeliveryScheduler.Joined joined) {
         DeliveryOutcome outcome;
         try {
-            outcome = commitAndDeliverReportingOutcome(deliveryScheduler.requestedRun(joined.lastChance));
+            outcome = commitAndDeliverReportingOutcome(deliveryScheduler.requestedRun(joined.bypassesBackoff));
         } catch (Throwable t) {
             // Caught here rather than left to guarded(), because a caller is waiting on the future
             // and completing it matters more than the stack reaching the executor.

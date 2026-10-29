@@ -3064,7 +3064,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aLastChanceFlushPostsThroughTheBackoffsWait() throws Exception {
+    public void aFlushBypassingTheBackoffPostsDuringItsWait() throws Exception {
         HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
         try (HttpServer server = HttpServer.start(service)) {
             DirectEventProcessor eventProcessor =
@@ -3074,12 +3074,12 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
                 service.setTarget(Handlers.status(202));
-                eventProcessor.recordCustomEvent(CONTEXT, "last-chance", LDValue.ofNull(), null);
+                eventProcessor.recordCustomEvent(CONTEXT, "bypassing", LDValue.ofNull(), null);
 
-                assertTrue(eventProcessor.flushAsLastChance().get(10, TimeUnit.SECONDS));
+                assertTrue(eventProcessor.flushBypassingBackoff().get(10, TimeUnit.SECONDS));
 
                 String posted = "";
-                while (!posted.contains("last-chance")) {
+                while (!posted.contains("bypassing")) {
                     posted += server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody();
                 }
                 assertTrue(posted.contains("\"key\":\"refused\""));
@@ -3090,7 +3090,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aRefusedLastChanceFlushLeavesOrdinaryFlushesWaitingOutTheBackoff() throws Exception {
+    public void aRefusedFlushBypassingTheBackoffLeavesOrdinaryFlushesWaitingItOut() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.status(401))) {
             DirectEventProcessor eventProcessor =
                     (DirectEventProcessor) makeEventProcessor(server, DEFAULT_CAPACITY);
@@ -3099,7 +3099,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
 
-                assertFalse(eventProcessor.flushAsLastChance().get(10, TimeUnit.SECONDS));
+                assertFalse(eventProcessor.flushBypassingBackoff().get(10, TimeUnit.SECONDS));
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
 
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
@@ -3112,7 +3112,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aLastChanceFlushAskedForBehindAnOrdinaryOnePostsThroughTheBackoff() throws Exception {
+    public void aFlushBypassingTheBackoffAskedForBehindAnOrdinaryOneStillPosts() throws Exception {
         HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
         try (HttpServer server = HttpServer.start(service)) {
             DirectEventProcessor eventProcessor =
@@ -3123,12 +3123,12 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
                 service.setTarget(Handlers.status(202));
 
-                // Whether the last chance joins the ordinary delivery before it starts or queues behind it,
-                // it posts.
+                // Whether the bypassing flush joins the ordinary delivery before it starts or queues behind
+                // it, it posts.
                 Future<Boolean> ordinary = eventProcessor.flushAsync();
-                Future<Boolean> lastChance = eventProcessor.flushAsLastChance();
+                Future<Boolean> bypassing = eventProcessor.flushBypassingBackoff();
 
-                assertTrue(lastChance.get(10, TimeUnit.SECONDS));
+                assertTrue(bypassing.get(10, TimeUnit.SECONDS));
                 ordinary.get(10, TimeUnit.SECONDS);
                 assertTrue(server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody()
                         .contains("\"key\":\"refused\""));

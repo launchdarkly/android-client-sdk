@@ -30,12 +30,12 @@ final class EventDeliveryScheduler {
 
         /** Whether a caller who hears the outcome joined it. */
         final boolean answersACaller;
-        /** Whether a caller for whom it is the last chance joined it, so that it posts through the backoff. */
-        final boolean lastChance;
+        /** Whether a caller bypassing the backoff joined it, so that it posts whatever wait the backoff is in. */
+        final boolean bypassesBackoff;
 
-        private Joined(boolean answersACaller, boolean lastChance) {
+        private Joined(boolean answersACaller, boolean bypassesBackoff) {
             this.answersACaller = answersACaller;
-            this.lastChance = lastChance;
+            this.bypassesBackoff = bypassesBackoff;
         }
     }
 
@@ -85,8 +85,8 @@ final class EventDeliveryScheduler {
      */
     private boolean pendingFlushAnswersACaller;
 
-    /** Whether a caller for whom it is the last chance is waiting on {@link #pendingFlush}. */
-    private boolean pendingFlushIsLastChance;
+    /** Whether a caller bypassing the backoff is waiting on {@link #pendingFlush}. */
+    private boolean pendingFlushBypassesBackoff;
 
     /**
      * Whether a delivery someone asked for is queued, which a paced delivery holding the scheduler stops
@@ -122,11 +122,10 @@ final class EventDeliveryScheduler {
     /**
      * Starts a run someone asked for, or a retry, which goes out back to back. On the scheduler thread.
      *
-     * @param lastChance whether it is a caller's last chance to send the events, which posts whatever wait
-     *   the backoff is in, as {@link #closingRun()} does
+     * @param bypassBackoff whether it posts whatever wait the backoff is in, as {@link #closingRun()} does
      */
-    EventDeliveryRun requestedRun(boolean lastChance) {
-        return newRun(lastChance, false);
+    EventDeliveryRun requestedRun(boolean bypassBackoff) {
+        return newRun(bypassBackoff, false);
     }
 
     /** Starts close()'s final run, which posts whatever wait the backoff is in. On the scheduler thread. */
@@ -148,16 +147,16 @@ final class EventDeliveryScheduler {
      * the {@code flushAndWait} at shutdown -- waits behind all of them.
      *
      * @param answersACaller true if the caller will hear the outcome, and false if the caller discards it
-     * @param lastChance true if it is the caller's last chance to send the events, which makes the delivery,
-     *   or the queued one it joins, post through the backoff
+     * @param bypassBackoff true if the delivery, or the queued one it joins, is to post whatever wait the
+     *   backoff is in
      * @return what the delivery answers, or false at once if it is shutting down and nothing will be sent
      */
-    Future<Boolean> queue(boolean answersACaller, boolean lastChance, RequestedDelivery delivery) {
+    Future<Boolean> queue(boolean answersACaller, boolean bypassBackoff, RequestedDelivery delivery) {
         LDAwaitFuture<Boolean> result;
         synchronized (flushLock) {
             if (pendingFlush != null) {
                 pendingFlushAnswersACaller |= answersACaller;
-                pendingFlushIsLastChance |= lastChance;
+                pendingFlushBypassesBackoff |= bypassBackoff;
                 return pendingFlush;
             }
             LDAwaitFuture<Boolean> queued = new LDAwaitFuture<>();
@@ -167,7 +166,7 @@ final class EventDeliveryScheduler {
             result = queued;
             pendingFlush = result;
             pendingFlushAnswersACaller = answersACaller;
-            pendingFlushIsLastChance = lastChance;
+            pendingFlushBypassesBackoff = bypassBackoff;
             requestedDeliveryQueued = true;
         }
         // A paced delivery holding the scheduler sends the rest back to back, so this one is not held behind it.
@@ -188,9 +187,9 @@ final class EventDeliveryScheduler {
             }
             pendingFlush = null;
             requestedDeliveryQueued = false;
-            Joined joined = new Joined(pendingFlushAnswersACaller, pendingFlushIsLastChance);
+            Joined joined = new Joined(pendingFlushAnswersACaller, pendingFlushBypassesBackoff);
             pendingFlushAnswersACaller = false;
-            pendingFlushIsLastChance = false;
+            pendingFlushBypassesBackoff = false;
             return joined;
         }
     }

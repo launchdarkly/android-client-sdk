@@ -33,8 +33,8 @@ final class EventDeliveryRun {
     }
 
     /**
-     * Set for close()'s final delivery and a last-chance flush, which may post while the backoff would not
-     * allow it.
+     * Set for close()'s final delivery and a flush bypassing the backoff, which may post while the backoff
+     * would not allow it.
      */
     boolean postsThroughTheBackoff() {
         return throughTheBackoff;

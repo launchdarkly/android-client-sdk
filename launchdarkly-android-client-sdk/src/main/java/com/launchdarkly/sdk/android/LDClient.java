@@ -813,7 +813,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // caller's budget on deliveries that could have been running all along.
         List<Future<Boolean>> deliveries = new ArrayList<>(clients.size());
         for (LDClient client : clients.values()) {
-            deliveries.add(client.flushAsLastChance());
+            deliveries.add(client.flushBypassingBackoff());
         }
         boolean delivered = true;
         for (Future<Boolean> delivery : deliveries) {
@@ -829,9 +829,9 @@ public class LDClient implements LDClientInterface, Closeable {
      * about to lose the ability to send. An event processor the application supplied has no such flush, and
      * gets its ordinary one.
      */
-    private Future<Boolean> flushAsLastChance() {
+    private Future<Boolean> flushBypassingBackoff() {
         if (eventProcessor instanceof DirectEventProcessor) {
-            return ((DirectEventProcessor) eventProcessor).flushAsLastChance();
+            return ((DirectEventProcessor) eventProcessor).flushBypassingBackoff();
         }
         return eventProcessor.flushAsync();
     }
