@@ -19,9 +19,24 @@ import java.util.concurrent.TimeUnit;
  * handover from running to shut down.
  */
 final class EventDeliveryScheduler {
-    /** A requested delivery, given the future its callers wait on and whether one of them hears the outcome. */
+    /** A requested delivery, given the future its callers wait on and who joined it by the time it began. */
     interface RequestedDelivery {
-        void run(LDAwaitFuture<Boolean> result, boolean answersACaller);
+        void run(LDAwaitFuture<Boolean> result, Joined joined);
+    }
+
+    /** Who joined a requested delivery by the time it began. */
+    static final class Joined {
+        private static final Joined NOBODY = new Joined(false, false);
+
+        /** Whether a caller who hears the outcome joined it. */
+        final boolean answersACaller;
+        /** Whether a caller for whom it is the last chance joined it, so that it posts through the backoff. */
+        final boolean lastChance;
+
+        private Joined(boolean answersACaller, boolean lastChance) {
+            this.answersACaller = answersACaller;
+            this.lastChance = lastChance;
+        }
     }
 
     private final ScheduledExecutorService scheduler;
@@ -51,7 +66,7 @@ final class EventDeliveryScheduler {
     // Guarded by flushLock.
 
     /**
-     * Guards {@link #pendingFlush} and {@link #pendingFlushAnswersACaller}. Taken on a caller's thread and
+     * Guards {@link #pendingFlush} and who has joined it. Taken on a caller's thread and
      * on the delivery thread, never while holding the committer's record lock, and nothing blocking happens
      * under it.
      */
@@ -69,6 +84,9 @@ final class EventDeliveryScheduler {
      * callers that discard it.
      */
     private boolean pendingFlushAnswersACaller;
+
+    /** Whether a caller for whom it is the last chance is waiting on {@link #pendingFlush}. */
+    private boolean pendingFlushIsLastChance;
 
     /**
      * Whether a delivery someone asked for is queued, which a paced delivery holding the scheduler stops
@@ -101,9 +119,14 @@ final class EventDeliveryScheduler {
         return newRun(false, pacesDeliveries);
     }
 
-    /** Starts a run someone asked for, or a retry, which goes out back to back. On the scheduler thread. */
-    EventDeliveryRun requestedRun() {
-        return newRun(false, false);
+    /**
+     * Starts a run someone asked for, or a retry, which goes out back to back. On the scheduler thread.
+     *
+     * @param lastChance whether it is a caller's last chance to send the events, which posts whatever wait
+     *   the backoff is in, as {@link #closingRun()} does
+     */
+    EventDeliveryRun requestedRun(boolean lastChance) {
+        return newRun(lastChance, false);
     }
 
     /** Starts close()'s final run, which posts whatever wait the backoff is in. On the scheduler thread. */
@@ -125,13 +148,16 @@ final class EventDeliveryScheduler {
      * the {@code flushAndWait} at shutdown -- waits behind all of them.
      *
      * @param answersACaller true if the caller will hear the outcome, and false if the caller discards it
+     * @param lastChance true if it is the caller's last chance to send the events, which makes the delivery,
+     *   or the queued one it joins, post through the backoff
      * @return what the delivery answers, or false at once if it is shutting down and nothing will be sent
      */
-    Future<Boolean> queue(boolean answersACaller, RequestedDelivery delivery) {
+    Future<Boolean> queue(boolean answersACaller, boolean lastChance, RequestedDelivery delivery) {
         LDAwaitFuture<Boolean> result;
         synchronized (flushLock) {
             if (pendingFlush != null) {
                 pendingFlushAnswersACaller |= answersACaller;
+                pendingFlushIsLastChance |= lastChance;
                 return pendingFlush;
             }
             LDAwaitFuture<Boolean> queued = new LDAwaitFuture<>();
@@ -141,6 +167,7 @@ final class EventDeliveryScheduler {
             result = queued;
             pendingFlush = result;
             pendingFlushAnswersACaller = answersACaller;
+            pendingFlushIsLastChance = lastChance;
             requestedDeliveryQueued = true;
         }
         // A paced delivery holding the scheduler sends the rest back to back, so this one is not held behind it.
@@ -152,18 +179,19 @@ final class EventDeliveryScheduler {
      * Takes a queued delivery off the queue as it begins, so that requests arriving from then on need a
      * delivery of their own: this one is about to take the buffer, and what it takes is all it can speak for.
      *
-     * @return whether a caller who hears the outcome joined it
+     * @return who joined it
      */
-    private boolean begin(LDAwaitFuture<Boolean> result) {
+    private Joined begin(LDAwaitFuture<Boolean> result) {
         synchronized (flushLock) {
             if (pendingFlush != result) {
-                return false;
+                return Joined.NOBODY;
             }
             pendingFlush = null;
             requestedDeliveryQueued = false;
-            boolean answersACaller = pendingFlushAnswersACaller;
+            Joined joined = new Joined(pendingFlushAnswersACaller, pendingFlushIsLastChance);
             pendingFlushAnswersACaller = false;
-            return answersACaller;
+            pendingFlushIsLastChance = false;
+            return joined;
         }
     }
 

@@ -410,7 +410,7 @@ final class DirectEventProcessor implements EventProcessor {
             return;
         }
         committer.commitBeforeDelivery();
-        queueDelivery(false);
+        queueDelivery(false, false);
     }
 
     @Override
@@ -419,7 +419,7 @@ final class DirectEventProcessor implements EventProcessor {
             return;
         }
         committer.commitBeforeDelivery();
-        Future<Boolean> delivery = queueDelivery(false);
+        Future<Boolean> delivery = queueDelivery(false, false);
         try {
             delivery.get();
         } catch (InterruptedException e) {
@@ -435,7 +435,23 @@ final class DirectEventProcessor implements EventProcessor {
             return new LDSuccessFuture<>(false);
         }
         committer.queueCommitBeforeDelivery();
-        return queueDelivery(true);
+        return queueDelivery(true, false);
+    }
+
+    /**
+     * {@link #flushAsync()} for a caller about to lose the ability to send the events, such as an uncaught
+     * exception handler: {@code LDClient.flushAndWait}, and {@code LDCrashHandler} through it.
+     * <p>
+     * It posts whatever wait the backoff is in, as close() does. After a refusal that wait is minutes to an
+     * hour, and where nothing persists the events would not outlive it. The caller's timeout bounds how long
+     * it waits for the answer.
+     */
+    Future<Boolean> flushAsLastChance() {
+        if (isStopped()) {
+            return new LDSuccessFuture<>(false);
+        }
+        committer.queueCommitBeforeDelivery();
+        return queueDelivery(true, true);
     }
 
     /**
@@ -444,9 +460,10 @@ final class DirectEventProcessor implements EventProcessor {
      *
      * @param answersACaller true if the caller will hear the outcome, so that the delivery reports
      *   any events lost up to the batch it closes, and false if the caller discards it
+     * @param lastChance true if the delivery is to post through the backoff
      */
-    private Future<Boolean> queueDelivery(boolean answersACaller) {
-        return deliveryScheduler.queue(answersACaller, this::runDelivery);
+    private Future<Boolean> queueDelivery(boolean answersACaller, boolean lastChance) {
+        return deliveryScheduler.queue(answersACaller, lastChance, this::runDelivery);
     }
 
     /**
@@ -458,10 +475,10 @@ final class DirectEventProcessor implements EventProcessor {
      * on had passed them, because a delivery that finds nothing to send is not evidence that everything
      * recorded arrived.
      */
-    private void runDelivery(LDAwaitFuture<Boolean> result, boolean answersACaller) {
+    private void runDelivery(LDAwaitFuture<Boolean> result, EventDeliveryScheduler.Joined joined) {
         DeliveryOutcome outcome;
         try {
-            outcome = commitAndDeliverReportingOutcome(deliveryScheduler.requestedRun());
+            outcome = commitAndDeliverReportingOutcome(deliveryScheduler.requestedRun(joined.lastChance));
         } catch (Throwable t) {
             // Caught here rather than left to guarded(), because a caller is waiting on the future
             // and completing it matters more than the stack reaching the executor.
@@ -469,7 +486,7 @@ final class DirectEventProcessor implements EventProcessor {
             outcome = DeliveryOutcome.CLOSED_NOTHING;
         }
         // Claimed before the next delivery can run, however long this one's retry takes to answer.
-        boolean lostEvents = answersACaller && claimEventsLost(outcome.lostEventsMark);
+        boolean lostEvents = joined.answersACaller && claimEventsLost(outcome.lostEventsMark);
         if (outcome.retry == null) {
             answer(result, outcome.delivered, lostEvents);
         } else {
@@ -809,7 +826,7 @@ final class DirectEventProcessor implements EventProcessor {
             return false;
         }
         try {
-            BatchesOutcome outcome = deliverWaitingThenNew(deliveryScheduler.requestedRun()).outcome;
+            BatchesOutcome outcome = deliverWaitingThenNew(deliveryScheduler.requestedRun(false)).outcome;
             if (outcome == BatchesOutcome.HELD) {
                 deliveryScheduler.scheduleRetryAgain(this::retryPendingBatches, retryState.remainingWaitNanos());
             }

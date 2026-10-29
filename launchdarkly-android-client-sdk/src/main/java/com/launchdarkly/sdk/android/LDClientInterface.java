@@ -198,6 +198,12 @@ public interface LDClientInterface extends Closeable {
      * written before they were sent. A {@code false} because the timeout expired can come before the write
      * is done, and the events then survive the process only if it lives long enough for the write to finish.
      * <p>
+     * It posts even while delivery is backing off after a failure, as {@code close()} does. After a refusal
+     * such as a 401 or 403, the SDK waits about eight and a half minutes before posting again, doubling up to
+     * an hour, and a last chance that sat that out would make no attempt at all. {@link #flush()} and the
+     * periodic delivery still wait it out, so a call made routinely, rather than at a last chance, posts once
+     * per call while LaunchDarkly keeps refusing.
+     * <p>
      * This method is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
      * It is experimental.
      *
@@ -209,7 +215,8 @@ public interface LDClientInterface extends Closeable {
      *   earlier one. Events the service refuses with an error that may pass, such as a 503, are not
      *   lost: they are retried a second later and again by every flush after that, so a later call
      *   can still deliver them, and where persistence is on so can a later run of the application.
-     *   A 401 or 403 stops delivery for good. A {@code false} because the timeout expired does not
+     *   Events refused with a 401 or 403 are kept too, and posted again once the backoff allows, or by the
+     *   next call to this method. A {@code false} because the timeout expired does not
      *   mean the events were not sent: the delivery is left running when the caller stops waiting,
      *   and may still arrive if the process lives long enough. A caller that resends on
      *   {@code false} can therefore cause duplicates.

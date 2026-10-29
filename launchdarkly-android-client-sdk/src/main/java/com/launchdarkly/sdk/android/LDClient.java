@@ -813,7 +813,7 @@ public class LDClient implements LDClientInterface, Closeable {
         // caller's budget on deliveries that could have been running all along.
         List<Future<Boolean>> deliveries = new ArrayList<>(clients.size());
         for (LDClient client : clients.values()) {
-            deliveries.add(client.eventProcessor.flushAsync());
+            deliveries.add(client.flushAsLastChance());
         }
         boolean delivered = true;
         for (Future<Boolean> delivery : deliveries) {
@@ -822,6 +822,18 @@ public class LDClient implements LDClientInterface, Closeable {
             delivered &= awaitDelivery(delivery, Math.max(0, deadline - System.nanoTime()));
         }
         return delivered;
+    }
+
+    /**
+     * A flush that posts through the backoff, as close() does, since {@code flushAndWait} is for a caller
+     * about to lose the ability to send. An event processor the application supplied has no such flush, and
+     * gets its ordinary one.
+     */
+    private Future<Boolean> flushAsLastChance() {
+        if (eventProcessor instanceof DirectEventProcessor) {
+            return ((DirectEventProcessor) eventProcessor).flushAsLastChance();
+        }
+        return eventProcessor.flushAsync();
     }
 
     private boolean awaitDelivery(Future<Boolean> delivery, long remainingNanos) {

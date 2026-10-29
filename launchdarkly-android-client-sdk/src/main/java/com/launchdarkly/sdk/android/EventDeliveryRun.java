@@ -32,7 +32,10 @@ final class EventDeliveryRun {
         this.pacingEnd = pacingEnd;
     }
 
-    /** Set for close()'s final delivery, which may post while the backoff would not allow it. */
+    /**
+     * Set for close()'s final delivery and a last-chance flush, which may post while the backoff would not
+     * allow it.
+     */
     boolean postsThroughTheBackoff() {
         return throughTheBackoff;
     }

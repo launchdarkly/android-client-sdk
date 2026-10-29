@@ -20,7 +20,8 @@ import java.util.concurrent.TimeUnit;
  * flush, and those are often the ones that explain it. An uncaught exception runs its handlers while
  * the process is still alive, and this one uses that time to call
  * {@link LDClientInterface#flushAndWait(long, TimeUnit)} for every configured environment before
- * passing the exception on to the handler that was installed before it.
+ * passing the exception on to the handler that was installed before it. That delivery posts even while the
+ * SDK is backing off after a failed one, as closing the client does.
  * <p>
  * Install it before your crash reporter:
  *

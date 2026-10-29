@@ -3064,6 +3064,81 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aLastChanceFlushPostsThroughTheBackoffsWait() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
+        try (HttpServer server = HttpServer.start(service)) {
+            DirectEventProcessor eventProcessor =
+                    (DirectEventProcessor) makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                service.setTarget(Handlers.status(202));
+                eventProcessor.recordCustomEvent(CONTEXT, "last-chance", LDValue.ofNull(), null);
+
+                assertTrue(eventProcessor.flushAsLastChance().get(10, TimeUnit.SECONDS));
+
+                String posted = "";
+                while (!posted.contains("last-chance")) {
+                    posted += server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody();
+                }
+                assertTrue(posted.contains("\"key\":\"refused\""));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aRefusedLastChanceFlushLeavesOrdinaryFlushesWaitingOutTheBackoff() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            DirectEventProcessor eventProcessor =
+                    (DirectEventProcessor) makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+
+                assertFalse(eventProcessor.flushAsLastChance().get(10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                eventProcessor.flush();
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aLastChanceFlushAskedForBehindAnOrdinaryOnePostsThroughTheBackoff() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
+        try (HttpServer server = HttpServer.start(service)) {
+            DirectEventProcessor eventProcessor =
+                    (DirectEventProcessor) makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                service.setTarget(Handlers.status(202));
+
+                // Whether the last chance joins the ordinary delivery before it starts or queues behind it,
+                // it posts.
+                Future<Boolean> ordinary = eventProcessor.flushAsync();
+                Future<Boolean> lastChance = eventProcessor.flushAsLastChance();
+
+                assertTrue(lastChance.get(10, TimeUnit.SECONDS));
+                ordinary.get(10, TimeUnit.SECONDS);
+                assertTrue(server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"refused\""));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aBatchIsDroppedOnlyForTwo400sInARow() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(400),
                 Handlers.status(503), Handlers.status(400), Handlers.status(202)))) {
