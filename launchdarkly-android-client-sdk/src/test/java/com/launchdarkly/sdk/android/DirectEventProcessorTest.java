@@ -3112,6 +3112,42 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void dataTooDeeplyNestedToEncodeCostsOnlyItsOwnEvent() throws Exception {
+        LDValue nested = LDValue.of(1);
+        for (int depth = 0; depth < 100_000; depth++) {
+            nested = LDValue.buildArray().add(nested).build();
+        }
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                for (int i = 0; i < 30; i++) {
+                    eventProcessor.recordCustomEvent(CONTEXT, "bystander-" + i, LDValue.ofNull(), null);
+                }
+                eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, false, null);
+                eventProcessor.recordCustomEvent(CONTEXT, "too-deep", nested, null);
+
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                List<LDValue> events = collectDelivered(server);
+                int bystanders = 0;
+                for (LDValue event : events) {
+                    String key = event.get("key").stringValue();
+                    assertFalse("too-deep".equals(key));
+                    if ("custom".equals(event.get("kind").stringValue()) && key.startsWith("bystander-")) {
+                        bystanders++;
+                    }
+                }
+                assertEquals(30, bystanders);
+                assertEquals(1, summaryCountFor(events, FLAG_KEY));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aFlushBypassingTheBackoffAskedForBehindAnOrdinaryOneStillPosts() throws Exception {
         HandlerSwitcher service = new HandlerSwitcher(Handlers.status(401));
         try (HttpServer server = HttpServer.start(service)) {

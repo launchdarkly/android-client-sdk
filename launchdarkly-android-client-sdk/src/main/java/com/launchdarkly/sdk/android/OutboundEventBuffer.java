@@ -300,7 +300,9 @@ final class OutboundEventBuffer {
         try {
             written = formatter.writeOutputEvents(events, summaries, writer);
             writer.flush();
-        } catch (Exception e) {
+        } catch (Exception | StackOverflowError e) {
+            // The writer recurses into an event's data, so data nested deeply enough overflows the stack.
+            // That costs this one event, as any other failure to encode it does, and not the rest of the run.
             serializationFailed.set(true);
             logger.error("Dropping unserializable {}: {}", describe(events),
                     LogValues.exceptionSummary(e));

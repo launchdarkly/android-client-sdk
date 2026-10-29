@@ -484,11 +484,18 @@ final class EventCommitter {
                 store.reserve(run.size());
             }
             try {
-                stageRun(run);
-            } finally {
-                store.releaseReservations();
+                try {
+                    stageRun(run);
+                } finally {
+                    store.releaseReservations();
+                }
+                stageSummaries(summaries);
+            } catch (Throwable t) {
+                // The run and the counters have left pending, and nothing puts them back, so a flush must not
+                // answer true over them.
+                lostEvents.incrementAndGet();
+                throw t;
             }
-            stageSummaries(summaries);
             if (eventBuffer.takeSerializationFailure()) {
                 lostEvents.incrementAndGet();
             }
