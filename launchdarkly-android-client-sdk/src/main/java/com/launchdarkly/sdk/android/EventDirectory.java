@@ -529,9 +529,10 @@ class EventDirectory {
                 }
                 if (events < 0) {
                     // Written by a version whose format this one does not read, or damaged beyond what the
-                    // torn-tail recovery tolerates. Either way it can never be delivered.
-                    tryDelete(file);
-                    continue;
+                    // torn-tail recovery tolerates. Either way it can never be delivered, but it held events.
+                    // Listed as holding one, the fewest it can, so that the delivery reaching it drops it and
+                    // counts the loss, as for one too large to read.
+                    events = 1;
                 }
             }
             // What the close knew of its summaries is kept; nothing in the file says.

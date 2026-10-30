@@ -238,7 +238,8 @@ public class EventStoreTest {
     }
 
     @Test
-    public void aBatchNamedWithoutACountInAFormatThisVersionDoesNotReadIsDiscarded() throws IOException {
+    public void aBatchNamedWithoutACountInAFormatThisVersionDoesNotReadIsListedAsOneEventAndUnreadable()
+            throws IOException {
         EventStore store = store();
         store.stage(event("unreadable"));
         store.commit();
@@ -251,9 +252,14 @@ public class EventStoreTest {
         corrupted[5] = (byte) 0xFF;
         Files.write(uncounted.toPath(), corrupted);
 
+        // Left for the delivery that reaches it, which removes it and counts the loss, rather than deleted
+        // here uncounted.
         EventStore reader = store();
-        assertEquals(Collections.emptyList(), reader.pendingBatches());
-        // A batch that can never be delivered is not left to occupy the device either.
+        List<EventStore.Batch> batches = reader.pendingBatches();
+        assertEquals(1, batches.size());
+        assertEquals("the fewest it can hold, never having been counted", 1, batches.get(0).eventCount);
+        assertUnreadable(reader, batches.get(0));
+        reader.remove(batches.get(0));
         assertFalse(uncounted.exists());
     }
 
@@ -271,7 +277,7 @@ public class EventStoreTest {
     private static void assertUnreadable(EventStore store, EventStore.Batch batch) throws IOException {
         try {
             store.payload(batch);
-            fail("read a batch larger than this version reads");
+            fail("read a batch this version cannot read as something to send or as nothing to lose");
         } catch (EventStore.UnreadableBatchException expected) {
         }
     }
