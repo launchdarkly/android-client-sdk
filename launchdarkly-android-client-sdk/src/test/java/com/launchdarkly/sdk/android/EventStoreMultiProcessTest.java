@@ -438,6 +438,29 @@ public class EventStoreMultiProcessTest {
         }
     }
 
+    @Test
+    public void aBatchNamedWithoutACountWhoseFirstFrameIsDamagedIsListedAsOneEventAndLost() throws IOException {
+        EventStore previousVersion = storeFor();
+        previousVersion.stage(event("damaged"));
+        closeOne(previousVersion);
+        File file = asUncountedName(filesNamed("ready-").get(0));
+        byte[] damaged = readAll(file);
+        damaged[EventLogFormat.FILE_HEADER_SIZE + EventLogFormat.FRAME_HEADER_SIZE] ^= 0x01;
+        overwrite(file, damaged);
+
+        // Counted as no events, it would be dropped as a loss of none, which no flush hears about.
+        EventStore main = storeFor();
+        List<EventStore.Batch> pending = main.pendingBatches();
+        assertEquals(1, pending.size());
+        assertEquals("the fewest it can hold", 1, pending.get(0).eventCount);
+        try {
+            main.body(pending.get(0));
+            fail("a batch with a damaged frame read as nothing to lose");
+        } catch (EventStore.UnreadableBatchException expected) {
+            // what a delivery takes as lost
+        }
+    }
+
     /**
      * Renames a batch to a name without a count, which is what a recovery that could not read a log
      * leaves behind for a listing to count.
