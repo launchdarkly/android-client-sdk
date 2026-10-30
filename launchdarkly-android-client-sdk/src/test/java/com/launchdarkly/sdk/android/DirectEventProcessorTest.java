@@ -4295,6 +4295,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 store.stage("{\"kind\":\"custom\",\"key\":\"unreadable\"}".getBytes(StandardCharsets.UTF_8));
                 EventStore.Batch unreadable = closeOne(store);
                 failing.set(unreadable.payloadId);
+                eventProcessor.readFailureSpacingNanos = 0;
 
                 for (int i = 1; i < DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING; i++) {
                     assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
@@ -4309,6 +4310,121 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
                 eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
                 assertTrue("the loss was reported twice", awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void readsFailingCloserTogetherThanTheFlushIntervalDoNotDropTheBatch() throws Exception {
+        AtomicReference<String> failing = new AtomicReference<>();
+        AtomicInteger reads = new AtomicInteger();
+        EventStore store = storeFailingReadsOf(failing, reads);
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                eventProcessor.setOffline(false);
+                scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+                store.stage("{\"kind\":\"custom\",\"key\":\"briefly-unreadable\"}".getBytes(StandardCharsets.UTF_8));
+                failing.set(closeOne(store).payloadId);
+
+                // Flushes in a row, and flushAndWait's posting through the backoff, as a caller might.
+                for (int i = 0; i < 2 * DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING; i++) {
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    assertFalse(eventProcessor.flushBypassingBackoff().get(10, TimeUnit.SECONDS));
+                }
+                assertEquals(4 * DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING, reads.get());
+                assertEquals("an intact batch was dropped for reads moments apart",
+                        1, store.pendingBatches().size());
+
+                failing.set(null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertEquals(LDValue.of("briefly-unreadable"),
+                        requireEventOfKind(collectDelivered(server), "custom").get("key"));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void readsFailingAtLeastTheSpacingApartDropTheBatch() throws Exception {
+        AtomicReference<String> failing = new AtomicReference<>();
+        AtomicInteger reads = new AtomicInteger();
+        EventStore store = storeFailingReadsOf(failing, reads);
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                eventProcessor.setOffline(false);
+                scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+                store.stage("{\"kind\":\"custom\",\"key\":\"unreadable\"}".getBytes(StandardCharsets.UTF_8));
+                failing.set(closeOne(store).payloadId);
+                long spacingMillis = 200;
+                eventProcessor.readFailureSpacingNanos = TimeUnit.MILLISECONDS.toNanos(spacingMillis);
+
+                for (int i = 1; i < DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING; i++) {
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    assertEquals(1, store.pendingBatches().size());
+                    Thread.sleep(spacingMillis + 50);
+                }
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertTrue("a batch failing to read across the spacing was kept", store.pendingBatches().isEmpty());
+                logging.assertErrorLogged("could not be read " + DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING
+                        + " times in a row");
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void aReadShortOfMemoryNeverCountsTowardDroppingTheBatch() throws Exception {
+        AtomicBoolean memoryShort = new AtomicBoolean(false);
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true, logging.logger) {
+            @Override
+            EventLogFormat.Payload payload(Batch batch) throws IOException {
+                if (memoryShort.get()) {
+                    throw new EventDirectory.MemoryShortException(batch.eventCount, new OutOfMemoryError());
+                }
+                return super.payload(batch);
+            }
+        };
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.readFailureSpacingNanos = 0;
+                eventProcessor.recordCustomEvent(CONTEXT, "kept", LDValue.ofNull(), null);
+                memoryShort.set(true);
+
+                for (int i = 0; i < 2 * DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING; i++) {
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                }
+                assertEquals("a batch read short of memory was dropped", 1, store.pendingBatches().size());
+
+                memoryShort.set(false);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertEquals(LDValue.of("kept"), requireEventOfKind(collectDelivered(server), "custom").get("key"));
             } finally {
                 eventProcessor.close();
                 scheduler.shutdownNow();

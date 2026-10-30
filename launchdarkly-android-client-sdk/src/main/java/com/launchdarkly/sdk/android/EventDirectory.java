@@ -83,6 +83,13 @@ class EventDirectory {
             super("a stored file of " + size + " bytes, larger than this version reads");
         }
     }
+
+    /** A read that found too little memory for the file, which says nothing about the file itself. */
+    static final class MemoryShortException extends IOException {
+        MemoryShortException(long size, OutOfMemoryError cause) {
+            super("not enough memory to read " + size + " bytes", cause);
+        }
+    }
     private static final String DIRECTORY_NAME = "com.launchdarkly.events";
 
     /** Where one store keeps its files. */
@@ -767,7 +774,7 @@ class EventDirectory {
         } catch (OutOfMemoryError e) {
             // Memory is short for now, which may pass, and the file is intact: tried again by a later pass
             // rather than deleted, and rather than ending this one.
-            throw new IOException("not enough memory to read " + size + " bytes", e);
+            throw new MemoryShortException(size, e);
         }
         int filled = 0;
         while (filled < contents.length) {

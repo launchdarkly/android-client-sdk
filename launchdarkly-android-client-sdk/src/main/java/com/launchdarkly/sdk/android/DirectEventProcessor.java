@@ -211,20 +211,34 @@ final class DirectEventProcessor implements EventProcessor {
     private int badRequestsInARow;
 
     /**
-     * How many failed reads in a row drop a batch. A read that fails is mostly one that will go on failing,
-     * a permission taken away or a directory named like a batch, and expiry cannot delete a file it cannot
-     * open, so the batch would be read, and fail, at every delivery for good. More than one, so a passing
-     * failure such as running out of file descriptors costs nothing; a failed read queues no retry of its own,
-     * so the reads are usually deliveries apart.
+     * How many counted failed reads in a row drop a batch. A read that fails is mostly one that will go on
+     * failing, a permission taken away or a directory named like a batch, and expiry cannot delete a file it
+     * cannot open, so the batch would be read, and fail, at every delivery for good. More than one, and
+     * counted at most once per {@link #readFailureSpacingNanos}, so a passing failure such as running out of
+     * file descriptors costs nothing. A read short of memory never counts.
      */
     static final int READ_FAILURES_BEFORE_DROPPING = 3;
 
     /**
-     * Failed reads in a row, by payload ID, of the batches whose last read failed. Unlike refusals, these
-     * are counted for several batches at once, since a batch whose read failed is passed by. Held only in
-     * memory, so a new run of the application counts again. Guarded by itself.
+     * The least time between two failed reads of a batch that both count toward dropping it: the flush
+     * interval, so a drop takes failures across at least two of them. Every pass that reaches the batch reads
+     * it, and passes can come milliseconds apart, from flushes called in a row or {@code flushAndWait} posting
+     * through the backoff; counted by pass, a failure lasting a moment would drop an intact batch. A failed read
+     * closer than this to the last counted one passes the batch by without counting. Not final only for tests.
      */
-    private final Map<String, Integer> readFailuresInARow = new HashMap<>();
+    volatile long readFailureSpacingNanos;
+
+    /**
+     * Counted failed reads in a row, by payload ID, of the batches whose last read failed. Unlike refusals,
+     * these are counted for several batches at once, since a batch whose read failed is passed by. Held only
+     * in memory, so a new run of the application counts again. Guarded by itself.
+     */
+    private final Map<String, ReadFailures> readFailuresInARow = new HashMap<>();
+
+    private static final class ReadFailures {
+        int counted;
+        long lastCountedNanos;
+    }
 
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
@@ -252,6 +266,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.retryState = retryState;
         this.eventsUri = eventsUri;
         this.flushIntervalMillis = flushIntervalMillis;
+        this.readFailureSpacingNanos = TimeUnit.MILLISECONDS.toNanos(flushIntervalMillis);
         this.closeBudgetMillis = closeBudgetMillis;
         this.pacing = pacing;
         this.givesWayToFlags = store.isPersisting();
@@ -901,6 +916,11 @@ final class DirectEventProcessor implements EventProcessor {
             store.remove(batch);
             reportBatchLost(batch);
             return BatchesOutcome.FAILED;
+        } catch (EventDirectory.MemoryShortException e) {
+            // The file is intact, and the next pass may find the memory.
+            logger.warn("Could not read stored events, will try again at the next delivery: {}",
+                    LogValues.exceptionSummary(e));
+            return BatchesOutcome.PASSED_BY;
         } catch (IOException e) {
             if (countReadFailure(batch) >= READ_FAILURES_BEFORE_DROPPING) {
                 logger.error("Dropping {} stored event(s) that could not be read {} times in a row: {}",
@@ -972,19 +992,26 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
-     * @return how many reads in a row of this batch have failed, counting this one; once that reaches
+     * @return how many counted reads in a row of this batch have failed, this one included if it is at least
+     *   {@link #readFailureSpacingNanos} after the last counted one; once that reaches
      *   {@link #READ_FAILURES_BEFORE_DROPPING} the count is ended, since the batch is dropped
      */
     private int countReadFailure(EventStore.Batch batch) {
+        long now = System.nanoTime();
         synchronized (readFailuresInARow) {
-            Integer previous = readFailuresInARow.get(batch.payloadId);
-            int count = previous == null ? 1 : previous + 1;
-            if (count >= READ_FAILURES_BEFORE_DROPPING) {
-                readFailuresInARow.remove(batch.payloadId);
-            } else {
-                readFailuresInARow.put(batch.payloadId, count);
+            ReadFailures failures = readFailuresInARow.get(batch.payloadId);
+            if (failures == null) {
+                failures = new ReadFailures();
+                readFailuresInARow.put(batch.payloadId, failures);
+            } else if (now - failures.lastCountedNanos < readFailureSpacingNanos) {
+                return failures.counted;
             }
-            return count;
+            failures.counted++;
+            failures.lastCountedNanos = now;
+            if (failures.counted >= READ_FAILURES_BEFORE_DROPPING) {
+                readFailuresInARow.remove(batch.payloadId);
+            }
+            return failures.counted;
         }
     }
 
