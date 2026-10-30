@@ -250,7 +250,8 @@ final class EventCommitter {
             }
             // Deliberately no commit point. An evaluation is expected to cost what a map lookup costs, and it
             // is usually the main thread doing it. The store writes these on its own thread once enough of them
-            // have piled up, and the next event recorded at a commit point makes them durable along with itself.
+            // have piled up, and at IMMEDIATE the next event recorded at a commit point makes them durable along
+            // with itself.
             if (needsCommit) {
                 scheduleCommitWherePersisting();
             }
@@ -343,7 +344,7 @@ final class EventCommitter {
     }
 
     /**
-     * Queues the commit a full pending run or a commit point asks for, if there is a disk for it to reach.
+     * Queues the commit a full pending run asks for, if there is a disk for it to reach.
      * <p>
      * Without persistence a commit makes nothing durable. All it would do is move the encoding into the
      * middle of the application's evaluations, competing with them for the CPU and splitting their
