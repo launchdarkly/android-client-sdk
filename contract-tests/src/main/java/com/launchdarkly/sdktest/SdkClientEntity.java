@@ -342,9 +342,12 @@ public class SdkClientEntity {
       read.setAccessible(true);
       flag = read.invoke(cdm, params.key);
       if (flag != null) {
-        servedValue = (com.launchdarkly.sdk.LDValue)
-            flag.getClass().getMethod("getValue").invoke(flag);
-        Object idx = flag.getClass().getMethod("getVariation").invoke(flag);
+        java.lang.reflect.Method val = flag.getClass().getDeclaredMethod("getValue");
+        val.setAccessible(true);
+        servedValue = (com.launchdarkly.sdk.LDValue) val.invoke(flag);
+        java.lang.reflect.Method vi = flag.getClass().getDeclaredMethod("getVariation");
+        vi.setAccessible(true);
+        Object idx = vi.invoke(flag);
         if (idx instanceof Integer) {
           variationIndex = ((Integer) idx).intValue();
         }
