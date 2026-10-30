@@ -221,8 +221,8 @@ final class OutboundEventBuffer {
      * <p>
      * A summary larger than one log frame holds is split between summaries of the same context, each
      * with some of its flags, until each fits. Whole, it would be refused by the store and every
-     * evaluation in it lost. Only a single flag's counters too large for a frame are left whole, for
-     * the store to refuse.
+     * evaluation in it lost. Only a single flag's counters too large for a frame, and a part that is
+     * mostly context, which no split makes fit, are left whole, for the store to refuse.
      * <p>
      * Deliberately not synchronized, for the reason {@link #serialize} is not: the counters are taken
      * under the caller's lock and encoded outside it, so a thread recording an evaluation waits only
@@ -238,21 +238,28 @@ final class OutboundEventBuffer {
         }
         List<byte[]> serialized = new ArrayList<>(summaries.size());
         for (EventSummarizer.EventSummary summary : summaries) {
-            serializeSummary(summary, serialized);
+            serializeSummary(summary, serialized, Integer.MAX_VALUE);
         }
         return serialized;
     }
 
-    private void serializeSummary(EventSummarizer.EventSummary summary, List<byte[]> into) {
+    /**
+     * @param splitFrom the encoded size of the summary this is half of, or {@code Integer.MAX_VALUE}
+     *   for one that is not
+     */
+    private void serializeSummary(EventSummarizer.EventSummary summary, List<byte[]> into, int splitFrom) {
         byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
         if (bytes == null) {
             return;
         }
-        if (bytes.length > EventLogFormat.MAX_FRAME_SIZE) {
+        // Every part carries the whole context. A half that kept more than three quarters of what it was
+        // split from is mostly context, and halving it again would only turn its one loss into one per
+        // flag, each a frame's worth of context held at once.
+        if (bytes.length > EventLogFormat.MAX_FRAME_SIZE && bytes.length <= splitFrom / 4 * 3) {
             List<EventSummarizer.EventSummary> halves = EventSummaries.halve(summary);
             if (halves != null) {
                 for (EventSummarizer.EventSummary half : halves) {
-                    serializeSummary(half, into);
+                    serializeSummary(half, into, bytes.length);
                 }
                 return;
             }

@@ -186,6 +186,29 @@ public class OutboundEventBufferSerializationTest {
     }
 
     @Test
+    public void aSummaryLargeForItsContextIsNotSplitOneFlagPerPart() {
+        OutboundEventBuffer buffer = makeBuffer();
+        char[] data = new char[EventLogFormat.MAX_FRAME_SIZE];
+        Arrays.fill(data, 'x');
+        LDContext huge = LDContext.builder("huge").set("data", new String(data)).build();
+        int flagCount = 16;
+        for (int i = 0; i < flagCount; i++) {
+            buffer.summarize(1000, FLAG_KEY + i, 10, 1, LDValue.of(true), LDValue.of(false), huge);
+        }
+
+        List<byte[]> summaries = buffer.serializeSummariesAndReset();
+
+        assertTrue("split down to " + summaries.size() + " parts", summaries.size() <= 2);
+        Set<String> flagKeys = new HashSet<>();
+        for (byte[] serialized : summaries) {
+            for (String flagKey : parse(serialized).get("features").keys()) {
+                assertTrue("a flag was summarized twice", flagKeys.add(flagKey));
+            }
+        }
+        assertEquals(flagCount, flagKeys.size());
+    }
+
+    @Test
     public void serializingSummariesWithNothingCountedReturnsNothing() {
         assertTrue(makeBuffer().serializeSummariesAndReset().isEmpty());
     }
