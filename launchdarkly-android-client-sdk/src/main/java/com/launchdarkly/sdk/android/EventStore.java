@@ -146,6 +146,11 @@ class EventStore implements Closeable {
      */
     private int reservedEvents;
     /**
+     * Events of an open log a close found gone while this store still held it, so that nothing delivered
+     * them, not yet taken by {@link #takeVanishedLogEvents()} to be counted as lost.
+     */
+    private int vanishedLogEvents;
+    /**
      * Whether events are being written to disk, which is what the application asked for until writing
      * fails and the store gives up on persistence for the rest of the session.
      * <p>
@@ -571,6 +576,21 @@ class EventStore implements Closeable {
         }
     }
 
+    /**
+     * Takes the events of every open log a close has found gone since the last call, where nothing could
+     * have delivered them: the directory removed under the store, say. A close happens wherever a commit
+     * fills the log, so the caller asks after every commit it takes a loss count as of.
+     *
+     * @return how many events were lost that way
+     */
+    int takeVanishedLogEvents() {
+        synchronized (bufferLock) {
+            int events = vanishedLogEvents;
+            vanishedLogEvents = 0;
+            return events;
+        }
+    }
+
     private static void addIfClosed(List<Batch> closed, Batch batch) {
         if (batch != null) {
             closed.add(batch);
@@ -591,6 +611,9 @@ class EventStore implements Closeable {
                 // The log itself is gone, so its events are too. They have to stop counting against
                 // capacity or the store would refuse events for the rest of the session.
                 synchronized (bufferLock) {
+                    if (closed.deletedUnsent) {
+                        vanishedLogEvents += committedEvents;
+                    }
                     committedEvents = 0;
                     committedSummaries = 0;
                     committedBytes = 0;

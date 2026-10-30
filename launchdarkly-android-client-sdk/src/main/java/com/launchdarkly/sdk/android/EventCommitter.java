@@ -538,6 +538,7 @@ final class EventCommitter {
         synchronized (commitLock) {
             commitDurably();
             store.closeBatch();
+            reportVanished(store.takeVanishedLogEvents());
             return new Close(lostEvents.get(), !store.holdsUnclosedEvents());
         }
     }
@@ -551,8 +552,19 @@ final class EventCommitter {
     long commitLeavingTheLogOpen() {
         synchronized (commitLock) {
             commitDurably();
+            // A commit that fills the log closes it, and can find it gone.
+            reportVanished(store.takeVanishedLogEvents());
             return lostEvents.get();
         }
+    }
+
+    /** Counts as lost the events of an open log a close found gone. */
+    private void reportVanished(int events) {
+        if (events <= 0) {
+            return;
+        }
+        logger.error("{} stored event(s) were deleted before they could be sent", events);
+        lostEvents.addAndGet(events);
     }
 
     /**

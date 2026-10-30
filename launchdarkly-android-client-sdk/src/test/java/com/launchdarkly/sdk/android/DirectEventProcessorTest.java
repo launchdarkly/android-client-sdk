@@ -632,6 +632,43 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         }
     }
 
+    @Test
+    public void aFlushAfterTheOpenLogVanishedWhileItWasHeldHearsOfTheLoss() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.status(202))) {
+            EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
+                    DEFAULT_CAPACITY, true, logging.logger);
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                // As above, past the startup listing, so the flush is the delivery that finds the log gone.
+                eventProcessor.setOffline(false);
+                scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+                store.stage("{\"kind\":\"custom\",\"key\":\"vanished\"}".getBytes(StandardCharsets.UTF_8));
+                store.commit();
+                File[] logs = EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY)
+                        .listFiles((dir, name) -> name.startsWith(EventDirectory.LOG_PREFIX));
+                assertNotNull(logs);
+                assertEquals(1, logs.length);
+                // As where the platform clears the directory under the store.
+                assertTrue(logs[0].delete());
+
+                assertFalse("a flush after the open log vanished reported success",
+                        awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(200, TimeUnit.MILLISECONDS);
+
+                // Reported once: the next flush has nothing of it to answer for.
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
     /** Closes what a test expects to be exactly one batch, as anything short of a failed write leaves. */
     private static EventStore.Batch closeOne(EventStore store) {
         List<EventStore.Batch> closed = store.closeBatch();

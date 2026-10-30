@@ -99,6 +99,15 @@ final class DiskEventLog {
     }
 
     /**
+     * Whether this store has the log open and locked, so that no other process can have recovered it, nor
+     * any other store in this one. Requires {@code ioLock}.
+     */
+    boolean isHeld() {
+        assert Thread.holdsLock(ioLock);
+        return output != null && lock != null;
+    }
+
+    /**
      * Appends to the log, opening it first where it is not open.
      * <p>
      * Requires {@code ioLock}.

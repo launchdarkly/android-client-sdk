@@ -333,6 +333,53 @@ public class EventStoreTest {
     }
 
     @Test
+    public void anOpenLogFoundGoneWhileItWasHeldIsCountedLostOnceAndStopsCounting() {
+        // As where the platform clears the directory under the store: nothing could have delivered them.
+        EventStore store = store();
+        store.stage(event("first"));
+        store.stage(event("second"));
+        store.commit();
+        assertTrue(onlyFileNamed(EventDirectory.LOG_PREFIX).delete());
+
+        assertEquals(Collections.emptyList(), store.closeBatch());
+        assertEquals(2, store.takeVanishedLogEvents());
+        assertEquals(0, store.takeVanishedLogEvents());
+        assertEquals(0, store.getPendingEventCount());
+    }
+
+    @Test
+    public void anOpenLogGoneAfterPersistenceWasGivenUpOnIsNotCountedLost() {
+        // Given up on, the log is closed where it is and unlocked, so a recovery may have taken it and
+        // delivered its events.
+        EventStore store = new EventStore(directory(), CAPACITY, true, logger) {
+            @Override
+            FileOutputStream openForAppending(File file) throws IOException {
+                return new FileOutputStream(file, true) {
+                    private int writes;
+
+                    @Override
+                    public void write(byte[] bytes) throws IOException {
+                        // The header, then the first commit.
+                        if (++writes > 2) {
+                            throw new IOException("No space left on device");
+                        }
+                        super.write(bytes);
+                    }
+                };
+            }
+        };
+        store.stage(event("in-the-log"));
+        store.commit();
+        store.stage(event("in-memory"));
+        store.commit();
+        assertFalse(store.isPersisting());
+        assertTrue(onlyFileNamed(EventDirectory.LOG_PREFIX).delete());
+
+        assertEquals(1, store.closeBatch().size());
+        assertEquals(0, store.takeVanishedLogEvents());
+    }
+
+    @Test
     public void eachBatchHasAPayloadIdOfItsOwn() {
         // The ID is what lets the service discard a retry, so two batches sharing one would lose the second.
         for (boolean persist : new boolean[] {true, false}) {

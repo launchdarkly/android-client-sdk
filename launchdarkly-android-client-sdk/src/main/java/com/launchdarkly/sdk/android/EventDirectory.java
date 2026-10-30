@@ -377,10 +377,17 @@ class EventDirectory {
          * against capacity, or the store would refuse events for the rest of the session.
          */
         final boolean logSurvives;
+        /**
+         * Where the log is gone, whether nothing could have delivered its events: it was still held, so no
+         * recovery could take it. One no longer held, as persistence given up on leaves it, may have been
+         * moved into a batch by a recovery, which delivers it.
+         */
+        final boolean deletedUnsent;
 
-        private LogClose(EventStore.Batch batch, boolean logSurvives) {
+        private LogClose(EventStore.Batch batch, boolean logSurvives, boolean deletedUnsent) {
             this.batch = batch;
             this.logSurvives = logSurvives;
+            this.deletedUnsent = deletedUnsent;
         }
     }
 
@@ -397,13 +404,16 @@ class EventDirectory {
         assert Thread.holdsLock(ioLock);
         String payloadId = UUID.randomUUID().toString();
         File file = newBatchFile(payloadId, events);
+        // Asked before the move, which closes a log it finds gone.
+        boolean held = diskLog().isHeld();
         if (!diskLog().closeMovingTo(file)) {
             logger.warn("Could not close the event log for delivery");
-            return new LogClose(null, diskLog().exists());
+            boolean survives = diskLog().exists();
+            return new LogClose(null, survives, !survives && held);
         }
 
         stored.put(payloadId, new Stored(file, events, summaries, bytes, System.currentTimeMillis()));
-        return new LogClose(new EventStore.Batch(payloadId, events), true);
+        return new LogClose(new EventStore.Batch(payloadId, events), true, false);
     }
 
     /**
