@@ -125,6 +125,14 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                 requestUri = HttpHelpers.addQueryParam(requestUri, BASIS_PARAM, selector.getState());
             }
 
+            String secureHash = LDUtil.secureModeHash();
+            if (secureHash != null && !secureHash.isEmpty()) {
+                // The harness's secure-mode-hash law: the client-side hash
+                // config joins the `h` query parameter verbatim on the FDv2
+                // polling and streaming request URIs.
+                requestUri = HttpHelpers.addQueryParam(requestUri, "h", secureHash);
+            }
+
             if (payloadFilter != null && !payloadFilter.isEmpty()) {
                 requestUri = HttpHelpers.addQueryParam(requestUri, FILTER_PARAM, payloadFilter);
             }

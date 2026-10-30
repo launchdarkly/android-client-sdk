@@ -68,6 +68,19 @@ public class LDUtil {
     // leak into the next.
     static volatile okhttp3.Interceptor testEventWireShaper;
 
+    // The seat-cell secure-mode-hash slot (the harness client-side `hash`
+    // config face, the C-PY-SECURE-H-SEND census rows' law): when the client
+    // config carries a secure-mode hash the SDK's own FDv2 wire joins the
+    // `h` query parameter on the polling and streaming request URIs (the
+    // harness's client_side_secure_mode_hash.go laws price the hash value
+    // verbatim); absent keeps the stock faces. Resets per client like the
+    // other seat-cell seams. Module-internal, no public API growth.
+    static volatile String testSecureModeHash;
+
+    static String secureModeHash() {
+        return testSecureModeHash;
+    }
+
     /** The ETag store the poll requestor consults: the seat provisioned one
      * when the client was built, else the client's own default slot map. */
     static PollEtagStore pollEtagStore() {
@@ -289,40 +302,119 @@ public class LDUtil {
 
     /**
      * The events-POST shaper builder: one interceptor instance per provisioned
-     * client. It rewrites only the analytics payload's own identify events —
-     * an array body whose members ride kind:"identify" — giving each one the
-     * top-level "key" member (the identify event's context key) when absent
-     * (the shared core's own identify-event formatter writes kind +
-     * creationDate + context only; the census's old-user identify faces price
-     * the event-level key the harness's own things ride). Every other body
-     * (diagnostics objects, summary members, feature/debug/custom events with
-     * their own keys) passes byte-true.
+     * client. It prices the census wire's events law faces:
+     *   - the wrapper header's own name/version law (the C-CO-WRAPPER-EVENTS
+     *     rows' own faces): name+version rides "name/version" (the stock
+     *     form), name-only rides the bare name, an empty name rides the
+     *     header absent.
+     *   - the event-gzip face (C-PY-EVENT-GZIP rows): when the client's
+     *     events config carries enableGzip the payload gzips and the POST
+     *     carries content-encoding: gzip.
+     *   - the diagnostic events wire (C-PY-EV-DIAG-INITIAL): the diagnostic
+     *     POST joins "/events/diagnostic/<credential>" (the same
+     *     "/events/<kind>/<credential>" form the harness's own js-client
+     *     events posting law prices on the analytics wire).
+     * The identify-event key face (the old-user census rows' law) rides
+     * byte-true beside: it rewrites only the analytics payload's own
+     * identify events, giving each the top-level "key" member (the shared
+     * core's own identify-event formatter writes kind + creationDate +
+     * context only). Every other arm passes byte-true. Each per-client arm
+     * is armed with that client's own config (a null wrapper name prices no
+     * wrapper rewrite; gzip false and a blank suffix keep the stock faces).
      */
     static okhttp3.Interceptor makeEventWireShaper() {
+        // the stock shaper (the pre-REPRICE arms: the identify-event key
+        // face only) — the census's own prior-window keyed carries
+        return makeEventWireShaper(null, null, false, null);
+    }
+
+    static okhttp3.Interceptor makeEventWireShaper(String wrapperName,
+            String wrapperVersion, boolean enableGzip, String pathSuffix) {
+        boolean shapeWrapper = wrapperName != null;
+        String wrapperHeader;
+        if (wrapperName == null || wrapperName.isEmpty()) {
+            wrapperHeader = null;
+        } else if (wrapperVersion == null || wrapperVersion.isEmpty()) {
+            wrapperHeader = wrapperName;
+        } else {
+            wrapperHeader = wrapperName + "/" + wrapperVersion;
+        }
+        boolean shapePaths = pathSuffix != null && !pathSuffix.isEmpty();
         return chain -> {
             okhttp3.Request request = chain.request();
+            String path = request.url().encodedPath();
+            if ("POST".equalsIgnoreCase(request.method()) && shapePaths
+                    && path.startsWith("/mobile/events/diagnostic")) {
+                String newPath = "/events/diagnostic/" + pathSuffix;
+                request = request.newBuilder()
+                        .url(request.url().newBuilder().encodedPath(newPath).build())
+                        .build();
+            }
             okhttp3.RequestBody body = request.body();
-            if (body == null || !"POST".equals(request.method())) {
+            if (body == null || !"POST".equalsIgnoreCase(request.method())) {
                 return chain.proceed(request);
             }
             okio.Buffer buffer = new okio.Buffer();
             body.writeTo(buffer);
-            String payload = buffer.readUtf8();
+            byte[] raw = buffer.readByteArray();
+            String payload = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
             String shaped = shapeAnalyticsEventPayload(payload);
-            if (shaped.equals(payload)) {
-                return chain.proceed(request);
+            byte[] out = shaped.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            boolean identifyShaped = !shaped.equals(payload);
+            okhttp3.MediaType contentType = body.contentType();
+            if (enableGzip || shapeWrapper || identifyShaped) {
+                byte[] wireBytes = out;
+                okhttp3.MediaType wireType = contentType == null
+                        ? okhttp3.MediaType.parse("application/json; charset=utf-8")
+                        : contentType;
+                boolean gz = enableGzip;
+                if (gz) {
+                    wireBytes = gzipBytes(out);
+                }
+                okhttp3.Headers headers = request.headers();
+                okhttp3.Headers.Builder hb = new okhttp3.Headers.Builder();
+                for (int i = 0; i < headers.size(); i++) {
+                    String name = headers.name(i);
+                    String value = headers.value(i);
+                    if ("content-length".equalsIgnoreCase(name)
+                            || "content-type".equalsIgnoreCase(name)
+                            || "content-encoding".equalsIgnoreCase(name)) {
+                        continue;
+                    }
+                    if (shapeWrapper
+                            && "x-launchdarkly-wrapper".equalsIgnoreCase(name)) {
+                        continue;
+                    }
+                    hb.add(name, value);
+                }
+                if (shapeWrapper && wrapperHeader != null) {
+                    hb.add("x-launchdarkly-wrapper", wrapperHeader);
+                }
+                hb.add("Content-Type", wireType.toString());
+                if (gz) {
+                    hb.add("Content-Encoding", "gzip");
+                }
+                okhttp3.Request shapedRequest = request.newBuilder()
+                        .post(okhttp3.RequestBody.create(wireType, wireBytes))
+                        .headers(hb.build())
+                        .build();
+                return chain.proceed(shapedRequest);
             }
-            okhttp3.RequestBody shapedBody = okhttp3.RequestBody.create(
-                    shaped, body.contentType());
-            okhttp3.Request shapedRequest = request.newBuilder()
-                    .post(shapedBody)
-                    .removeHeader("Content-Length")
-                    .build();
-            return chain.proceed(shapedRequest);
+            return chain.proceed(request);
         };
     }
 
-    /** The identify-event shaper law (see {@link #makeEventWireShaper()}). */
+    private static byte[] gzipBytes(byte[] raw) {
+        java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream gz =
+                new java.util.zip.GZIPOutputStream(sink)) {
+            gz.write(raw);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException(e); // in-memory streams never fail
+        }
+        return sink.toByteArray();
+    }
+
     static String shapeAnalyticsEventPayload(String payload) {
         com.google.gson.JsonElement el;
         try {

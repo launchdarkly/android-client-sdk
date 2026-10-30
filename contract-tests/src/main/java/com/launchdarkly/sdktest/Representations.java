@@ -77,6 +77,11 @@ public abstract class Representations {
         boolean enableDiagnostics;
         String[] globalPrivateAttributes;
         Long flushIntervalMs;
+        /** CENTINEL seat-cell event-gzip seam (the C-PY-EVENT-GZIP census
+         * rows' law): the client's events config carries enableGzip and the
+         * events-POST shaper gzips the payload (the POST carries
+         * content-encoding: gzip). */
+        boolean enableGzip;
     }
 
     public static class SdkConfigTagParams {
@@ -111,6 +116,10 @@ public abstract class Representations {
         boolean evaluationReasons;
         boolean useReport;
         boolean includeEnvironmentAttributes;
+        /** CENTINEL seat-cell secure-mode-hash seam (the C-PY-SECURE-H-SEND
+         * census rows' law): the client-side hash config; the FDv2 polling
+         * and streaming URIs join the `h` query parameter when armed. */
+        String hash;
         /** The harness client-side environment face: the payload filter the
          * poll request URL joins (the ENVFILTER law's own `filter` query
          * parameter). */

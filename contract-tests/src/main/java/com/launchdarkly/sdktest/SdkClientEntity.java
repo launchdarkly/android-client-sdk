@@ -956,9 +956,25 @@ public class SdkClientEntity {
     // scenario's resolved cadence (the poll-interval census rows' law).
     com.launchdarkly.sdk.android.ConfigHelper.resetSeatPollInterval();
     // CENTINEL seat-cell events-wire seam: the events-POST shaper arms per
-    // client here (the old-user identify rows' event-level key face); the
-    // stock poll / stream stacks stay untouched.
-    com.launchdarkly.sdk.android.ConfigHelper.configureEventWireShaper();
+    // client here — the REPRICE wave's faces arm that client's own wire
+    // config: the wrapper name/version law (the C-CO-WRAPPER-EVENTS rows),
+    // the event-gzip face (the C-PY-EVENT-GZIP rows), and the diagnostic
+    // events wire (the C-PY-EV-DIAG-INITIAL row's "/events/diagnostic/"
+    // law); the identify-event key face rides byte-true beside.
+    com.launchdarkly.sdk.android.ConfigHelper.resetSeatEventWireShaper();
+    com.launchdarkly.sdk.android.ConfigHelper.configureEventWireShaper(
+            params.wrapper == null ? null : params.wrapper.name,
+            params.wrapper == null ? null : params.wrapper.version,
+            params.events != null && params.events.enableGzip,
+            params.credential);
+    // CENTINEL seat-cell secure-mode-hash seam: the FDv2 wire's `h` query
+    // parameter arms per client (the C-PY-SECURE-H-SEND rows' law); a null
+    // hash prices the param absent.
+    com.launchdarkly.sdk.android.ConfigHelper.resetSeatSecureModeHash();
+    if (params.clientSide.hash != null) {
+      com.launchdarkly.sdk.android.ConfigHelper.configureSecureModeHash(
+              params.clientSide.hash);
+    }
     com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
             com.launchdarkly.sdk.android.ConfigHelper.configureInMemoryPersistence(builder,
             cs == null ? null : cs.xCpStorageScope);

@@ -183,6 +183,39 @@ public class ConfigHelper {
         LDUtil.testEventWireShaper = null;
     }
 
+    /**
+     * CENTINEL seat-cell events-wire seam, the REPRICE wave's own faces:
+     * arms the events-POST shaper with the client's own census wire config —
+     * the wrapper name/version law (the C-CO-WRAPPER-EVENTS rows' own
+     * faces), the event-gzip face (the C-PY-EVENT-GZIP rows), and the
+     * diagnostic events wire (the C-PY-EV-DIAG-INITIAL row's
+     * "/events/diagnostic/&lt;credential&gt;" law). Arms per client exactly
+     * like the TLS/proxy seams; {@link #resetSeatEventWireShaper()} clears
+     * the slot. Module-internal, no public API growth.
+     */
+    public static void configureEventWireShaper(String wrapperName,
+            String wrapperVersion, boolean enableGzip, String pathSuffix) {
+        LDUtil.testEventWireShaper = LDUtil.makeEventWireShaper(
+                wrapperName, wrapperVersion, enableGzip, pathSuffix);
+    }
+
+    /**
+     * CENTINEL seat-cell secure-mode-hash seam (the C-PY-SECURE-H-SEND
+     * census rows' law): arms the FDv2 wire's {@code h} query parameter —
+     * the polling requestor and the streaming synchronizer join the hash
+     * value verbatim when the client config carries one (the harness's
+     * client_side_secure_mode_hash.go laws price the hash value whole; no
+     * hash prices the param absent). Resets per client like the other
+     * seat-cell seams. Module-internal, no public API growth.
+     */
+    public static void configureSecureModeHash(String hash) {
+        LDUtil.testSecureModeHash = hash;
+    }
+
+    public static void resetSeatSecureModeHash() {
+        LDUtil.testSecureModeHash = null;
+    }
+
     /** The skip-verify face's trust manager: no certificate validation. */
     private static final class LenientTrustManager implements javax.net.ssl.X509TrustManager {
         @Override

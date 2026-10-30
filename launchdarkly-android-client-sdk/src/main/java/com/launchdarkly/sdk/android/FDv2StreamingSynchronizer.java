@@ -329,6 +329,12 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         if (!useReport) {
             uri = HttpHelpers.concatenateUriPath(uri, LDUtil.urlSafeBase64(evaluationContext));
         }
+        String secureHash = LDUtil.secureModeHash();
+        if (secureHash != null && !secureHash.isEmpty()) {
+            // The harness's secure-mode-hash law: the client-side hash
+            // config joins the `h` query parameter verbatim on the stream URI.
+            uri = HttpHelpers.addQueryParam(uri, "h", secureHash);
+        }
         if (evaluationReasons) {
             uri = HttpHelpers.addQueryParam(uri, "withReasons", "true");
         }
@@ -498,6 +504,11 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             }
             case GOODBYE: {
                 String reason = ((FDv2ProtocolHandler.FDv2ActionGoodbye) action).getReason();
+                // The census goodbye wire's law (the C-CO-PY-GOODBYE-LOG row):
+                // the goodbye event logs the shared-core goodbye's own wire
+                // record ("stream goodbye received") and triggers the
+                // disconnect (the stream restarts after the goodbye queue).
+                logger.info("stream goodbye received");
                 logger.info("Stream received GOODBYE with reason: '{}'", reason);
                 resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason), fdv1Fallback));
                 restartStream(false);
