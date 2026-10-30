@@ -191,9 +191,8 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     }
 
     /**
-     * Sets the maximum number of bytes of events the SDK keeps where
-     * {@link #eventPersistence(EventPersistence)} keeps events across launches, on disk and in memory
-     * together.
+     * Sets the maximum number of bytes of events the SDK keeps, on disk and in memory together, whatever
+     * {@link #eventPersistence(EventPersistence)} is.
      * <p>
      * It is for every environment the application configures together: with
      * {@link com.launchdarkly.sdk.android.LDConfig.Builder#secondaryMobileKeys(java.util.Map)}, each
@@ -205,10 +204,10 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * of each share is kept for the summaries of flag evaluations, so that evaluations are still counted after
      * full events start being discarded.
      * <p>
-     * Where event persistence is {@link EventPersistence#DISABLED}, full events are bounded by
-     * {@link #capacity(int)} alone, and this bounds only the summaries, which it never refuses: a
-     * delivery that keeps failing would otherwise leave them growing for the life of the process. The
-     * default value is {@link #DEFAULT_CAPACITY_BYTES}; a value of zero or less means the default.
+     * Ordinary events reach {@link #capacity(int)} long before this. It binds where events are unusually
+     * large, or where delivery keeps failing and summaries, which {@link #capacity(int)} never refuses,
+     * accumulate. The default value is {@link #DEFAULT_CAPACITY_BYTES}; a value of zero or less means the
+     * default.
      *
      * @param capacityBytes the most bytes of events to keep, for all environments together
      * @return the builder

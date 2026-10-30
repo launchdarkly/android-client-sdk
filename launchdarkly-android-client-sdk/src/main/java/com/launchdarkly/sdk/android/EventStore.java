@@ -299,11 +299,6 @@ class EventStore implements Closeable {
      * against the event's actual size.
      */
     boolean hasRoomForEventBytes() {
-        // A store kept off the disk holds events the way the SDK did before persistence, bounded by count
-        // alone.
-        if (disk == null) {
-            return true;
-        }
         synchronized (bufferLock) {
             return countedBytesHoldingBufferLock() < eventByteCapacity;
         }
@@ -320,7 +315,7 @@ class EventStore implements Closeable {
     boolean admitsEvent(int heldElsewhere, int capacity) {
         synchronized (bufferLock) {
             return heldElsewhere + countedEventsHoldingBufferLock() < capacity
-                    && (disk == null || countedBytesHoldingBufferLock() < eventByteCapacity);
+                    && countedBytesHoldingBufferLock() < eventByteCapacity;
         }
     }
 
@@ -400,11 +395,10 @@ class EventStore implements Closeable {
             if (!bypassingCapacity && countedEventsHoldingBufferLock() >= capacity) {
                 return false;
             }
-            // Kept off the disk, full events are bounded by count alone, as they were before persistence. A
-            // summary bypasses the count wherever it is kept, so there its bytes are all that bounds it: a
-            // delivery that keeps failing would otherwise go on holding one more for the life of the process.
-            if ((disk != null || isSummary)
-                    && countedBytesHoldingBufferLock() + frameSize > (isSummary ? byteCapacity : eventByteCapacity)) {
+            // Bytes bound events kept off the disk too: capacity counts events, so held in memory through an
+            // outage it would allow that many whatever size they are, and a summary, which capacity never
+            // refuses, would otherwise go on growing for the life of the process.
+            if (countedBytesHoldingBufferLock() + frameSize > (isSummary ? byteCapacity : eventByteCapacity)) {
                 return false;
             }
             if (isSummary) {

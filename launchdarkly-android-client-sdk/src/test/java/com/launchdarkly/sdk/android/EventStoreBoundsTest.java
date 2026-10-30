@@ -269,12 +269,41 @@ public class EventStoreBoundsTest {
     }
 
     @Test
-    public void isNotBoundedByBytesWhereItKeepsEventsOffTheDisk() {
+    public void boundsFullEventsByBytesWhereItKeepsEventsOffTheDiskLeavingTheSummariesFifth() {
+        // Capacity counts events, so in memory through an outage it would otherwise hold that many of any size.
         EventStore store = boundedStore(false);
-        stageFrames(store, 20);
+        stageFrames(store, 8);
 
-        assertTrue(store.hasRoomForEventBytes());
-        assertEquals(20, store.getPendingEventCount());
+        assertFalse(store.hasRoomForEventBytes());
+        assertFalse(store.admitsEvent(0, CAPACITY));
+        assertFalse(store.stage(event(FRAME, "event-9")));
+        assertEquals(8, store.getPendingEventCount());
+        assertTrue(store.stage(event(FRAME, "summary"), true));
+    }
+
+    @Test
+    public void admitsAnEventByCountAndByBytesInOneCheckWhereItKeepsEventsOffTheDisk() {
+        EventStore store = boundedStore(false);
+        stageFrames(store, 7);
+
+        assertTrue(store.admitsEvent(CAPACITY - 8, CAPACITY));
+        assertFalse(store.admitsEvent(CAPACITY - 7, CAPACITY));
+
+        stageFrames(store, 1);
+        assertFalse(store.admitsEvent(0, CAPACITY));
+    }
+
+    @Test
+    public void countsTheBytesOfABatchItHoldsInMemoryUntilTheBatchIsRemoved() {
+        EventStore store = boundedStore(false);
+        stageFrames(store, 8);
+        List<EventStore.Batch> closed = store.closeBatch();
+        assertEquals(1, closed.size());
+
+        assertFalse(store.stage(event(FRAME, "while-held")));
+
+        store.remove(closed.get(0));
+        assertTrue(store.stage(event(FRAME, "after-delivery")));
     }
 
     @Test
@@ -288,8 +317,7 @@ public class EventStoreBoundsTest {
         assertTrue(store.stage(event(FRAME, "summary-2"), true));
 
         assertFalse(store.stage(event(FRAME, "summary-3"), true));
-        // Full events are still bounded by count alone.
-        assertTrue(store.stage(event(FRAME, "event-9")));
+        assertFalse(store.stage(event(FRAME, "event-9")));
     }
 
     // batch size
