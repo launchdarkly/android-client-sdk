@@ -199,8 +199,9 @@ final class DirectEventProcessor implements EventProcessor {
     static final int BAD_REQUESTS_BEFORE_DROPPING = 2;
 
     // The batch that last had its payload refused and how many times in a row: delivery goes oldest first
-    // and stops at a kept failure, so the next post is that batch's unless capacity dropped it. Held only in
-    // memory, so a new run of the application counts again.
+    // and stops at a kept failure, so the next post is that batch's unless capacity dropped it. Any response
+    // other than a refusal ends the run; a post that got no response leaves it. Held only in memory, so a new
+    // run of the application counts again.
     private final Object badRequestLock = new Object();
     private String badRequestPayloadId;
     private int badRequestsInARow;
@@ -914,11 +915,20 @@ final class DirectEventProcessor implements EventProcessor {
     }
 
     /**
+     * @param status the HTTP status, or 0 where no response arrived
      * @return how many refusals of the payload in a row this batch has had, counting this response; zero
      *   for any other status, which ends the run, and once the batch is dropped
      */
     private int countBadRequest(EventStore.Batch batch, int status) {
         synchronized (badRequestLock) {
+            if (status == 0) {
+                // A network or TLS failure leaves the run as it was. The service did not answer, so it said nothing
+                // about the payload: had it ended the run, refusals with network failures between them would never
+                // reach two, and a batch the service will never take would stay the oldest, holding back every
+                // batch behind it for good where nothing expires it, as in memory.
+                return badRequestPayloadId != null && badRequestPayloadId.equals(batch.payloadId)
+                        ? badRequestsInARow : 0;
+            }
             if (!LDUtil.isEventPayloadRefused(status)) {
                 badRequestPayloadId = null;
                 badRequestsInARow = 0;

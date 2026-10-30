@@ -31,6 +31,7 @@ import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import okhttp3.mockwebserver.SocketPolicy;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -2958,6 +2959,49 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 RequestInfo next = server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
                 assertTrue(next.getBody().contains("\"key\":\"next\""));
                 assertFalse(next.getBody().contains("refused"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aPostThatGetsNoResponseBetweenTwoRefusalsOfThePayloadLeavesThemInARow() throws Exception {
+        AtomicInteger refusedPosts = new AtomicInteger();
+        List<String> accepted = Collections.synchronizedList(new ArrayList<>());
+        // MockWebServer rather than test-helpers' HttpServer, which cannot leave a post unanswered. A read
+        // timeout rather than a dropped connection, which OkHttp may retry by itself and so hide.
+        try (MockWebServer server = new MockWebServer()) {
+            server.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    String body = request.getBody().readUtf8();
+                    if (!body.contains("\"key\":\"malformed\"")) {
+                        accepted.add(body);
+                        return new MockResponse().setResponseCode(202);
+                    }
+                    return refusedPosts.getAndIncrement() % 2 == 0
+                            ? new MockResponse().setResponseCode(400)
+                            : new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE);
+                }
+            });
+            EventProcessor eventProcessor = buildOfflineEventProcessor(server.url("/").uri(),
+                    eventsBuilderWithoutBackoff(DEFAULT_CAPACITY), true, platformState(), null,
+                    Components.httpConfiguration().connectTimeoutMillis(300));
+            eventProcessor.setOffline(false);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "malformed", LDValue.ofNull(), null);
+                // A refusal, and its retry, which gets no response.
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertEquals(2, refusedPosts.get());
+
+                // The second refusal drops the batch, which no longer holds back the one behind it.
+                eventProcessor.recordCustomEvent(CONTEXT, "next", LDValue.ofNull(), null);
+                assertFalse("hears of the loss", awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertEquals(3, refusedPosts.get());
+                assertEquals(1, accepted.size());
+                assertTrue(accepted.get(0).contains("\"key\":\"next\""));
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
             } finally {
                 eventProcessor.close();
             }

@@ -10,6 +10,7 @@ import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
 import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.testhelpers.httptest.Handlers;
@@ -145,13 +146,26 @@ public abstract class EventProcessorTestBase {
                                                         boolean diagnosticOptOut,
                                                         PlatformState platformState,
                                                         Map<String, String> secondaryMobileKeys) {
-        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+        return buildOfflineEventProcessor(eventsUri, events, diagnosticOptOut, platformState, secondaryMobileKeys,
+                null);
+    }
+
+    /** @param http the HTTP configuration, or null for the default */
+    protected EventProcessor buildOfflineEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState,
+                                                        Map<String, String> secondaryMobileKeys,
+                                                        HttpConfigurationBuilder http) {
+        LDConfig.Builder builder = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
                 .secondaryMobileKeys(secondaryMobileKeys)
                 .diagnosticOptOut(diagnosticOptOut)
                 .events(events)
-                .serviceEndpoints(Components.serviceEndpoints().events(eventsUri))
-                .build();
+                .serviceEndpoints(Components.serviceEndpoints().events(eventsUri));
+        if (http != null) {
+            builder.http(http);
+        }
+        LDConfig config = builder.build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
                 null, null, CONTEXT, logging.logger, platformState, environmentReporter, null);
         return config.events.build(clientContext);
