@@ -287,8 +287,28 @@ public abstract class Representations {
         Map<String, LDValue> state;
     }
 
+    /** The hook payload's shaped evaluation-series context (the harness's own
+     * HookExecutionPayload.EvaluationSeriesContext member set: flagKey + context +
+     * defaultValue + method on the wire, nothing more — the SDK's
+     * integrations.EvaluationSeriesContext bean additionally carries the
+     * exposure-key supplier and the evaluation's own flag read as carrier
+     * members whose reflective shapes a payload serialization must never walk
+     * (the gson JsonIOException: Reference#referent face priced red-first
+     * first-hand at the corrupt-ride's own seat stderr — every evaluation-stage
+     * hook post died before the sink ever saw it), so the seat shapes this bean
+     * at the post seam: the same idiom the seat module's own HookPayloadBuilder
+     * rides on the CP/stdio wheel's callback envelopes. The carrier members stay
+     * SDK-internal (a hook's own dedupe still reads them through the public
+     * getter, never the wire). */
+    public static class HookSeriesContext {
+        public String method;
+        public String flagKey;
+        public LDContext context;
+        public LDValue defaultValue;
+    }
+
     public static class EvaluationSeriesCallbackParams {
-        EvaluationSeriesContext evaluationSeriesContext;
+        HookSeriesContext evaluationSeriesContext;
         Map<String, Object> evaluationSeriesData;
         EvaluationDetail<LDValue> evaluationDetail;
         String stage;

@@ -27,6 +27,24 @@ public class TestHook extends Hook {
         this.hookErrors = errors;
     }
 
+    /** The evaluation-series payload's own shaping seam (the wire's member-set
+     * law — HOOK 1.2.x: the callback prices flagKey + context + defaultValue +
+     * method and nothing beyond them; the SDK bean's own exposure-key/flag
+     * carrier members never ride the wire — their reflective shapes kill the
+     * payload's glide to the sink with gson's Reference#referent face, priced
+     * red-first first-hand: every evaluation-stage post died before arriving).
+     * The same shaper serves both the SDK's own runner-driven series and the
+     * seat's migrationVariation hand walk, which builds the carrier-free
+     * four-argument shape but prices the same member set. */
+    private static Representations.HookSeriesContext seriesContextOf(EvaluationSeriesContext seriesContext) {
+        Representations.HookSeriesContext shaped = new Representations.HookSeriesContext();
+        shaped.method = seriesContext.method;
+        shaped.flagKey = seriesContext.flagKey;
+        shaped.context = seriesContext.context;
+        shaped.defaultValue = seriesContext.defaultValue;
+        return shaped;
+    }
+
     @Override
     public Map<String, Object> beforeEvaluation(EvaluationSeriesContext seriesContext, Map<String, Object> data) {
         if (hookErrors.beforeEvaluation != null) {
@@ -41,7 +59,7 @@ public class TestHook extends Hook {
         // The rows' own merge law: the callback prices the merged series state
         // (the SDK's own per-hook merge rides BEFORE the post; HOOK 1.2.x).
         EvaluationSeriesCallbackParams params = new EvaluationSeriesCallbackParams();
-        params.evaluationSeriesContext = seriesContext;
+        params.evaluationSeriesContext = seriesContextOf(seriesContext);
         params.evaluationSeriesData = newData;
         params.stage = "beforeEvaluation";
 
@@ -62,7 +80,7 @@ public class TestHook extends Hook {
         }
 
         EvaluationSeriesCallbackParams params = new EvaluationSeriesCallbackParams();
-        params.evaluationSeriesContext = seriesContext;
+        params.evaluationSeriesContext = seriesContextOf(seriesContext);
         params.evaluationSeriesData = newData;
         params.evaluationDetail = evaluationDetail;
         params.stage = "afterEvaluation";
