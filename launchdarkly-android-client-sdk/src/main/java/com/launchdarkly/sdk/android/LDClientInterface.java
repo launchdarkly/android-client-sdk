@@ -170,17 +170,17 @@ public interface LDClientInterface extends Closeable {
      * <p>
      * Unlike {@link #flush()}, which returns before the events reach the network, this reports
      * whether they arrived, which is what makes it usable at a point where the application is about
-     * to lose the ability to send them: an uncaught exception handler, a move to the background, or
-     * any other last chance. Events buffered in memory do not survive the process, so a caller that
-     * knows the process is ending can use this to give them one.
+     * to lose the ability to send them: an uncaught exception handler, or code about to end the
+     * process. Events buffered in memory do not survive the process, so a caller that knows the
+     * process is ending can use this to give them one.
      * {@link com.launchdarkly.sdk.android.integrations.LDCrashHandler} does this for
-     * uncaught exceptions.
+     * uncaught exceptions. It is for those last chances only, not for routine points such as every
+     * move to the background, where the SDK already flushes; see the paragraph on the backoff below.
      * <p>
      * It can only help while the process is still running code. An uncaught exception runs its
-     * handler first, and a move to the background is announced, so both leave time for this call.
-     * A {@code SIGKILL}, an ANR kill, a native crash, and the system reclaiming a backgrounded process
-     * run nothing at all, and events still in memory at that moment are lost whatever the
-     * application does.
+     * handler first, so it leaves time for this call. A {@code SIGKILL}, an ANR kill, a native crash,
+     * and the system reclaiming a backgrounded process run nothing at all, and events still in memory
+     * at that moment are lost whatever the application does.
      * <p>
      * The timeout bounds the whole call, including when the SDK is configured for more than one
      * environment. Choose it with the caller in mind: a dying process is not a good place to wait on
@@ -200,9 +200,10 @@ public interface LDClientInterface extends Closeable {
      * <p>
      * It posts even while delivery is backing off after a failure, as {@code close()} does. After a refusal
      * such as a 401 or 403, the SDK waits about eight and a half minutes before posting again, doubling up to
-     * an hour, and a last chance that sat that out would make no attempt at all. {@link #flush()} and the
-     * periodic delivery still wait it out, so a call made routinely, rather than at a last chance, posts once
-     * per call while LaunchDarkly keeps refusing.
+     * an hour, and a last chance that sat that out would make no attempt at all. A post that fails then
+     * leaves the wait as it was, so {@link #flush()} and the periodic delivery go on waiting out the same
+     * one rather than a longer one. That also means nothing slows these posts down: a call made routinely,
+     * rather than at a last chance, posts once per call for as long as LaunchDarkly keeps refusing.
      * <p>
      * This method is not stable, and not subject to any backwards compatibility guarantees or semantic versioning.
      * It is experimental.

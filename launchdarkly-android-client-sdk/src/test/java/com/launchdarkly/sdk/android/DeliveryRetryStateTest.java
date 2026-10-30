@@ -80,6 +80,44 @@ public class DeliveryRetryStateTest {
     }
 
     @Test
+    public void aFailureDuringTheWaitLeavesTheBackoffWhereItWas() {
+        state.recordFailure(true, -1);
+        long waiting = state.remainingWaitNanos();
+        for (int i = 0; i < 5; i++) {
+            state.recordFailureDuringWait(true, -1);
+        }
+
+        assertTrue(state.remainingWaitNanos() <= waiting);
+        // The next step is the one after the first refusal, not five steps on.
+        assertEquals(1_024 * SECOND, state.recordFailure(true, -1));
+    }
+
+    @Test
+    public void aRetryAfterDuringTheWaitCanOnlyLengthenIt() {
+        DeliveryRetryState fixed = new DeliveryRetryState(SECOND, FLUSH_INTERVAL, TimeUnit.HOURS.toMillis(1),
+                new FixedRandom(0));
+        fixed.recordFailure(true, -1);
+        long waiting = fixed.remainingWaitNanos();
+
+        fixed.recordFailureDuringWait(false, 10 * SECOND);
+        assertTrue(fixed.remainingWaitNanos() <= waiting);
+
+        fixed.recordFailureDuringWait(false, TimeUnit.MINUTES.toMillis(20));
+        assertTrue(fixed.remainingWaitNanos() > TimeUnit.MINUTES.toNanos(19));
+    }
+
+    @Test
+    public void aFailureDuringAWaitThatHasRunOutIsAnOrdinaryOne() throws InterruptedException {
+        DeliveryRetryState quick = new DeliveryRetryState(20, 1_000, 1_000, new Random());
+        quick.recordFailure(false, -1);
+        Thread.sleep(40);
+
+        quick.recordFailureDuringWait(false, -1);
+
+        assertTrue(quick.remainingWaitNanos() > TimeUnit.MILLISECONDS.toNanos(20));
+    }
+
+    @Test
     public void theWaitRunsOut() throws InterruptedException {
         DeliveryRetryState quick = new DeliveryRetryState(20, 20, 20, new Random());
         quick.recordFailure(false, -1);

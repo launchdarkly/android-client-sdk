@@ -463,8 +463,8 @@ final class DirectEventProcessor implements EventProcessor {
      * {@link #flushAsync()} that bypasses the backoff: it posts whatever wait the backoff is in, as close()
      * does. For a caller about to lose the ability to send the events, such as an uncaught exception
      * handler: {@code LDClient.flushAndWait}, and {@code LDCrashHandler} through it. After a refusal that wait
-     * is minutes to an hour, and where nothing persists the events would not outlive it. The caller's timeout
-     * bounds how long it waits for the answer.
+     * is minutes to an hour, and where nothing persists the events would not outlive it. A failure it meets
+     * there leaves the wait as it was. The caller's timeout bounds how long it waits for the answer.
      */
     Future<Boolean> flushBypassingBackoff() {
         if (isStopped()) {
@@ -886,7 +886,8 @@ final class DirectEventProcessor implements EventProcessor {
      *   which is every other failure to post it; HELD for a post the backoff did not allow
      */
     private BatchesOutcome deliver(EventStore.Batch batch, EventDeliveryRun run) {
-        if (!run.postsThroughTheBackoff() && retryState.remainingWaitNanos() > 0) {
+        boolean duringAWait = retryState.remainingWaitNanos() > 0;
+        if (duringAWait && !run.postsThroughTheBackoff()) {
             // Not an attempt, so it moves nothing in the backoff.
             return BatchesOutcome.HELD;
         }
@@ -931,7 +932,11 @@ final class DirectEventProcessor implements EventProcessor {
             AnalyticsEventSender.Result result = analyticsEventSender.sendBatch(payload, payload.eventCount,
                     batch.payloadId, eventsUri);
             if (!result.success) {
-                retryState.recordFailure(result.unexpected, result.retryAfterMillis);
+                if (duringAWait) {
+                    retryState.recordFailureDuringWait(result.unexpected, result.retryAfterMillis);
+                } else {
+                    retryState.recordFailure(result.unexpected, result.retryAfterMillis);
+                }
                 if (countBadRequest(batch, result.status) >= BAD_REQUESTS_BEFORE_DROPPING) {
                     // The rest are still attempted, once the backoff allows.
                     logger.error("Dropping {} event(s) whose payload the service refused {} times in a row, "

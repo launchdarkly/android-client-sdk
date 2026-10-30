@@ -110,6 +110,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     private final List<ExecutorService> diagnosticExecutors = new ArrayList<>();
     /** The commit executor the last processor made here commits on, for a test to wait behind. */
     private ExecutorService lastCommitExecutor;
+    /** The backoff of the processor the store-based {@code makeEventProcessor} built last. */
+    private DeliveryRetryState lastRetryState;
     @After
     public void shutDownDiagnosticExecutors() {
         for (ExecutorService executor : diagnosticExecutors) {
@@ -3244,6 +3246,40 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void refusedFlushesBypassingTheBackoffDoNotLengthenIt() throws Exception {
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY, DEFAULT_CAPACITY,
+                persistence() != EventPersistence.DISABLED, logging.logger);
+        try (HttpServer server = HttpServer.start(Handlers.status(401))) {
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(), server.getUri(),
+                    null, NO_PERIODIC_FLUSH_MILLIS, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                long waitAfterTheRefusal = lastRetryState.remainingWaitNanos();
+                assertTrue(waitAfterTheRefusal > 0);
+
+                // An application flushing on every move to the background during a refusal.
+                for (int i = 0; i < 4; i++) {
+                    assertFalse(eventProcessor.flushBypassingBackoff().get(10, TimeUnit.SECONDS));
+                    server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                }
+
+                assertTrue("each refused bypass lengthened the wait every other delivery sits out",
+                        lastRetryState.remainingWaitNanos() <= waitAfterTheRefusal);
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     public void dataTooDeeplyNestedToEncodeCostsOnlyItsOwnEvent() throws Exception {
         LDValue nested = LDValue.of(1);
         for (int depth = 0; depth < 100_000; depth++) {
@@ -4635,6 +4671,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         ExecutorService commitExecutor = EventUtil.makeEventsCommitExecutor();
         diagnosticExecutors.add(commitExecutor);
         lastCommitExecutor = commitExecutor;
+        lastRetryState = new DeliveryRetryState(flushIntervalMillis);
         return new DirectEventProcessor(
                 new OutboundEventBuffer(false, Collections.emptyList(), true, capacity,
                         logging.logger),
@@ -4643,7 +4680,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 new AnalyticsEventSender(LDUtil.makeHttpProperties(
                         new HttpConfiguration(2000, Collections.emptyMap(), null, false)),
                         logging.logger),
-                new DeliveryRetryState(flushIntervalMillis),
+                lastRetryState,
                 eventsUri,
                 diagnosticStore,
                 capacity,

@@ -101,6 +101,32 @@ final class DeliveryRetryState {
         return waitMillis;
     }
 
+    /**
+     * A failure of a post that went through a wait, as close() and {@code flushAndWait} may: an extra try,
+     * not a step of the backoff. It leaves the attempt count and the ceiling as they were, so a caller
+     * flushing through a refusal several times does not push flush, the periodic delivery and the retry out
+     * to the hour. A {@code Retry-After} can still make the wait longer, never shorter. Once the wait has run
+     * out it is an ordinary failure.
+     *
+     * @param unexpected as {@link #recordFailure}
+     * @param retryAfterMillis as {@link #recordFailure}
+     */
+    synchronized void recordFailureDuringWait(boolean unexpected, long retryAfterMillis) {
+        if (remainingWaitNanos() == 0) {
+            recordFailure(unexpected, retryAfterMillis);
+            return;
+        }
+        if (retryAfterMillis < 0) {
+            return;
+        }
+        long directed = Math.min(retryAfterMillis, MAX_SERVER_DIRECTED_WAIT_MILLIS);
+        long waitMillis = directed - (long) (random.nextDouble() * (directed / 2.0));
+        long asked = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(waitMillis);
+        if (asked - nextAttemptNanos > 0) {
+            nextAttemptNanos = asked;
+        }
+    }
+
     /** How long until a post is allowed, in nanoseconds; zero once it is. */
     synchronized long remainingWaitNanos() {
         if (!waiting) {
