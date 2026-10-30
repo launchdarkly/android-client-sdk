@@ -789,6 +789,11 @@ public class SdkClientEntity {
     com.launchdarkly.sdk.android.ConfigHelper.configureEnvironmentFilter(builder,
             cs == null || cs.environment == null ? null : cs.environment.filter);
     com.launchdarkly.sdk.android.ConfigHelper.configurePollEtagStore(cs == null ? null : cs.xCpStorageScope);
+    // CENTINEL seat-cell cadence seam: the seat's own foreground data-system
+    // law arms the polling floor once per client (the DEFAULT-CADENCE row
+    // prices its second graded gap off this floor; a configured interval
+    // below it clamps; an interval above it rides its own value).
+    com.launchdarkly.sdk.android.ConfigHelper.configureSeatPollIntervalFloor();
     com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
             com.launchdarkly.sdk.android.ConfigHelper.configureInMemoryPersistence(builder,
             cs == null ? null : cs.xCpStorageScope);

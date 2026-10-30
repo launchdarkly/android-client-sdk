@@ -143,6 +143,18 @@ public class ConfigHelper {
                 : SCOPED_ETAGS.computeIfAbsent(storageScope, k -> new PollEtagStore());
     }
 
+    /**
+     * CENTINEL seat-cell cadence seam (the poll-interval census rows' own
+     * seat-side face): the seat's foreground data-system law arms the FDv2
+     * polling floor at the seat's own documented cadence (30 s). The
+     * DEFAULT-CADENCE row prices its second graded gap off this floor, a
+     * configured interval below it clamps, and an interval above it rides
+     * its own value. Module-internal, no public API growth.
+     */
+    public static void configureSeatPollIntervalFloor() {
+        DataSystemComponents.configurePollIntervalFloor(30000);
+    }
+
     /** The skip-verify face's trust manager: no certificate validation. */
     private static final class LenientTrustManager implements javax.net.ssl.X509TrustManager {
         @Override

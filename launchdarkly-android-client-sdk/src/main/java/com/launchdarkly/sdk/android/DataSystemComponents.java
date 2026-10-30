@@ -60,6 +60,25 @@ public abstract class DataSystemComponents {
 
     private DataSystemComponents() {}
 
+    /**
+     * CENTINEL seat-cell cadence seam (the cp-seat's own foreground
+     * data-system law): the FDv2 polling pipelines clamp to the seat's own
+     * configured cadence floor when one is provisioned (the poll-interval
+     * census rows' law), else to the SDK's public default — exactly the
+     * {@code LDUtil.testPollEtags} shape, module-internal, no public API
+     * growth, and a null slot prices the untouched public clamp.
+     */
+    static volatile Integer testPollIntervalFloorMillis;
+
+    static void configurePollIntervalFloor(Integer floorMillis) {
+        testPollIntervalFloorMillis = floorMillis;
+    }
+
+    private static int pollIntervalFloor() {
+        Integer floor = testPollIntervalFloorMillis;
+        return floor != null ? floor : LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+    }
+
     static final class PollingInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
 
         private ServiceEndpoints serviceEndpointsOverride;
@@ -89,13 +108,21 @@ public abstract class DataSystemComponents {
 
         static PollingSynchronizerBuilderImpl fromEntry(PollingSynchronizerEntry entry) {
             PollingSynchronizerBuilderImpl b = new PollingSynchronizerBuilderImpl();
-            b.pollIntervalMillis = entry.getPollIntervalMillis();
+            int entryInterval = entry.getPollIntervalMillis();
+            // the seat-cell cadence law rides on provisioned floors: an unset
+            // entry (the entry's own default) and any below-floor value both
+            // clamp to the seat's own cadence (the poll-interval census rows
+            // price the second graded gap off this floor)
+            b.pollIntervalMillis =
+                    entryInterval == LDConfig.DEFAULT_POLL_INTERVAL_MILLIS
+                    ? pollIntervalFloor()
+                    : Math.max(entryInterval, pollIntervalFloor());
             b.serviceEndpointsOverride = entry.getServiceEndpointsOverride();
             return b;
         }
 
         PollingSynchronizerBuilderImpl pollIntervalMillis(int pollIntervalMillis) {
-            this.pollIntervalMillis = Math.max(pollIntervalMillis, LDConfig.DEFAULT_POLL_INTERVAL_MILLIS);
+            this.pollIntervalMillis = Math.max(pollIntervalMillis, pollIntervalFloor());
             return this;
         }
 
