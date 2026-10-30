@@ -714,13 +714,16 @@ public class LDClient implements LDClientInterface, Closeable {
             } else {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
+            // The evaluation reason travels in the feature event whenever reasons are
+            // requested via `setEvaluationReasons(true)`, along with the flag's own
+            // trackReason face and the detail-scoped arms.
             eventProcessor.recordEvaluationEvent(
                     context,
                     key,
                     flag.getVersionForEvents(),
                     flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
                     value,
-                    flag.isTrackReason() | needsReason ? result.getReason() : null,
+                    flag.isTrackReason() | needsReason | config.isEvaluationReasons() ? result.getReason() : null,
                     defaultValue,
                     flag.isTrackEvents(),
                     flag.getDebugEventsUntilDate()
