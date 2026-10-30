@@ -2,6 +2,7 @@ package com.launchdarkly.sdktest;
 
 import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
+import com.launchdarkly.sdk.AttributeRef;
 import com.launchdarkly.sdk.ContextBuilder;
 import com.launchdarkly.sdk.ContextMultiBuilder;
 import com.launchdarkly.sdk.EvaluationDetail;
@@ -791,6 +792,29 @@ public class SdkClientEntity {
     }
     if (params.privateAttrs != null) {
       b.privateAttributes(params.privateAttrs);
+    }
+    // The COMPARE census wire (harness sdk_context_type.go form): the
+    // attributes ride ContextBuilder.set and the privateAttributes ride the
+    // SDK's own AttributeRef faces — {literal:true} prices
+    // AttributeRef.fromLiteral (the literal attribute name) and {literal
+    // false} prices AttributeRef.fromPath (the RFC-6901 pointer), so the
+    // comparison's equivalence faces price the SDK's own reference laws.
+    if (params.attributes != null) {
+      for (ContextBuildSingleParams.ContextAttributeParam a : params.attributes) {
+        b.set(a.name, a.value);
+      }
+    }
+    if (params.privateAttributes != null) {
+      AttributeRef[] refs = new AttributeRef[params.privateAttributes.length];
+      for (int i = 0; i < refs.length; i++) {
+        ContextBuildSingleParams.ContextPrivateAttrParam p = params.privateAttributes[i];
+        if (p.literal != null && p.literal.booleanValue()) {
+          refs[i] = AttributeRef.fromLiteral(p.value);
+        } else {
+          refs[i] = AttributeRef.fromPath(p.value);
+        }
+      }
+      b.privateAttributes(refs);
     }
     return b.build();
   }

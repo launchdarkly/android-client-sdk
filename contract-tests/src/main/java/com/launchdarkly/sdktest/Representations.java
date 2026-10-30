@@ -322,6 +322,22 @@ public abstract class Representations {
         public String secondary;
         @SerializedName("private") public String[] privateAttrs;
         public Map<String, LDValue> custom;
+        // The COMPARE census wire (harness sdk_context_type.go form): the
+        // attributes ride a name/value list and the privateAttributes ride
+        // {literal,value} reference objects (literal true prices the literal
+        // attribute name, literal false the RFC-6901 pointer path).
+        public static class ContextAttributeParam {
+            public String name;
+            public LDValue value;
+        }
+
+        public static class ContextPrivateAttrParam {
+            public Boolean literal;
+            public String value;
+        }
+
+        public ContextAttributeParam[] attributes;
+        public ContextPrivateAttrParam[] privateAttributes;
     }
 
     public static class ContextBuildResponse {
