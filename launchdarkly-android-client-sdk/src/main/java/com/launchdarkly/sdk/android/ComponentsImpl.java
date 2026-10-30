@@ -108,7 +108,7 @@ abstract class ComponentsImpl {
                     diagnosticRecordingIntervalMillis,
                     clientContextImpl.getDiagnosticStore(),
                     new DefaultEventSender(
-                            LDUtil.makeHttpProperties(clientContext),
+                            LDUtil.makeEventHttpProperties(clientContext),
                             StandardEndpoints.analyticsEventsRequestPath(clientContext.getMobileKey()),
                             StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
                             0L, // use default retry delay

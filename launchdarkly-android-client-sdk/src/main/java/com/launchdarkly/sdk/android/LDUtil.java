@@ -59,6 +59,15 @@ public class LDUtil {
     static volatile String testPayloadFilter;
     static volatile PollEtagStore testPollEtags;
 
+    // The seat-cell events-wire seam (module-internal, nothing public grows):
+    // the contract-test layer provisions an events-POST shaper (okhttp
+    // Interceptor) that rides the shared core's event sender's own HTTP
+    // client; makeEventHttpProperties arms it on the events sender's client
+    // only, so the poll / stream stacks stay stock. Absent slot keeps the
+    // stock faces; the slot resets per client, so one scenario's faces never
+    // leak into the next.
+    static volatile okhttp3.Interceptor testEventWireShaper;
+
     /** The ETag store the poll requestor consults: the seat provisioned one
      * when the client was built, else the client's own default slot map. */
     static PollEtagStore pollEtagStore() {
@@ -242,6 +251,115 @@ public class LDUtil {
                 testTlsSocketFactory,
                 testTlsTrustManager
         );
+    }
+
+    /**
+     * The seat-cell events-wire seam: the HTTP properties the SDK's own event
+     * sender builds from — when the contract-test layer provisioned an
+     * events-POST shaper, the stock client's own builder carries the
+     * interceptor and rides the shared-core HttpProperties' shared-client
+     * shape (the sender takes its own shared client verbatim); absent slot
+     * returns the stock faces. Poll / stream stacks never see the shaper.
+     */
+    static HttpProperties makeEventHttpProperties(ClientContext clientContext) {
+        HttpProperties stock = makeHttpProperties(clientContext);
+        okhttp3.Interceptor shaper = testEventWireShaper;
+        if (shaper == null) {
+            return stock;
+        }
+        HashMap<String, String> headers = new HashMap<>();
+        for (Map.Entry<String, String> kv: stock.getDefaultHeaders()) {
+            headers.put(kv.getKey(), kv.getValue());
+        }
+        com.launchdarkly.sdk.internal.http.HeadersTransformer transformer =
+                stock.getHeadersTransformer();
+        if (transformer == null) {
+            transformer = new com.launchdarkly.sdk.internal.http.HeadersTransformer() {
+                @Override
+                public void updateHeaders(Map<String, String> headers2) {
+                }
+            };
+        }
+        return new HttpProperties(
+                stock.toHttpClientBuilder().addInterceptor(shaper).build(),
+                headers,
+                transformer
+        );
+    }
+
+    /**
+     * The events-POST shaper builder: one interceptor instance per provisioned
+     * client. It rewrites only the analytics payload's own identify events —
+     * an array body whose members ride kind:"identify" — giving each one the
+     * top-level "key" member (the identify event's context key) when absent
+     * (the shared core's own identify-event formatter writes kind +
+     * creationDate + context only; the census's old-user identify faces price
+     * the event-level key the harness's own things ride). Every other body
+     * (diagnostics objects, summary members, feature/debug/custom events with
+     * their own keys) passes byte-true.
+     */
+    static okhttp3.Interceptor makeEventWireShaper() {
+        return chain -> {
+            okhttp3.Request request = chain.request();
+            okhttp3.RequestBody body = request.body();
+            if (body == null || !"POST".equals(request.method())) {
+                return chain.proceed(request);
+            }
+            okio.Buffer buffer = new okio.Buffer();
+            body.writeTo(buffer);
+            String payload = buffer.readUtf8();
+            String shaped = shapeAnalyticsEventPayload(payload);
+            if (shaped.equals(payload)) {
+                return chain.proceed(request);
+            }
+            okhttp3.RequestBody shapedBody = okhttp3.RequestBody.create(
+                    shaped, body.contentType());
+            okhttp3.Request shapedRequest = request.newBuilder()
+                    .post(shapedBody)
+                    .removeHeader("Content-Length")
+                    .build();
+            return chain.proceed(shapedRequest);
+        };
+    }
+
+    /** The identify-event shaper law (see {@link #makeEventWireShaper()}). */
+    static String shapeAnalyticsEventPayload(String payload) {
+        com.google.gson.JsonElement el;
+        try {
+            el = com.google.gson.JsonParser.parseString(payload);
+        } catch (Exception e) {
+            return payload;
+        }
+        if (!el.isJsonArray()) {
+            return payload;
+        }
+        com.google.gson.JsonArray items = el.getAsJsonArray();
+        com.google.gson.JsonArray shaped = new com.google.gson.JsonArray();
+        boolean changed = false;
+        for (com.google.gson.JsonElement item : items) {
+            com.google.gson.JsonElement out = item;
+            if (item.isJsonObject()) {
+                com.google.gson.JsonObject o = item.getAsJsonObject();
+                boolean isIdentify = o.has("kind") && o.get("kind").isJsonPrimitive()
+                        && "identify".equals(o.get("kind").getAsString());
+                boolean hasKey = o.has("key") && !o.get("key").isJsonNull();
+                if (isIdentify && !hasKey && o.has("context")
+                        && o.get("context").isJsonObject()
+                        && o.getAsJsonObject("context").has("key")
+                        && !o.getAsJsonObject("context").get("key").isJsonNull()) {
+                    com.google.gson.JsonObject copy = o.deepCopy();
+                    copy.addProperty("key",
+                            o.getAsJsonObject("context").get("key").getAsString());
+                    out = copy;
+                    changed = true;
+                }
+            }
+            shaped.add(out);
+        }
+        if (!changed) {
+            return payload;
+        }
+        return shaped.toString();
     }
 
     /**

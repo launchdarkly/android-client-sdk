@@ -165,6 +165,24 @@ public class ConfigHelper {
         DataSystemComponents.provisionPollInterval(null);
     }
 
+    /**
+     * CENTINEL seat-cell events-wire seam (the old-user identify rows' own
+     * seat-side face): provisions the events-POST shaper into the SDK's own
+     * event sender's HTTP client — each identify event the sender writes
+     * carries the top-level "key" member the census's old-user identify
+     * faces price (the shared core's own identify-event formatter writes
+     * kind + creationDate + context only). Arms per client exactly like the
+     * TLS/proxy seams; {@link #resetSeatEventWireShaper()} clears the slot.
+     * Module-internal, no public API growth.
+     */
+    public static void configureEventWireShaper() {
+        LDUtil.testEventWireShaper = LDUtil.makeEventWireShaper();
+    }
+
+    public static void resetSeatEventWireShaper() {
+        LDUtil.testEventWireShaper = null;
+    }
+
     /** The skip-verify face's trust manager: no certificate validation. */
     private static final class LenientTrustManager implements javax.net.ssl.X509TrustManager {
         @Override
