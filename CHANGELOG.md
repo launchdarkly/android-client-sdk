@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Android SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.18.0](https://github.com/launchdarkly/android-client-sdk/compare/5.17.0...5.18.0) (2026-10-30)
+
+
+### Features
+
+* add support for `usePost` option for FDv2 ([#411](https://github.com/launchdarkly/android-client-sdk/issues/411)) ([d5049ae](https://github.com/launchdarkly/android-client-sdk/commit/d5049aeae84ac10c86563e14c28acc5e9aeeaabd))
+
 ## [5.17.0](https://github.com/launchdarkly/android-client-sdk/compare/5.16.1...5.17.0) (2026-10-15)
 
 
