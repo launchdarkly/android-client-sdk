@@ -332,10 +332,44 @@ public class SdkClientEntity {
   private void doIdentifyEvent(IdentifyEventParams params) {
     com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(true);
     try {
-      client.identify(params.context).get();
+      client.identify(seatLegacyIdentifyContext(params.context)).get();
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException("Error waiting for identify", e);
     }
+  }
+
+  /**
+   * CENTINEL census seat-cell seam (the old-user identify class's own law):
+   * the harness's identify op rides the legacy-user wire when the context's
+   * own serialization carries the custom-envelope member — the single-kind
+   * shape representContextAsOldUser transcribes (the built-ins plus the
+   * legacy custom object). The SDK's own legacy user builder
+   * (LDUser.Builder + LDContext.fromUser) transcribes the wire back into a
+   * context, unboxing the legacy custom attrs at the context's own top
+   * level — the same conversion the initial-user seam rides at construction
+   * (buildLegacyUserContext). Any other identify wire parses through the
+   * core's own context deserializer byte-true; module-internal, no public
+   * API growth.
+   */
+  private static LDContext seatLegacyIdentifyContext(LDContext context) {
+    if (context == null || context.isMultiple()) {
+      return context;
+    }
+    String wire;
+    try {
+      wire = JsonSerialization.serialize(context);
+    } catch (Exception e) {
+      return context;
+    }
+    com.google.gson.JsonElement el = com.google.gson.JsonParser.parseString(wire);
+    if (!el.isJsonObject()) {
+      return context;
+    }
+    LDContext legacy = buildLegacyUserContext(el.getAsJsonObject());
+    if (legacy != null && legacy.isValid()) {
+      return legacy;
+    }
+    return context;
   }
 
   private void doCustomEvent(CustomEventParams params) {
@@ -793,6 +827,10 @@ public class SdkClientEntity {
     // client here; the polling synchronizer's own branch re-arms it with the
     // scenario's resolved cadence (the poll-interval census rows' law).
     com.launchdarkly.sdk.android.ConfigHelper.resetSeatPollInterval();
+    // CENTINEL seat-cell events-wire seam: the events-POST shaper arms per
+    // client here (the old-user identify rows' event-level key face); the
+    // stock poll / stream stacks stay untouched.
+    com.launchdarkly.sdk.android.ConfigHelper.configureEventWireShaper();
     com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
             com.launchdarkly.sdk.android.ConfigHelper.configureInMemoryPersistence(builder,
             cs == null ? null : cs.xCpStorageScope);
