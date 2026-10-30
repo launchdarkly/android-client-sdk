@@ -12,6 +12,10 @@ import com.launchdarkly.sdk.internal.events.EventSender;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -205,6 +209,22 @@ final class DirectEventProcessor implements EventProcessor {
     private final Object badRequestLock = new Object();
     private String badRequestPayloadId;
     private int badRequestsInARow;
+
+    /**
+     * How many failed reads in a row drop a batch. A read that fails is mostly one that will go on failing,
+     * a permission taken away or a directory named like a batch, and expiry cannot delete a file it cannot
+     * open, so the batch would be read, and fail, at every delivery for good. More than one, so a passing
+     * failure such as running out of file descriptors costs nothing; a failed read queues no retry of its own,
+     * so the reads are usually deliveries apart.
+     */
+    static final int READ_FAILURES_BEFORE_DROPPING = 3;
+
+    /**
+     * Failed reads in a row, by payload ID, of the batches whose last read failed. Unlike refusals, these
+     * are counted for several batches at once, since a batch whose read failed is passed by. Held only in
+     * memory, so a new run of the application counts again. Guarded by itself.
+     */
+    private final Map<String, Integer> readFailuresInARow = new HashMap<>();
 
     DirectEventProcessor(
             OutboundEventBuffer eventBuffer,
@@ -736,12 +756,13 @@ final class DirectEventProcessor implements EventProcessor {
      * a pass is a commit point.
      */
     private DeliveryPass deliverWaitingThenNew(EventDeliveryRun run) {
-        BatchesOutcome waiting = deliverPendingBatches(run);
+        Set<String> passedBy = new HashSet<>();
+        BatchesOutcome waiting = deliverPendingBatches(run, passedBy);
         if (waiting.kept()) {
             return new DeliveryPass(waiting, committer.commitLeavingTheLogOpen());
         }
         EventCommitter.Close close = committer.commitAndCloseBatch();
-        BatchesOutcome closed = deliverListedBatches(run);
+        BatchesOutcome closed = deliverListedBatches(run, passedBy);
         if (closed.kept() || !close.closedEverything) {
             // Events left in a log that would not close are still on the disk, for the next close to try again
             // with; this pass cannot say they got out.
@@ -754,10 +775,15 @@ final class DirectEventProcessor implements EventProcessor {
     private enum BatchesOutcome {
         DELIVERED,
         FAILED,
-        /** Kept after an attempt that failed in a way that may pass, or a read or listing that did. */
+        /** Kept after an attempt that failed in a way that may pass, or a listing that did. */
         RETRYABLE,
         /** Kept without an attempt, the backoff not allowing one yet. */
-        HELD;
+        HELD,
+        /**
+         * Kept after a read that failed, for a later delivery to read again, while the batches behind it are
+         * still attempted. Only ever the outcome of one batch; a pass with one is {@link #FAILED}.
+         */
+        PASSED_BY;
 
         boolean kept() {
             return this == RETRYABLE || this == HELD;
@@ -768,25 +794,36 @@ final class DirectEventProcessor implements EventProcessor {
      * Makes one attempt at every batch waiting, oldest first: the others are deliveries an earlier attempt
      * did not finish, or that a previous run of the application never got to start.
      * <p>
-     * Stops at the first failure that may pass. The batches behind it would most likely meet the same
-     * network, and the retry takes all of them again.
+     * Stops at the first failure that may pass, other than a read. The batches behind it would most likely
+     * meet the same network, and the retry takes all of them again.
+     *
+     * @param passedBy the batches whose read failed in this pass, which this adds to
      */
-    private BatchesOutcome deliverPendingBatches(EventDeliveryRun run) {
+    private BatchesOutcome deliverPendingBatches(EventDeliveryRun run, Set<String> passedBy) {
         reportDiscarded(store.discardExpired());
-        return deliverListedBatches(run);
+        return deliverListedBatches(run, passedBy);
     }
 
     /**
-     * {@link #deliverPendingBatches()} without the discard, for a second pass moments after the first.
+     * {@link #deliverPendingBatches} without the discard, for a second pass moments after the first.
      * <p>
      * Where the directory could not be listed, delivers the batches the store last counted and answers
      * {@link BatchesOutcome#RETRYABLE}: a batch the listing could not see is still on the disk, and the
      * listing may work next time.
+     *
+     * @param passedBy the batches whose read failed earlier in this pass, which are not read again, and to
+     *   which this adds any whose read fails now
      */
-    private BatchesOutcome deliverListedBatches(EventDeliveryRun run) {
+    private BatchesOutcome deliverListedBatches(EventDeliveryRun run, Set<String> passedBy) {
         EventStore.Listing listing = store.listPendingBatches();
         boolean allDelivered = true;
         for (EventStore.Batch batch : listing.batches) {
+            if (passedBy.contains(batch.payloadId)) {
+                // Read once a pass: read again moments later, it would most likely fail as it did, and count
+                // as two failures in a row.
+                allDelivered = false;
+                continue;
+            }
             run.awaitTurn();
             if (offline.get()) {
                 return BatchesOutcome.FAILED;
@@ -795,6 +832,9 @@ final class DirectEventProcessor implements EventProcessor {
             run.postEnded();
             if (outcome.kept()) {
                 return outcome;
+            }
+            if (outcome == BatchesOutcome.PASSED_BY) {
+                passedBy.add(batch.payloadId);
             }
             allDelivered &= outcome == BatchesOutcome.DELIVERED;
         }
@@ -840,8 +880,9 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * @return DELIVERED if the batch arrived, or held nothing left to send; FAILED if events were lost,
-     *   whether the batch could not be read, arrived short, or had its payload refused
-     *   {@link #BAD_REQUESTS_BEFORE_DROPPING} times in a row; RETRYABLE if it is kept to be sent again,
+     *   whether the batch could not be read by this version, or {@link #READ_FAILURES_BEFORE_DROPPING} times
+     *   in a row, arrived short, or had its payload refused {@link #BAD_REQUESTS_BEFORE_DROPPING} times in a
+     *   row; PASSED_BY if a read failed fewer times than that; RETRYABLE if it is kept to be sent again,
      *   which is every other failure to post it; HELD for a post the backoff did not allow
      */
     private BatchesOutcome deliver(EventStore.Batch batch, EventDeliveryRun run) {
@@ -860,10 +901,21 @@ final class DirectEventProcessor implements EventProcessor {
             reportBatchLost(batch);
             return BatchesOutcome.FAILED;
         } catch (IOException e) {
-            // Kept: the fi le is still there, and a read that failed may not fail next time.
-            logger.warn("Could not read stored events: {}", LogValues.exceptionSummary(e));
-            return BatchesOutcome.RETRYABLE;
+            if (countReadFailure(batch) >= READ_FAILURES_BEFORE_DROPPING) {
+                logger.error("Dropping {} stored event(s) that could not be read {} times in a row: {}",
+                        batch.eventCount, READ_FAILURES_BEFORE_DROPPING, LogValues.exceptionSummary(e));
+                store.remove(batch);
+                reportBatchLost(batch);
+                return BatchesOutcome.FAILED;
+            }
+            // Kept, since a read that failed may not fail next time, but passed by rather than stopped at.
+            // Stopped at, it held back every batch behind it, the open log's included, on every pass for as
+            // long as the read kept failing: for good where expiry cannot open the file to delete it either.
+            logger.warn("Could not read stored events, will try again at the next delivery: {}",
+                    LogValues.exceptionSummary(e));
+            return BatchesOutcome.PASSED_BY;
         }
+        endReadFailures(batch);
         if (payload == null) {
             // Already delivered by another process of this application, or holding no events. Either way
             // nothing is lost and there is nothing to keep.
@@ -911,6 +963,30 @@ final class DirectEventProcessor implements EventProcessor {
         } finally {
             // Counted again unless the batch was removed above.
             store.stoppedSending(batch);
+        }
+    }
+
+    /**
+     * @return how many reads in a row of this batch have failed, counting this one; once that reaches
+     *   {@link #READ_FAILURES_BEFORE_DROPPING} the count is ended, since the batch is dropped
+     */
+    private int countReadFailure(EventStore.Batch batch) {
+        synchronized (readFailuresInARow) {
+            Integer previous = readFailuresInARow.get(batch.payloadId);
+            int count = previous == null ? 1 : previous + 1;
+            if (count >= READ_FAILURES_BEFORE_DROPPING) {
+                readFailuresInARow.remove(batch.payloadId);
+            } else {
+                readFailuresInARow.put(batch.payloadId, count);
+            }
+            return count;
+        }
+    }
+
+    /** Ends a batch's run of failed reads, at a read that worked. */
+    private void endReadFailures(EventStore.Batch batch) {
+        synchronized (readFailuresInARow) {
+            readFailuresInARow.remove(batch.payloadId);
         }
     }
 

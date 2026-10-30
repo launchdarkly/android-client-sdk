@@ -72,6 +72,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Behavior of the SDK's own event processor, covering the parts that are not about buffering under
@@ -4125,6 +4126,97 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 List<LDValue> events = collectDelivered(server);
                 assertEquals(1, countEventsOfKind(events, "custom"));
                 assertEquals(LDValue.of("kept"), requireEventOfKind(events, "custom").get("key"));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    /** A store whose reads of any batch named for {@code failing} fail, as they do once a permission is taken away. */
+    private EventStore storeFailingReadsOf(AtomicReference<String> failing, AtomicInteger reads) throws IOException {
+        return new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true, logging.logger) {
+            @Override
+            FileInputStream openForReading(File file) throws IOException {
+                String payloadId = failing.get();
+                if (payloadId != null && file.getName().contains(payloadId)) {
+                    reads.incrementAndGet();
+                    throw new FileNotFoundException(file + " (Permission denied)");
+                }
+                return super.openForReading(file);
+            }
+        };
+    }
+
+    @Test
+    public void aBatchThatCannotBeReadIsPassedBySoTheBatchesBehindItAreStillDelivered() throws Exception {
+        AtomicReference<String> failing = new AtomicReference<>();
+        AtomicInteger reads = new AtomicInteger();
+        EventStore store = storeFailingReadsOf(failing, reads);
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                eventProcessor.setOffline(false);
+                scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+                store.stage("{\"kind\":\"custom\",\"key\":\"unreadable\"}".getBytes(StandardCharsets.UTF_8));
+                failing.set(closeOne(store).payloadId);
+                eventProcessor.recordCustomEvent(CONTEXT, "behind", LDValue.ofNull(), null);
+
+                assertFalse("a flush that left a batch unsent reported success",
+                        awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(1, countEventsOfKind(events, "custom"));
+                assertEquals(LDValue.of("behind"), requireEventOfKind(events, "custom").get("key"));
+                assertEquals("read again in the same flush", 1, reads.get());
+
+                failing.set(null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                events = collectDelivered(server);
+                assertEquals(LDValue.of("unreadable"), requireEventOfKind(events, "custom").get("key"));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void aBatchWhoseReadFailsAtThreeDeliveriesInARowIsDroppedAndReportedOnce() throws Exception {
+        AtomicReference<String> failing = new AtomicReference<>();
+        AtomicInteger reads = new AtomicInteger();
+        EventStore store = storeFailingReadsOf(failing, reads);
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+            diagnosticExecutors.add(diagnosticExecutor);
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                    scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+            try {
+                eventProcessor.setOffline(false);
+                scheduler.submit(() -> { }).get(2, TimeUnit.SECONDS);
+                store.stage("{\"kind\":\"custom\",\"key\":\"unreadable\"}".getBytes(StandardCharsets.UTF_8));
+                EventStore.Batch unreadable = closeOne(store);
+                failing.set(unreadable.payloadId);
+
+                for (int i = 1; i < DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING; i++) {
+                    assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                    assertEquals(1, store.pendingBatches().size());
+                }
+                assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertEquals(DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING, reads.get());
+                assertTrue("a dropped batch is still listed", store.pendingBatches().isEmpty());
+                logging.assertErrorLogged("could not be read " + DirectEventProcessor.READ_FAILURES_BEFORE_DROPPING
+                        + " times in a row");
+                server.getRecorder().requireNoRequests(100, TimeUnit.MILLISECONDS);
+
+                eventProcessor.recordCustomEvent(CONTEXT, "after", LDValue.ofNull(), null);
+                assertTrue("the loss was reported twice", awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
             } finally {
                 eventProcessor.close();
                 scheduler.shutdownNow();
