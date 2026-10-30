@@ -80,6 +80,13 @@ public abstract class DataSystemComponents {
         return provisioned != null ? provisioned : entryValue;
     }
 
+    /** The builder's own clamp: the seat's provisioned cadence when one is
+     * armed, else the SDK's public default floor. */
+    private static int pollIntervalFloorOrDefault() {
+        Integer provisioned = testPollIntervalMillis;
+        return provisioned != null ? provisioned : LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+    }
+
     static final class PollingInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
 
         private ServiceEndpoints serviceEndpointsOverride;
@@ -118,7 +125,7 @@ public abstract class DataSystemComponents {
         }
 
         PollingSynchronizerBuilderImpl pollIntervalMillis(int pollIntervalMillis) {
-            this.pollIntervalMillis = Math.max(pollIntervalMillis, pollIntervalFloor());
+            this.pollIntervalMillis = Math.max(pollIntervalMillis, pollIntervalFloorOrDefault());
             return this;
         }
 
