@@ -73,20 +73,16 @@ public class TestHook extends Hook {
     }
 
 
-    /** The explicit identify flag: the SDK's own hook base also fires the identify
-     * series at createClient's init (the initial context); the harness's rows
-     * price the explicit-identify face, so the seat buffers the init fires and
-     * serves only the face the series rows name. */
-    static final java.util.concurrent.atomic.AtomicBoolean IDENTIFY_EXPLICIT =
-            new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** The hooks identify-series faces price EVERY identify series the SDK's
+     * own hookRunner rides: the js init-series law of record
+     * (launchdarkly-js-sdk-common@5.8.3 index.js:705) — initialization's own
+     * identify series once-wraps the hookRunner's identify series — so the
+     * createClient init face's stages post beside the explicit identify op's
+     * stages (the census's hooks-surfaces rows price both series' chains). */
 
     @Override
     public Map<String, Object> beforeIdentify(
             com.launchdarkly.sdk.android.integrations.IdentifySeriesContext seriesContext, Map<String, Object> seriesData) {
-        if (!IDENTIFY_EXPLICIT.get()) {
-            // the init-context face: not priced (the rows' own series state)
-            return seriesData;
-        }
         Map<String, Object> newData = new HashMap<>(data(seriesData));
         if (hookData.beforeIdentify != null) {
             newData.putAll(hookData.beforeIdentify);
@@ -111,14 +107,6 @@ public class TestHook extends Hook {
             com.launchdarkly.sdk.android.integrations.IdentifySeriesContext seriesContext,
             Map<String, Object> seriesData,
             com.launchdarkly.sdk.android.integrations.IdentifySeriesResult result) {
-        if (!IDENTIFY_EXPLICIT.get()) {
-            // the init face: never posted
-            Map<String, Object> newData0 = new HashMap<>(data(seriesData));
-            if (hookData.afterIdentify != null) {
-                newData0.putAll(hookData.afterIdentify);
-            }
-            return Collections.unmodifiableMap(newData0);
-        }
         Map<String, Object> newData = new HashMap<>(data(seriesData));
         if (hookData.afterIdentify != null) {
             newData.putAll(hookData.afterIdentify);

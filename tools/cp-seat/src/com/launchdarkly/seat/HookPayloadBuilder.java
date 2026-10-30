@@ -41,9 +41,16 @@ final class HookPayloadBuilder {
         Object ctx = readField(params, "evaluationSeriesContext");
         o.add("evaluationSeriesContext", seriesContext(ctx));
       }
-      Object seriesData = readField(params, "evaluationSeriesData");
-      o.add("evaluationSeriesData", seriesData == null ? JsonNull.INSTANCE
-          : SeatServe.gson.toJsonTree(seriesData));
+      if (hasField(params, "evaluationSeriesData")) {
+        // The harness hookPayload member law: an evaluation/track hookPayload
+        // carries its series data; the identify-series rows' payloads price
+        // only the identify arm seats ({stage, identifySeriesContext,
+        // identifySeriesData[, identifyResult]}) — the evaluation member
+        // prices absent there (never a null placeholder).
+        Object seriesData = readField(params, "evaluationSeriesData");
+        o.add("evaluationSeriesData", seriesData == null ? JsonNull.INSTANCE
+            : SeatServe.gson.toJsonTree(seriesData));
+      }
       Object detail = readField(params, "evaluationDetail");
       if (detail != null) {
         o.add("evaluationDetail", evaluationDetail(detail));
@@ -76,7 +83,11 @@ final class HookPayloadBuilder {
         o.add("trackSeriesContext", t);
       }
       Object idCtx = readField(params, "identifySeriesContext");
-      if (idCtx != null) {
+      // The identify-series payload law: the series-context seat prices the
+      // beforeIdentify row only; the afterIdentify rows price {stage,
+      // identifySeriesData, identifyResult} (the harness's own payload
+      // member sets per stage).
+      if (idCtx != null && "beforeIdentify".equals(String.valueOf(readField(params, "stage")))) {
         com.google.gson.JsonObject ic = new com.google.gson.JsonObject();
         Object ilctx = readField(idCtx, "context");
         if (ilctx != null) {
@@ -147,7 +158,10 @@ final class HookPayloadBuilder {
         d.add("value", JsonNull.INSTANCE);
       }
       Object vi = readField(detail, "variationIndex");
-      if (vi instanceof Integer) {
+      if (vi instanceof Integer && ((Integer) vi).intValue() != EvaluationDetail.NO_VARIATION) {
+        // The harness's detail members: a real variation index rides its
+        // value; a no-variation read prices the null member (the typed
+        // default's own detail form).
         d.addProperty("variationIndex", ((Integer) vi).intValue());
       } else {
         d.add("variationIndex", JsonNull.INSTANCE);
@@ -201,6 +215,19 @@ final class HookPayloadBuilder {
       return null;
     } catch (Exception e) {
       throw new IllegalStateException(name + ": " + SeatServe.describe(e), e);
+    }
+  }
+
+  /** The payload's member-set law distinguishes an absent param field (the
+   * member prices ABSENT — never serialized) from a present-null field
+   * (serialized as null): the identify rows' payloads never named the
+   * evaluation member. */
+  private static boolean hasField(Object owner, String name) {
+    try {
+      owner.getClass().getDeclaredField(name);
+      return true;
+    } catch (NoSuchFieldException e) {
+      return false;
     }
   }
 

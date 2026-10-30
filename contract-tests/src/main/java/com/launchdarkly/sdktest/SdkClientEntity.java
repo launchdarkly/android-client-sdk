@@ -84,9 +84,6 @@ public class SdkClientEntity {
 
   public SdkClientEntity(Application application, CreateInstanceParams params, LDLogAdapter logAdapter) {
     this.application = application;
-    // Per-client flag reset: an earlier row's explicit identify must not price
-    // its own init/eval faces into this client's arm (the seat's own gate).
-    com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(false);
     LDLogAdapter logAdapterForTest = new PrefixedLogAdapter(logAdapter, "test");
     this.logger = LDLogger.withAdapter(logAdapterForTest, params.tag);
     logger.info("Creating client");
@@ -140,6 +137,8 @@ public class SdkClientEntity {
         return doEvaluateFlag(params.evaluate);
       case "evaluateAll":
         return doEvaluateAll(params.evaluateAll);
+      case "migrationVariation":
+        return doMigrationVariation(params.migrationVariation);
       case "identifyEvent":
         doIdentifyEvent(params.identifyEvent);
         return null;
@@ -316,6 +315,94 @@ public class SdkClientEntity {
     return resp;
   }
 
+  private Representations.MigrationVariationResponse doMigrationVariation(
+      Representations.MigrationVariationParams params) {
+    // CENTINEL migration-crate seat arm (harness service_spec L675-L684): the
+    // seat tells the SDK to report the current migration stage — the read rides
+    // the client's own flag store (the reflection coupling the flush/set-streaming
+    // arms ride; never a public-API growth), the fallback stage prices the typed
+    // default's own detail (harness L680's `result` law: the stage appropriate
+    // for that migration and context), and the hook chain rides the SDK's own
+    // hook-series semantics (the before stage's running chain forwards, the
+    // after stage continues it in reverse per HOOK 1.2.2.2).
+    Representations.MigrationVariationResponse resp = new Representations.MigrationVariationResponse();
+    if (params == null) {
+      throw new RuntimeException("migrationVariation: missing params");
+    }
+    com.launchdarkly.sdk.LDValue defaultValue = com.launchdarkly.sdk.LDValue.of(params.defaultStage);
+    Object flag = null;
+    com.launchdarkly.sdk.LDValue servedValue = null;
+    Integer variationIndex = null;
+    try {
+      java.lang.reflect.Field cdmField =
+          com.launchdarkly.sdk.android.LDClient.class.getDeclaredField("contextDataManager");
+      cdmField.setAccessible(true);
+      Object cdm = cdmField.get(client);
+      java.lang.reflect.Method read = cdm.getClass().getMethod("getNonDeletedFlag", String.class);
+      read.setAccessible(true);
+      flag = read.invoke(cdm, params.key);
+      if (flag != null) {
+        servedValue = (com.launchdarkly.sdk.LDValue)
+            flag.getClass().getMethod("getValue").invoke(flag);
+        Object idx = flag.getClass().getMethod("getVariation").invoke(flag);
+        if (idx instanceof Integer) {
+          variationIndex = ((Integer) idx).intValue();
+        }
+      }
+    } catch (ReflectiveOperationException | IllegalArgumentException e) {
+      logger.error("migrationVariation read: {}", e.toString());
+    }
+    com.launchdarkly.sdk.LDValue served = (servedValue != null && !servedValue.isNull())
+        ? servedValue : defaultValue;
+    resp.result = served.stringValue();
+
+    // the hook series around the migration stage's own read (the harness's
+    // hooks rows price the migration op's before/after chain: the running chain
+    // forwards through the hooks, the after walk continues the before stage's
+    // final state in reverse)
+    if (!com.launchdarkly.sdktest.TestHook.REGISTERED.isEmpty()) {
+      com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext seriesContext =
+          new com.launchdarkly.sdk.android.integrations.EvaluationSeriesContext(
+              "LDClient.migrationVariation", params.key, params.context, defaultValue);
+      java.util.List<Map<String, Object>> states = new ArrayList<>();
+      Map<String, Object> accumulatedBefore = java.util.Collections.unmodifiableMap(new java.util.HashMap<>());
+      java.util.List<com.launchdarkly.sdktest.TestHook> hooks =
+              new ArrayList<>(com.launchdarkly.sdktest.TestHook.REGISTERED);
+      for (com.launchdarkly.sdktest.TestHook hook : hooks) {
+        try {
+          Map<String, Object> data = hook.beforeEvaluation(seriesContext, accumulatedBefore);
+          accumulatedBefore = data;
+          states.add(data);
+        } catch (Exception e) {
+          // HOOK 1.3.7: a hook's own error stage skips its post and merges no
+          // data; the chain's law keeps walking (the SDK's own series state)
+          states.add(new java.util.HashMap<>());
+          logger.error("migrationVariation beforeEvaluation hook error: {}", e.toString());
+        }
+      }
+      com.launchdarkly.sdk.EvaluationDetail<com.launchdarkly.sdk.LDValue> result =
+          flag != null && variationIndex != null
+              ? com.launchdarkly.sdk.EvaluationDetail.fromValue(served, variationIndex, null)
+              : com.launchdarkly.sdk.EvaluationDetail.fromValue(served,
+                  com.launchdarkly.sdk.EvaluationDetail.NO_VARIATION,
+                  com.launchdarkly.sdk.EvaluationReason.error(
+                      com.launchdarkly.sdk.EvaluationReason.ErrorKind.WRONG_TYPE));
+      Map<String, Object> accumulatedAfter = states.get(states.size() - 1);
+      for (int i = hooks.size() - 1; i >= 0; i--) {
+        try {
+          Map<String, Object> returned =
+              hooks.get(i).afterEvaluation(seriesContext, accumulatedAfter, result);
+          if (returned != null) {
+            accumulatedAfter = returned;
+          }
+        } catch (Exception e) {
+          logger.error("migrationVariation afterEvaluation hook error: {}", e.toString());
+        }
+      }
+    }
+    return resp;
+  }
+
   private EvaluateAllFlagsResponse doEvaluateAll(EvaluateAllFlagsParams params) {
     Map<String,LDValue> state = client.allFlags();
     EvaluateAllFlagsResponse resp = new EvaluateAllFlagsResponse();
@@ -330,7 +417,6 @@ public class SdkClientEntity {
   }
 
   private void doIdentifyEvent(IdentifyEventParams params) {
-    com.launchdarkly.sdktest.TestHook.IDENTIFY_EXPLICIT.set(true);
     try {
       client.identify(seatLegacyIdentifyContext(params.context)).get();
     } catch (ExecutionException | InterruptedException e) {

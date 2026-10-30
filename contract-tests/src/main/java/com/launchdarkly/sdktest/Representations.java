@@ -189,12 +189,26 @@ public abstract class Representations {
         RegisterFlagChangeListenerParams registerFlagChangeListener;
         UnregisterListenerParams unregisterListener;
         ContextComparisonParams contextComparison;
+        MigrationVariationParams migrationVariation;
         @com.google.gson.annotations.SerializedName("x-cp-create-no-credential") XcpCreateNoCredentialParams xcpCreateNoCredential;
         SetOverrideParams setOverride;
         RemoveOverrideParams removeOverride;
         @com.google.gson.annotations.SerializedName("x-cp-closed-evaluate") EvaluateFlagParams xcpClosedEvaluate;
         @com.google.gson.annotations.SerializedName("x-cp-set-streaming") SetStreamingParams xcpSetStreaming;
         public @com.google.gson.annotations.SerializedName("x-cp-logs") XcpLogsParams xcpLogs;
+    }
+
+    /** Migration-crate seat arm params (harness service_spec L675: `key`,
+     * `context`, `defaultStage` — the seat tells the SDK to report the current
+     * migration stage; the response prices `result`). */
+    public static class MigrationVariationParams {
+        String key;
+        LDContext context;
+        String defaultStage;
+    }
+
+    public static class MigrationVariationResponse {
+        String result;
     }
 
     /** CP-SPEC 10 x-cp-logs params: `action: "drain"` (the only action the
