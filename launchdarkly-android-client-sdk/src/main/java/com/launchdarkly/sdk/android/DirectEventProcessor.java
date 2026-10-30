@@ -495,12 +495,13 @@ final class DirectEventProcessor implements EventProcessor {
 
     /**
      * Answers the waiters when the queued retry does, rather than telling them a batch failed when
-     * it is about to be sent again. Waiting happens on a pooled thread because the retry runs a
-     * second from now on this one, which must be free to take it.
+     * it is about to be sent again. They are answered as the retry ends, on the scheduler thread: a
+     * thread blocked on it for each delivery that took it as theirs would pile up as fast as flushes
+     * are called.
      */
     private void completeWhenRetryEnds(LDAwaitFuture<Boolean> result, DeliveryOutcome outcome,
                                        boolean lostEvents) {
-        LDAwaitFuture<Boolean> retried = LDFutures.fromFuture(outcome.retry);
+        LDAwaitFuture<Boolean> retried = outcome.retry;
         retried.addListener(() -> {
             boolean delivered = false;
             try {
@@ -652,14 +653,14 @@ final class DirectEventProcessor implements EventProcessor {
          * Non-null when a batch failed and the retry of every batch is queued to run after the first wait of
          * the backoff, which is as long as a caller waits to hear how it went.
          */
-        final Future<Boolean> retry;
+        final LDAwaitFuture<Boolean> retry;
         /**
          * The loss count as of the close of this delivery's batch, which is as far as it can answer
          * for; see {@link #claimEventsLost(long)}.
          */
         final long lostEventsMark;
 
-        private DeliveryOutcome(boolean delivered, Future<Boolean> retry, long lostEventsMark) {
+        private DeliveryOutcome(boolean delivered, LDAwaitFuture<Boolean> retry, long lostEventsMark) {
             this.delivered = delivered;
             this.retry = retry;
             this.lostEventsMark = lostEventsMark;
@@ -703,7 +704,7 @@ final class DirectEventProcessor implements EventProcessor {
             long waitNanos = retryState.remainingWaitNanos();
             long delayNanos = waitNanos > 0 ? waitNanos
                     : TimeUnit.MILLISECONDS.toNanos(retryState.initialDelayMillis());
-            Future<Boolean> retry = deliveryScheduler.scheduleRetry(this::retryPendingBatches, delayNanos);
+            LDAwaitFuture<Boolean> retry = deliveryScheduler.scheduleRetry(this::retryPendingBatches, delayNanos);
             boolean awaited = delayNanos <= TimeUnit.MILLISECONDS.toNanos(retryState.initialDelayMillis());
             return new DeliveryOutcome(false, awaited ? retry : null, pass.lostEventsMark);
         }
@@ -858,7 +859,7 @@ final class DirectEventProcessor implements EventProcessor {
             reportBatchLost(batch);
             return BatchesOutcome.FAILED;
         } catch (IOException e) {
-            // Kept: the file is still there, and a read that failed may not fail next time.
+            // Kept: the fi le is still there, and a read that failed may not fail next time.
             logger.warn("Could not read stored events: {}", LogValues.exceptionSummary(e));
             return BatchesOutcome.RETRYABLE;
         }

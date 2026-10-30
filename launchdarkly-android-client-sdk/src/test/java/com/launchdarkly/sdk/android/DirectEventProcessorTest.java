@@ -61,6 +61,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -3037,6 +3038,49 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 eventProcessor.close();
             }
         }
+    }
+
+    @Test
+    public void flushesWaitingOnTheRetryASecondLaterHoldNoThreadWhileTheyWait() throws Exception {
+        HandlerSwitcher service = new HandlerSwitcher(Handlers.status(503));
+        try (HttpServer server = HttpServer.start(service)) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                List<Future<Boolean>> flushes = new ArrayList<>();
+                flushes.add(eventProcessor.flushAsync());
+                server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
+                for (int flush = 0; flush < 50; flush++) {
+                    eventProcessor.recordCustomEvent(CONTEXT, "next-" + flush, LDValue.ofNull(), null);
+                    flushes.add(eventProcessor.flushAsync());
+                    Thread.sleep(5);
+                }
+                assertEquals(0, bridgeThreadsWaitingOnAFuture());
+                service.setTarget(Handlers.status(202));
+
+                for (Future<Boolean> flush : flushes) {
+                    assertTrue(flush.get(5, TimeUnit.SECONDS));
+                }
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    private static int bridgeThreadsWaitingOnAFuture() {
+        int waiting = 0;
+        for (Map.Entry<Thread, StackTraceElement[]> thread : Thread.getAllStackTraces().entrySet()) {
+            if (!thread.getKey().getName().equals("LaunchDarkly-FutureBridge")) {
+                continue;
+            }
+            for (StackTraceElement frame : thread.getValue()) {
+                if (frame.getClassName().equals(FutureTask.class.getName()) && frame.getMethodName().equals("get")) {
+                    waiting++;
+                    break;
+                }
+            }
+        }
+        return waiting;
     }
 
     @Test

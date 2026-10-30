@@ -61,7 +61,9 @@ final class EventDeliveryScheduler {
      * The retry queued after a delivery failed in a way that may pass. One at a time: it retries every batch
      * still waiting, so a second would only repeat it.
      */
-    private ScheduledFuture<Boolean> pendingRetry;
+    private ScheduledFuture<?> pendingRetry;
+    /** What {@link #pendingRetry} answers, completed by the retry itself so that no thread waits on it to hear. */
+    private LDAwaitFuture<Boolean> pendingRetryOutcome;
 
     // Guarded by flushLock.
 
@@ -208,31 +210,43 @@ final class EventDeliveryScheduler {
      * and close()'s final delivery, behind the wait.
      *
      * @param delayNanos how long until the backoff allows the next post
-     * @return the retry, a retry already queued, or null if shutting down
+     * @return what the retry answers, or a retry already queued answers, or null if shutting down
      */
-    Future<Boolean> scheduleRetry(Callable<Boolean> retry, long delayNanos) {
+    LDAwaitFuture<Boolean> scheduleRetry(Callable<Boolean> retry, long delayNanos) {
         synchronized (submitLock) {
             if (shuttingDown) {
                 return null;
             }
-            if (pendingRetry != null && !pendingRetry.isDone()) {
-                return pendingRetry;
+            if (pendingRetryOutcome != null && !pendingRetryOutcome.isDone()) {
+                return pendingRetryOutcome;
             }
+            LDAwaitFuture<Boolean> outcome = new LDAwaitFuture<>();
             try {
-                pendingRetry = scheduler.schedule(retry, delayNanos, TimeUnit.NANOSECONDS);
+                pendingRetry = scheduler.schedule(() -> answerRetry(retry, outcome), delayNanos,
+                        TimeUnit.NANOSECONDS);
             } catch (RuntimeException e) { // the executor was shut down under us
                 return null;
             }
+            pendingRetryOutcome = outcome;
             logger.warn("Will retry posting events in {}ms after a failure",
                     TimeUnit.NANOSECONDS.toMillis(delayNanos));
-            return pendingRetry;
+            return outcome;
+        }
+    }
+
+    private static void answerRetry(Callable<Boolean> retry, LDAwaitFuture<Boolean> outcome) {
+        try {
+            outcome.set(retry.call());
+        } catch (Throwable t) {
+            outcome.setException(t);
         }
     }
 
     /** As {@link #scheduleRetry}, from the retry that is running, so that it does not stand in for the next. */
-    Future<Boolean> scheduleRetryAgain(Callable<Boolean> retry, long delayNanos) {
+    LDAwaitFuture<Boolean> scheduleRetryAgain(Callable<Boolean> retry, long delayNanos) {
         synchronized (submitLock) {
             pendingRetry = null;
+            pendingRetryOutcome = null;
             return scheduleRetry(retry, delayNanos);
         }
     }
@@ -315,13 +329,16 @@ final class EventDeliveryScheduler {
      * @param release run on the scheduler thread, or at once if that thread is already gone
      */
     void shutDown(Future<?> awaitFirst, Runnable release) {
+        LDAwaitFuture<Boolean> cancelledRetry = null;
         synchronized (submitLock) {
             shuttingDown = true;
             if (pendingRetry != null) {
                 // Not interrupted if it is already posting: it checks isShuttingDown before it starts, and
                 // one that got past that runs ahead of the release queued below on the same thread.
                 pendingRetry.cancel(false);
+                cancelledRetry = pendingRetryOutcome;
                 pendingRetry = null;
+                pendingRetryOutcome = null;
             }
             try {
                 scheduler.submit(guarded(() -> {
@@ -332,6 +349,10 @@ final class EventDeliveryScheduler {
                 release.run();
             }
             scheduler.shutdown();
+        }
+        if (cancelledRetry != null) {
+            // Outside the lock, as it answers the flushes waiting on it. A cancelled retry never answers them.
+            cancelledRetry.set(false);
         }
     }
 
