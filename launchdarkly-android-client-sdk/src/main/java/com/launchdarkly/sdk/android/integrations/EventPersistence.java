@@ -31,7 +31,8 @@ public enum EventPersistence {
      * before then loses them.
      * <p>
      * {@code LDClient.flush} is the exception. It writes on the calling thread, as {@link #IMMEDIATE} does,
-     * so that an application ending the process on purpose can rely on it. A flush on the main thread with
+     * so that an application ending the process on purpose can rely on it. Moving to the background flushes
+     * too, so it writes the same way. A flush on the main thread with
      * {@link android.os.StrictMode} detecting disk writes therefore sees a violation. {@code flushAndWait}
      * writes on a thread of the SDK's instead, so that its timeout bounds the write.
      * <p>

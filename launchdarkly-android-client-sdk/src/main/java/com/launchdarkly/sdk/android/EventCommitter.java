@@ -33,7 +33,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * than the microseconds it costs, and the crash it describes may be moments away. A commit encodes the whole
  * held run, so the exposures leading up to the error go down with it. Everything else is committed once
  * {@link #PENDING_COMMIT_THRESHOLD} events have accumulated where persistence is on, on {@code flush}, at a
- * delivery, on backgrounding, or when the application flushes from its own crash handler.
+ * delivery, on backgrounding, or when the application flushes from its own crash handler. Backgrounding
+ * commits through {@code flush}: {@link ConnectivityManager} calls it on every move to the background, and
+ * {@link #commitBeforeDelivery} writes on that thread wherever events persist. {@code setInBackground} only
+ * reschedules the processor's tasks.
  * <p>
  * Which of the two {@code track} gets is the application's choice, through
  * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence}. Only at
