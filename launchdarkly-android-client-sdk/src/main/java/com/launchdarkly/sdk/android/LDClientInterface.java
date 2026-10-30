@@ -213,8 +213,9 @@ public interface LDClientInterface extends Closeable {
      *   expired first, the SDK is offline, closed, or otherwise unable to deliver them, or events
      *   recorded since the last time this was answered were lost on the way, by this delivery or an
      *   earlier one. Events the service refuses with an error that may pass, such as a 503, are not
-     *   lost: they are retried a second later and again by every flush after that, so a later call
-     *   can still deliver them, and where persistence is on so can a later run of the application.
+     *   lost: they are retried a second later, then as the backoff allows, and by any later call to
+     *   this method, so a later call can still deliver them, and where persistence is on so can a
+     *   later run of the application. {@link #flush()} posts nothing while the backoff is waiting.
      *   Events refused with a 401 or 403 are kept too, and posted again once the backoff allows, or by the
      *   next call to this method. A {@code false} because the timeout expired does not
      *   mean the events were not sent: the delivery is left running when the caller stops waiting,
