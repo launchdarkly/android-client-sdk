@@ -28,16 +28,17 @@ import java.util.concurrent.atomic.AtomicLong;
  * list append. Nothing is encoded on the thread that evaluated.
  * <p>
  * Where the line falls is the subject of O12 in the event-encoding research, and it falls between the events
- * an application asked for by name and the ones it did not. {@code track} and {@code identify} are commit
- * points, because an application reporting an error is saying this matters more than the microseconds it
- * costs, and the crash it describes may be moments away. A commit encodes the whole held run, so the
- * exposures leading up to the error go down with it. Evaluations get no such promise and are committed once
- * {@link #PENDING_COMMIT_THRESHOLD} of them have accumulated where persistence is on, on {@code flush}, or
- * when the application flushes from its own crash handler.
+ * an application asked for by name and the ones it did not. At {@code IMMEDIATE}, {@code track} and
+ * {@code identify} are commit points, because an application reporting an error is saying this matters more
+ * than the microseconds it costs, and the crash it describes may be moments away. A commit encodes the whole
+ * held run, so the exposures leading up to the error go down with it. Everything else is committed once
+ * {@link #PENDING_COMMIT_THRESHOLD} events have accumulated where persistence is on, on {@code flush}, at a
+ * delivery, on backgrounding, or when the application flushes from its own crash handler.
  * <p>
- * Whether a commit point runs on the caller's thread is the application's choice, through
+ * Which of the two {@code track} gets is the application's choice, through
  * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventPersistence}. Only at
- * {@code IMMEDIATE} can {@code track} promise the event is on disk by the time it returns.
+ * {@code IMMEDIATE} can {@code track} promise the event is on disk by the time it returns; at
+ * {@code DEFERRED} it costs what an evaluation does.
  * <p>
  * Threads. Recording runs on whichever thread evaluated or tracked. Commits run on {@link #commitExecutor},
  * or on the caller's thread at a commit point, one at a time under {@link #commitLock}. A delivery commits
@@ -55,9 +56,9 @@ final class EventCommitter {
      * could take. An uncaught exception runs the application's handler while the process is still alive, and
      * a handler that flushes commits the whole held run. So this is the window for the terminations that run
      * nothing on the way out -- {@code SIGKILL}, a native crash, an ANR kill, and the system reclaiming a
-     * backgrounded process. A {@code track} closes it too, because it commits.
+     * backgrounded process. A {@code track} at {@code IMMEDIATE} closes it too, because it commits.
      * <p>
-     * The second is what a {@code track} usually costs, since it encodes whatever is held before returning.
+     * The second is what such a {@code track} usually costs, since it encodes whatever is held before returning.
      * The commit executor keeps the run drained, so the common case is far below this; raising it trades that
      * cost against the number of writes.
      * <p>
@@ -65,7 +66,7 @@ final class EventCommitter {
      * where events arrive faster than the commit executor encodes them, or the executor is starved, the run
      * grows up to the event capacity, and the next commit point encodes all of it.
      */
-    private static final int PENDING_COMMIT_THRESHOLD = 32;
+    static final int PENDING_COMMIT_THRESHOLD = 32;
 
     // Set in the constructor and never changed.
 
@@ -74,8 +75,7 @@ final class EventCommitter {
      * Where a commit no caller waits for runs: a thread of its own, not the event processor's delivery thread.
      * <p>
      * That thread can be held by one delivery for as long as two network timeouts. A commit queued behind
-     * that would leave a {@code DEFERRED} {@code track} in memory for all of it, and let the pending run fill
-     * toward capacity meanwhile.
+     * that would leave the pending run in memory for all of it, and let it fill toward capacity meanwhile.
      */
     private final ExecutorService commitExecutor;
     /**
@@ -262,9 +262,24 @@ final class EventCommitter {
         }
     }
 
-    /** Records an {@code identify} or {@code track} event, and commits at the commit point it is. */
+    /**
+     * Records an {@code identify} or {@code track} event, and at {@code IMMEDIATE} commits before returning.
+     * <p>
+     * At {@code DEFERRED} it writes nothing itself (durability §13.3), and is committed with what is held
+     * at the pending threshold, a flush, a delivery, backgrounding or close. A commit per call would cost
+     * an application that tracks every few seconds one encode and write per event, each taking
+     * {@link #recordLock} from the threads evaluating flags and the store's locks from delivery.
+     */
     void recordAtCommitPoint(Event event) {
-        commitAtCommitPoint(record(event));
+        long sequence = record(event);
+        if (commitOnCallerThread) {
+            try {
+                commitDurablyThrough(sequence);
+            } catch (RuntimeException e) {
+                // As in recordEvaluation: on the caller's thread, so a failure is logged, not thrown.
+                logUnexpectedError(e);
+            }
+        }
     }
 
     /**
@@ -301,29 +316,6 @@ final class EventCommitter {
             // As in recordEvaluation: on the caller's thread, so a failure is logged, not thrown.
             logUnexpectedError(e);
             return 0;
-        }
-    }
-
-    /**
-     * Commits at a commit point, on the caller's thread or off it as the application asked.
-     * <p>
-     * Committing on the caller's thread is what lets {@code track} promise its event is on disk by the time
-     * it returns. Scheduling it instead keeps the encoding and the disk I/O off that thread, and the event
-     * is durable a moment later rather than immediately. When persistence is off that costs nothing at all,
-     * since there is no disk for an early commit to reach.
-     *
-     * @param through the last recording the caller needs durable: its own, or for a flush everything so far
-     */
-    private void commitAtCommitPoint(long through) {
-        try {
-            if (commitOnCallerThread) {
-                commitDurablyThrough(through);
-            } else {
-                scheduleCommitWherePersisting();
-            }
-        } catch (RuntimeException e) {
-            // As in recordEvaluation: every commit point is on the caller's thread.
-            logUnexpectedError(e);
         }
     }
 
@@ -367,7 +359,7 @@ final class EventCommitter {
     /** Queues a commit unless one is already queued, so a run of recordings asks for one rather than many. */
     private void scheduleCommit() {
         // Read before the compare-and-set, which takes the line for writing even when it fails, and fails for
-        // every deferred track recorded while a commit is already queued.
+        // every event recorded past the threshold while a commit is already queued.
         if (!commitScheduled.get() && commitScheduled.compareAndSet(false, true)) {
             try {
                 commitExecutor.execute(guarded(this::runScheduledCommit));

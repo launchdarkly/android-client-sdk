@@ -226,29 +226,31 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void deferredPersistenceStillPutsATrackOnDisk() throws Exception {
-        try (HttpServer server = startEventsServer()) {
-            EventProcessor eventProcessor = makeEventProcessor(server,
-                    eventsBuilder(DEFAULT_CAPACITY).eventPersistence(EventPersistence.DEFERRED), true);
-            try {
-                // Offline for the same reason as the immediate case: delivery would race the read.
-                eventProcessor.setOffline(true);
-                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+    public void aDeferredTrackWritesNothingItselfAndReachesTheDiskAtThePendingThreshold() throws Exception {
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY,
+                EventUtil.makeEventsTaskExecutor());
+        try {
+            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+            // Behind any commit the track queued, so that commit has run by the time this returns.
+            lastCommitExecutor.submit(() -> { }).get(2, TimeUnit.SECONDS);
 
-                // Durable a moment later rather than immediately: the commit was queued, not skipped.
-                long deadline = System.currentTimeMillis() + 5_000;
-                while (kindsOnDisk("custom") == 0 && System.currentTimeMillis() < deadline) {
-                    Thread.sleep(10);
-                }
-                assertEquals(1, kindsOnDisk("custom"));
-            } finally {
-                eventProcessor.close();
+            assertEquals(0, kindsOnDisk("custom"));
+
+            for (int i = 1; i < EventCommitter.PENDING_COMMIT_THRESHOLD; i++) {
+                eventProcessor.recordCustomEvent(CONTEXT, "more-" + i, LDValue.ofNull(), null);
             }
+
+            assertEquals(EventCommitter.PENDING_COMMIT_THRESHOLD, kindsOnDiskSoon("custom"));
+        } finally {
+            eventProcessor.close();
         }
     }
 
     @Test
-    public void aDeferredTrackReachesTheDiskWhileADeliveryHoldsTheEventsThread() throws Exception {
+    public void deferredEventsAtThePendingThresholdReachTheDiskWhileADeliveryHoldsTheEventsThread()
+            throws Exception {
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
@@ -259,13 +261,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             // as long as its timeouts allow.
             scheduler.submit(() -> awaitQuietly(deliveryAnswers, 10, TimeUnit.SECONDS));
 
-            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.of("data"), 2.5);
+            recordUpToThePendingThreshold(eventProcessor);
 
-            long deadline = System.currentTimeMillis() + 5_000;
-            while (kindsOnDisk("custom") == 0 && System.currentTimeMillis() < deadline) {
-                Thread.sleep(10);
-            }
-            assertEquals(1, kindsOnDisk("custom"));
+            assertEquals(EventCommitter.PENDING_COMMIT_THRESHOLD, kindsOnDiskSoon("custom"));
         } finally {
             deliveryAnswers.countDown();
             eventProcessor.close();
@@ -353,8 +351,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY,
                 EventUtil.makeEventsTaskExecutor());
         try {
-            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
-            assertTrue("the track's commit never reached the disk", writeStalled.await(5, TimeUnit.SECONDS));
+            recordUpToThePendingThreshold(eventProcessor);
+            assertTrue("the threshold's commit never reached the disk", writeStalled.await(5, TimeUnit.SECONDS));
 
             eventProcessor.recordCustomEvent(CONTEXT, "before-exit", LDValue.ofNull(), null);
             long start = System.nanoTime();
@@ -369,10 +367,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aDeferredFlushWritesWithoutWaitingForTheQueueATrackedEventsWriteGoesTo() throws Exception {
+    public void aDeferredFlushWritesWithoutWaitingForTheCommitQueue() throws Exception {
         // A flush is what an application calls before ending the process on purpose, so at DEFERRED it
-        // writes on its own thread rather than queueing the write the way track does. Holding the commit
-        // executor keeps a queued write off the disk, so only a write on this thread can pass.
+        // writes on its own thread rather than queueing the write the way the pending threshold does.
+        // Holding the commit executor keeps a queued write off the disk, so only a write on this thread
+        // can pass.
         EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
                 DEFAULT_CAPACITY, true, logging.logger);
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY,
@@ -726,6 +725,13 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             }
         }
         return found;
+    }
+
+    /** Records just enough tracks for the pending threshold to queue a commit off the caller's thread. */
+    private static void recordUpToThePendingThreshold(EventProcessor eventProcessor) {
+        for (int i = 1; i <= EventCommitter.PENDING_COMMIT_THRESHOLD; i++) {
+            eventProcessor.recordCustomEvent(CONTEXT, "event-" + i, LDValue.ofNull(), null);
+        }
     }
 
     /** {@link #kindsOnDisk}, once at least one is there or five seconds have passed. */
@@ -1146,7 +1152,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // are in neither place. Counting only the two would let an event recorded then past capacity.
         CountDownLatch staging = new CountDownLatch(1);
         CountDownLatch releaseStaging = new CountDownLatch(1);
-        // Persisting, since without it a commit point queues no commit at all.
+        // Persisting, since without it a flush commits nothing before delivering.
         EventStore store = new EventStore(eventsDirectory.newFolder(), 1, true,
                 logging.logger) {
             @Override
@@ -1158,8 +1164,11 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         DirectEventProcessor eventProcessor = makeEventProcessor(store, 1, scheduler);
+        // The flush commits on its own thread, so this one is free to record while it stages.
+        Thread flushing = new Thread(eventProcessor::flush);
         try {
             eventProcessor.recordIdentifyEvent(CONTEXT);
+            flushing.start();
             assertTrue("the commit never started staging", staging.await(2, TimeUnit.SECONDS));
 
             eventProcessor.recordIdentifyEvent(CONTEXT);
@@ -1168,6 +1177,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertEquals(1, eventProcessor.getAndClearDroppedCount());
         } finally {
             releaseStaging.countDown();
+            flushing.join(5_000);
             eventProcessor.close();
             scheduler.shutdownNow();
         }
@@ -1193,8 +1203,10 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         DirectEventProcessor eventProcessor = makeEventProcessor(store, 2, scheduler);
+        Thread flushing = new Thread(eventProcessor::flush);
         try {
             eventProcessor.recordIdentifyEvent(CONTEXT);
+            flushing.start();
             assertTrue("the commit never staged the event", staged.await(2, TimeUnit.SECONDS));
 
             eventProcessor.recordIdentifyEvent(CONTEXT);
@@ -1203,6 +1215,7 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             assertEquals(0, eventProcessor.getAndClearDroppedCount());
         } finally {
             releaseCommit.countDown();
+            flushing.join(5_000);
             eventProcessor.close();
             scheduler.shutdownNow();
         }
@@ -1462,26 +1475,20 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
-        CountDownLatch commitsResume = new CountDownLatch(1);
         try {
-            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
-            eventProcessor.recordCustomEvent(CONTEXT, "another", LDValue.ofNull(), null);
+            recordUpToThePendingThreshold(eventProcessor);
             lastCommitExecutor.submit(() -> { }).get(2, TimeUnit.SECONDS);
 
             assertFalse("nothing was ever committed, so this proves nothing", committedOn.isEmpty());
             assertFalse("a track committed on the caller's thread",
                     committedOn.contains(Thread.currentThread()));
 
-            // Held, because the track below queues a commit of its own. Were it to run first it would cover
-            // everything the flush needs, leaving the flush nothing to write on this thread.
-            lastCommitExecutor.submit(() -> awaitQuietly(commitsResume, 10, TimeUnit.SECONDS));
             eventProcessor.recordCustomEvent(CONTEXT, "before-exit", LDValue.ofNull(), null);
             eventProcessor.flush();
 
             assertTrue("a flush left its commit to another thread",
                     committedOn.contains(Thread.currentThread()));
         } finally {
-            commitsResume.countDown();
             eventProcessor.close();
             scheduler.shutdownNow();
         }
@@ -2299,8 +2306,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, false);
         ExecutorService caller = Executors.newSingleThreadExecutor();
         try {
-            // A commit point, so a commit is queued and stalls on the disk, holding the locks.
-            eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+            // Up to the pending threshold, so a commit is queued and stalls on the disk, holding the locks.
+            recordUpToThePendingThreshold(eventProcessor);
             assertTrue("the commit never reached the disk", writeStarted.await(5, TimeUnit.SECONDS));
 
             long startedAtNanos = System.nanoTime();
@@ -2573,23 +2580,22 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 server.getRecorder().requireRequest(5, TimeUnit.SECONDS);
 
                 blockNextWrite.set(true);
-                new Thread(() -> eventProcessor.recordCustomEvent(CONTEXT, "written", LDValue.ofNull(), null))
-                        .start();
+                new Thread(() -> recordUpToThePendingThreshold(eventProcessor)).start();
                 assertTrue(writeStarted.await(2, TimeUnit.SECONDS));
                 letFirstResponseFinish.release();
 
                 try {
                     Boolean delivered = flush.get(500, TimeUnit.MILLISECONDS);
-                    // Only the event still being written. The delivered one was gone before anyone heard.
+                    // Only the events still being written. The delivered one was gone before anyone heard.
                     int pendingWhenTold = store.getPendingEventCount();
                     assertTrue(delivered);
-                    assertEquals(1, pendingWhenTold);
+                    assertEquals(EventCommitter.PENDING_COMMIT_THRESHOLD, pendingWhenTold);
                 } catch (TimeoutException waitingOnTheWrite) {
                     // Answered only once the removal gets the disk, which is as good.
                 }
                 finishWrite.countDown();
                 assertTrue(flush.get(5, TimeUnit.SECONDS));
-                assertEquals(1, store.getPendingEventCount());
+                assertEquals(EventCommitter.PENDING_COMMIT_THRESHOLD, store.getPendingEventCount());
             } finally {
                 letFirstResponseFinish.release(Integer.MAX_VALUE);
                 finishWrite.countDown();
