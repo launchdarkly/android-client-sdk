@@ -8,6 +8,7 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
+import com.launchdarkly.sdk.internal.events.EventSummaries;
 import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
@@ -218,12 +219,18 @@ final class OutboundEventBuffer {
      * fail transiently -- so putting the counters back would make every later flush fail on the same
      * summary while the counters behind it grew without bound.
      * <p>
+     * A summary larger than one log frame holds is split between summaries of the same context, each
+     * with some of its flags, until each fits. Whole, it would be refused by the store and every
+     * evaluation in it lost. Only a single flag's counters too large for a frame are left whole, for
+     * the store to refuse.
+     * <p>
      * Deliberately not synchronized, for the reason {@link #serialize} is not: the counters are taken
      * under the caller's lock and encoded outside it, so a thread recording an evaluation waits only
      * for a reference swap and never for the encoder.
      *
      * @param summaries the counters taken for this commit
-     * @return one JSON object per summary, empty if there was nothing counted or nothing serialized
+     * @return at least one JSON object per summary that serialized, empty if there was nothing counted
+     *   or nothing serialized
      */
     List<byte[]> serializeSummaries(List<EventSummarizer.EventSummary> summaries) {
         if (summaries.isEmpty()) {
@@ -231,12 +238,26 @@ final class OutboundEventBuffer {
         }
         List<byte[]> serialized = new ArrayList<>(summaries.size());
         for (EventSummarizer.EventSummary summary : summaries) {
-            byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
-            if (bytes != null) {
-                serialized.add(bytes);
-            }
+            serializeSummary(summary, serialized);
         }
         return serialized;
+    }
+
+    private void serializeSummary(EventSummarizer.EventSummary summary, List<byte[]> into) {
+        byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
+        if (bytes == null) {
+            return;
+        }
+        if (bytes.length > EventLogFormat.MAX_FRAME_SIZE) {
+            List<EventSummarizer.EventSummary> halves = EventSummaries.halve(summary);
+            if (halves != null) {
+                for (EventSummarizer.EventSummary half : halves) {
+                    serializeSummary(half, into);
+                }
+                return;
+            }
+        }
+        into.add(bytes);
     }
 
     /**

@@ -3962,6 +3962,56 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aSummaryLargerThanAFrameIsDeliveredInPiecesThatCountEveryFlagOnce() throws Exception {
+        // Long keys, so that a few thousand flags take one context's summary past what a frame holds.
+        char[] padding = new char[1000];
+        Arrays.fill(padding, 'k');
+        String keyPrefix = new String(padding);
+        int flagCount = EventLogFormat.MAX_FRAME_SIZE / padding.length * 3 / 2;
+        // MockWebServer for the reason aFlushOfMoreThanABatchSendsEveryEventOnceInRequestsNoLargerThanABatch
+        // uses it: the bodies are close to a batch.
+        try (MockWebServer server = new MockWebServer()) {
+            server.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return new MockResponse().setResponseCode(202);
+                }
+            });
+            EventProcessor eventProcessor = makeEventProcessor(server.url("/").uri(),
+                    eventsBuilder(DEFAULT_CAPACITY), true);
+            try {
+                for (int i = 0; i < flagCount; i++) {
+                    eventProcessor.recordEvaluationEvent(CONTEXT, keyPrefix + i, FLAG_VERSION, VARIATION,
+                            FLAG_VALUE, null, DEFAULT_VALUE, false, null);
+                }
+
+                assertTrue(awaitFlush(eventProcessor, 30, TimeUnit.SECONDS));
+
+                Set<String> flagKeys = new HashSet<>();
+                int summaries = 0;
+                for (int i = server.getRequestCount(); i > 0; i--) {
+                    RecordedRequest request = server.takeRequest(10, TimeUnit.SECONDS);
+                    assertNotNull(request);
+                    for (LDValue event : LDValue.parse(request.getBody().readUtf8()).values()) {
+                        if (!"summary".equals(event.get("kind").stringValue())) {
+                            continue;
+                        }
+                        summaries++;
+                        assertEquals(LDValue.of(CONTEXT.getKey()), event.get("context").get("key"));
+                        for (String flagKey : event.get("features").keys()) {
+                            assertTrue("a flag was summarized twice", flagKeys.add(flagKey));
+                        }
+                    }
+                }
+                assertTrue("the summary was not split: " + summaries, summaries > 1);
+                assertEquals(flagCount, flagKeys.size());
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aLossAfterAFlushClosedItsBatchIsReportedToTheNextFlushInstead() throws Exception {
         assumePersisting();
         // A flush answers for the batch it closed. One that met a retryable failure answers only when

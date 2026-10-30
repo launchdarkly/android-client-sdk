@@ -21,7 +21,9 @@ import java.io.StringWriter;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The serialization the on-disk event log is built on: one event in, one JSON object out.
@@ -133,6 +135,54 @@ public class OutboundEventBufferSerializationTest {
 
     private static boolean summarize(OutboundEventBuffer buffer, LDContext context) {
         return buffer.summarize(1000, FLAG_KEY, 10, 1, LDValue.of(true), LDValue.of(false), context);
+    }
+
+    @Test
+    public void aSummaryTooLargeForAFrameIsSplitIntoSummariesThatFitAndCountEveryFlagOnce() {
+        OutboundEventBuffer buffer = makeBuffer();
+        // Long keys, so that a few thousand flags take one context's summary past what a frame holds.
+        char[] padding = new char[1000];
+        Arrays.fill(padding, 'k');
+        String keyPrefix = new String(padding);
+        int flagCount = EventLogFormat.MAX_FRAME_SIZE / padding.length * 3 / 2;
+        for (int i = 0; i < flagCount; i++) {
+            buffer.summarize(1000 + i, keyPrefix + i, 10, 1, LDValue.of(true), LDValue.of(false), CONTEXT);
+        }
+
+        List<byte[]> summaries = buffer.serializeSummariesAndReset();
+
+        assertTrue("the summary was not split: " + summaries.size(), summaries.size() > 1);
+        Set<String> flagKeys = new HashSet<>();
+        for (byte[] serialized : summaries) {
+            assertTrue("a summary is larger than a frame: " + serialized.length,
+                    serialized.length <= EventLogFormat.MAX_FRAME_SIZE);
+            LDValue summary = parse(serialized);
+            assertEquals(LDValue.of("summary"), summary.get("kind"));
+            // Each part covers the whole period, for the whole context.
+            assertEquals(LDValue.of(1000), summary.get("startDate"));
+            assertEquals(LDValue.of(1000 + flagCount - 1), summary.get("endDate"));
+            assertEquals(LDValue.of(CONTEXT.getKey()), summary.get("context").get("key"));
+            for (String flagKey : summary.get("features").keys()) {
+                assertTrue("a flag was summarized twice", flagKeys.add(flagKey));
+                LDValue counters = summary.get("features").get(flagKey).get("counters");
+                assertEquals(1, counters.size());
+                assertEquals(LDValue.of(1), counters.get(0).get("count"));
+            }
+        }
+        assertEquals(flagCount, flagKeys.size());
+    }
+
+    @Test
+    public void aSingleFlagTooLargeForAFrameIsLeftWhole() {
+        OutboundEventBuffer buffer = makeBuffer();
+        char[] data = new char[EventLogFormat.MAX_FRAME_SIZE];
+        Arrays.fill(data, 'x');
+        buffer.summarize(1000, FLAG_KEY, 10, 1, LDValue.of(new String(data)), LDValue.of(false), CONTEXT);
+
+        List<byte[]> summaries = buffer.serializeSummariesAndReset();
+
+        assertEquals(1, summaries.size());
+        assertTrue(summaries.get(0).length > EventLogFormat.MAX_FRAME_SIZE);
     }
 
     @Test
