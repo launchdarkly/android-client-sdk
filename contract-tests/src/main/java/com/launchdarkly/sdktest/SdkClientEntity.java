@@ -355,7 +355,8 @@ public class SdkClientEntity {
     } catch (ReflectiveOperationException | IllegalArgumentException e) {
       logger.error("migrationVariation read: {}", e.toString());
     }
-    com.launchdarkly.sdk.LDValue served = (servedValue != null && !servedValue.isNull())
+    com.launchdarkly.sdk.LDValue served = (servedValue != null && !servedValue.isNull()
+            && isMigrationStage(servedValue.stringValue()))
         ? servedValue : defaultValue;
     resp.result = served.stringValue();
 
@@ -383,13 +384,20 @@ public class SdkClientEntity {
           logger.error("migrationVariation beforeEvaluation hook error: {}", e.toString());
         }
       }
-      com.launchdarkly.sdk.EvaluationDetail<com.launchdarkly.sdk.LDValue> result =
-          flag != null && variationIndex != null
-              ? com.launchdarkly.sdk.EvaluationDetail.fromValue(served, variationIndex, null)
-              : com.launchdarkly.sdk.EvaluationDetail.fromValue(served,
-                  com.launchdarkly.sdk.EvaluationDetail.NO_VARIATION,
-                  com.launchdarkly.sdk.EvaluationReason.error(
-                      com.launchdarkly.sdk.EvaluationReason.ErrorKind.WRONG_TYPE));
+      com.launchdarkly.sdk.EvaluationDetail<com.launchdarkly.sdk.LDValue> result;
+      if (served == defaultValue || variationIndex == null) {
+        // The migration-crate law (the harness's own ldmigration.ParseStage
+        // face: a read whose value does not parse as a migration stage — a
+        // missing read or a non-stage value — rides the typed default's own
+        // detail: value = the requested default stage, variationIndex null,
+        // reason ERROR/WRONG_TYPE).
+        result = com.launchdarkly.sdk.EvaluationDetail.fromValue(served,
+            com.launchdarkly.sdk.EvaluationDetail.NO_VARIATION,
+            com.launchdarkly.sdk.EvaluationReason.error(
+                com.launchdarkly.sdk.EvaluationReason.ErrorKind.WRONG_TYPE));
+      } else {
+        result = com.launchdarkly.sdk.EvaluationDetail.fromValue(served, variationIndex, null);
+      }
       Map<String, Object> accumulatedAfter = states.get(states.size() - 1);
       for (int i = hooks.size() - 1; i >= 0; i--) {
         try {
@@ -404,6 +412,13 @@ public class SdkClientEntity {
       }
     }
     return resp;
+  }
+
+  /** The migration-crate stage spellings (the harness's own
+   * ldmigration.ParseStage arm): a read whose value is not one of these faces
+   * does not parse as a migration stage and rides the typed default. */
+  private static boolean isMigrationStage(String s) {
+    return "off".equals(s) || "live".equals(s) || "dualwrite".equals(s);
   }
 
   private EvaluateAllFlagsResponse doEvaluateAll(EvaluateAllFlagsParams params) {
