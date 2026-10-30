@@ -3,6 +3,8 @@ package com.launchdarkly.sdk.android;
 import android.annotation.SuppressLint;
 import android.os.ParcelFileDescriptor;
 
+import androidx.annotation.VisibleForTesting;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -41,12 +43,42 @@ final class BatchLocks {
     }
 
     /**
-     * The batches this process has a request out for, by absolute path. Guards the probes and deletions below
-     * as well, so that a store in this process cannot start sending a batch another is expiring.
+     * The batches of one directory this process has a request out for, by name. Its monitor guards the probes
+     * and deletions below as well, so that a store in this process cannot start sending a batch another is
+     * expiring. One per directory rather than one for all, since a lock taken or dropped on one file leaves
+     * every other file's alone, so stores of different environments have nothing to wait on each other for.
      */
-    private static final Map<String, Held> heldInThisProcess = new HashMap<>();
+    private static final class Directory {
+        final Map<String, Held> heldInThisProcess = new HashMap<>();
+    }
+
+    /**
+     * Every directory this process has sent from or expired in, by absolute path. Process-wide, because two
+     * stores in one process can share a directory and must share its monitor. Never shrinks: a directory
+     * dropped while a call still held it would let the next call take a second monitor for the same files.
+     * There is one entry per environment directory the process has touched, which stays a handful.
+     */
+    private static final Map<String, Directory> directories = new HashMap<>();
 
     private BatchLocks() {
+    }
+
+    /** The monitor every call on a batch takes: its directory's, whichever store names the batch. */
+    @VisibleForTesting
+    static Object monitorFor(File batch) {
+        return directoryOf(batch);
+    }
+
+    private static Directory directoryOf(File batch) {
+        String path = batch.getAbsoluteFile().getParent();
+        synchronized (directories) {
+            Directory directory = directories.get(path);
+            if (directory == null) {
+                directory = new Directory();
+                directories.put(path, directory);
+            }
+            return directory;
+        }
     }
 
     /**
@@ -54,13 +86,14 @@ final class BatchLocks {
      * {@link #stoppedSending}; a batch two deliveries send at once stays locked until both have stopped.
      */
     static void startedSending(File batch) {
-        synchronized (heldInThisProcess) {
-            String path = batch.getAbsolutePath();
-            Held held = heldInThisProcess.get(path);
+        Directory directory = directoryOf(batch);
+        synchronized (directory) {
+            String name = batch.getName();
+            Held held = directory.heldInThisProcess.get(name);
             try {
                 if (held == null) {
                     held = new Held(new RandomAccessFile(batch, "r"));
-                    heldInThisProcess.put(path, held);
+                    directory.heldInThisProcess.put(name, held);
                 }
                 held.senders++;
                 if (held.lock != null) {
@@ -84,13 +117,14 @@ final class BatchLocks {
 
     /** Ends one {@link #startedSending}, releasing the lock once the last sender has stopped. */
     static void stoppedSending(File batch) {
-        synchronized (heldInThisProcess) {
-            String path = batch.getAbsolutePath();
-            Held held = heldInThisProcess.get(path);
+        Directory directory = directoryOf(batch);
+        synchronized (directory) {
+            String name = batch.getName();
+            Held held = directory.heldInThisProcess.get(name);
             if (held == null || --held.senders > 0) {
                 return;
             }
-            heldInThisProcess.remove(path);
+            directory.heldInThisProcess.remove(name);
             try {
                 // Releases the lock with it.
                 held.file.close();
@@ -102,8 +136,9 @@ final class BatchLocks {
 
     /** Whether a store in this process is sending a batch, answered without opening the file. */
     static boolean isSentInThisProcess(File batch) {
-        synchronized (heldInThisProcess) {
-            return heldInThisProcess.containsKey(batch.getAbsolutePath());
+        Directory directory = directoryOf(batch);
+        synchronized (directory) {
+            return directory.heldInThisProcess.containsKey(batch.getName());
         }
     }
 
@@ -114,8 +149,9 @@ final class BatchLocks {
      *   already gone, whose events are someone else's to count
      */
     static boolean deleteUnlessBeingSent(File batch) {
-        synchronized (heldInThisProcess) {
-            if (heldInThisProcess.containsKey(batch.getAbsolutePath())) {
+        Directory directory = directoryOf(batch);
+        synchronized (directory) {
+            if (directory.heldInThisProcess.containsKey(batch.getName())) {
                 return false;
             }
             try (FileChannel channel = openWithoutCreating(batch);
