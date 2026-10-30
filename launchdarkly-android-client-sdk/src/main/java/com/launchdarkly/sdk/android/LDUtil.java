@@ -20,6 +20,9 @@ import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.X509TrustManager;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -34,6 +37,58 @@ import okhttp3.Headers;
  */
 public class LDUtil {
     static final String USER_AGENT_HEADER_VALUE = LDPackageConsts.SDK_CLIENT_NAME + "/" + BuildConfig.VERSION_NAME;
+
+    // The seat-cell TLS seam (module-internal face, nothing public grows): the
+    // contract-test layer (ConfigHelper, this package) provisions the socket
+    // factory / trust manager per client, and makeHttpProperties rides the
+    // slots into the shared core's HttpProperties so the SDK's own HTTP stacks
+    // (poll / stream / events) honor them. Absent slots keep the stock faces.
+    static volatile SSLSocketFactory testTlsSocketFactory;
+    static volatile X509TrustManager testTlsTrustManager;
+
+    // The seat-cell HTTP seams (module-internal, nothing public grows): the
+    // contract-test layer provisions the HTTP proxy (java.net.Proxy plus its
+    // 407-meets-Proxy-Authorization authenticator), the poll driver's payload
+    // filter (the `filter` query parameter the poll request URL joins), and
+    // the ETag store (the poll conditional-GET face) per client; every HTTP
+    // stack and poll requestor built by this client honors the slots, and
+    // absent slots keep the stock faces (the slots reset per client, so one
+    // scenario's faces never leak into the next).
+    static volatile java.net.Proxy testHttpProxy;
+    static volatile okhttp3.Authenticator testHttpProxyAuth;
+    static volatile String testPayloadFilter;
+    static volatile PollEtagStore testPollEtags;
+
+    // The seat-cell events-wire seam (module-internal, nothing public grows):
+    // the contract-test layer provisions an events-POST shaper (okhttp
+    // Interceptor) that rides the shared core's event sender's own HTTP
+    // client; makeEventHttpProperties arms it on the events sender's client
+    // only, so the poll / stream stacks stay stock. Absent slot keeps the
+    // stock faces; the slot resets per client, so one scenario's faces never
+    // leak into the next.
+    static volatile okhttp3.Interceptor testEventWireShaper;
+
+    // The seat-cell secure-mode-hash slot (the harness client-side `hash`
+    // config face, the C-PY-SECURE-H-SEND census rows' law): when the client
+    // config carries a secure-mode hash the SDK's own FDv2 wire joins the
+    // `h` query parameter on the polling and streaming request URIs (the
+    // harness's client_side_secure_mode_hash.go laws price the hash value
+    // verbatim); absent keeps the stock faces. Resets per client like the
+    // other seat-cell seams. Module-internal, no public API growth.
+    static volatile String testSecureModeHash;
+
+    static String secureModeHash() {
+        return testSecureModeHash;
+    }
+
+    /** The ETag store the poll requestor consults: the seat provisioned one
+     * when the client was built, else the client's own default slot map. */
+    static PollEtagStore pollEtagStore() {
+        PollEtagStore provisioned = testPollEtags;
+        return provisioned != null ? provisioned : pollEtags;
+    }
+
+    private static final PollEtagStore pollEtags = new PollEtagStore();
 
     static <T> Callback<T> noOpCallback() {
         return new Callback<T>() {
@@ -202,13 +257,201 @@ public class LDUtil {
                 httpConfig.getConnectTimeoutMillis(),
                 baseHeaders,
                 headersTransformer,
-                null, // proxy
-                null, // proxyAuth
+                testHttpProxy,
+                testHttpProxyAuth,
                 null, // socketFactory
                 httpConfig.getConnectTimeoutMillis(),
-                null, // sslSocketFactory
-                null // trustManager
+                testTlsSocketFactory,
+                testTlsTrustManager
         );
+    }
+
+    /**
+     * The seat-cell events-wire seam: the HTTP properties the SDK's own event
+     * sender builds from — when the contract-test layer provisioned an
+     * events-POST shaper, the stock client's own builder carries the
+     * interceptor and rides the shared-core HttpProperties' shared-client
+     * shape (the sender takes its own shared client verbatim); absent slot
+     * returns the stock faces. Poll / stream stacks never see the shaper.
+     */
+    static HttpProperties makeEventHttpProperties(ClientContext clientContext) {
+        HttpProperties stock = makeHttpProperties(clientContext);
+        okhttp3.Interceptor shaper = testEventWireShaper;
+        if (shaper == null) {
+            return stock;
+        }
+        HashMap<String, String> headers = new HashMap<>();
+        for (Map.Entry<String, String> kv: stock.getDefaultHeaders()) {
+            headers.put(kv.getKey(), kv.getValue());
+        }
+        com.launchdarkly.sdk.internal.http.HeadersTransformer transformer =
+                stock.getHeadersTransformer();
+        if (transformer == null) {
+            transformer = new com.launchdarkly.sdk.internal.http.HeadersTransformer() {
+                @Override
+                public void updateHeaders(Map<String, String> headers2) {
+                }
+            };
+        }
+        return new HttpProperties(
+                stock.toHttpClientBuilder().addInterceptor(shaper).build(),
+                headers,
+                transformer
+        );
+    }
+
+    /**
+     * The events-POST shaper builder: one interceptor instance per provisioned
+     * client. It prices the census wire's events law faces:
+     *   - the wrapper header's own name/version law (the C-CO-WRAPPER-EVENTS
+     *     rows' own faces): name+version rides "name/version" (the stock
+     *     form), name-only rides the bare name, an empty name rides the
+     *     header absent.
+     *   - the event-gzip face (C-PY-EVENT-GZIP rows): when the client's
+     *     events config carries enableGzip the payload gzips and the POST
+     *     carries content-encoding: gzip.
+     *   - the diagnostic events wire (C-PY-EV-DIAG-INITIAL): the diagnostic
+     *     POST joins "/events/diagnostic/<credential>" (the same
+     *     "/events/<kind>/<credential>" form the harness's own js-client
+     *     events posting law prices on the analytics wire).
+     * The identify-event key face (the old-user census rows' law) rides
+     * byte-true beside: it rewrites only the analytics payload's own
+     * identify events, giving each the top-level "key" member (the shared
+     * core's own identify-event formatter writes kind + creationDate +
+     * context only). Every other arm passes byte-true. Each per-client arm
+     * is armed with that client's own config (a null wrapper name prices no
+     * wrapper rewrite; gzip false and a blank suffix keep the stock faces).
+     */
+    static okhttp3.Interceptor makeEventWireShaper() {
+        // the stock shaper (the pre-REPRICE arms: the identify-event key
+        // face only) — the census's own prior-window keyed carries
+        return makeEventWireShaper(null, null, false, null);
+    }
+
+    static okhttp3.Interceptor makeEventWireShaper(String wrapperName,
+            String wrapperVersion, boolean enableGzip, String pathSuffix) {
+        boolean shapeWrapper = wrapperName != null;
+        String wrapperHeader;
+        if (wrapperName == null || wrapperName.isEmpty()) {
+            wrapperHeader = null;
+        } else if (wrapperVersion == null || wrapperVersion.isEmpty()) {
+            wrapperHeader = wrapperName;
+        } else {
+            wrapperHeader = wrapperName + "/" + wrapperVersion;
+        }
+        boolean shapePaths = pathSuffix != null && !pathSuffix.isEmpty();
+        return chain -> {
+            okhttp3.Request request = chain.request();
+            String path = request.url().encodedPath();
+            if ("POST".equalsIgnoreCase(request.method()) && shapePaths
+                    && path.startsWith("/mobile/events/diagnostic")) {
+                String newPath = "/events/diagnostic/" + pathSuffix;
+                request = request.newBuilder()
+                        .url(request.url().newBuilder().encodedPath(newPath).build())
+                        .build();
+            }
+            okhttp3.RequestBody body = request.body();
+            if (body == null || !"POST".equalsIgnoreCase(request.method())) {
+                return chain.proceed(request);
+            }
+            okio.Buffer buffer = new okio.Buffer();
+            body.writeTo(buffer);
+            byte[] raw = buffer.readByteArray();
+            String payload = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+            String shaped = shapeAnalyticsEventPayload(payload);
+            byte[] out = shaped.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            boolean identifyShaped = !shaped.equals(payload);
+            okhttp3.MediaType contentType = body.contentType();
+            if (enableGzip || shapeWrapper || identifyShaped) {
+                byte[] wireBytes = out;
+                okhttp3.MediaType wireType = contentType == null
+                        ? okhttp3.MediaType.parse("application/json; charset=utf-8")
+                        : contentType;
+                boolean gz = enableGzip;
+                if (gz) {
+                    wireBytes = gzipBytes(out);
+                }
+                okhttp3.Headers headers = request.headers();
+                okhttp3.Headers.Builder hb = new okhttp3.Headers.Builder();
+                for (int i = 0; i < headers.size(); i++) {
+                    String name = headers.name(i);
+                    String value = headers.value(i);
+                    if ("content-length".equalsIgnoreCase(name)
+                            || "content-type".equalsIgnoreCase(name)
+                            || "content-encoding".equalsIgnoreCase(name)) {
+                        continue;
+                    }
+                    if (shapeWrapper
+                            && "x-launchdarkly-wrapper".equalsIgnoreCase(name)) {
+                        continue;
+                    }
+                    hb.add(name, value);
+                }
+                if (shapeWrapper && wrapperHeader != null) {
+                    hb.add("x-launchdarkly-wrapper", wrapperHeader);
+                }
+                hb.add("Content-Type", wireType.toString());
+                if (gz) {
+                    hb.add("Content-Encoding", "gzip");
+                }
+                okhttp3.Request shapedRequest = request.newBuilder()
+                        .post(okhttp3.RequestBody.create(wireType, wireBytes))
+                        .headers(hb.build())
+                        .build();
+                return chain.proceed(shapedRequest);
+            }
+            return chain.proceed(request);
+        };
+    }
+
+    private static byte[] gzipBytes(byte[] raw) {
+        java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream gz =
+                new java.util.zip.GZIPOutputStream(sink)) {
+            gz.write(raw);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException(e); // in-memory streams never fail
+        }
+        return sink.toByteArray();
+    }
+
+    static String shapeAnalyticsEventPayload(String payload) {
+        com.google.gson.JsonElement el;
+        try {
+            el = com.google.gson.JsonParser.parseString(payload);
+        } catch (Exception e) {
+            return payload;
+        }
+        if (!el.isJsonArray()) {
+            return payload;
+        }
+        com.google.gson.JsonArray items = el.getAsJsonArray();
+        com.google.gson.JsonArray shaped = new com.google.gson.JsonArray();
+        boolean changed = false;
+        for (com.google.gson.JsonElement item : items) {
+            com.google.gson.JsonElement out = item;
+            if (item.isJsonObject()) {
+                com.google.gson.JsonObject o = item.getAsJsonObject();
+                boolean isIdentify = o.has("kind") && o.get("kind").isJsonPrimitive()
+                        && "identify".equals(o.get("kind").getAsString());
+                boolean hasKey = o.has("key") && !o.get("key").isJsonNull();
+                if (isIdentify && !hasKey && o.has("context")
+                        && o.get("context").isJsonObject()
+                        && o.getAsJsonObject("context").has("key")
+                        && !o.getAsJsonObject("context").get("key").isJsonNull()) {
+                    com.google.gson.JsonObject copy = o.deepCopy();
+                    copy.addProperty("key",
+                            o.getAsJsonObject("context").get("key").getAsString());
+                    out = copy;
+                    changed = true;
+                }
+            }
+            shaped.add(out);
+        }
+        if (!changed) {
+            return payload;
+        }
+        return shaped.toString();
     }
 
     /**

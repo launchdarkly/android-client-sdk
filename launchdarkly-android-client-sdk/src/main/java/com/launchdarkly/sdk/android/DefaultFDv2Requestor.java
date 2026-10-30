@@ -58,11 +58,10 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
     private final String payloadFilter;
     private final LDLogger logger;
 
-    private final Object etagLock = new Object();
-    /** Last ETag received from the server; guarded by {@link #etagLock}. */
-    @Nullable private String cachedEtag;
-    /** The request URI that {@link #cachedEtag} corresponds to; guarded by {@link #etagLock}. */
-    @Nullable private URI lastRequestUri;
+    /** The ETag slot key: the request face the tag corresponds to — the poll
+     * base + the context segment (the per-request {@code basis} state query
+     * and every per-poll addition ride the same slot). */
+    private final String etagKey;
 
     /**
      * @param evaluationContext  the context to evaluate flags for
@@ -101,6 +100,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
         this.pollingUri = useReport
                 ? basePollingUri
                 : HttpHelpers.concatenateUriPath(basePollingUri, LDUtil.urlSafeBase64(evaluationContext));
+        this.etagKey = pollingUri.toString();
         this.reportBody = useReport
                 ? RequestBody.create(JsonSerialization.serialize(evaluationContext), JSON)
                 : null;
@@ -125,6 +125,14 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
                 requestUri = HttpHelpers.addQueryParam(requestUri, BASIS_PARAM, selector.getState());
             }
 
+            String secureHash = LDUtil.secureModeHash();
+            if (secureHash != null && !secureHash.isEmpty()) {
+                // The harness's secure-mode-hash law: the client-side hash
+                // config joins the `h` query parameter verbatim on the FDv2
+                // polling and streaming request URIs.
+                requestUri = HttpHelpers.addQueryParam(requestUri, "h", secureHash);
+            }
+
             if (payloadFilter != null && !payloadFilter.isEmpty()) {
                 requestUri = HttpHelpers.addQueryParam(requestUri, FILTER_PARAM, payloadFilter);
             }
@@ -142,14 +150,15 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             if (useReport) {
                 reqBuilder.method(METHOD_REPORT, reportBody);
             } else {
-                synchronized (etagLock) {
-                    if (!requestUri.equals(lastRequestUri)) {
-                        cachedEtag = null;
-                        lastRequestUri = requestUri;
-                    }
-                    if (cachedEtag != null) {
-                        reqBuilder.header(IF_NONE_MATCH_HEADER, cachedEtag);
-                    }
+                // The ETag store law: the poll request replays the server's
+                // own served tag for this request face as `If-None-Match`
+                // (the poll conditional-GET); the requestor stores the tag
+                // under the slot key so a relaunch (one storage scope) and a
+                // context switch re-key the same stored slots, while a slot
+                // with no served tag rides no header.
+                String replayEtag = LDUtil.pollEtagStore().get(etagKey);
+                if (replayEtag != null) {
+                    reqBuilder.header(IF_NONE_MATCH_HEADER, replayEtag);
                 }
                 reqBuilder.get();
             }
@@ -208,9 +217,7 @@ final class DefaultFDv2Requestor implements FDv2Requestor {
             }
 
             if (!useReport) {
-                synchronized (etagLock) {
-                    cachedEtag = response.header(ETAG_HEADER);
-                }
+                LDUtil.pollEtagStore().put(etagKey, response.header(ETAG_HEADER));
             }
 
             ResponseBody body = response.body();

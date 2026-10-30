@@ -60,6 +60,33 @@ public abstract class DataSystemComponents {
 
     private DataSystemComponents() {}
 
+    /**
+     * CENTINEL seat-cell cadence seam (the cp-seat's own foreground
+     * data-system law): the FDv2 polling synchronizer rides the seat's own
+     * provisioned cadence when one is provisioned (the poll-interval census
+     * rows' law — the seat computes its own 30 s floor and below-floor
+     * clamp), else the SDK's public entry law verbatim. The
+     * {@code LDUtil.testPollEtags} slot shape: module-internal, no public
+     * API growth; a null slot prices the untouched public clamp.
+     */
+    static volatile Integer testPollIntervalMillis;
+
+    static void provisionPollInterval(Integer intervalMillis) {
+        testPollIntervalMillis = intervalMillis;
+    }
+
+    private static int seatPollIntervalOrDefault(int entryValue) {
+        Integer provisioned = testPollIntervalMillis;
+        return provisioned != null ? provisioned : entryValue;
+    }
+
+    /** The builder's own clamp: the seat's provisioned cadence when one is
+     * armed, else the SDK's public default floor. */
+    private static int pollIntervalFloorOrDefault() {
+        Integer provisioned = testPollIntervalMillis;
+        return provisioned != null ? provisioned : LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+    }
+
     static final class PollingInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
 
         private ServiceEndpoints serviceEndpointsOverride;
@@ -89,13 +116,16 @@ public abstract class DataSystemComponents {
 
         static PollingSynchronizerBuilderImpl fromEntry(PollingSynchronizerEntry entry) {
             PollingSynchronizerBuilderImpl b = new PollingSynchronizerBuilderImpl();
-            b.pollIntervalMillis = entry.getPollIntervalMillis();
+            // the seat-cell cadence law rides on a provisioned seat cadence;
+            // without one the entry's own (public-clamped) value rides whole
+            b.pollIntervalMillis =
+                    seatPollIntervalOrDefault(entry.getPollIntervalMillis());
             b.serviceEndpointsOverride = entry.getServiceEndpointsOverride();
             return b;
         }
 
         PollingSynchronizerBuilderImpl pollIntervalMillis(int pollIntervalMillis) {
-            this.pollIntervalMillis = Math.max(pollIntervalMillis, LDConfig.DEFAULT_POLL_INTERVAL_MILLIS);
+            this.pollIntervalMillis = Math.max(pollIntervalMillis, pollIntervalFloorOrDefault());
             return this;
         }
 
@@ -363,6 +393,7 @@ public abstract class DataSystemComponents {
                 StandardEndpoints.FDV2_POLLING_REQUEST_GET_BASE_PATH,
                 StandardEndpoints.FDV2_POLLING_REQUEST_REPORT_BASE_PATH,
                 httpProps, inputs.getHttp().isUseReport(),
-                inputs.isEvaluationReasons(), null, inputs.getBaseLogger());
+                inputs.isEvaluationReasons(), LDUtil.testPayloadFilter,
+                inputs.getBaseLogger());
     }
 }

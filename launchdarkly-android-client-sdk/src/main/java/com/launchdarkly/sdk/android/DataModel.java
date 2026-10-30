@@ -1,7 +1,5 @@
 package com.launchdarkly.sdk.android;
 
-import static com.launchdarkly.sdk.internal.GsonHelpers.gsonInstance;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -9,6 +7,18 @@ import com.launchdarkly.sdk.EvaluationReason;
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.json.SerializationException;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
+
+import java.lang.reflect.Type;
 import java.util.Objects;
 
 /**
@@ -187,7 +197,7 @@ public abstract class DataModel {
          */
         public static Flag fromJson(String json) throws SerializationException {
             try {
-                return gsonInstance().fromJson(json, Flag.class);
+                return flagGson().fromJson(json, Flag.class);
             } catch (Exception e) { // Gson throws various kinds of parsing exceptions that have no common base class
                 throw new SerializationException(e);
             }
@@ -197,7 +207,168 @@ public abstract class DataModel {
          * @return JSON serialization of the flag
          */
         public String toJson() {
-            return gsonInstance().toJson(this);
+            return flagGson().toJson(this);
+        }
+
+        /**
+         * The wire spelling of evaluation reason properties differs from the Java field
+         * names ({@code isExperiment} vs. {@code inExperiment}, {@code prereqKey} vs.
+         * {@code prerequisiteKey}), so reflective Gson silently drops them. This adapter
+         * maps the wire names explicitly, for both decode and encode.
+         */
+        private static volatile Gson flagGsonInstance;
+
+        private static Gson flagGson() {
+            Gson local = flagGsonInstance;
+            if (local != null) return local;
+            synchronized (DataModel.class) {
+                if (flagGsonInstance == null) {
+                    GsonBuilder b = new GsonBuilder();
+                    b.registerTypeAdapter(EvaluationReason.class, new EvaluationReasonWireAdapter());
+                    flagGsonInstance = b.create();
+                }
+                local = flagGsonInstance;
+            }
+            return local;
+        }
+
+        private static final class EvaluationReasonWireAdapter
+                implements JsonDeserializer<EvaluationReason>, JsonSerializer<EvaluationReason> {
+            @Override
+            public EvaluationReason deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
+                    throws JsonParseException {
+                if (json == null || json.isJsonNull()) {
+                    return null;
+                }
+                JsonObject o = json.getAsJsonObject();
+                String kind = stringOf(o, "kind");
+                if (kind == null) {
+                    return null;
+                }
+                switch (kind) {
+                    case "OFF":
+                        return EvaluationReason.off();
+                    case "FALLTHROUGH":
+                        return EvaluationReason.fallthrough(boolOf(o, "isExperiment", "inExperiment"));
+                    case "TARGET_MATCH":
+                        return EvaluationReason.targetMatch();
+                    case "RULE_MATCH":
+                        return EvaluationReason.ruleMatch(intOf(o, "ruleIndex", -1), stringOf(o, "ruleId"),
+                                boolOf(o, "isExperiment", "inExperiment"));
+                    case "PREREQUISITE_FAILED":
+                        return EvaluationReason.prerequisiteFailed(stringOf(o, "prereqKey", "prerequisiteKey"));
+                    case "ERROR":
+                        String errKind = stringOf(o, "errorKind");
+                        EvaluationReason.ErrorKind ek;
+                        try {
+                            ek = errKind == null
+                                    ? EvaluationReason.ErrorKind.EXCEPTION
+                                    : EvaluationReason.ErrorKind.valueOf(errKind);
+                        } catch (IllegalArgumentException e2) {
+                            ek = EvaluationReason.ErrorKind.EXCEPTION;
+                        }
+                        EvaluationReason.BigSegmentsStatus status = null;
+                        String bs = stringOf(o, "bigSegmentsStatus");
+                        if (bs != null) {
+                            try {
+                                status = EvaluationReason.BigSegmentsStatus.valueOf(bs);
+                            } catch (IllegalArgumentException e3) {
+                                status = null;
+                            }
+                        }
+                        EvaluationReason er = EvaluationReason.error(ek);
+                        if (status != null) {
+                            er = er.withBigSegmentsStatus(status);
+                        }
+                        return er;
+                    default:
+                        throw new JsonParseException("unknown evaluation reason kind: " + kind);
+                }
+            }
+
+            private static String stringOf(JsonObject o, String... names) {
+                for (String name : names) {
+                    JsonElement el = o == null ? null : o.get(name);
+                    if (el != null && !el.isJsonNull()) {
+                        return el.getAsString();
+                    }
+                }
+                return null;
+            }
+
+            private static boolean boolOf(JsonObject o, String... names) {
+                for (String name : names) {
+                    JsonElement el = o == null ? null : o.get(name);
+                    if (el != null && !el.isJsonNull()) {
+                        return el.getAsBoolean();
+                    }
+                }
+                return false;
+            }
+
+            private static int intOf(JsonObject o, String name, int def) {
+                JsonElement el = o == null ? null : o.get(name);
+                return el == null || el.isJsonNull() ? def : el.getAsInt();
+            }
+
+            /**
+             * Encodes the reason with the model/store property spellings ({@code inExperiment},
+             * {@code prerequisiteKey}), mirroring the reflective encoding that Gson off the
+             * Java field names has always produced for this model's stored flag data. The
+             * decode mapping above accepts both spellings; the store-facing encode keeps
+             * the field-name spelling so persisted flag data round-trips unchanged.
+             */
+            @Override
+            public JsonElement serialize(EvaluationReason reason, Type typeOfSrc,
+                    JsonSerializationContext context) {
+                if (reason == null) {
+                    return null;
+                }
+                // The SDK's own storage format (and its tests) spell these with the Java
+                // field names; this serializer therefore mirrors the reflective encoding
+                // that this model's store data has always carried.
+                JsonObject o = (JsonObject) context.serialize(defaultTree(reason));
+                return o;
+            }
+
+            private static com.google.gson.JsonElement defaultTree(EvaluationReason reason) {
+                JsonObject o = new JsonObject();
+                o.addProperty("kind", reason.getKind().name());
+                switch (reason.getKind()) {
+                    case OFF:
+                        break;
+                    case FALLTHROUGH:
+                        o.addProperty("inExperiment", reason.isInExperiment());
+                        break;
+                    case TARGET_MATCH:
+                        break;
+                    case RULE_MATCH:
+                        o.addProperty("ruleIndex", reason.getRuleIndex());
+                        String ruleId = reason.getRuleId();
+                        if (ruleId != null) {
+                            o.addProperty("ruleId", ruleId);
+                        }
+                        o.addProperty("inExperiment", reason.isInExperiment());
+                        break;
+                    case PREREQUISITE_FAILED:
+                        String prerequisiteKey = reason.getPrerequisiteKey();
+                        if (prerequisiteKey != null) {
+                            o.addProperty("prerequisiteKey", prerequisiteKey);
+                        }
+                        break;
+                    case ERROR:
+                        if (reason.getErrorKind() != null) {
+                            o.addProperty("errorKind", reason.getErrorKind().name());
+                        }
+                        if (reason.getBigSegmentsStatus() != null) {
+                            o.addProperty("bigSegmentsStatus", reason.getBigSegmentsStatus().name());
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                return o;
+            }
         }
     }
 }

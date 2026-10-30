@@ -15,6 +15,15 @@ public class HookCallbackService {
     }
 
     public void post(Object params) {
+        // CENTINEL seat extension (CP-SPEC 7.2): a cp-callback:// callback URI rides
+        // the CP/stdio callback wheel — the seat MUST NOT dial it; it emits a
+        // `callback` envelope and awaits the runner's reply on stdin before the
+        // SDK-side call completes. Any other scheme keeps the harness's own
+        // HTTP receiver arm (used when the seat runs under CP/http on a device).
+        if (serviceUri != null && "cp-callback".equals(serviceUri.getScheme())) {
+            SdkClientEntity.seatPostCallbackHTTPFace(serviceUri, params);
+            return;
+        }
         RequestBody body = RequestBody.create(
             TestService.gson.toJson(params == null ? "{}" : params),
             MediaType.parse("application/json")

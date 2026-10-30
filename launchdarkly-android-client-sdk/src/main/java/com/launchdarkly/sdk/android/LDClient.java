@@ -565,7 +565,8 @@ public class LDClient implements LDClientInterface, Closeable {
     @Override
     public EvaluationDetail<Integer> intVariationDetail(@NonNull String key, int defaultValue) {
         return convertDetailType(
-            evaluateWithHooks("LDClient.intVariationDetail", key, LDValue.of(defaultValue), true, true),
+            evaluateWithHooks("LDClient.intVariationDetail", key, LDValue.of(defaultValue), true, true,
+                    raw -> intTypedNuance(raw, defaultValue)),
             LDValue.Convert.Integer
         );
     }
@@ -609,6 +610,27 @@ public class LDClient implements LDClientInterface, Closeable {
         return evaluateWithHooks("LDClient.jsonValueVariationDetail", key, LDValue.normalize(defaultValue), false, true);
     }
 
+    private EvaluationDetail<LDValue> evaluateWithHooks(String method, String key, LDValue defaultValue,
+                                                        boolean checkType, boolean needsReason) {
+        return evaluateWithHooks(method, key, defaultValue, checkType, needsReason, null);
+    }
+
+    /**
+     * The CP valueType=int face's integer-nuance law (harness-v3 sdktests/
+     * common_tests_hooks.go:179 — the D-751 keyed seat's int-arm law): a typed
+     * eval of a value that is not the requested type — a non-integral Number
+     * (3.14's float face reached from an int request) — rides the TYPED
+     * DEFAULT'S OWN detail ({value: the default, variationIndex NO_VARIATION,
+     * reason null}) in both faces the arm prices: the command's own detail and
+     * the same detail the hook stages see.
+     */
+    private static EvaluationDetail<LDValue> intTypedNuance(EvaluationDetail<LDValue> raw, int defaultValue) {
+        if (raw.getValue().isInt()) {
+            return raw;
+        }
+        return EvaluationDetail.fromValue(LDValue.of(defaultValue), EvaluationDetail.NO_VARIATION, null);
+    }
+
     /**
      * Runs an evaluation, and the hooks around it, against one read of the flag and of the evaluation
      * context.
@@ -620,7 +642,8 @@ public class LDClient implements LDClientInterface, Closeable {
      * flag to the new context in events.
      */
     private EvaluationDetail<LDValue> evaluateWithHooks(String method, String key, LDValue defaultValue,
-                                                        boolean checkType, boolean needsReason) {
+                                                        boolean checkType, boolean needsReason,
+                                                        java.util.function.UnaryOperator<EvaluationDetail<LDValue>> typedNuance) {
         LDContext context = clientContextImpl.getEvaluationContext();
         Flag flag = contextDataManager.getNonDeletedFlag(key); // returns null for nonexistent *or* deleted flag
         return hookRunner.withEvaluation(
@@ -629,7 +652,11 @@ public class LDClient implements LDClientInterface, Closeable {
             context,
             defaultValue,
             flag,
-            () -> variationDetailInternal(key, defaultValue, checkType, needsReason, null, flag, context)
+            () -> {
+                EvaluationDetail<LDValue> raw =
+                        variationDetailInternal(key, defaultValue, checkType, needsReason, null, flag, context);
+                return typedNuance == null ? raw : typedNuance.apply(raw);
+            }
         );
     }
 
@@ -687,13 +714,16 @@ public class LDClient implements LDClientInterface, Closeable {
             } else {
                 result = EvaluationDetail.fromValue(value, variation, flag.getReason());
             }
+            // The evaluation reason travels in the feature event whenever reasons are
+            // requested via `setEvaluationReasons(true)`, along with the flag's own
+            // trackReason face and the detail-scoped arms.
             eventProcessor.recordEvaluationEvent(
                     context,
                     key,
                     flag.getVersionForEvents(),
                     flag.getVariation() == null ? -1 : flag.getVariation().intValue(),
                     value,
-                    flag.isTrackReason() | needsReason ? result.getReason() : null,
+                    flag.isTrackReason() | needsReason | config.isEvaluationReasons() ? result.getReason() : null,
                     defaultValue,
                     flag.isTrackEvents(),
                     flag.getDebugEventsUntilDate()
