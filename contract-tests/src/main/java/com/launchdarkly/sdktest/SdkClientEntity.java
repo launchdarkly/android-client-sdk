@@ -789,11 +789,10 @@ public class SdkClientEntity {
     com.launchdarkly.sdk.android.ConfigHelper.configureEnvironmentFilter(builder,
             cs == null || cs.environment == null ? null : cs.environment.filter);
     com.launchdarkly.sdk.android.ConfigHelper.configurePollEtagStore(cs == null ? null : cs.xCpStorageScope);
-    // CENTINEL seat-cell cadence seam: the seat's own foreground data-system
-    // law arms the polling floor once per client (the DEFAULT-CADENCE row
-    // prices its second graded gap off this floor; a configured interval
-    // below it clamps; an interval above it rides its own value).
-    com.launchdarkly.sdk.android.ConfigHelper.configureSeatPollIntervalFloor();
+    // CENTINEL seat-cell cadence seam: the provisioning slot clears per
+    // client here; the polling synchronizer's own branch re-arms it with the
+    // scenario's resolved cadence (the poll-interval census rows' law).
+    com.launchdarkly.sdk.android.ConfigHelper.resetSeatPollInterval();
     com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
             com.launchdarkly.sdk.android.ConfigHelper.configureInMemoryPersistence(builder,
             cs == null ? null : cs.xCpStorageScope);
@@ -1014,6 +1013,13 @@ public class SdkClientEntity {
           if (sync.polling.pollIntervalMs != null) {
             syncEntry.pollIntervalMillis(sync.polling.pollIntervalMs.intValue());
           }
+          // CENTINEL seat-cell cadence seam: the scenario's own resolved
+          // cadence provisions here (null rides the seat's own 30 s floor;
+          // a configured interval below it clamps; above it rides its own
+          // value — the poll-interval census rows' law).
+          com.launchdarkly.sdk.android.ConfigHelper.configureSeatPollInterval(
+                  sync.polling.pollIntervalMs == null
+                  ? null : sync.polling.pollIntervalMs.intValue());
           if (sync.polling.baseUri != null) {
             syncEntry.serviceEndpointsOverride(
                     Components.serviceEndpoints().polling(sync.polling.baseUri));

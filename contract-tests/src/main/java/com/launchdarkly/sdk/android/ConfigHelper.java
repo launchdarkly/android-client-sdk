@@ -145,14 +145,24 @@ public class ConfigHelper {
 
     /**
      * CENTINEL seat-cell cadence seam (the poll-interval census rows' own
-     * seat-side face): the seat's foreground data-system law arms the FDv2
-     * polling floor at the seat's own documented cadence (30 s). The
-     * DEFAULT-CADENCE row prices its second graded gap off this floor, a
-     * configured interval below it clamps, and an interval above it rides
-     * its own value. Module-internal, no public API growth.
+     * seat-side face): the seat computes the FDv2 polling synchronizer's
+     * interval per client and provisions it into the data-system build (a
+     * 30 s floor: the DEFAULT-CADENCE row's second graded gap prices off
+     * this cadence, a configured interval below it clamps, an interval
+     * above it rides its own value). {@link #resetSeatPollInterval()}
+     * clears the slot per client exactly like the TLS/proxy seams.
+     * Module-internal, no public API growth.
      */
-    public static void configureSeatPollIntervalFloor() {
-        DataSystemComponents.configurePollIntervalFloor(30000);
+    private static final int SEAT_POLL_INTERVAL_FLOOR_MS = 30000;
+
+    public static void configureSeatPollInterval(Integer configuredIntervalMs) {
+        DataSystemComponents.provisionPollInterval(configuredIntervalMs == null
+                ? SEAT_POLL_INTERVAL_FLOOR_MS
+                : Math.max(configuredIntervalMs, SEAT_POLL_INTERVAL_FLOOR_MS));
+    }
+
+    public static void resetSeatPollInterval() {
+        DataSystemComponents.provisionPollInterval(null);
     }
 
     /** The skip-verify face's trust manager: no certificate validation. */

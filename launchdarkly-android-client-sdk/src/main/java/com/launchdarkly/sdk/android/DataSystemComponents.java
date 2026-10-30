@@ -62,21 +62,22 @@ public abstract class DataSystemComponents {
 
     /**
      * CENTINEL seat-cell cadence seam (the cp-seat's own foreground
-     * data-system law): the FDv2 polling pipelines clamp to the seat's own
-     * configured cadence floor when one is provisioned (the poll-interval
-     * census rows' law), else to the SDK's public default — exactly the
-     * {@code LDUtil.testPollEtags} shape, module-internal, no public API
-     * growth, and a null slot prices the untouched public clamp.
+     * data-system law): the FDv2 polling synchronizer rides the seat's own
+     * provisioned cadence when one is provisioned (the poll-interval census
+     * rows' law — the seat computes its own 30 s floor and below-floor
+     * clamp), else the SDK's public entry law verbatim. The
+     * {@code LDUtil.testPollEtags} slot shape: module-internal, no public
+     * API growth; a null slot prices the untouched public clamp.
      */
-    static volatile Integer testPollIntervalFloorMillis;
+    static volatile Integer testPollIntervalMillis;
 
-    static void configurePollIntervalFloor(Integer floorMillis) {
-        testPollIntervalFloorMillis = floorMillis;
+    static void provisionPollInterval(Integer intervalMillis) {
+        testPollIntervalMillis = intervalMillis;
     }
 
-    private static int pollIntervalFloor() {
-        Integer floor = testPollIntervalFloorMillis;
-        return floor != null ? floor : LDConfig.DEFAULT_POLL_INTERVAL_MILLIS;
+    private static int seatPollIntervalOrDefault(int entryValue) {
+        Integer provisioned = testPollIntervalMillis;
+        return provisioned != null ? provisioned : entryValue;
     }
 
     static final class PollingInitializerBuilderImpl implements DataSourceBuilder<Initializer> {
@@ -108,15 +109,10 @@ public abstract class DataSystemComponents {
 
         static PollingSynchronizerBuilderImpl fromEntry(PollingSynchronizerEntry entry) {
             PollingSynchronizerBuilderImpl b = new PollingSynchronizerBuilderImpl();
-            int entryInterval = entry.getPollIntervalMillis();
-            // the seat-cell cadence law rides on provisioned floors: an unset
-            // entry (the entry's own default) and any below-floor value both
-            // clamp to the seat's own cadence (the poll-interval census rows
-            // price the second graded gap off this floor)
+            // the seat-cell cadence law rides on a provisioned seat cadence;
+            // without one the entry's own (public-clamped) value rides whole
             b.pollIntervalMillis =
-                    entryInterval == LDConfig.DEFAULT_POLL_INTERVAL_MILLIS
-                    ? pollIntervalFloor()
-                    : Math.max(entryInterval, pollIntervalFloor());
+                    seatPollIntervalOrDefault(entry.getPollIntervalMillis());
             b.serviceEndpointsOverride = entry.getServiceEndpointsOverride();
             return b;
         }
