@@ -45,7 +45,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>
  * Threads. Recording runs on whichever thread evaluated or tracked. Commits run on {@link #commitExecutor},
  * or on the caller's thread at a commit point, one at a time under {@link #commitLock}. A delivery commits
- * too, on the event processor's delivery thread, before it closes a batch.
+ * too, on the event processor's delivery thread, before it closes a batch. A summary too large for one frame
+ * is split off the caller's thread even then: a commit there leaves it to the commit executor, so it is
+ * durable a moment after the call returns rather than before.
  */
 final class EventCommitter {
     /**
@@ -123,6 +125,14 @@ final class EventCommitter {
      * and each of those commits wrote a summary of its own.
      */
     private volatile long committedSequence;
+
+    /**
+     * Summaries too large for one frame that a commit on the application's thread left for the commit
+     * executor to split, since splitting encodes the context once per part. Every commit off that thread
+     * stages them, so they reach the store before the next delivery closes a batch. Until then they are
+     * only in memory, as the counters they were taken from were.
+     */
+    private final List<EventSummarizer.EventSummary> summariesToSplit = new ArrayList<>();
 
     // Guarded by recordLock.
 
@@ -278,7 +288,7 @@ final class EventCommitter {
         long sequence = record(event);
         if (commitOnCallerThread) {
             try {
-                commitDurablyThrough(sequence);
+                commitDurablyThrough(sequence, true);
             } catch (RuntimeException e) {
                 // As in recordEvaluation: on the caller's thread, so a failure is logged, not thrown.
                 logUnexpectedError(e);
@@ -327,7 +337,7 @@ final class EventCommitter {
      * Commits unless a finished commit already covers recording {@code through}, checked again once the lock
      * is held, since the commit a caller waited behind is the one most likely to have covered it.
      */
-    private void commitDurablyThrough(long through) {
+    private void commitDurablyThrough(long through, boolean onCallerThread) {
         if (committedSequence >= through) {
             return;
         }
@@ -335,7 +345,7 @@ final class EventCommitter {
             if (committedSequence >= through) {
                 return;
             }
-            commitDurably();
+            commitDurably(onCallerThread);
         }
     }
 
@@ -405,7 +415,7 @@ final class EventCommitter {
     void commitBeforeDelivery() {
         try {
             if (commitOnCallerThread || store.isPersisting()) {
-                commitDurablyThrough(lastRecordedSequence());
+                commitDurablyThrough(lastRecordedSequence(), true);
             }
         } catch (RuntimeException e) {
             // As in recordEvaluation: every commit point is on the caller's thread.
@@ -437,7 +447,7 @@ final class EventCommitter {
                     // As in runScheduledCommit: close() writes everything recorded before it with its own
                     // commit, and a commit reaching here later could only run against a released store.
                     if (!closed.get()) {
-                        commitDurablyThrough(through);
+                        commitDurablyThrough(through, false);
                     }
                 }));
             }
@@ -461,6 +471,14 @@ final class EventCommitter {
      * if it covers the evaluations that led up to whatever is about to happen.
      */
     void commitDurably() {
+        commitDurably(false);
+    }
+
+    /**
+     * @param onCallerThread whether this runs on the application's thread, which leaves a summary too large
+     *   for one frame to {@link #summariesToSplit} rather than splitting it here
+     */
+    private void commitDurably(boolean onCallerThread) {
         synchronized (commitLock) {
             List<Event> run;
             List<EventSummarizer.EventSummary> summaries;
@@ -479,13 +497,19 @@ final class EventCommitter {
                 // reservation as it arrives, so none is counted twice either.
                 store.reserve(run.size());
             }
+            if (!onCallerThread && !summariesToSplit.isEmpty()) {
+                List<EventSummarizer.EventSummary> taken = new ArrayList<>(summariesToSplit);
+                summariesToSplit.clear();
+                taken.addAll(summaries);
+                summaries = taken;
+            }
             try {
                 try {
                     stageRun(run);
                 } finally {
                     store.releaseReservations();
                 }
-                stageSummaries(summaries);
+                stageSummaries(summaries, onCallerThread);
             } catch (Throwable t) {
                 // The run and the counters have left pending, and nothing puts them back, so a flush must not
                 // answer true over them.
@@ -626,16 +650,23 @@ final class EventCommitter {
     }
 
     /**
-     * Turns the evaluation counters already taken into summary events in the store.
+     * Turns the evaluation counters already taken into summary events in the store. On the application's
+     * thread, a summary that would have to be split is held for a commit on the commit executor instead.
      */
-    private void stageSummaries(List<EventSummarizer.EventSummary> summaries) {
-        for (byte[] summary : eventBuffer.serializeSummaries(summaries)) {
+    private void stageSummaries(List<EventSummarizer.EventSummary> summaries, boolean onCallerThread) {
+        List<EventSummarizer.EventSummary> toSplit =
+                onCallerThread ? new ArrayList<EventSummarizer.EventSummary>() : null;
+        for (byte[] summary : eventBuffer.serializeSummaries(summaries, toSplit)) {
             // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
             // counted, and dropping it would lose all of them at once. Only the byte capacity, which keeps
             // summaries staged while delivery keeps failing from growing without bound, can refuse it.
             if (!store.stage(summary, true)) {
                 reportRefusedByStore("summary event", summary);
             }
+        }
+        if (toSplit != null && !toSplit.isEmpty()) {
+            summariesToSplit.addAll(toSplit);
+            scheduleCommit();
         }
     }
 

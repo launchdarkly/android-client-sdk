@@ -233,17 +233,30 @@ final class OutboundEventBuffer {
      *   or nothing serialized
      */
     List<byte[]> serializeSummaries(List<EventSummarizer.EventSummary> summaries) {
+        return serializeSummaries(summaries, null);
+    }
+
+    /**
+     * {@link #serializeSummaries(List)}, leaving each summary that would be split to the caller rather
+     * than splitting it. Splitting encodes the context once per part, which is more than a commit on the
+     * application's thread should spend.
+     *
+     * @param toSplit where the summaries left unsplit go, or null to split them here
+     */
+    List<byte[]> serializeSummaries(List<EventSummarizer.EventSummary> summaries,
+                                    List<EventSummarizer.EventSummary> toSplit) {
         if (summaries.isEmpty()) {
             return Collections.emptyList();
         }
         List<byte[]> serialized = new ArrayList<>(summaries.size());
         for (EventSummarizer.EventSummary summary : summaries) {
-            serializeSummary(summary, serialized);
+            serializeSummary(summary, serialized, toSplit);
         }
         return serialized;
     }
 
-    private void serializeSummary(EventSummarizer.EventSummary summary, List<byte[]> into) {
+    private void serializeSummary(EventSummarizer.EventSummary summary, List<byte[]> into,
+                                  List<EventSummarizer.EventSummary> toSplit) {
         byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
         if (bytes == null) {
             return;
@@ -252,6 +265,10 @@ final class OutboundEventBuffer {
                 ? EventSummaries.flagKeys(summary) : Collections.<String>emptyList();
         if (flagKeys.size() < 2) {
             into.add(bytes);
+            return;
+        }
+        if (toSplit != null) {
+            toSplit.add(summary);
             return;
         }
         List<List<String>> parts = packIntoFrames(summary, flagKeys, bytes.length);

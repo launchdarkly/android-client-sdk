@@ -394,6 +394,46 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void aFlushLeavesSplittingAnOversizedSummaryToTheCommitQueue() throws Exception {
+        // Splitting a summary encodes its context once per part, which is more than the application's thread
+        // should spend. Holding the commit executor and the events thread shows the flush wrote everything
+        // else and left the split to the commit executor.
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
+                DEFAULT_CAPACITY, true, logging.logger);
+        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
+        CountDownLatch commitsResume = new CountDownLatch(1);
+        CountDownLatch deliveriesResume = new CountDownLatch(1);
+        try {
+            lastCommitExecutor.submit(() -> awaitQuietly(commitsResume, 10, TimeUnit.SECONDS));
+            scheduler.submit(() -> awaitQuietly(deliveriesResume, 10, TimeUnit.SECONDS));
+            char[] chars = new char[64 * 1024];
+            Arrays.fill(chars, 'v');
+            LDValue large = LDValue.of(new String(chars));
+            // About 3 MiB of values, so two parts.
+            for (int i = 0; i < 48; i++) {
+                eventProcessor.recordEvaluationEvent(CONTEXT, "flag-" + i, FLAG_VERSION, VARIATION, large,
+                        EvaluationReason.off(), DEFAULT_VALUE, false, null);
+            }
+            eventProcessor.recordCustomEvent(CONTEXT, "before-exit", null, null);
+
+            eventProcessor.flush();
+
+            assertEquals(1, kindsOnDisk("custom"));
+            assertEquals(0, kindsOnDisk("summary"));
+
+            commitsResume.countDown();
+            lastCommitExecutor.submit(() -> { }).get(5, TimeUnit.SECONDS);
+
+            assertEquals(2, kindsOnDisk("summary"));
+        } finally {
+            commitsResume.countDown();
+            deliveriesResume.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
     public void ofTwoFlushesWaitingOnOneRetryOnlyTheOneWhoseDeliveryLostAnEventIsTold() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
                 Handlers.status(202), Handlers.status(202)))) {
