@@ -423,7 +423,11 @@ public class SdkClientEntity {
   }
 
   private EvaluateAllFlagsResponse doEvaluateAll(EvaluateAllFlagsParams params) {
-    Map<String,LDValue> state = client.allFlags();
+    // CENTINEL census seat-cell seam (the BOOT-META-EVAL census rows' own law):
+    // the evaluateAll state rides the SDK's own module-internal all-flags-state
+    // face (the $flagsState/$valid metadata whole, keyed beside the census's
+    // own $exact face; no public API grows).
+    Map<String,LDValue> state = com.launchdarkly.sdk.android.ConfigHelper.allFlagsState(client);
     EvaluateAllFlagsResponse resp = new EvaluateAllFlagsResponse();
     resp.state = state;
     // the CT's own override registry merges into the allFlags state

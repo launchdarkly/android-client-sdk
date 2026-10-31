@@ -321,4 +321,16 @@ public class ConfigHelper {
         }
         store.setValue(namespace, key, gson.toJson(flags));
     }
+
+    /**
+     * CENTINEL client-lane seat-cell seam (the BOOT-META-EVAL census rows' own
+     * law): bridges the SDK's own module-internal all-flags-state face
+     * (LDClient.allFlagsState, package-private; nothing public grows) into the
+     * seat's own evaluateAll pricing — the state rides the whole
+     * $flagsState/$valid metadata shape keyed by the census's own law.
+     */
+    public static java.util.Map<String, com.launchdarkly.sdk.LDValue> allFlagsState(
+            com.launchdarkly.sdk.android.LDClient client) {
+        return client.allFlagsState();
+    }
 }

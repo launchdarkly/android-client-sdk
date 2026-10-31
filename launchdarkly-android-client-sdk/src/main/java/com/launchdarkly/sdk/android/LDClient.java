@@ -542,6 +542,36 @@ public class LDClient implements LDClientInterface, Closeable {
         return flagValues;
     }
 
+    /**
+     * CENTINEL campaign seat-cell seam (the BOOT-META-EVAL census rows' own law:
+     * the C-PY-BOOT-META-EVAL/01 $exact face prices the boot metadata's whole
+     * shape — the C-COV-BOOT-THEN-SERVER row's own $flagsState face rides the
+     * same face): builds the all-flags-state body with the $valid face and the
+     * per-flag $flagsState metadata (variation index when present, version),
+     * then every flag's value at its own key. Module-internal
+     * (package-private; nothing public grows), keyed beside the census seat's
+     * ConfigHelper caller.
+     */
+    Map<String, LDValue> allFlagsState() {
+        EnvironmentData allData = contextDataManager.getAllNonDeleted();
+        HashMap<String, LDValue> state = new HashMap<>();
+        state.put("$valid", LDValue.of(true));
+        com.launchdarkly.sdk.ObjectBuilder flagsState = LDValue.buildObject();
+        for (Flag flag : allData.values()) {
+            com.launchdarkly.sdk.ObjectBuilder meta = LDValue.buildObject();
+            if (flag.getVariation() != null) {
+                meta.put("variation", flag.getVariation());
+            }
+            meta.put("version", flag.getVersionForEvents());
+            flagsState.put(flag.getKey(), meta.build());
+        }
+        state.put("$flagsState", flagsState.build());
+        for (Flag flag : allData.values()) {
+            state.put(flag.getKey(), flag.getValue());
+        }
+        return state;
+    }
+
     @Override
     public boolean boolVariation(@NonNull String key, boolean defaultValue) {
         return evaluateWithHooks("LDClient.boolVariation", key, LDValue.of(defaultValue), true, false)

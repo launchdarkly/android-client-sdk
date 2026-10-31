@@ -225,11 +225,63 @@ public abstract class DataModel {
                 if (flagGsonInstance == null) {
                     GsonBuilder b = new GsonBuilder();
                     b.registerTypeAdapter(EvaluationReason.class, new EvaluationReasonWireAdapter());
+                    // The FDv2 flag-wire's own prerequisites face prices keys as an array of
+                    // objects — harness-v3 flag objects serve [{"key":..., "variation":...}]
+                    // (the M6R4-HARNESS-PREREQ-CYCLE census rows' own put-object bytes) —
+                    // while the plain-key spelling ["k1","k2"] rides beside. The adapter
+                    // decodes both spellings into the String[] keys the flag model's own
+                    // prerequisites pricing uses (reflective Gson would otherwise throw on
+                    // the object members before the model's own face ever priced).
+                    b.registerTypeAdapter(String[].class, new PrerequisitesWireAdapter());
                     flagGsonInstance = b.create();
                 }
                 local = flagGsonInstance;
             }
             return local;
+        }
+
+        /**
+         * The prerequisites wire adapter: decodes the FDv2 flag wire's own prerequisites
+         * array into the flag model's own String[] keys. The census's own put-object face
+         * prices [{"key": "k", "variation": 1}, ...] (objects keyed whole); the
+         * plain-key spelling ["k1", "k2"] rides decode byte-true beside.
+         */
+        private static final class PrerequisitesWireAdapter
+                implements JsonDeserializer<String[]>, JsonSerializer<String[]> {
+            @Override
+            public String[] deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
+                    throws JsonParseException {
+                if (json == null || json.isJsonNull() || !json.isJsonArray()) {
+                    return null;
+                }
+                java.util.List<String> keys = new java.util.ArrayList<>();
+                for (com.google.gson.JsonElement e : json.getAsJsonArray()) {
+                    if (e.isJsonPrimitive()) {
+                        keys.add(e.getAsString());
+                    } else if (e.isJsonObject()) {
+                        JsonObject o = e.getAsJsonObject();
+                        if (o.has("key") && o.get("key").isJsonPrimitive()) {
+                            keys.add(o.get("key").getAsString());
+                        } else if (o.has("prereqKey") && o.get("prereqKey").isJsonPrimitive()) {
+                            keys.add(o.get("prereqKey").getAsString());
+                        } else if (o.has("prerequisiteKey") && o.get("prerequisiteKey").isJsonPrimitive()) {
+                            keys.add(o.get("prerequisiteKey").getAsString());
+                        }
+                    }
+                }
+                return keys.toArray(new String[0]);
+            }
+
+            @Override
+            public JsonElement serialize(String[] src, Type typeOfSrc, JsonSerializationContext context) {
+                com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+                if (src != null) {
+                    for (String s : src) {
+                        arr.add(s);
+                    }
+                }
+                return arr;
+            }
         }
 
         private static final class EvaluationReasonWireAdapter
