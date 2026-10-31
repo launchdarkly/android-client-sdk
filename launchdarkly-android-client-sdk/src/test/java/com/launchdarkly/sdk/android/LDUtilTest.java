@@ -43,4 +43,14 @@ public class LDUtilTest {
         Assert.assertFalse(LDUtil.isHttpErrorUnexpected(500));
         Assert.assertFalse(LDUtil.isHttpErrorUnexpected(503));
     }
+
+    @Test
+    public void testIsEventPayloadRefused() {
+        for (int status : new int[] { 400, 413, 415, 422 }) {
+            Assert.assertTrue(String.valueOf(status), LDUtil.isEventPayloadRefused(status));
+        }
+        for (int status : new int[] { 200, 202, 401, 403, 404, 408, 429, 500, 503 }) {
+            Assert.assertFalse(String.valueOf(status), LDUtil.isEventPayloadRefused(status));
+        }
+    }
 }

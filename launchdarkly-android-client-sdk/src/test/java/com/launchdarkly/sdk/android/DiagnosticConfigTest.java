@@ -73,7 +73,7 @@ public class DiagnosticConfigTest {
                 .events(
                         Components.sendEvents()
                                 .allAttributesPrivate(true)
-                                .capacity(1000)
+                                .capacity(3000)
                                 .diagnosticRecordingIntervalMillis(1_800_000)
                                 .flushIntervalMillis(60_000)
                 )
@@ -83,9 +83,24 @@ public class DiagnosticConfigTest {
         ObjectBuilder expected = makeExpectedDefaults();
         expected.put("allAttributesPrivate", true);
         expected.put("diagnosticRecordingIntervalMillis", 1_800_000);
-        expected.put("eventsCapacity", 1000);
+        expected.put("eventsCapacity", 3000);
         expected.put("eventsFlushIntervalMillis",60_000);
         Assert.assertEquals(expected.build(), diagnosticJson);
+    }
+
+    @Test
+    public void diagnosticConfigurationReportsTheCapacityTheSdkWillUse() throws Exception {
+        // A capacity of nought or less runs at one, so that is what the service should be told.
+        for (int capacity : new int[] { 0, -5 }) {
+            LDConfig ldConfig = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+                    .events(Components.sendEvents().capacity(capacity))
+                    .build();
+
+            LDValue diagnosticJson = makeDiagnosticJson(ldConfig);
+
+            Assert.assertEquals("capacity " + capacity,
+                    1, diagnosticJson.get("eventsCapacity").intValue());
+        }
     }
 
     @Test

@@ -27,10 +27,30 @@ android {
         // that the app's state is completely cleared between tests.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
+        if (System.getenv("LD_EVENT_BENCH") == "1") {
+            // The device benchmark writes one results file for the class. Orchestrator's
+            // "pm clear" between methods would wipe it, and the runner does not inherit the
+            // shell environment, so the gate is passed as an instrumentation argument.
+            testInstrumentationRunnerArguments["clearPackageData"] = "false"
+            testInstrumentationRunnerArguments["LD_EVENT_BENCH"] = "1"
+        }
     }
 
     testOptions {
-        execution = "ANDROIDX_TEST_ORCHESTRATOR"
+        // EventPersistenceBenchmark on a device keeps one process for the class so its results
+        // file survives; orchestrator would "pm clear" between methods and wipe it.
+        execution = (System.getenv("LD_EVENT_BENCH") == "1") ? "HOST" : "ANDROIDX_TEST_ORCHESTRATOR"
+
+        // EventPersistenceBenchmark reports its measurements on stdout, which Gradle otherwise
+        // swallows, and it is worth re-running even when nothing has changed. Both only apply when
+        // LD_EVENT_BENCH is set, which is also what un-skips the benchmark, so an ordinary test run
+        // is unaffected.
+        unitTests.all { test ->
+            if (System.getenv("LD_EVENT_BENCH") == "1") {
+                test.testLogging.showStandardStreams = true
+                test.outputs.upToDateWhen { false }
+            }
+        }
     }
 
     buildFeatures {
@@ -79,7 +99,7 @@ ext.versions = [
     "jacksonDatabind": "2.10.5.1",
     "junit": "4.13",
     "launchdarklyJavaSdkCommon": "2.4.0",
-    "launchdarklyJavaSdkInternal": "1.9.0",
+    "launchdarklyJavaSdkInternal": "1.12.2",
     "launchdarklyLogging": "1.1.1",
     "okhttp": "4.12.0",
     "testHelpers": "2.1.0",
@@ -106,7 +126,11 @@ dependencies {
     testImplementation("junit:junit:${versions.junit}")
     testImplementation("org.easymock:easymock:4.3")
     testImplementation("com.launchdarkly:test-helpers:${versions.testHelpers}")
+    // The test-helpers class copied into src/test compiles against Guava, which test-helpers only
+    // brings in at runtime. Keep this at the version it resolves to.
+    testCompileOnly("com.google.guava:guava:32.0.1-jre")
     testImplementation(project(":shared-test-code"))
+    testImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")
 
     androidTestImplementation("junit:junit:${versions.junit}")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:${versions.okhttp}")

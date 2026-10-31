@@ -17,7 +17,9 @@ import com.launchdarkly.sdk.ObjectBuilder;
 import com.launchdarkly.sdk.android.DataModel.Flag;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
+import com.launchdarkly.sdk.android.integrations.LDCrashHandler;
 import com.launchdarkly.sdk.android.integrations.Hook;
+import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.sdk.android.subsystems.PersistentDataStore;
 import com.launchdarkly.sdk.internal.GsonHelpers;
 import com.launchdarkly.sdk.json.JsonSerialization;
@@ -26,8 +28,14 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.HttpUrl;
+import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -93,6 +101,165 @@ public class LDClientEventTest {
                 assertEquals(LDValue.ofNull(), customEvent.get("metricValue"));
             }
         }
+    }
+
+    @Test
+    public void flushAndWaitReportsDelivery() throws IOException, InterruptedException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                client.track("test-event");
+
+                assertTrue(client.flushAndWait(5, TimeUnit.SECONDS));
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertCustomEvent(events[1], ldContext, "test-event");
+            }
+        }
+    }
+
+    @Test
+    public void crashHandlerDeliversTheEventsBeforePassingTheCrashOn() throws IOException, InterruptedException {
+        Thread.UncaughtExceptionHandler originalDefault = Thread.getDefaultUncaughtExceptionHandler();
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse());
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                int[] requestsSeenByNextHandler = {-1};
+                Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
+                        requestsSeenByNextHandler[0] = mockEventsServer.getRequestCount());
+                LDCrashHandler.install(5, TimeUnit.SECONDS);
+                client.track("test-event");
+
+                Thread.getDefaultUncaughtExceptionHandler()
+                        .uncaughtException(Thread.currentThread(), new RuntimeException("boom"));
+
+                assertEquals(1, requestsSeenByNextHandler[0]);
+                LDValue[] events = getEventsFromLastRequest(mockEventsServer, 2);
+                assertCustomEvent(events[1], ldContext, "test-event");
+            }
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(originalDefault);
+        }
+    }
+
+    @Test
+    public void flushAndWaitReportsFailureOnceClosed() throws IOException {
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            LDClient client = LDClient.init(application, ldConfig, ldContext, 0);
+            client.close();
+
+            assertFalse(client.flushAndWait(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void flushAndWaitDeliversEveryEnvironmentAtOnce() throws Exception {
+        // Each post is held for longer than half the budget, so the call can only report true if the
+        // environments' deliveries ran side by side rather than one after the other.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return new MockResponse().setHeadersDelay(1_500, TimeUnit.MILLISECONDS);
+                }
+            });
+            mockEventsServer.start();
+
+            Map<String, String> secondaryKeys = new HashMap<>();
+            secondaryKeys.put("second", "second-mobile-key");
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .secondaryMobileKeys(secondaryKeys)
+                    .build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                client.track("primary-event");
+                LDClient.getForMobileKey("second").track("second-event");
+
+                assertTrue(client.flushAndWait(2_500, TimeUnit.MILLISECONDS));
+                assertEquals(2, mockEventsServer.getRequestCount());
+            }
+        }
+    }
+
+    @Test
+    public void flushAndWaitWithTheMostNegativeTimeoutDoesNotWait() throws IOException {
+        // toNanos saturates at Long.MIN_VALUE, and unclamped that wraps round to a wait for as long
+        // as the delivery takes -- which would then be reported as delivered.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+            mockEventsServer.enqueue(new MockResponse().setHeadersDelay(3, TimeUnit.SECONDS));
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer).build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                client.track("test-event");
+
+                long started = System.nanoTime();
+                assertFalse(client.flushAndWait(Long.MIN_VALUE, TimeUnit.NANOSECONDS));
+                long waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue("waited " + waitedMillis + "ms", waitedMillis < 1_000);
+            }
+        }
+    }
+
+    @Test
+    public void flushAndWaitReportsFailureWhenTheDeliveryIsCanceled() throws IOException {
+        // A custom event processor may hand back a future that is canceled; Future.get then throws
+        // CancellationException, which is unchecked and must not escape a boolean answer.
+        try (MockWebServer mockEventsServer = new MockWebServer()) {
+            mockEventsServer.start();
+
+            LDConfig ldConfig = baseConfigBuilder(mockEventsServer)
+                    .events(clientContext -> new CancelingEventProcessor())
+                    .build();
+            try (LDClient client = LDClient.init(application, ldConfig, ldContext, 0)) {
+                assertFalse(client.flushAndWait(5, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    /** An event processor whose deliveries are always canceled before they can report. */
+    private static final class CancelingEventProcessor implements EventProcessor {
+        @Override
+        public Future<Boolean> flushAsync() {
+            FutureTask<Boolean> delivery = new FutureTask<>(() -> true);
+            delivery.cancel(false);
+            return delivery;
+        }
+
+        @Override
+        public void flush() {}
+
+        @Override
+        public void blockingFlush() {}
+
+        @Override
+        public void setInBackground(boolean inBackground) {}
+
+        @Override
+        public void setOffline(boolean offline) {}
+
+        @Override
+        public void close() {}
+
+        @Override
+        public void recordEvaluationEvent(LDContext context, String flagKey, int flagVersion,
+                                          int variation, LDValue value, EvaluationReason reason,
+                                          LDValue defaultValue, boolean requireFullEvent,
+                                          Long debugEventsUntilDate) {}
+
+        @Override
+        public void recordIdentifyEvent(LDContext context) {}
+
+        @Override
+        public void recordCustomEvent(LDContext context, String eventKey, LDValue data,
+                                      Double metricValue) {}
     }
 
     @Test
