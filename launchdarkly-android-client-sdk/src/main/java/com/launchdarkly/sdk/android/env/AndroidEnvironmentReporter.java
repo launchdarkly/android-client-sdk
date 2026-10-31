@@ -42,6 +42,26 @@ class AndroidEnvironmentReporter extends EnvironmentReporterChainBase implements
         // defer to super if required property applicationID is missing
         if (info.getApplicationId() == null) {
             info = super.getApplicationInfo();
+            return info;
+        }
+
+        // The platform reports each member at its own priority: a member the
+        // platform cannot provide (a packageInfo field absent in this build,
+        // e.g. versionName) rides the next reporter in the chain rather than
+        // dropping the member whole. The config values (next tier) never
+        // displace the platform's own values.
+        ApplicationInfo fallback = super.getApplicationInfo();
+        if (info.getApplicationVersion() == null || info.getApplicationName() == null
+                || info.getApplicationVersionName() == null) {
+            ApplicationInfoBuilder merged = new ApplicationInfoBuilder();
+            merged.applicationId(info.getApplicationId());
+            merged.applicationVersion(info.getApplicationVersion() != null
+                    ? info.getApplicationVersion() : fallback.getApplicationVersion());
+            merged.applicationName(info.getApplicationName() != null
+                    ? info.getApplicationName() : fallback.getApplicationName());
+            merged.applicationVersionName(info.getApplicationVersionName() != null
+                    ? info.getApplicationVersionName() : fallback.getApplicationVersionName());
+            info = merged.createApplicationInfo();
         }
 
         return info;

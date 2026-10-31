@@ -453,8 +453,11 @@ public class SdkClientEntity {
    * context, unboxing the legacy custom attrs at the context's own top
    * level — the same conversion the initial-user seam rides at construction
    * (buildLegacyUserContext). Any other identify wire parses through the
-   * core's own context deserializer byte-true; module-internal, no public
-   * API growth.
+   * core's own context deserializer byte-true (a v5 context wire never
+   * carries a top-level "custom" member — the events_ctx classes' context
+   * properties rows re-ride the context's own attributes whole through the
+   * client's evaluation/identify ops); module-internal, no public API
+   * growth.
    */
   private static LDContext seatLegacyIdentifyContext(LDContext context) {
     if (context == null || context.isMultiple()) {
@@ -467,7 +470,8 @@ public class SdkClientEntity {
       return context;
     }
     com.google.gson.JsonElement el = com.google.gson.JsonParser.parseString(wire);
-    if (!el.isJsonObject()) {
+    if (!el.isJsonObject() || !el.getAsJsonObject().has("custom")) {
+      // not a legacy-user wire: the core's deserialized context rides whole
       return context;
     }
     LDContext legacy = buildLegacyUserContext(el.getAsJsonObject());
