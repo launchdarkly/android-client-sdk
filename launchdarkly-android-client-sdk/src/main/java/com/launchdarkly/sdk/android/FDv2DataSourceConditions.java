@@ -65,11 +65,35 @@ final class FDv2DataSourceConditions {
 
     /**
      * Fallback: on INTERRUPTED start timer; on CHANGE_SET cancel timer. Future completes with FALLBACK when timer fires.
+     * <p>
+     * The fallback also arms a per-synchronizer first-update deadline when the synchronizer
+     * starts ({@link FallbackCondition#armFirstUpdate()}): the DATASYSTEM 1.2.6 census law
+     * (the harness's own recoverable-fallback contract, "recoverable error triggers fallback
+     * to next synchronizer") prices the advance to the next synchronizer when a
+     * synchronizer fails to initialize within its timeout period (~10 seconds) — e.g. a
+     * hanging connection that never reports a status must not stall the fallback ladder.
+     * The synchronizer is not removed from the list (recoverable).
      */
     static final class FallbackCondition extends TimedCondition {
 
+        static final long FIRST_UPDATE_FALLBACK_SECONDS = 10;
+
         FallbackCondition(@NonNull ScheduledExecutorService executor, long timeoutSeconds) {
             super(executor, timeoutSeconds);
+        }
+
+        /**
+         * Arms the first-update fallback deadline. Called when the synchronizer starts;
+         * fires FALLBACK if no change set arrives within the deadline, so a hanging
+         * synchronizer still prices the fallback advance per DATASYSTEM 1.2.6.
+         */
+        void armFirstUpdateFallback() {
+            if (timerFuture == null) {
+                timerFuture = sharedExecutor.schedule(
+                        () -> resultFuture.set(ConditionType.FALLBACK),
+                        FIRST_UPDATE_FALLBACK_SECONDS,
+                        TimeUnit.SECONDS);
+            }
         }
 
         @Override
@@ -83,6 +107,8 @@ final class FDv2DataSourceConditions {
             if (result.getResultType() == SourceResultType.STATUS
                     && result.getStatus() != null
                     && result.getStatus().getState() == SourceSignal.INTERRUPTED) {
+                // The error-driven fallback clock: arms only when no fallback timer is
+                // already live (an uncommitted first-update deadline keeps running).
                 if (timerFuture == null) {
                     timerFuture = sharedExecutor.schedule(
                             () -> resultFuture.set(ConditionType.FALLBACK),
@@ -134,6 +160,20 @@ final class FDv2DataSourceConditions {
                 futures[i] = conditions.get(i).getFuture();
             }
             this.conditionsFuture = LDFutures.anyOf(futures);
+        }
+
+        /**
+         * Arms each fallback condition's first-update fallback deadline. Called when the
+         * synchronizer starts, so a synchronizer that never reports any result (a hanging
+         * connection) still prices the fallback advance within its own deadline
+         * (the DATASYSTEM 1.2.6 law); the synchronizer itself stays in the list.
+         */
+        void armFirstUpdateFallback() {
+            for (Condition c : conditions) {
+                if (c instanceof FallbackCondition) {
+                    ((FallbackCondition) c).armFirstUpdateFallback();
+                }
+            }
         }
 
         LDAwaitFuture<Object> getFuture() {

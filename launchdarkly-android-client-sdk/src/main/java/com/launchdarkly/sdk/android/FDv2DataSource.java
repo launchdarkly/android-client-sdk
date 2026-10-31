@@ -526,6 +526,11 @@ final class FDv2DataSource implements DataSource {
                     boolean running = true;
                     try (FDv2DataSourceConditions.Conditions conditions =
                                  new FDv2DataSourceConditions.Conditions(getConditions(synchronizerCount, isPrime))) {
+                        // The DATASYSTEM 1.2.6 census law: arm the fallback's first-update
+                        // deadline when the synchronizer starts — a synchronizer that never
+                        // reports (a hanging connection) prices the fallback advance within
+                        // its own deadline and stays in the list (recoverable).
+                        conditions.armFirstUpdateFallback();
                         while (running) {
                             Future<FDv2SourceResult> nextFuture = synchronizer.next();
                             // Race the next synchronizer result against any active conditions
