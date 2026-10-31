@@ -68,6 +68,15 @@ public class LDUtil {
     // leak into the next.
     static volatile okhttp3.Interceptor testEventWireShaper;
 
+    // The T1 pipe transport slot (CP-SPEC 8.2, module-internal, nothing public
+    // grows): the cp-seat arms a javax.net.SocketFactory whose sockets speak the
+    // CP dial/bytes relay byte-transparently (the E-6 host rewrite maps every
+    // cp-pipe://<svc> endpoint onto the reserved loopback literal the factory
+    // owns). makeHttpProperties rides the slot into the shared core's
+    // HttpProperties so every HTTP stack this client builds connects through the
+    // factory; absent slot keeps the stock face (the slot resets per client).
+    static volatile javax.net.SocketFactory testPipeSocketFactory;
+
     // The seat-cell secure-mode-hash slot (the harness client-side `hash`
     // config face, the C-PY-SECURE-H-SEND census rows' law): when the client
     // config carries a secure-mode hash the SDK's own FDv2 wire joins the
@@ -259,7 +268,7 @@ public class LDUtil {
                 headersTransformer,
                 testHttpProxy,
                 testHttpProxyAuth,
-                null, // socketFactory
+                testPipeSocketFactory, // CP-SPEC 8.2 T1 pipe transport (null when the seam is not armed)
                 httpConfig.getConnectTimeoutMillis(),
                 testTlsSocketFactory,
                 testTlsTrustManager

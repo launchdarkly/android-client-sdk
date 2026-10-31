@@ -216,6 +216,23 @@ public class ConfigHelper {
         LDUtil.testSecureModeHash = null;
     }
 
+    /**
+     * The T1 pipe transport seam (CP-SPEC 8.2 E-6, module-internal, nothing
+     * public grows): the cp-seat arms a javax.net.SocketFactory whose sockets
+     * speak the CP dial/bytes relay byte-transparently when the client config
+     * carries cp-pipe:// endpoints; LDUtil.makeHttpProperties rides the slot
+     * into the shared core's own HttpProperties so every HTTP stack this
+     * client builds connects through the factory. Absent arming keeps the
+     * stock face; resets per client like every seat-cell seam.
+     */
+    public static void configureSeatPipeTransport(javax.net.SocketFactory pipeSocketFactory) {
+        LDUtil.testPipeSocketFactory = pipeSocketFactory;
+    }
+
+    public static void resetSeatPipeTransport() {
+        LDUtil.testPipeSocketFactory = null;
+    }
+
     /** The skip-verify face's trust manager: no certificate validation. */
     private static final class LenientTrustManager implements javax.net.ssl.X509TrustManager {
         @Override

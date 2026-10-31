@@ -12,6 +12,7 @@ import com.launchdarkly.logging.LDLogAdapter;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.android.LDAndroidLogging;
+import com.launchdarkly.sdk.android.ConfigHelper;
 import com.launchdarkly.sdk.json.JsonSerialization;
 import com.launchdarkly.sdk.json.LDGson;
 
@@ -130,6 +131,11 @@ public final class SeatServe {
   // through the static {@link #postCallback} hook the harness adapter calls.
   private static volatile Bus currentBus;
   private static volatile CpCallbackBus callbackBus;
+  // The T1 pipe transport (CP-SPEC 8.2): per-seat relay for the SDK's dial/bytes
+  // sockets over the CP/stdio channel. Armed at createClient when the configuration
+  // carries cp-pipe:// endpoints; the SDK's own module-internal HTTP slot rides
+  // this transport's socket factory (module-internal, seat-side only).
+  private volatile SeatPipeTransport pipeTransport;
   // stdout (CP) is written exclusively through this stream; everything else logs to stderr.
   private final PrintStream out = new PrintStream(
       new FileOutputStream(FileDescriptor.out), false, StandardCharsets.UTF_8);
@@ -197,6 +203,15 @@ public final class SeatServe {
 
   void handleLine(Bus bus, Application app, String line) {
     JsonObject env;
+    // The T1 pipe transport's own E-6 host rewrite (CP-SPEC 8.2): when the seat
+    // hasn't armed one yet, and this envelope itself carries cp-pipe:// endpoints,
+    // the blanket token rewrite maps every cp-pipe://<svc>[/path] leaf onto the
+    // reserved loopback literal this seat's own transport owns before the SDK's
+    // URL parser ever sees the string. Every other byte rides verbatim.
+    boolean pipeWanted = line != null && line.contains("cp-pipe://");
+    if (pipeWanted) {
+      line = SeatPipeTransport.rewriteConfiguration(line);
+    }
     try {
       env = gson.fromJson(line, JsonObject.class);
     } catch (Exception e) {
@@ -207,6 +222,32 @@ public final class SeatServe {
     String op = str(env, "op");
     JsonElement idEl = env.has("id") ? env.get("id") : JsonNull.INSTANCE;
     JsonElement bodyEl = env.has("body") ? env.get("body") : JsonNull.INSTANCE;
+    // The runner's reply to one of MY dial envelopes, and the runner's byte relay
+    // (CP-SPEC 8.2): a dial reply echoes MY id and carries ok/status/error (reply
+    // fields are never on a relay), runner bytes carry {conn, data, eof?}.
+    if ("dial".equals(op) || "bytes".equals(op)) {
+      boolean isReply = env.has("ok");
+      if ("dial".equals(op) && isReply && pipeTransport != null && idEl.isJsonPrimitive()) {
+        pipeTransport.onDialReply(idEl.getAsInt(), env.get("ok").getAsBoolean());
+        return;
+      }
+      if ("bytes".equals(op) && !isReply && pipeTransport != null) {
+        if (bodyEl.isJsonObject() && bodyEl.getAsJsonObject().has("conn")) {
+          String conn = bodyEl.getAsJsonObject().get("conn").getAsString();
+          byte[] data = new byte[0];
+          if (bodyEl.getAsJsonObject().has("data")) {
+            data = java.util.Base64.getDecoder().decode(bodyEl.getAsJsonObject().get("data").getAsString());
+          }
+          boolean eof = bodyEl.getAsJsonObject().has("eof") && bodyEl.getAsJsonObject().get("eof").getAsBoolean();
+          boolean abort = bodyEl.getAsJsonObject().has("x-cp-abort")
+              && bodyEl.getAsJsonObject().get("x-cp-abort").getAsBoolean();
+          pipeTransport.onRunnerBytes(conn, data, eof, abort);
+        }
+        return;
+      }
+      System.err.println("[cp-seat] " + op + " envelope without an armed pipe transport (ignored)");
+      return;
+    }
     // The runner's reply to one of MY callback envelopes (CP-SPEC 7.2): echo id,
     // carries ok/status — consumed by the awaiting SDK-side hook call on the worker.
     if ("callback".equals(op)) {
@@ -217,7 +258,7 @@ public final class SeatServe {
       return;
     }
     if ("createClient".equals(op)) {
-      dispatchCreateClient(bus, app, idEl, bodyEl);
+      dispatchCreateClient(bus, app, idEl, bodyEl, pipeWanted);
     } else if ("command".equals(op)) {
       dispatchCommand(bus, idEl, bodyEl);
     } else if ("closeClient".equals(op)) {
@@ -275,12 +316,28 @@ public final class SeatServe {
     return JsonNull.INSTANCE;
   }
 
-  void dispatchCreateClient(Bus bus, Application app, JsonElement idEl, JsonElement bodyEl) {    // Robolectric boots apps on one shadow looper; task execution happens on the SDK's
+  void dispatchCreateClient(Bus bus, Application app, JsonElement idEl, JsonElement bodyEl, boolean pipeWanted) {    // Robolectric boots apps on one shadow looper; task execution happens on the SDK's
     // own executors. Dispatch sequentially on the worker so per-client state is ordered.
     worker.submit(() -> {
       try {
         Representations.CreateInstanceParams params = gson.fromJson(bodyEl, Representations.CreateInstanceParams.class);
         String clientId = "c" + clientCounter.incrementAndGet();
+        // The T1 pipe transport (CP-SPEC 8.2): armed when the original envelope
+        // carried cp-pipe:// endpoints (the E-6 rewrite rode at handleLine; the
+        // SDK's own module-internal HTTP slot rides this transport's socket
+        // factory through the ConfigHelper seam). Every cp-pipe client stays
+        // bound to this seat's own one relay instance so dial replies and byte
+        // relays land on the same sockets map.
+        if (pipeWanted) {
+          SeatPipeTransport t = pipeTransport;
+          if (t == null) {
+            t = new SeatPipeTransport(bus);
+            pipeTransport = t;
+          }
+          ConfigHelper.configureSeatPipeTransport(t.socketFactory());
+        } else {
+          ConfigHelper.resetSeatPipeTransport();
+        }
         SdkClientEntity entity = new SdkClientEntity(app, params, seatLogAdapter());
         clients.put(clientId, entity);
         JsonObject resp = new JsonObject();
@@ -378,6 +435,12 @@ public final class SeatServe {
         try { c.close(); } catch (Throwable t) { System.err.println("[cp-seat] close " + id + ": " + t); }
       }
     }
+    SeatPipeTransport t = pipeTransport;
+    if (t != null) {
+      t.closeAll();
+      pipeTransport = null;
+    }
+    ConfigHelper.resetSeatPipeTransport();
   }
 
   static JsonObject statusResultBody() {
@@ -445,6 +508,51 @@ public final class SeatServe {
 
     void err(JsonElement idEl, String op, int status, String error) {
       out.println(envelope(idEl, op, false, status, JsonNull.INSTANCE, error));
+      out.flush();
+    }
+
+    /** Service→runner dial (CP-SPEC 8.2): message shape (no reply fields); the
+     * runner answers at once with an envelope echoing the id carrying ok. */
+    void dial(int id, String conn, String uri, String service) {
+      JsonObject e = new JsonObject();
+      e.addProperty("cp", "0");
+      e.addProperty("id", id);
+      e.addProperty("op", "dial");
+      JsonObject b = new JsonObject();
+      b.addProperty("conn", conn);
+      b.addProperty("uri", uri);
+      b.addProperty("service", service);
+      e.add("body", b);
+      out.println(envGson.toJson(e));
+      out.flush();
+    }
+
+    /** Service→runner bytes relay (CP-SPEC 8.2): message shape; never answered. */
+    void bytes(String conn, byte[] data) {
+      JsonObject e = new JsonObject();
+      e.addProperty("cp", "0");
+      e.addProperty("id", -1);
+      e.addProperty("op", "bytes");
+      JsonObject b = new JsonObject();
+      b.addProperty("conn", conn);
+      b.addProperty("data", java.util.Base64.getEncoder().encodeToString(data));
+      e.add("body", b);
+      out.println(envGson.toJson(e));
+      out.flush();
+    }
+
+    /** Service→runner bytes half-close (CP-SPEC 8.2): empty data plus eof:true. */
+    void bytesEof(String conn) {
+      JsonObject e = new JsonObject();
+      e.addProperty("cp", "0");
+      e.addProperty("id", -1);
+      e.addProperty("op", "bytes");
+      JsonObject b = new JsonObject();
+      b.addProperty("conn", conn);
+      b.addProperty("data", "");
+      b.addProperty("eof", true);
+      e.add("body", b);
+      out.println(envGson.toJson(e));
       out.flush();
     }
 
