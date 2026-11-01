@@ -156,8 +156,21 @@ class HttpFeatureFlagFetcher implements FeatureFetcher {
         // Android-specific APIs so our components are more easily unit-testable.
         URI uri = HttpHelpers.concatenateUriPath(pollUri, StandardEndpoints.POLLING_REQUEST_GET_BASE_PATH);
         uri = HttpHelpers.concatenateUriPath(uri, LDUtil.urlSafeBase64(ldContext));
+        String secureHash = LDUtil.secureModeHash();
+        String query = "";
+        // The FDv1 evalx poll's own secure-mode `h` query face (the C-PY-FDV1-H-DIRECTIVE
+        // census row's law: harness v3 "h on streaming and polling requests" — the FDv1
+        // evalx poll IS this drive's polling transport while the FDv1 fallback directive
+        // is engaged; the D-366 era's directive×hash composed face). The same seat-cell
+        // secureModeHash slot the FDv2 requestor/streaming faces join; absent keeps the
+        // stock faces. Module-internal, no public API growth.
+        if (secureHash != null) {
+            query = "?h=" + secureHash;
+        }
         if (evaluationReasons) {
-            uri = URI.create(uri.toString() + "?withReasons=true");
+            uri = URI.create(uri.toString() + (query.isEmpty() ? "?withReasons=true" : query + "&withReasons=true"));
+        } else if (!query.isEmpty()) {
+            uri = URI.create(uri.toString() + query);
         }
         logger.debug("Attempting to fetch Feature flags using uri: {}", uri);
         return new Request.Builder().url(uri.toURL())
