@@ -434,6 +434,8 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     }
 
     private void updateConnectionInfoForSuccess(ConnectionInformation.ConnectionMode connectionMode) {
+        System.err.println("[ci-diag] updateConnectionInfoForSuccess mode=" + connectionMode
+                + " prev=" + connectionInformation.getConnectionMode() + " by=" + java.util.Arrays.stream(Thread.currentThread().getStackTrace()).skip(4).limit(3).map(s -> s.getMethodName()).collect(java.util.stream.Collectors.joining("<")));
         boolean updated = false;
         if (connectionInformation.getConnectionMode() != connectionMode) {
             connectionInformation.setConnectionMode(connectionMode);
@@ -468,6 +470,8 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             }
         }
 
+        System.err.println("[ci-diag] updateConnectionInfoForError mode=" + connectionMode
+                + " prev=" + connectionInformation.getConnectionMode() + " reasons=" + error);
         connectionInformation.setConnectionMode(connectionMode);
         connectionInformation.setLastFailedConnection(System.currentTimeMillis());
         connectionInformation.setLastFailure(failure);
