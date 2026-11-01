@@ -60,6 +60,15 @@ final class FDv2DataSource implements DataSource {
     private final long recoveryTimeoutSeconds;
     private final ScheduledExecutorService sharedExecutor;
 
+    /**
+     * The x-cp-bootstrap pre-connection face (the BOOT census rows' own law:
+     * C-COV-BOOT-THEN-SERVER, C-PY-BOOT-META-EVAL): while a cache-initialized
+     * bootstrap payload is armed, general-initializer payloads do not override
+     * the bootstrapped flags — bootstrap values are served until a synchronizer
+     * (the actual connection) applies its own payload. Module-internal.
+     */
+    private volatile boolean bootDataApplied = false;
+
     private final AtomicBoolean startCalled = new AtomicBoolean(false);
     private final AtomicBoolean startCompleted = new AtomicBoolean(false);
     private volatile Boolean startResult = null;
@@ -341,6 +350,13 @@ final class FDv2DataSource implements DataSource {
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
                             sink.apply(context, changeSet);
+                            // The x-cp-bootstrap pre-connection face: the bootstrapped
+                            // flags are armed once a cache initializer applies them.
+                            if (changeSet.getType() == ChangeSetType.Full
+                                    && changeSet.getData() != null
+                                    && !changeSet.getData().isEmpty()) {
+                                bootDataApplied = true;
+                            }
                         }
                         break;
                     case STATUS:
@@ -398,7 +414,19 @@ final class FDv2DataSource implements DataSource {
                     case CHANGE_SET:
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
-                            sink.apply(context, changeSet);
+                            // The x-cp-bootstrap pre-connection face (the BOOT census
+                            // rows' own law): while the bootstrapped flags are armed,
+                            // general-initializer payloads do not override them —
+                            // bootstrap values are served until a synchronizer applies.
+                            // The initializer's data arrival and status faces ride
+                            // unchanged.
+                            if (bootDataApplied && changeSet.getType() != ChangeSetType.None) {
+                                logger.debug(
+                                        "Initializer '{}' payload skipped: bootstrapped flags lead until a synchronizer applies.",
+                                        initializerName);
+                            } else {
+                                sink.apply(context, changeSet);
+                            }
                             if (changeSet.getType() != ChangeSetType.None) {
                                 anyDataReceived = true;
                             }
