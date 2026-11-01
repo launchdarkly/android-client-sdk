@@ -25,13 +25,11 @@ public final class SeatStubs {
                  AndroidPlatformState.TestNetworkOverride {
     @Override
     public boolean isTestFixtureInitiallyInForeground() {
-      System.err.println("[seat-stub] isTestFixtureInitiallyInForeground consulted -> TRUE");
       return true;
     }
 
     @Override
     public boolean isTestFixtureNetworkAvailable() {
-      System.err.println("[seat-stub] isTestFixtureNetworkAvailable consulted -> TRUE");
       return true;
     }
   }

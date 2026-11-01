@@ -270,11 +270,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         // state-change (mustReinitializeDataSource=false) cases.
         if (useFDv2ModeResolution) {
             ConnectionMode newMode = resolveMode(newState);
-            System.err.println("[cm-diag] updateDataSource(must=" + mustReinitializeDataSource
-                    + ") fg=" + newState.isForeground() + " net=" + newState.isNetworkAvailable()
-                    + " bg=" + newState.isBackgroundUpdatingDisabled() + " forced=" + forcedOffline.get()
-                    + " useFDv2=" + useFDv2ModeResolution + " currentFDv2Mode=" + currentFDv2Mode
-                    + " newMode=" + newMode);
             if (!mustReinitializeDataSource) {
                 // The debouncer suppresses fires when raw network/foreground state
                 // returns to its prior baseline, but raw state can also shift to a
@@ -387,9 +382,17 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         currentDataSource.set(dataSource);
         previousModeState.set(newState);
 
+        final DataSource builtDataSource = dataSource;
         dataSource.start(new Callback<Boolean>() {
             @Override
             public void onSuccess(Boolean result) {
+                // A superseded data source's late repeat face (its start completed
+                // before the mode replace stopped it) must not key the current
+                // connection faces — the replacing data source owns them.
+                if (currentDataSource.get() != builtDataSource) {
+                    onCompletion.onSuccess(null);
+                    return;
+                }
                 initialized = true;
                 updateConnectionInfoForSuccess(connectionInformation.getConnectionMode());
                 onCompletion.onSuccess(null);
@@ -397,6 +400,21 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
 
             @Override
             public void onError(Throwable error) {
+                // A superseded data source's late repeat face must not key the
+                // current connection faces.
+                if (currentDataSource.get() != builtDataSource) {
+                    onCompletion.onSuccess(null);
+                    return;
+                }
+                // The intentional-stop cancellation is the data source's own
+                // lifecycle face (FDv2DataSource.stop sets shutdownCause), not a
+                // connection failure: keying it stamped a wrong lastFailure/mode
+                // transient on the setOnline tail (the C-FR-OFFLINE-TOGGLE-PROBE/02
+                // face gap). The mode-resolution properties own the face.
+                if (error instanceof java.util.concurrent.CancellationException) {
+                    onCompletion.onSuccess(null);
+                    return;
+                }
                 updateConnectionInfoForError(connectionInformation.getConnectionMode(), error);
                 onCompletion.onSuccess(null);
             }
@@ -434,8 +452,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
     }
 
     private void updateConnectionInfoForSuccess(ConnectionInformation.ConnectionMode connectionMode) {
-        System.err.println("[ci-diag] updateConnectionInfoForSuccess mode=" + connectionMode
-                + " prev=" + connectionInformation.getConnectionMode() + " by=" + java.util.Arrays.stream(Thread.currentThread().getStackTrace()).skip(4).limit(3).map(s -> s.getMethodName()).collect(java.util.stream.Collectors.joining("<")));
         boolean updated = false;
         if (connectionInformation.getConnectionMode() != connectionMode) {
             connectionInformation.setConnectionMode(connectionMode);
@@ -470,8 +486,6 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
             }
         }
 
-        System.err.println("[ci-diag] updateConnectionInfoForError mode=" + connectionMode
-                + " prev=" + connectionInformation.getConnectionMode() + " reasons=" + error);
         connectionInformation.setConnectionMode(connectionMode);
         connectionInformation.setLastFailedConnection(System.currentTimeMillis());
         connectionInformation.setLastFailure(failure);
@@ -494,7 +508,19 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
                 ConnectionInformation.ConnectionMode current = connectionInformation.getConnectionMode();
                 return current != null ? current : fdv2ModeToPublicMode(currentFDv2Mode);
             case OFF:
-                return ConnectionInformation.ConnectionMode.OFFLINE;
+                // A DataSourceState.OFF is the data source's own lifecycle face (the
+                // stop of a replaced data source keys it on the intentional-stop path,
+                // FDv2DataSource.tryCompleteStop's finally block), not a mode decision.
+                // The FDv2 mode resolution owns the connection mode (ConnectivityManager
+                // resolveMode + the eager fdv2ModeToPublicMode(currentFDv2Mode) set per
+                // rebuild), so the OFF face must report the resolution-owned mode —
+                // keying hard OFFLINE here stamped a wrong-mode transient on the
+                // setOnline tail (the C-FR-OFFLINE-TOGGLE-PROBE/02 face gap): the
+                // replaced OFFLINE-mode data source's stop raced the new mode's eager
+                // STREAMING set and the graded reply read the transient. The
+                // resolution-only mapping also prices the OFFLINE mode's own OFF face
+                // identically (currentFDv2Mode is OFFLINE then), so no legal face moves.
+                return fdv2ModeToPublicMode(currentFDv2Mode);
             case INITIALIZING:
             default:
                 return null;
