@@ -270,6 +270,11 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
         // state-change (mustReinitializeDataSource=false) cases.
         if (useFDv2ModeResolution) {
             ConnectionMode newMode = resolveMode(newState);
+            System.err.println("[cm-diag] updateDataSource(must=" + mustReinitializeDataSource
+                    + ") fg=" + newState.isForeground() + " net=" + newState.isNetworkAvailable()
+                    + " bg=" + newState.isBackgroundUpdatingDisabled() + " forced=" + forcedOffline.get()
+                    + " useFDv2=" + useFDv2ModeResolution + " currentFDv2Mode=" + currentFDv2Mode
+                    + " newMode=" + newMode);
             if (!mustReinitializeDataSource) {
                 // The debouncer suppresses fires when raw network/foreground state
                 // returns to its prior baseline, but raw state can also shift to a
