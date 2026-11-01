@@ -14,7 +14,8 @@ import org.robolectric.annotation.Config;
  * and drains the shadow main looper between reads.
  */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 34, manifest = Config.NONE, application = android.app.Application.class)
+@Config(sdk = 34, manifest = Config.NONE,
+    application = com.launchdarkly.sdk.android.SeatStubs.SeatApplication.class)
 public class SeatRs {
   @Test
   public void hostSeatForever() throws Exception {
