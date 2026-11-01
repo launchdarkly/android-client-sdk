@@ -464,20 +464,8 @@ public class LDClient implements LDClientInterface, Closeable {
             return new LDFailedFuture<>(new LaunchDarklyException("Invalid context: " + context.getError()));
         }
 
-        try {
-            System.err.println("[ctx-diag] identify-in psn=" + context.getPrivateAttributeCount()
-                    + " ser=" + com.launchdarkly.sdk.json.JsonSerialization.serialize(context));
-        } catch (Throwable t) { }
         LDContext modifiedContext = autoEnvContextModifier.modifyContext(context); // this may be a no-op modifier
-        try {
-            System.err.println("[ctx-diag] post-autoEnv psn=" + modifiedContext.getPrivateAttributeCount()
-                    + " ser=" + com.launchdarkly.sdk.json.JsonSerialization.serialize(modifiedContext));
-        } catch (Throwable t) { }
         modifiedContext = anonymousKeyContextModifier.modifyContext(modifiedContext);
-        try {
-            System.err.println("[ctx-diag] post-anonKey psn=" + modifiedContext.getPrivateAttributeCount()
-                    + " ser=" + com.launchdarkly.sdk.json.JsonSerialization.serialize(modifiedContext));
-        } catch (Throwable t) { }
         return identifyInstances(modifiedContext);
     }
 

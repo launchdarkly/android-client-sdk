@@ -469,10 +469,6 @@ public class SdkClientEntity {
 
   private void doIdentifyEvent(IdentifyEventParams params) {
     try {
-      try {
-        System.err.println("[ctx-diag] seat-identify-in psn=" + params.context.getPrivateAttributeCount()
-                + " ser=" + com.launchdarkly.sdk.json.JsonSerialization.serialize(params.context));
-      } catch (Throwable t) { }
       client.identify(seatLegacyIdentifyContext(params.context)).get();
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException("Error waiting for identify", e);
