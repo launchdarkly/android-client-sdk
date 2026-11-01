@@ -214,6 +214,10 @@ public class SdkClientEntity {
         return doXcpCreateNoCredential(params.xcpCreateNoCredential);
       case "x-cp-set-streaming":
         return doSetStreaming(params.xcpSetStreaming);
+      case "x-cp-set-offline":
+        return doXcpSetOffline(params.xcpSetOffline);
+      case "x-cp-set-online":
+        return doXcpSetOnline();
       case "unregisterListener":
         doUnregisterListener(params.unregisterListener);
         return null;
@@ -437,6 +441,30 @@ public class SdkClientEntity {
       }
     }
     return resp;
+  }
+
+  /**
+   * CENTINEL census seat-face (the OFFLINE-RUNTIME-TOGGLE face-mint law): the
+   * x-cp-set-offline / x-cp-set-online commands drive the SDK's own runtime
+   * toggle whole — LDClient.setOffline()/setOnline() priced at
+   * LDClient.java:858/866 — and the x-cp-data-source-status reply prices the
+   * connectionMode OFF/STREAMING face the census law grades
+   * (floor-register/android.json named-open: offline-runtime-toggle).
+   * Module-internal seat bytes, no SDK surface growth.
+   */
+  private java.util.Map<String, Object> doXcpSetOffline(Representations.SetOfflineParams params) {
+    boolean force = params == null || params.offline == null || params.offline;
+    if (force) {
+      client.setOffline();
+    } else {
+      client.setOnline();
+    }
+    return doXcpDataSourceStatus();
+  }
+
+  private java.util.Map<String, Object> doXcpSetOnline() {
+    client.setOnline();
+    return doXcpDataSourceStatus();
   }
 
   private void doIdentifyEvent(IdentifyEventParams params) {

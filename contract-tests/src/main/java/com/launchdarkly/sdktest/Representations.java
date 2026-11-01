@@ -204,6 +204,7 @@ public abstract class Representations {
         RemoveOverrideParams removeOverride;
         @com.google.gson.annotations.SerializedName("x-cp-closed-evaluate") EvaluateFlagParams xcpClosedEvaluate;
         @com.google.gson.annotations.SerializedName("x-cp-set-streaming") SetStreamingParams xcpSetStreaming;
+        @com.google.gson.annotations.SerializedName("x-cp-set-offline") SetOfflineParams xcpSetOffline;
         public @com.google.gson.annotations.SerializedName("x-cp-logs") XcpLogsParams xcpLogs;
     }
 
@@ -231,6 +232,13 @@ public abstract class Representations {
      * the SDK's automatic mode resolution). */
     public static class SetStreamingParams {
         Boolean state;
+    }
+
+    /** OFFLINE-RUNTIME-TOGGLE face-mint law (floor-register named-open): the
+     * census bank's offline-toggle rows drive the SDK's own runtime toggle
+     * via this census seat-command face; `offline: false` prices setOnline. */
+    public static class SetOfflineParams {
+        Boolean offline;
     }
 
     public static class SetOverrideParams {
