@@ -112,7 +112,7 @@ abstract class ComponentsImpl {
                             StandardEndpoints.ANALYTICS_EVENTS_REQUEST_PATH,
                             StandardEndpoints.DIAGNOSTIC_EVENTS_REQUEST_PATH,
                             0L, // use default retry delay
-                            false, // disable gzip compression for Android
+                            enableCompression,
                             clientContext.getBaseLogger()),
                     1, // eventSendingThreadPoolSize
                     clientContext.getServiceEndpoints().getEventsBaseUri(),

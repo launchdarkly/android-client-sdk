@@ -31,6 +31,8 @@ import okhttp3.HttpUrl;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import okio.GzipSource;
+import okio.Okio;
 
 public class LDClientEventTest {
     // For better test isolation, any tests here that need to inject flag data will use a simple
@@ -520,12 +522,14 @@ public class LDClientEventTest {
         }
     }
 
-    private LDValue[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws InterruptedException {
+    private LDValue[] getEventsFromLastRequest(MockWebServer server, int expectedCount) throws IOException, InterruptedException {
         RecordedRequest r = server.takeRequest();
         assertEquals("POST", r.getMethod());
         assertEquals("/mobile/events/bulk", r.getPath());
         assertEquals(mobileKey, r.getHeader("Authorization"));
-        String body = r.getBody().readUtf8();
+        String body = "gzip".equals(r.getHeader("Content-Encoding"))
+                ? Okio.buffer(new GzipSource(r.getBody())).readUtf8()
+                : r.getBody().readUtf8();
         System.out.println(body);
         LDValue[] events = GsonHelpers.gsonInstance().fromJson(body, LDValue[].class);
         if (events.length != expectedCount) {

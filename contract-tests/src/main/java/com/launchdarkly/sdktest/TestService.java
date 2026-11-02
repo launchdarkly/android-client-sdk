@@ -40,6 +40,8 @@ public class TestService extends NanoHTTPD {
             "client-prereq-events",
             "client-prereq-cycle-detection",
             "polling-gzip",
+            "event-gzip",
+            "optional-event-gzip",
             "evaluation-hooks",
             "track-hooks",
             "client-per-context-summaries",
