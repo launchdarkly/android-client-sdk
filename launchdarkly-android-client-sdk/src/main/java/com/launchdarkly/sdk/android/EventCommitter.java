@@ -304,12 +304,13 @@ final class EventCommitter {
      * Only the event itself, so the caller pays for one small encode and one write however much is held:
      * a commit encodes the held run and every summary, and a summary with a large context or many flags
      * takes megabytes, which is a frozen frame on the main thread. They follow on the commit executor,
-     * queued here. The event is staged ahead of the run held before it, which LaunchDarkly does not mind:
+     * queued here. The event is written ahead of the run held before it, which LaunchDarkly does not mind:
      * every event carries its own creation date.
      * <p>
      * Not under {@link #commitLock}, which a commit holds for the whole of its encoding, so this never waits
-     * for one. The store takes its own locks, and the encoder shares nothing between threads; the one wait
-     * left is for the store's write lock, held by a write or by a delivery reading a batch back.
+     * for one. The store writes the one frame rather than committing, which would also write whatever a
+     * commit in flight has staged so far, and the encoder shares nothing between threads; the one wait left
+     * is for the store's write lock, held by a write or by a delivery reading a batch back.
      */
     private void writeAlone(Event event) {
         try {
@@ -321,16 +322,23 @@ final class EventCommitter {
                     return;
                 }
                 admitted = admit(event);
+                if (admitted) {
+                    // Reserved where it is admitted, as a run is where it leaves pending, so capacity counts
+                    // it while it is encoded and a recording on another thread cannot take its place.
+                    store.reserve(1);
+                }
                 takenSummaries.addAll(eventBuffer.takeSummaries());
                 summaryContextsExceeded.set(false);
             }
             if (admitted) {
                 byte[] serialized = eventBuffer.serialize(event);
-                // One that does not serialize is counted by the commit queued below, which takes the failure.
-                if (serialized != null && !store.stage(serialized)) {
+                if (serialized == null) {
+                    // Counted by the commit queued below, which takes the failure.
+                    store.releaseReservations(1);
+                } else if (!store.writeReservedAlone(serialized)) {
+                    // Only the bytes are checked: a frame or byte capacity it turns out not to fit.
                     reportRefusedByStore("event", serialized);
                 }
-                store.commit();
             }
             scheduleCommit();
         } catch (RuntimeException e) {
@@ -539,11 +547,7 @@ final class EventCommitter {
                 store.reserve(run.size());
             }
             try {
-                try {
-                    stageRun(run);
-                } finally {
-                    store.releaseReservations();
-                }
+                stageRun(run);
                 stageSummaries(summaries);
             } catch (Throwable t) {
                 // The run and the counters have left pending, and nothing puts them back, so a flush must not
@@ -677,10 +681,17 @@ final class EventCommitter {
      * they finished encoding, which is not the order they were recorded in.
      */
     private void stageRun(List<Event> run) {
-        for (byte[] serialized : eventBuffer.serializeAll(run)) {
-            if (!store.stageReserved(serialized)) {
-                reportRefusedByStore("event", serialized);
+        int unused = run.size();
+        try {
+            for (byte[] serialized : eventBuffer.serializeAll(run)) {
+                unused--;
+                if (!store.stageReserved(serialized)) {
+                    reportRefusedByStore("event", serialized);
+                }
             }
+        } finally {
+            // Only the run's own: a track or identify writing itself alone may hold one beside them.
+            store.releaseReservations(unused);
         }
     }
 

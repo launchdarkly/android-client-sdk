@@ -268,8 +268,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         // summary would be. The track has nothing to wait for it about.
         CountDownLatch commitStalled = new CountDownLatch(1);
         CountDownLatch commitResumes = new CountDownLatch(1);
-        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
-                logging.logger) {
+        EventStore store = new EventStore(EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY),
+                DEFAULT_CAPACITY, true, logging.logger) {
             @Override
             void commit() {
                 if (Thread.currentThread().getName().startsWith("LaunchDarkly-event-store")) {
@@ -297,6 +297,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             long tookMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
 
             assertTrue("the track waited " + tookMillis + "ms for the commit in progress", tookMillis < 1_000);
+            // Without what the stalled commit had staged before it stalled, which is that commit's to write.
+            assertEquals(1, kindsOnDisk("custom"));
+            assertEquals(0, kindsOnDisk("feature"));
         } finally {
             commitResumes.countDown();
             eventProcessor.close();
@@ -1502,24 +1505,18 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     @Test
     public void concurrentImmediateTracksAreEachDurableOnReturn() throws Exception {
         final int trackers = 8;
-        Queue<String> staged = new ConcurrentLinkedQueue<>();
         Queue<String> durable = new ConcurrentLinkedQueue<>();
         EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
-            boolean stage(byte[] serializedEvent) {
-                staged.add(new String(serializedEvent, StandardCharsets.UTF_8));
-                return super.stage(serializedEvent);
-            }
-
-            @Override
-            void commit() {
+            boolean writeReservedAlone(byte[] serializedEvent) {
                 // A slow disk, so that the other tracks arrive while this write is under way.
                 sleepQuietly(50);
-                // At least everything staged before this commit started, which for a track includes its own.
-                List<String> writing = new ArrayList<>(staged);
-                super.commit();
-                durable.addAll(writing);
+                boolean written = super.writeReservedAlone(serializedEvent);
+                if (written) {
+                    durable.add(new String(serializedEvent, StandardCharsets.UTF_8));
+                }
+                return written;
             }
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
