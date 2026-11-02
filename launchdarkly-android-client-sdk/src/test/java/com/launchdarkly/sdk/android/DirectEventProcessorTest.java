@@ -473,37 +473,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aFlushHasWrittenTheSplitOfAnOversizedSummaryByTheTimeItReturns() throws Exception {
-        // A flush promises everything recorded is written before it returns, the evaluations a summary too large
-        // for one frame counts included. Holding the commit executor and the events thread leaves the flush's own
-        // write as the only one there can be.
-        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
-        EventStore store = EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                DEFAULT_CAPACITY, true, logging.logger);
-        DirectEventProcessor eventProcessor = makeEventProcessor(store, DEFAULT_CAPACITY, scheduler);
-        CountDownLatch resume = new CountDownLatch(1);
-        try {
-            lastCommitExecutor.submit(() -> awaitQuietly(resume, 10, TimeUnit.SECONDS));
-            scheduler.submit(() -> awaitQuietly(resume, 10, TimeUnit.SECONDS));
-            char[] chars = new char[64 * 1024];
-            Arrays.fill(chars, 'v');
-            LDValue large = LDValue.of(new String(chars));
-            // About 3 MiB of values, so two parts.
-            for (int i = 0; i < 48; i++) {
-                eventProcessor.recordEvaluationEvent(CONTEXT, "flag-" + i, FLAG_VERSION, VARIATION, large,
-                        EvaluationReason.off(), DEFAULT_VALUE, false, null);
-            }
-
-            eventProcessor.flush();
-
-            assertEquals(2, kindsOnDisk("summary"));
-        } finally {
-            resume.countDown();
-            eventProcessor.close();
-        }
-    }
-
-    @Test
     public void ofTwoFlushesWaitingOnOneRetryOnlyTheOneWhoseDeliveryLostAnEventIsTold() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.sequential(Handlers.status(503),
                 Handlers.status(202), Handlers.status(202)))) {
@@ -4104,49 +4073,27 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void aSummaryLargerThanAFrameIsDeliveredInPiecesThatCountEveryFlagOnce() throws Exception {
+    public void aSummaryLargerThanAFrameIsDroppedWholeAndTheEventsBesideItDelivered() throws Exception {
         // Long keys, so that a few thousand flags take one context's summary past what a frame holds.
         char[] padding = new char[1000];
         Arrays.fill(padding, 'k');
         String keyPrefix = new String(padding);
         int flagCount = EventLogFormat.MAX_FRAME_SIZE / padding.length * 3 / 2;
-        // MockWebServer for the reason aFlushOfMoreThanABatchSendsEveryEventOnceInRequestsNoLargerThanABatch
-        // uses it: the bodies are close to a batch.
-        try (MockWebServer server = new MockWebServer()) {
-            server.setDispatcher(new Dispatcher() {
-                @Override
-                public MockResponse dispatch(RecordedRequest request) {
-                    return new MockResponse().setResponseCode(202);
-                }
-            });
-            EventProcessor eventProcessor = makeEventProcessor(server.url("/").uri(),
-                    eventsBuilder(DEFAULT_CAPACITY), true);
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
                 for (int i = 0; i < flagCount; i++) {
                     eventProcessor.recordEvaluationEvent(CONTEXT, keyPrefix + i, FLAG_VERSION, VARIATION,
                             FLAG_VALUE, null, DEFAULT_VALUE, false, null);
                 }
+                eventProcessor.recordCustomEvent(CONTEXT, "fine", LDValue.ofNull(), null);
 
-                assertTrue(awaitFlush(eventProcessor, 30, TimeUnit.SECONDS));
+                assertFalse(awaitFlush(eventProcessor, 30, TimeUnit.SECONDS));
 
-                Set<String> flagKeys = new HashSet<>();
-                int summaries = 0;
-                for (int i = server.getRequestCount(); i > 0; i--) {
-                    RecordedRequest request = server.takeRequest(10, TimeUnit.SECONDS);
-                    assertNotNull(request);
-                    for (LDValue event : LDValue.parse(request.getBody().readUtf8()).values()) {
-                        if (!"summary".equals(event.get("kind").stringValue())) {
-                            continue;
-                        }
-                        summaries++;
-                        assertEquals(LDValue.of(CONTEXT.getKey()), event.get("context").get("key"));
-                        for (String flagKey : event.get("features").keys()) {
-                            assertTrue("a flag was summarized twice", flagKeys.add(flagKey));
-                        }
-                    }
-                }
-                assertTrue("the summary was not split: " + summaries, summaries > 1);
-                assertEquals(flagCount, flagKeys.size());
+                List<LDValue> events = collectDelivered(server);
+                assertEquals(0, countEventsOfKind(events, "summary"));
+                assertEquals(LDValue.of("fine"), requireEventOfKind(events, "custom").get("key"));
+                logging.assertErrorLogged("too large to store");
             } finally {
                 eventProcessor.close();
             }

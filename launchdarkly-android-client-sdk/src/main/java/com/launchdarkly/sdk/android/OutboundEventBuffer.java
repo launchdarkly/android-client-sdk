@@ -8,7 +8,6 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.internal.events.AggregatedEventSummarizer;
 import com.launchdarkly.sdk.internal.events.Event;
 import com.launchdarkly.sdk.internal.events.EventOutputFormatter;
-import com.launchdarkly.sdk.internal.events.EventSummaries;
 import com.launchdarkly.sdk.internal.events.EventSummarizer;
 import com.launchdarkly.sdk.internal.events.EventSummarizerInterface;
 import com.launchdarkly.sdk.internal.events.EventsConfiguration;
@@ -219,18 +218,16 @@ final class OutboundEventBuffer {
      * fail transiently -- so putting the counters back would make every later flush fail on the same
      * summary while the counters behind it grew without bound.
      * <p>
-     * A summary larger than one log frame holds is split between summaries of the same context, each
-     * with as many of its flags as fit beside the context. Whole, it would be refused by the store and
-     * every evaluation in it lost. Only a single flag too large to fit beside the context, and a summary
-     * whose context alone takes a frame, are left whole, for the store to refuse.
+     * A summary larger than one log frame is not split: the store refuses it whole, and its evaluations
+     * are counted as lost. Reaching that takes one context evaluating dozens of the largest JSON flags
+     * LaunchDarkly allows between two commits.
      * <p>
      * Deliberately not synchronized, for the reason {@link #serialize} is not: the counters are taken
      * under the caller's lock and encoded outside it, so a thread recording an evaluation waits only
      * for a reference swap and never for the encoder.
      *
      * @param summaries the counters taken for this commit
-     * @return at least one JSON object per summary that serialized, empty if there was nothing counted
-     *   or nothing serialized
+     * @return one JSON object per summary, empty if there was nothing counted or nothing serialized
      */
     List<byte[]> serializeSummaries(List<EventSummarizer.EventSummary> summaries) {
         if (summaries.isEmpty()) {
@@ -238,116 +235,12 @@ final class OutboundEventBuffer {
         }
         List<byte[]> serialized = new ArrayList<>(summaries.size());
         for (EventSummarizer.EventSummary summary : summaries) {
-            serializeSummary(summary, serialized);
+            byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
+            if (bytes != null) {
+                serialized.add(bytes);
+            }
         }
         return serialized;
-    }
-
-    private void serializeSummary(EventSummarizer.EventSummary summary, List<byte[]> into) {
-        byte[] bytes = writeSingleObject(new Event[0], Collections.singletonList(summary));
-        if (bytes == null) {
-            return;
-        }
-        List<String> flagKeys = bytes.length > EventLogFormat.MAX_FRAME_SIZE
-                ? EventSummaries.flagKeys(summary) : Collections.<String>emptyList();
-        if (flagKeys.size() < 2) {
-            into.add(bytes);
-            return;
-        }
-        List<List<String>> parts = packIntoFrames(summary, flagKeys, bytes.length);
-        if (parts.size() == 1) {
-            into.add(bytes);
-            return;
-        }
-        for (List<String> part : parts) {
-            EventSummarizer.EventSummary partSummary = EventSummaries.withFlags(summary, part);
-            byte[] partBytes = writeSingleObject(new Event[0], Collections.singletonList(partSummary));
-            if (partBytes != null) {
-                halveUntilFits(partSummary, partBytes, into);
-            }
-        }
-    }
-
-    /**
-     * Splits an oversized summary's flags into runs, in key order, that each fit a frame beside the context.
-     * Every part carries the whole context, so how much room a part has for flags is a frame less the
-     * context. What each flag takes is measured with a small stand-in for the context, which costs one small
-     * encoding per flag rather than one of the context per part, and what is left of the whole summary is
-     * what every part repeats. Where the context alone takes a frame, nothing fits, so the summary is one
-     * part, refused whole as one loss rather than one per flag.
-     *
-     * @param flagKeys the summary's flags, sorted, at least two
-     * @param size the whole summary's encoded size
-     * @return the flags of each part
-     */
-    private List<List<String>> packIntoFrames(EventSummarizer.EventSummary summary, List<String> flagKeys,
-                                              int size) {
-        // Two flags measured alone and together give what a part of the stand-in repeats, less the separator
-        // a flag adds beside another, so that what a part takes is that plus the sum of its flags' sizes.
-        int[] flagSizes = new int[flagKeys.size()];
-        long flagsTotal = 0;
-        for (int i = 0; i < flagKeys.size(); i++) {
-            flagSizes[i] = standInSize(summary, flagKeys.subList(i, i + 1));
-            if (flagSizes[i] < 0) {
-                return Collections.singletonList(flagKeys);
-            }
-        }
-        int pair = standInSize(summary, flagKeys.subList(0, 2));
-        if (pair < 0) {
-            return Collections.singletonList(flagKeys);
-        }
-        int standInRepeated = flagSizes[0] + flagSizes[1] - pair;
-        for (int i = 0; i < flagSizes.length; i++) {
-            flagSizes[i] -= standInRepeated;
-            flagsTotal += flagSizes[i];
-        }
-        long room = EventLogFormat.MAX_FRAME_SIZE - (size - flagsTotal);
-        if (room <= 0) {
-            return Collections.singletonList(flagKeys);
-        }
-
-        List<List<String>> parts = new ArrayList<>();
-        int start = 0;
-        long used = 0;
-        for (int i = 0; i < flagSizes.length; i++) {
-            if (i > start && used + flagSizes[i] > room) {
-                parts.add(flagKeys.subList(start, i));
-                start = i;
-                used = 0;
-            }
-            used += flagSizes[i];
-        }
-        parts.add(flagKeys.subList(start, flagSizes.length));
-        return parts;
-    }
-
-    private static final LDContext STAND_IN_CONTEXT = LDContext.create("k");
-
-    /** @return the encoded size of these flags for the stand-in context, or -1 if they do not encode */
-    private int standInSize(EventSummarizer.EventSummary summary, List<String> flagKeys) {
-        byte[] bytes = writeSingleObject(new Event[0],
-                Collections.singletonList(EventSummaries.withFlags(summary, flagKeys, STAND_IN_CONTEXT)));
-        return bytes == null ? -1 : bytes.length;
-    }
-
-    /**
-     * Halves a packed part that came out larger than measured until each half fits, which only a part whose
-     * context fits a frame reaches, so the halving ends. A single flag too large beside the context is left
-     * whole, for the store to refuse.
-     */
-    private void halveUntilFits(EventSummarizer.EventSummary summary, byte[] bytes, List<byte[]> into) {
-        List<EventSummarizer.EventSummary> halves =
-                bytes.length > EventLogFormat.MAX_FRAME_SIZE ? EventSummaries.halve(summary) : null;
-        if (halves == null) {
-            into.add(bytes);
-            return;
-        }
-        for (EventSummarizer.EventSummary half : halves) {
-            byte[] halfBytes = writeSingleObject(new Event[0], Collections.singletonList(half));
-            if (halfBytes != null) {
-                halveUntilFits(half, halfBytes, into);
-            }
-        }
     }
 
     /**

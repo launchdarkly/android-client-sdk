@@ -21,9 +21,7 @@ import java.io.StringWriter;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * The serialization the on-disk event log is built on: one event in, one JSON object out.
@@ -138,7 +136,7 @@ public class OutboundEventBufferSerializationTest {
     }
 
     @Test
-    public void aSummaryTooLargeForAFrameIsSplitIntoSummariesThatFitAndCountEveryFlagOnce() {
+    public void aSummaryTooLargeForAFrameIsLeftWhole() {
         OutboundEventBuffer buffer = makeBuffer();
         // Long keys, so that a few thousand flags take one context's summary past what a frame holds.
         char[] padding = new char[1000];
@@ -151,112 +149,10 @@ public class OutboundEventBufferSerializationTest {
 
         List<byte[]> summaries = buffer.serializeSummariesAndReset();
 
-        assertTrue("the summary was not split: " + summaries.size(), summaries.size() > 1);
-        Set<String> flagKeys = new HashSet<>();
-        for (byte[] serialized : summaries) {
-            assertTrue("a summary is larger than a frame: " + serialized.length,
-                    serialized.length <= EventLogFormat.MAX_FRAME_SIZE);
-            LDValue summary = parse(serialized);
-            assertEquals(LDValue.of("summary"), summary.get("kind"));
-            // Each part covers the whole period, for the whole context.
-            assertEquals(LDValue.of(1000), summary.get("startDate"));
-            assertEquals(LDValue.of(1000 + flagCount - 1), summary.get("endDate"));
-            assertEquals(LDValue.of(CONTEXT.getKey()), summary.get("context").get("key"));
-            for (String flagKey : summary.get("features").keys()) {
-                assertTrue("a flag was summarized twice", flagKeys.add(flagKey));
-                LDValue counters = summary.get("features").get(flagKey).get("counters");
-                assertEquals(1, counters.size());
-                assertEquals(LDValue.of(1), counters.get(0).get("count"));
-            }
-        }
-        assertEquals(flagCount, flagKeys.size());
-    }
-
-    @Test
-    public void aSingleFlagTooLargeForAFrameIsLeftWhole() {
-        OutboundEventBuffer buffer = makeBuffer();
-        char[] data = new char[EventLogFormat.MAX_FRAME_SIZE];
-        Arrays.fill(data, 'x');
-        buffer.summarize(1000, FLAG_KEY, 10, 1, LDValue.of(new String(data)), LDValue.of(false), CONTEXT);
-
-        List<byte[]> summaries = buffer.serializeSummariesAndReset();
-
+        // For the store to refuse.
         assertEquals(1, summaries.size());
         assertTrue(summaries.get(0).length > EventLogFormat.MAX_FRAME_SIZE);
-    }
-
-    @Test
-    public void aSummaryLargeForItsContextIsNotSplitOneFlagPerPart() {
-        OutboundEventBuffer buffer = makeBuffer();
-        char[] data = new char[EventLogFormat.MAX_FRAME_SIZE];
-        Arrays.fill(data, 'x');
-        LDContext huge = LDContext.builder("huge").set("data", new String(data)).build();
-        int flagCount = 16;
-        for (int i = 0; i < flagCount; i++) {
-            buffer.summarize(1000, FLAG_KEY + i, 10, 1, LDValue.of(true), LDValue.of(false), huge);
-        }
-
-        List<byte[]> summaries = buffer.serializeSummariesAndReset();
-
-        assertTrue("split down to " + summaries.size() + " parts", summaries.size() <= 2);
-        Set<String> flagKeys = new HashSet<>();
-        for (byte[] serialized : summaries) {
-            for (String flagKey : parse(serialized).get("features").keys()) {
-                assertTrue("a flag was summarized twice", flagKeys.add(flagKey));
-            }
-        }
-        assertEquals(flagCount, flagKeys.size());
-    }
-
-    @Test
-    public void aSummaryMostlyContextIsSplitIntoPartsThatFitWhereTheContextDoes() {
-        OutboundEventBuffer buffer = makeBuffer();
-        LDContext large = LDContext.builder("large").set("data", repeated('x', 1_700_000)).build();
-        int flagCount = 16;
-        for (int i = 0; i < flagCount; i++) {
-            buffer.summarize(1000, FLAG_KEY + i, 10, 1, LDValue.of(repeated('v', 64 * 1024)),
-                    LDValue.of(false), large);
-        }
-
-        List<byte[]> summaries = buffer.serializeSummariesAndReset();
-
-        // A megabyte of flags beside a context of 1.7 MB leaves room for about 400 KB of them per part: six
-        // flags, so three parts. Halved, each half would be about 2.2 MB, still too large.
-        assertEquals(3, summaries.size());
-        assertEveryPartFitsAndEveryFlagIsCountedOnce(summaries, flagCount);
-    }
-
-    @Test
-    public void aLargeFlagIsPackedSoTheFlagsBesideItStillFit() {
-        OutboundEventBuffer buffer = makeBuffer();
-        buffer.summarize(1000, "a-large", 10, 1, LDValue.of(repeated('v', 1_500_000)), LDValue.of(false), CONTEXT);
-        int smallCount = 100;
-        for (int i = 0; i < smallCount; i++) {
-            buffer.summarize(1000, "b-small-" + i, 10, 1, LDValue.of(repeated('v', 10_000)), LDValue.of(false),
-                    CONTEXT);
-        }
-
-        List<byte[]> summaries = buffer.serializeSummariesAndReset();
-
-        assertEveryPartFitsAndEveryFlagIsCountedOnce(summaries, smallCount + 1);
-    }
-
-    private static String repeated(char c, int count) {
-        char[] chars = new char[count];
-        Arrays.fill(chars, c);
-        return new String(chars);
-    }
-
-    private void assertEveryPartFitsAndEveryFlagIsCountedOnce(List<byte[]> summaries, int flagCount) {
-        Set<String> flagKeys = new HashSet<>();
-        for (byte[] serialized : summaries) {
-            assertTrue("a part is larger than a frame: " + serialized.length,
-                    serialized.length <= EventLogFormat.MAX_FRAME_SIZE);
-            for (String flagKey : parse(serialized).get("features").keys()) {
-                assertTrue("a flag was summarized twice", flagKeys.add(flagKey));
-            }
-        }
-        assertEquals(flagCount, flagKeys.size());
+        assertEquals(flagCount, parse(summaries.get(0)).get("features").size());
     }
 
     @Test

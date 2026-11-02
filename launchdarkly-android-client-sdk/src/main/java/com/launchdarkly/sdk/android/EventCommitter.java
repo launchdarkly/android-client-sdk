@@ -702,7 +702,8 @@ final class EventCommitter {
         for (byte[] summary : eventBuffer.serializeSummaries(summaries)) {
             // Bypassing capacity: a summary is not a new event, it is the record of evaluations already
             // counted, and dropping it would lose all of them at once. Only the byte capacity, which keeps
-            // summaries staged while delivery keeps failing from growing without bound, can refuse it.
+            // summaries staged while delivery keeps failing from growing without bound, can refuse it;
+            // and the frame size, for one too large for a frame.
             if (!store.stage(summary, true)) {
                 reportRefusedByStore("summary event", summary);
             }
