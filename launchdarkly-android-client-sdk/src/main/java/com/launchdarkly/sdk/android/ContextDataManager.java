@@ -184,6 +184,11 @@ final class ContextDataManager {
      */
     public @Nullable Flag getNonDeletedFlag(@NonNull String key) {
         Flag ret = flags.getFlag(key);
+        if ("flag-f".equals(key)) {
+            // DIAG BAND (reverts with the seam truth keyed; stderr-only)
+            logger.error("DIAG getNonDeletedFlag flag-f: {} of flagsSize={}",
+                    ret == null ? "absent" : String.valueOf(ret.getValue()), flags.values().size());
+        }
         return ret == null || ret.isDeleted() ? null : ret;
     }
 
@@ -282,11 +287,22 @@ final class ContextDataManager {
 
         synchronized (lock) {
             if (!context.equals(currentContext)) {
+                // DIAG BAND (reverts with the seam truth keyed; stderr-only)
+                logger.error("DIAG applyFullData DROPPED context gate: ctxInKey={} ctxNowKey={} equalKeys={}",
+                        context == null ? "null" : context.getKey(),
+                        currentContext == null ? "null" : currentContext.getKey(),
+                        (context != null && currentContext != null)
+                                && context.getKey() == currentContext.getKey());
                 return;
             }
             currentSelector = selector;
             oldData = flags;
             flags = newData;
+            // DIAG BAND (reverts with the seam truth keyed; stderr-only)
+            logger.error("DIAG applyFullData APPLIED: flags={} flag-f={}",
+                    newData.values().size(),
+                    newData.getFlag("flag-f") == null ? "absent"
+                            : String.valueOf(newData.getFlag("flag-f").getValue()));
 
             if (shouldPersist) {
                 String contextId = LDUtil.urlSafeBase64HashedContextId(context);
@@ -540,6 +556,8 @@ final class ContextDataManager {
         @Override
         public void apply(@NonNull LDContext context, @NonNull ChangeSet<Map<String, Flag>> changeSet) {
             synchronized (lock) {
+                // DIAG BAND (reverts with the seam truth keyed; stderr-only)
+                logger.error("DIAG cdmView.apply: valid={} type={}", valid, changeSet.getType());
                 if (!valid) {
                     return;
                 }
