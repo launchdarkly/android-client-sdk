@@ -601,6 +601,10 @@ final class FDv2DataSource implements DataSource {
                                     resetSynchronizerStatusDedupe();
                                     ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                                     if (changeSet != null) {
+                                        // DIAG BAND (reverts with the seam truth keyed; stderr-only)
+                                        logger.error("DIAG change set applied: sync={} type={} fdv1Fallback={}",
+                                                synchronizer.name(), result.getChangeSet().getType(),
+                                                result.isFdv1Fallback());
                                         sink.apply(context, changeSet);
                                         sink.setStatus(DataSourceState.VALID, null);
                                         tryCompleteStart(true, null);
@@ -659,6 +663,9 @@ final class FDv2DataSource implements DataSource {
                             if (result.isFdv1Fallback()
                                     && sourceManager.hasFDv1Fallback()
                                     && !sourceManager.isCurrentSynchronizerFDv1Fallback()) {
+                                // DIAG BAND (reverts with the seam truth keyed; stderr-only)
+                                logger.error("DIAG fdv1 fallback transition: sync={} resultType={}",
+                                        synchronizer.name(), result.getResultType());
                                 logger.info(FDV1_FALLBACK_MESSAGE);
                                 sourceManager.fdv1Fallback();
                                 running = false;
