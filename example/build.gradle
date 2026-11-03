@@ -2,8 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    // make sure this line comes *after* you apply the Android plugin
-    id("com.getkeepsafe.dexcount")
 }
 
 // local.properties is not checked in, so it is where machine-specific settings such as your mobile
