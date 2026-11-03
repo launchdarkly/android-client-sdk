@@ -248,17 +248,27 @@ public class DataSystemBuilder {
         for (Map.Entry<ConnectionMode, ConnectionModeBuilder> entry : connectionModeOverrides.entrySet()) {
             ConnectionModeBuilder cmb = entry.getValue();
 
-            // Carry forward the default FDv1 fallback synchronizer only when the
-            // override supplies at least one initializer or synchronizer.  An entirely
-            // empty override means "do nothing in this mode" (like OFFLINE), so there is
-            // no synchronizer that could receive the x-ld-fd-fallback header and the
-            // fallback slot would never be reached by FDv2DataSource.runSynchronizers().
+            // Give the mode an FDv1 fallback synchronizer only when the override supplies
+            // at least one initializer or synchronizer.  An entirely empty override means
+            // "do nothing in this mode" (like OFFLINE), so there is no synchronizer that
+            // could receive the x-ld-fd-fallback header and the fallback slot would never
+            // be reached by FDv2DataSource.runSynchronizers().  Otherwise use the
+            // override's FDv1 fallback entry, or the default for the mode if it configures
+            // none, and no fallback if it disables the FDv1 fallback.
             DataSourceBuilder<Synchronizer> fdv1FallbackSynchronizer = null;
-            if (!cmb.getInitializerEntries().isEmpty() || !cmb.getSynchronizerEntries().isEmpty()) {
-                ModeDefinition defaultForMode = table.get(entry.getKey());
-                fdv1FallbackSynchronizer = defaultForMode != null
-                        ? defaultForMode.getFdv1FallbackSynchronizer()
-                        : null;
+            boolean hasDataSources =
+                    !cmb.getInitializerEntries().isEmpty() || !cmb.getSynchronizerEntries().isEmpty();
+            if (hasDataSources && !cmb.isFdv1FallbackDisabled()) {
+                FDv1FallbackSynchronizerEntry fdv1FallbackEntry = cmb.getFdv1FallbackSynchronizerEntry();
+                if (fdv1FallbackEntry != null) {
+                    fdv1FallbackSynchronizer =
+                            FDv2EntryConverter.toFdv1FallbackSynchronizerBuilder(fdv1FallbackEntry);
+                } else {
+                    ModeDefinition defaultForMode = table.get(entry.getKey());
+                    fdv1FallbackSynchronizer = defaultForMode != null
+                            ? defaultForMode.getFdv1FallbackSynchronizer()
+                            : null;
+                }
             }
 
             List<DataSourceBuilder<Initializer>> initializerBuilders =

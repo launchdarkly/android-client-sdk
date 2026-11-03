@@ -18,8 +18,8 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
 import java.util.Collections;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
@@ -29,7 +29,8 @@ import static org.junit.Assert.assertTrue;
 /**
  * Tests the request wiring of the data source builder implementations in
  * {@link DataSystemComponents}: which HTTP method, path, and body each FDv2
- * component and the FDv1 fallback synchronizer use for a given HTTP configuration.
+ * component and the FDv1 fallback synchronizer use for a given HTTP configuration, and
+ * which endpoint and poll interval a mode's configured FDv1 fallback synchronizer uses.
  */
 public class DataSystemComponentsTest {
 
@@ -39,7 +40,7 @@ public class DataSystemComponentsTest {
     @Rule
     public TemporaryFolder cacheDir = new TemporaryFolder();
 
-    private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
+    private final FixedDelayRecordingExecutor executor = new FixedDelayRecordingExecutor();
 
     private static final LDContext CONTEXT = LDContext.create("test-context-key");
     private static final LDLogger LOGGER = LDLogger.none();
@@ -58,6 +59,22 @@ public class DataSystemComponentsTest {
     @After
     public void tearDown() {
         executor.shutdownNow();
+    }
+
+    /** Records the delay of the last fixed-delay task scheduled on it. */
+    private static final class FixedDelayRecordingExecutor extends ScheduledThreadPoolExecutor {
+        volatile long lastFixedDelayMillis = -1;
+
+        FixedDelayRecordingExecutor() {
+            super(2);
+        }
+
+        @Override
+        public ScheduledFuture<?> scheduleWithFixedDelay(
+                Runnable command, long initialDelay, long delay, TimeUnit unit) {
+            lastFixedDelayMillis = unit.toMillis(delay);
+            return super.scheduleWithFixedDelay(command, initialDelay, delay, unit);
+        }
     }
 
     private static HttpConfiguration httpConfig(boolean useReport, boolean usePost) {
@@ -173,6 +190,67 @@ public class DataSystemComponentsTest {
                 assertEquals("GET", req.getMethod());
                 assertTrue("path should use the FDv1 GET endpoint with a context segment",
                         req.getPath().startsWith("/msdk/evalx/contexts/"));
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackSynchronizerConfiguredForModeUsesServiceEndpointsOverride() throws Exception {
+        try (HttpServer sdkPollingServer = HttpServer.start(Handlers.bodyJson(VALID_FDV1_JSON));
+             HttpServer overrideServer = HttpServer.start(Handlers.bodyJson(VALID_FDV1_JSON))) {
+            ModeDefinition streaming = Components.dataSystem()
+                    .customizeConnectionMode(ConnectionMode.STREAMING,
+                            DataSystemComponents.customMode()
+                                    .synchronizers(DataSystemComponents.streamingSynchronizer())
+                                    .fdv1FallbackSynchronizer(DataSystemComponents.fdv1FallbackSynchronizer()
+                                            .serviceEndpointsOverride(Components.serviceEndpoints()
+                                                    .polling(overrideServer.getUri()))))
+                    .buildModeTable(false)
+                    .get(ConnectionMode.STREAMING);
+
+            // Start the mode's FDv1 fallback synchronizer and wait for its first poll.
+            Synchronizer sync = streaming.getFdv1FallbackSynchronizer()
+                    .build(makeInputs(sdkPollingServer, httpConfig(false, false)));
+            try {
+                sync.next().get(5, TimeUnit.SECONDS);
+
+                // The poll went to the override endpoint and not to the SDK's polling endpoint.
+                RequestInfo req = overrideServer.getRecorder().requireRequest();
+                assertTrue("path should use the FDv1 GET endpoint with a context segment",
+                        req.getPath().startsWith("/msdk/evalx/contexts/"));
+                assertEquals(0, sdkPollingServer.getRecorder().count());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackSynchronizerConfiguredForModeUsesPollIntervalAndSdkPollingEndpoint() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.bodyJson(VALID_FDV1_JSON))) {
+            ModeDefinition streaming = Components.dataSystem()
+                    .customizeConnectionMode(ConnectionMode.STREAMING,
+                            DataSystemComponents.customMode()
+                                    .synchronizers(DataSystemComponents.streamingSynchronizer())
+                                    .fdv1FallbackSynchronizer(DataSystemComponents.fdv1FallbackSynchronizer()
+                                            .pollIntervalMillis(600_000)))
+                    .buildModeTable(false)
+                    .get(ConnectionMode.STREAMING);
+
+            // Start the mode's FDv1 fallback synchronizer and wait for its first poll.
+            Synchronizer sync = streaming.getFdv1FallbackSynchronizer()
+                    .build(makeInputs(server, httpConfig(false, false)));
+            try {
+                sync.next().get(5, TimeUnit.SECONDS);
+
+                // Without an endpoints override the poll goes to the SDK's polling endpoint,
+                // and the synchronizer polls at the configured interval.
+                RequestInfo req = server.getRecorder().requireRequest();
+                assertTrue("path should use the FDv1 GET endpoint with a context segment",
+                        req.getPath().startsWith("/msdk/evalx/contexts/"));
+                assertEquals(600_000, executor.lastFixedDelayMillis);
             } finally {
                 sync.close();
             }
