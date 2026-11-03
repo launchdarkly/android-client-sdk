@@ -55,4 +55,16 @@ interface PlatformState extends Closeable {
      * @return a directory path
      */
     File getCacheDir();
+
+    /**
+     * Returns the preferred filesystem location for files the SDK must not lose.
+     * <p>
+     * This is not the cache directory: the system is free to delete cache files whenever it wants
+     * space, which is the opposite of what data written to survive a crash needs. It is also excluded
+     * from backups, so events recorded on one device are not restored onto another and reported as if
+     * they had happened there.
+     *
+     * @return a directory path
+     */
+    File getNoBackupFilesDir();
 }

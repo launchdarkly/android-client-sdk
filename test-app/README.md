@@ -24,3 +24,14 @@ The two immediate controls compare exits that application code can and cannot ob
   can run before the process ends.
 - **Eval+Crash now** throws an uncaught exception immediately after recording. The installed crash
   handler calls `flushAndWait` with a two-second budget before delegating to Android's handler.
+
+Tier 3 configures `EventPersistence.IMMEDIATE`. With that setting, events recorded by
+**Eval+Kill now** should be recovered and delivered after the next launch even though no process
+code ran on exit.
+
+## Over-refresh scenario
+
+Create a boolean flag named `trackevents-test` with event tracking enabled. Tap
+**Over-Refresh Eval** to compare the average evaluation cost while filling the event capacity and
+after it is full. The loop intentionally runs on the main thread and is an internal stress test,
+not an application integration pattern.

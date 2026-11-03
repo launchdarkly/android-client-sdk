@@ -1,7 +1,8 @@
 package com.launchdarkly.sdk.android;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.internal.events.Event;
@@ -9,7 +10,6 @@ import com.launchdarkly.testhelpers.httptest.HttpServer;
 
 import org.junit.Test;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -52,19 +52,18 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
     // Far more than any test here records, so that capacity can never be what discarded an event.
     private static final int CAPACITY = 100;
 
-    private static final List<Event> NO_EVENTS = Collections.emptyList();
-
     @Test
-    public void anEvaluationExcludedFromSummariesIsNotCounted() throws IOException {
+    public void anEvaluationExcludedFromSummariesIsNotCounted() {
         OutboundEventBuffer buffer = makeBuffer();
 
         buffer.summarize(evaluation(true));
 
-        assertNull("an excluded evaluation should leave nothing to send", encodeAll(buffer));
+        assertTrue("an excluded evaluation should leave nothing to send",
+                drainToEvents(buffer).isEmpty());
     }
 
     @Test
-    public void anEvaluationNotExcludedFromSummariesIsCounted() throws IOException {
+    public void anEvaluationNotExcludedFromSummariesIsCounted() {
         OutboundEventBuffer buffer = makeBuffer();
 
         buffer.summarize(evaluation(false));
@@ -73,7 +72,7 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void excludingOneEvaluationLeavesTheOthersCounted() throws IOException {
+    public void excludingOneEvaluationLeavesTheOthersCounted() {
         OutboundEventBuffer buffer = makeBuffer();
 
         buffer.summarize(evaluation(false));
@@ -121,6 +120,19 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void stagingAnEventDoesNotDrawForSamplingASecondTime() throws Exception {
+        // The processor draws once, as the event is recorded, and hands on only what it kept. A second
+        // draw where the event is serialized would square the odds against anything with a ratio above
+        // one, and would drop it without counting it anywhere. A ratio of 0 stands in for a draw that
+        // comes out against the event, because Sampler.shouldSample refuses it every time.
+        OutboundEventBuffer buffer = makeBuffer();
+        Event sampledOut = evaluation(false, 0);
+
+        assertEquals(1, buffer.serializeAll(Collections.singletonList((Event) sampledOut)).size());
+        assertNotNull(buffer.serialize(sampledOut));
+    }
+
+    @Test
     public void aSampledOutEventIsNotCountedAsADrop() throws Exception {
         try (HttpServer server = startEventsServer()) {
             DirectEventProcessor processor = processor(server);
@@ -154,19 +166,10 @@ public class EventProcessorFlagsTest extends EventProcessorTestBase {
                 excludeFromSummaries);
     }
 
-    private OutboundEventBuffer.Payload encodeAll(OutboundEventBuffer buffer) throws IOException {
-        return buffer.encode(NO_EVENTS, buffer.takeSummaries());
-    }
-
-    private List<LDValue> drainToEvents(OutboundEventBuffer buffer) throws IOException {
-        OutboundEventBuffer.Payload payload = encodeAll(buffer);
-        if (payload == null) {
-            return Collections.emptyList();
-        }
+    private List<LDValue> drainToEvents(OutboundEventBuffer buffer) {
         List<LDValue> events = new ArrayList<>();
-        for (LDValue event : LDValue.parse(new String(payload.getData(), StandardCharsets.UTF_8))
-                .values()) {
-            events.add(event);
+        for (byte[] summary : buffer.serializeSummariesAndReset()) {
+            events.add(LDValue.parse(new String(summary, StandardCharsets.UTF_8)));
         }
         return events;
     }

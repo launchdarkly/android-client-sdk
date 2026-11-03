@@ -1,21 +1,36 @@
 package com.launchdarkly.sdk.testapp;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.SharedPreferences;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
+import android.util.TypedValue;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.HorizontalScrollView;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.Components;
 import com.launchdarkly.sdk.android.ConnectionInformation;
+import com.launchdarkly.sdk.android.EventPersistenceBenchmarkRunner;
 import com.launchdarkly.sdk.android.LDAllFlagsListener;
 import com.launchdarkly.sdk.android.LDClient;
 import com.launchdarkly.sdk.android.LDConfig;
@@ -23,8 +38,17 @@ import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.LDFailure;
 import com.launchdarkly.sdk.android.LDStatusListener;
 import com.launchdarkly.sdk.android.integrations.DedupingHook;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
+import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
 import com.launchdarkly.sdk.android.integrations.LDCrashHandler;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
@@ -46,7 +70,35 @@ public class MainActivity extends AppCompatActivity {
     /** How long startup blocks waiting for the first flags to arrive. */
     private static final int INIT_WAIT_SECONDS = 10;
 
-    private LDClient ldClient;
+    private static final String PREFERENCES_NAME = "LaunchDarkly-testapp";
+    private static final String PERSISTENCE_PREFERENCE = "eventPersistence";
+    private static final EventPersistence DEFAULT_PERSISTENCE = EventPersistence.IMMEDIATE;
+
+    /**
+     * The default of {@code LDConfig.Builder#events} capacity. Past this the event store is full until a
+     * flush empties it, so every further full event is dropped.
+     */
+    private static final int EVENT_CAPACITY = EventProcessorBuilder.DEFAULT_CAPACITY;
+
+    /**
+     * Enough evaluations past capacity for the average to settle, and few enough that even a slow device
+     * finishes the tap well inside the ANR window.
+     */
+    private static final int OVER_CAPACITY_EVALUATIONS = 2000;
+
+    /**
+     * A batch holds at most 2 MiB, so seven of these fit in one and an eighth does not. Large events
+     * rather than many small ones, because the 2000-event capacity is reached long before small events
+     * fill a batch.
+     */
+    private static final int LARGE_EVENT_DATA_CHARS = 256 * 1024;
+
+    /** Seven, seven and six: three batches, the last of them not full. */
+    private static final int LARGE_EVENTS = 20;
+
+    /** Null while a persistence change restarts the client, which makes every button a no-op meanwhile. */
+    private volatile LDClient ldClient;
+    private EventPersistence eventPersistence;
     private LDStatusListener ldStatusListener;
     private LDAllFlagsListener allFlagsListener;
 
@@ -106,7 +158,12 @@ public class MainActivity extends AppCompatActivity {
         setupKillUnsentButton();
         setupKillNowButton();
         setupCrashNowButton();
+        setupOverRefreshButton();
+        setupFillBatchesButton();
+        setupBenchmarkButton();
+        setupOversizedPostButton();
         setupOfflineSwitch();
+        setupPersistenceSpinner();
         // Rescues the events for "Eval+Crash now" and cannot run for "Eval+Kill now", which is what
         // makes the pair worth pressing.
         LDCrashHandler.install(2, TimeUnit.SECONDS);
@@ -120,11 +177,23 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        ldClient = startClient(eventPersistence, offlineSwitch().isChecked());
+    }
+
+    /**
+     * Blocks for up to {@link #INIT_WAIT_SECONDS} waiting for flags, and returns the client either way: if
+     * they have not arrived by then, it is usable with whatever it has cached.
+     */
+    private LDClient startClient(EventPersistence persistence, boolean offline) {
         LDConfig.Builder configBuilder = new LDConfig.Builder(AutoEnvAttributes.Enabled)
                 .mobileKey(BuildConfig.MOBILE_KEY)
+                .offline(offline)
                 .http(
                         Components.httpConfiguration().useReport(false)
                         // change useReport to `true` if the request is to be REPORT'ed instead of GET'ed
+                )
+                .events(
+                        Components.sendEvents().eventPersistence(persistence)
                 )
                 .hooks(
                         // Same shape a customer uses for any hook: wrap it at registration. Each
@@ -149,12 +218,101 @@ public class MainActivity extends AppCompatActivity {
                 .set("email", "fake@example.com")
                 .build();
 
-        // Returns the client either way: if the flags have not arrived within the wait, it is usable
-        // with whatever it has cached.
-        ldClient = LDClient.init(this.getApplication(), ldConfig, context, INIT_WAIT_SECONDS);
-        updateStatusString(ldClient.getConnectionInformation());
-        ldClient.registerStatusListener(ldStatusListener);
-        ldClient.registerAllFlagsListener(allFlagsListener);
+        LDClient client = LDClient.init(this.getApplication(), ldConfig, context, INIT_WAIT_SECONDS);
+        Timber.i("client started with event persistence %s", persistence);
+        updateStatusString(client.getConnectionInformation());
+        client.registerStatusListener(ldStatusListener);
+        client.registerAllFlagsListener(allFlagsListener);
+        return client;
+    }
+
+    /**
+     * The choice is saved rather than held in memory, because the kill and crash buttons are only
+     * answered on the next launch, and that launch has to read the disk the same way: under
+     * {@link EventPersistence#DISABLED} the events the dead process left there are not delivered.
+     */
+    private void setupPersistenceSpinner() {
+        final SharedPreferences preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE);
+        eventPersistence = parsePersistence(preferences.getString(PERSISTENCE_PREFERENCE, null));
+
+        final Spinner spinner = findViewById(R.id.persistence_spinner);
+        ArrayAdapter<EventPersistence> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, EventPersistence.values());
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(eventPersistence.ordinal(), false);
+
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                EventPersistence chosen = (EventPersistence) parent.getItemAtPosition(position);
+                if (chosen == eventPersistence) {
+                    return;
+                }
+                eventPersistence = chosen;
+                preferences.edit().putString(PERSISTENCE_PREFERENCE, chosen.name()).apply();
+                restartClient(spinner, chosen);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+    }
+
+    private static EventPersistence parsePersistence(String name) {
+        if (name != null) {
+            try {
+                return EventPersistence.valueOf(name);
+            } catch (IllegalArgumentException e) {
+                Timber.w("ignoring saved event persistence %s", name);
+            }
+        }
+        return DEFAULT_PERSISTENCE;
+    }
+
+    /**
+     * Off the main thread, because closing waits on the event store and starting waits for flags. The
+     * spinner stays disabled until it is done, so restarts never overlap.
+     * <p>
+     * The replacement starts in the offline switch's state rather than being switched after it starts,
+     * because starting waits for flags, and a client online for that long can deliver the events stored
+     * before the change.
+     */
+    private void restartClient(final Spinner spinner, final EventPersistence persistence) {
+        if (BuildConfig.MOBILE_KEY.isEmpty()) {
+            return;
+        }
+        final boolean offline = offlineSwitch().isChecked();
+        final LDClient previous = ldClient;
+        ldClient = null;
+        spinner.setEnabled(false);
+        new Thread(() -> {
+            if (previous != null) {
+                previous.unregisterStatusListener(ldStatusListener);
+                previous.unregisterAllFlagsListener(allFlagsListener);
+                try {
+                    previous.close();
+                } catch (IOException e) {
+                    Timber.w(e, "closing the client for a persistence change");
+                }
+            }
+            LDClient restarted = startClient(persistence, offline);
+            new Handler(getMainLooper()).post(() -> {
+                ldClient = restarted;
+                spinner.setEnabled(true);
+                // The switch is ignored while there is no client to act on.
+                boolean offlineNow = offlineSwitch().isChecked();
+                if (offlineNow != offline) {
+                    if (offlineNow) {
+                        restarted.setOffline();
+                    } else {
+                        restarted.setOnline();
+                    }
+                }
+                Toast.makeText(this, "Restarted with " + persistence, Toast.LENGTH_SHORT).show();
+            });
+        }, "testapp-restart-client").start();
     }
 
     private void setupListeners() {
@@ -169,7 +327,7 @@ public class MainActivity extends AppCompatActivity {
                 new Handler(MainActivity.this.getMainLooper()).post(() -> {
                     Toast.makeText(MainActivity.this, ldFailure.toString(), Toast.LENGTH_SHORT).show();
                 });
-                updateStatusString(ldClient.getConnectionInformation());
+                MainActivity.this.doSafeClientAction(() -> updateStatusString(ldClient.getConnectionInformation()));
             }
         };
 
@@ -181,7 +339,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 Toast.makeText(MainActivity.this, flags.toString(), Toast.LENGTH_SHORT).show();
             });
-            updateStatusString(ldClient.getConnectionInformation());
+            MainActivity.this.doSafeClientAction(() -> updateStatusString(ldClient.getConnectionInformation()));
         };
     }
 
@@ -308,6 +466,197 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * Reproduces the over-refresh pathology: a UI that re-evaluates one flag far more often than anything
+     * about it changed -- a recomposition or layout loop -- against a flag whose events LaunchDarkly is
+     * tracking. Runs on the main thread, because that is where the loop it stands in for runs.
+     *
+     * <p>The comparison between the two phases is the point rather than either number on its own. The first
+     * {@link #EVENT_CAPACITY} evaluations have room in the event store; every one after that is dropped,
+     * because nothing empties it until a flush. So the two phases costing the same per evaluation means the
+     * SDK is serializing events it then discards, which is the whole of the waste. A cost of a couple of
+     * microseconds instead means the flag has event tracking off, and this measured the summary counters
+     * rather than the thing in question.
+     */
+    private void setupOverRefreshButton() {
+        Button overRefreshButton = findViewById(R.id.over_refresh_button);
+        overRefreshButton.setOnClickListener(v -> {
+            if (ldClient == null) {
+                return;
+            }
+            final String flagKey = "trackevents-test";
+            Timber.w("over-refresh eval flag=%s", flagKey);
+
+            double filling = averageMicroseconds(flagKey, EVENT_CAPACITY);
+            double overCapacity = averageMicroseconds(flagKey, OVER_CAPACITY_EVALUATIONS);
+
+            String result = String.format(Locale.US,
+                    "Over-refresh %s\n%d filling: %.0f \u00b5s/eval\n%d over capacity: %.0f \u00b5s/eval",
+                    flagKey,
+                    EVENT_CAPACITY, filling,
+                    OVER_CAPACITY_EVALUATIONS, overCapacity);
+            Timber.w(result);
+            ((TextView) findViewById(R.id.result_textView)).setText(result);
+        });
+    }
+
+    /**
+     * Records more events than one batch holds, so a flush sends several requests, each with a payload
+     * ID of its own. Offline, or followed by a kill, it leaves several {@code ready-} files on disk for
+     * the next launch to deliver. Each event's index is in its data, so the dashboard shows whether all
+     * of them arrived and none twice.
+     */
+    private void setupFillBatchesButton() {
+        Button fillBatchesButton = findViewById(R.id.fill_batches_button);
+        fillBatchesButton.setOnClickListener(v -> {
+            if (ldClient == null) {
+                return;
+            }
+            char[] filler = new char[LARGE_EVENT_DATA_CHARS];
+            Arrays.fill(filler, 'x');
+            String padding = new String(filler);
+            for (int i = 1; i <= LARGE_EVENTS; i++) {
+                ldClient.trackData("fill-batches", LDValue.buildObject()
+                        .put("index", i)
+                        .put("of", LARGE_EVENTS)
+                        .put("padding", padding)
+                        .build());
+            }
+            String result = String.format(Locale.US,
+                    "Recorded %d events of %d KiB: three batches of at most 2 MiB",
+                    LARGE_EVENTS, LARGE_EVENT_DATA_CHARS / 1024);
+            Timber.w(result);
+            ((TextView) findViewById(R.id.result_textView)).setText(result);
+        });
+    }
+
+    /**
+     * Runs the event persistence benchmark in this process and shows its tables. Off the main thread, since
+     * it takes up to a few minutes; the button stays disabled until it is done, so runs never overlap and
+     * never measure each other. Needs no client: it measures its own stores, in a cache directory.
+     * <p>
+     * The tables are also logged and appended to {@code files/event-bench.txt}, which
+     * {@code adb shell run-as com.launchdarkly.sdk.testapp cat files/event-bench.txt} reads back.
+     */
+    private void setupBenchmarkButton() {
+        final Button benchmarkButton = findViewById(R.id.benchmark_button);
+        benchmarkButton.setOnClickListener(v -> {
+            benchmarkButton.setEnabled(false);
+            final TextView status = findViewById(R.id.result_textView);
+            final Handler main = new Handler(getMainLooper());
+            final File scratch = new File(getCacheDir(), "event-bench");
+            status.setText("Benchmark starting");
+            new Thread(() -> {
+                String results;
+                try {
+                    results = EventPersistenceBenchmarkRunner.run(scratch,
+                            title -> main.post(() -> status.setText("Benchmark: " + title)));
+                    appendBenchmarkResults(results);
+                    Timber.w("event persistence benchmark\n%s", results);
+                } catch (IOException | RuntimeException e) {
+                    Timber.e(e, "event persistence benchmark failed");
+                    results = "Benchmark failed: " + e;
+                }
+                final String shown = results;
+                main.post(() -> {
+                    benchmarkButton.setEnabled(true);
+                    status.setText("Benchmark finished");
+                    if (!isFinishing() && !isDestroyed()) {
+                        showResults("Event persistence benchmark", shown);
+                    }
+                });
+            }, "testapp-benchmark").start();
+        });
+    }
+
+    /**
+     * Posts one payload of {@link OversizedPostProbe#TARGET_BYTES} to the events service on a connection of
+     * its own, so what the service answers a body that size is seen directly rather than through the
+     * store and the retry state. The client is not involved, and need not be running.
+     */
+    private void setupOversizedPostButton() {
+        final Button postButton = findViewById(R.id.oversized_post_button);
+        // Production answers a body this size with 413 Request Entity Too Large.
+        String title = "Post 20 MB";
+        SpannableString label = new SpannableString(title + "\nExpected: HTTP 413");
+        label.setSpan(new RelativeSizeSpan(0.7f), title.length(), label.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        // All caps would drop the span.
+        postButton.setAllCaps(false);
+        postButton.setText(label);
+        postButton.setOnClickListener(v -> {
+            if (BuildConfig.MOBILE_KEY.isEmpty()) {
+                Toast.makeText(this, "Set launchdarkly.mobileKey in local.properties and rebuild.",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            postButton.setEnabled(false);
+            final TextView status = findViewById(R.id.result_textView);
+            final Handler main = new Handler(getMainLooper());
+            final String eventsBaseUri = isStaging() ? "https://mobile." + STAGING_DOMAIN
+                    : "https://mobile.launchdarkly.com";
+            status.setText("Posting 20 MB…");
+            new Thread(() -> {
+                String report = OversizedPostProbe.run(BuildConfig.MOBILE_KEY, eventsBaseUri);
+                Timber.w("oversized post\n%s", report);
+                main.post(() -> {
+                    postButton.setEnabled(true);
+                    status.setText("Oversized post finished");
+                    if (!isFinishing() && !isDestroyed()) {
+                        showResults("Oversized post", report);
+                    }
+                });
+            }, "testapp-oversized-post").start();
+        });
+    }
+
+    private void appendBenchmarkResults(String results) throws IOException {
+        try (Writer out = new OutputStreamWriter(
+                new FileOutputStream(new File(getFilesDir(), "event-bench.txt"), true), StandardCharsets.UTF_8)) {
+            out.write(results);
+            out.write('\n');
+        }
+    }
+
+    /** Monospaced and scrollable both ways, because the tables are aligned in columns wider than a phone. */
+    private void showResults(final String title, final String results) {
+        TextView text = new TextView(this);
+        text.setText(results);
+        text.setTypeface(Typeface.MONOSPACE);
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        text.setTextIsSelectable(true);
+        int padding = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12,
+                getResources().getDisplayMetrics());
+        text.setPadding(padding, padding, padding, padding);
+
+        HorizontalScrollView wide = new HorizontalScrollView(this);
+        wide.addView(text);
+        ScrollView tall = new ScrollView(this);
+        tall.addView(wide);
+
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(tall)
+                .setPositiveButton("Close", null)
+                .setNeutralButton("Copy", (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    clipboard.setPrimaryClip(ClipData.newPlainText(title, results));
+                    Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+                })
+                .show();
+    }
+
+    /**
+     * @return the mean wall time, in microseconds, of {@code count} evaluations of the flag
+     */
+    private double averageMicroseconds(String flagKey, int count) {
+        long start = System.nanoTime();
+        for (int i = 0; i < count; i++) {
+            ldClient.boolVariation(flagKey, false);
+        }
+        return (System.nanoTime() - start) / 1_000.0 / count;
+    }
+
     private void setupIdentifyButton() {
         Button identify = findViewById(R.id.identify_button);
         identify.setOnClickListener(v -> {
@@ -326,9 +675,12 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private Switch offlineSwitch() {
+        return findViewById(R.id.offlineSwitch);
+    }
+
     private void setupOfflineSwitch() {
-        Switch offlineSwitch = findViewById(R.id.offlineSwitch);
-        offlineSwitch.setOnCheckedChangeListener((compoundButton, isChecked) ->
+        offlineSwitch().setOnCheckedChangeListener((compoundButton, isChecked) ->
             MainActivity.this.doSafeClientAction(isChecked ? () -> ldClient.setOffline() : () -> ldClient.setOnline())
         );
     }

@@ -170,6 +170,11 @@ final class AndroidPlatformState implements PlatformState {
     }
 
     @Override
+    public File getNoBackupFilesDir() {
+        return application.getNoBackupFilesDir();
+    }
+
+    @Override
     public void close() {
         connectivityChangeListeners.clear();
         foregroundChangeListeners.clear();

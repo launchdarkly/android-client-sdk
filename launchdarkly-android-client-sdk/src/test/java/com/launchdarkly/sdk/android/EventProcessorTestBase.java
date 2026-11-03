@@ -8,18 +8,24 @@ import com.launchdarkly.sdk.LDValue;
 import com.launchdarkly.sdk.android.LDConfig.Builder.AutoEnvAttributes;
 import com.launchdarkly.sdk.android.env.EnvironmentReporterBuilder;
 import com.launchdarkly.sdk.android.env.IEnvironmentReporter;
+import com.launchdarkly.sdk.android.integrations.EventPersistence;
 import com.launchdarkly.sdk.android.integrations.EventProcessorBuilder;
+import com.launchdarkly.sdk.android.integrations.HttpConfigurationBuilder;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 import com.launchdarkly.testhelpers.httptest.Handlers;
 import com.launchdarkly.testhelpers.httptest.HttpServer;
 import com.launchdarkly.testhelpers.httptest.RequestInfo;
 
+import org.junit.Assume;
 import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
 import org.junit.rules.Timeout;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -31,14 +37,29 @@ public abstract class EventProcessorTestBase {
     protected static final LDContext CONTEXT = LDContext.create("user-key");
 
     // Long enough that the only payload in a test is the one it asks for explicitly.
-    private static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
+    protected static final int NO_PERIODIC_FLUSH_MILLIS = 600_000;
 
     @Rule
     public Timeout globalTimeout = Timeout.seconds(60);
     @Rule
     public LogCaptureRule logging = new LogCaptureRule();
+    /**
+     * A directory of its own per test, so that the events one test persists are never found by the next.
+     */
+    @Rule
+    public TemporaryFolder eventsDirectory = new TemporaryFolder();
 
     private final IEnvironmentReporter environmentReporter = new EnvironmentReporterBuilder().build();
+
+    /**
+     * The processor persists events, so it needs somewhere to put them. Tests get a real directory
+     * rather than a stub, which is what makes them exercise the same path an application does.
+     */
+    protected MockPlatformState platformState() {
+        MockPlatformState platformState = new MockPlatformState();
+        platformState.setNoBackupFilesDir(eventsDirectory.getRoot());
+        return platformState;
+    }
 
     protected HttpServer startEventsServer() {
         return HttpServer.start(Handlers.status(202));
@@ -54,18 +75,49 @@ public abstract class EventProcessorTestBase {
     }
 
     /**
-     * @return an events builder with the capacity set and periodic flushing effectively off, for
-     *   tests that need to configure something else on top such as private attributes
+     * @return an events builder with the capacity set, periodic flushing effectively off, and no launch delay
+     *   or pacing, for tests that need to configure something else on top such as private attributes
      */
     protected EventProcessorBuilder eventsBuilder(int capacity) {
-        return Components.sendEvents()
+        return ((ComponentsImpl.EventProcessorBuilderImpl) Components.sendEvents()
                 .capacity(capacity)
-                .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS);
+                .eventPersistence(persistence())
+                .flushIntervalMillis(NO_PERIODIC_FLUSH_MILLIS))
+                .pacingForTesting(DirectEventProcessor.Pacing.NONE);
+    }
+
+    /**
+     * {@link #eventsBuilder} without the backoff, so every flush posts and is retried at once, for tests
+     * about what a failure keeps rather than about how long it waits.
+     */
+    protected EventProcessorBuilder eventsBuilderWithoutBackoff(int capacity) {
+        return ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(capacity))
+                .retryDelaysForTesting(0, 0, 0);
+    }
+
+    /**
+     * The persistence {@link #eventsBuilder} configures. IMMEDIATE here, which is what lets a test
+     * assert on the store straight after a track; each suite also runs as a subclass that answers
+     * DISABLED, because that is what an application gets unless it asks.
+     */
+    protected EventPersistence persistence() {
+        return EventPersistence.IMMEDIATE;
+    }
+
+    /** Skips a test whose subject is the disk, in the subclasses that run a suite without one. */
+    protected void assumePersisting() {
+        Assume.assumeTrue("needs a disk", persistence() != EventPersistence.DISABLED);
     }
 
     protected EventProcessor makeEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                 boolean diagnosticOptOut) {
-        EventProcessor eventProcessor = buildOfflineEventProcessor(server, events, diagnosticOptOut);
+        return makeEventProcessor(server.getUri(), events, diagnosticOptOut);
+    }
+
+    protected EventProcessor makeEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                boolean diagnosticOptOut) {
+        EventProcessor eventProcessor = buildOfflineEventProcessor(eventsUri, events, diagnosticOptOut,
+                platformState());
         // LDClient turns the processor on once initialization decides the SDK is not in offline mode.
         eventProcessor.setOffline(false);
         return eventProcessor;
@@ -74,14 +126,48 @@ public abstract class EventProcessorTestBase {
     /** @return the processor as the SDK builds it, before initialization has turned it on */
     protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
                                                         boolean diagnosticOptOut) {
-        LDConfig config = new LDConfig.Builder(AutoEnvAttributes.Disabled)
+        return buildOfflineEventProcessor(server, events, diagnosticOptOut, platformState());
+    }
+
+    protected EventProcessor buildOfflineEventProcessor(HttpServer server, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState) {
+        return buildOfflineEventProcessor(server.getUri(), events, diagnosticOptOut, platformState);
+    }
+
+    protected EventProcessor buildOfflineEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState) {
+        return buildOfflineEventProcessor(eventsUri, events, diagnosticOptOut, platformState, null);
+    }
+
+    /** @param secondaryMobileKeys the application's other environments, or null for none */
+    protected EventProcessor buildOfflineEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState,
+                                                        Map<String, String> secondaryMobileKeys) {
+        return buildOfflineEventProcessor(eventsUri, events, diagnosticOptOut, platformState, secondaryMobileKeys,
+                null);
+    }
+
+    /** @param http the HTTP configuration, or null for the default */
+    protected EventProcessor buildOfflineEventProcessor(URI eventsUri, EventProcessorBuilder events,
+                                                        boolean diagnosticOptOut,
+                                                        PlatformState platformState,
+                                                        Map<String, String> secondaryMobileKeys,
+                                                        HttpConfigurationBuilder http) {
+        LDConfig.Builder builder = new LDConfig.Builder(AutoEnvAttributes.Disabled)
                 .mobileKey(MOBILE_KEY)
+                .secondaryMobileKeys(secondaryMobileKeys)
                 .diagnosticOptOut(diagnosticOptOut)
                 .events(events)
-                .serviceEndpoints(Components.serviceEndpoints().events(server.getUri()))
-                .build();
+                .serviceEndpoints(Components.serviceEndpoints().events(eventsUri));
+        if (http != null) {
+            builder.http(http);
+        }
+        LDConfig config = builder.build();
         ClientContext clientContext = ClientContextImpl.fromConfig(config, MOBILE_KEY, "",
-                null, null, CONTEXT, logging.logger, null, environmentReporter, null);
+                null, null, CONTEXT, logging.logger, platformState, environmentReporter, null);
         return config.events.build(clientContext);
     }
 

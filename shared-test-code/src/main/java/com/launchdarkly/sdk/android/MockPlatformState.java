@@ -16,6 +16,7 @@ public class MockPlatformState implements PlatformState {
 
     private volatile boolean foreground = true;
     private volatile boolean networkAvailable = true;
+    private volatile File noBackupFilesDir = null;
 
     @Override
     public boolean isNetworkAvailable() {
@@ -103,6 +104,15 @@ public class MockPlatformState implements PlatformState {
     @Override
     public File getCacheDir() {
         return new File(System.getProperty("java.io.tmpdir"));
+    }
+
+    @Override
+    public File getNoBackupFilesDir() {
+        return noBackupFilesDir != null ? noBackupFilesDir : getCacheDir();
+    }
+
+    public void setNoBackupFilesDir(File noBackupFilesDir) {
+        this.noBackupFilesDir = noBackupFilesDir;
     }
 
     @Override
