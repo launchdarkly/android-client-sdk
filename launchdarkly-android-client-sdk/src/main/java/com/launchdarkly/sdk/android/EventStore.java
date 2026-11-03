@@ -328,8 +328,9 @@ class EventStore implements Closeable {
      * Counts events against capacity before they are staged, for a caller that has taken them from
      * somewhere capacity was already counting them and will encode them before staging.
      * <p>
-     * Each {@link #stageReserved} uses one up, and {@link #releaseReservations} gives back any that
-     * never made it, such as an event that could not be serialized.
+     * Each {@link #stageReserved} or {@link #writeReservedAlone} uses one up, and
+     * {@link #releaseReservations} gives back any that never made it, such as an event that could not be
+     * serialized.
      */
     void reserve(int events) {
         synchronized (bufferLock) {
@@ -337,10 +338,14 @@ class EventStore implements Closeable {
         }
     }
 
-    /** Gives back every reservation not used up by {@link #stageReserved}. */
-    void releaseReservations() {
+    /**
+     * Gives back {@code events} reservations not used up by {@link #stageReserved} or
+     * {@link #writeReservedAlone}. Only the caller's own, since another caller may hold reservations
+     * alongside.
+     */
+    void releaseReservations(int events) {
         synchronized (bufferLock) {
-            reservedEvents = 0;
+            reservedEvents = Math.max(0, reservedEvents - events);
         }
     }
 
@@ -385,6 +390,9 @@ class EventStore implements Closeable {
     private boolean stage(byte[] serializedEvent, boolean bypassingCapacity, boolean reserved) {
         if (serializedEvent == null || serializedEvent.length == 0
                 || serializedEvent.length > EventLogFormat.MAX_FRAME_SIZE) {
+            if (reserved) {
+                releaseReservations(1);
+            }
             return false;
         }
         long frameSize = (long) serializedEvent.length + EventLogFormat.FRAME_OVERHEAD;
@@ -515,6 +523,56 @@ class EventStore implements Closeable {
         synchronized (ioLock) {
             commitHoldingIoLock();
         }
+    }
+
+    /**
+     * Writes one serialized event to the log on its own, using up one reservation as
+     * {@link #stageReserved} does, but leaving what anything else has staged to the commit that staged it,
+     * so the caller pays for writing its own bytes and no one else's. It may land ahead of events staged
+     * before it.
+     * <p>
+     * Without persistence, or once it has failed, the event is staged in memory instead, as a commit
+     * leaves it.
+     *
+     * @return false if the event is too large for a frame or for the bytes left in the store
+     */
+    boolean writeReservedAlone(byte[] serializedEvent) {
+        // As in commit: not worth waiting on ioLock for where there is nothing to write.
+        if (!persistEvents) {
+            return stageReserved(serializedEvent);
+        }
+        if (serializedEvent == null || serializedEvent.length == 0
+                || serializedEvent.length > EventLogFormat.MAX_FRAME_SIZE) {
+            releaseReservations(1);
+            return false;
+        }
+        ByteArrayOutputStream framed =
+                new ByteArrayOutputStream(serializedEvent.length + EventLogFormat.FRAME_OVERHEAD);
+        EventLogFormat.writeFrame(framed, serializedEvent);
+        byte[] frame = framed.toByteArray();
+        synchronized (ioLock) {
+            Staged alone;
+            synchronized (bufferLock) {
+                // In the same critical section as the count that replaces it, so the event is never
+                // counted twice or not at all.
+                if (reservedEvents > 0) {
+                    reservedEvents--;
+                }
+                if (countedBytesHoldingBufferLock() + frame.length > eventByteCapacity) {
+                    return false;
+                }
+                if (!persistEvents) {
+                    writeQuietly(bufferData, frame);
+                    bufferedEventCount++;
+                    return true;
+                }
+                alone = new Staged(frame, frame.length, 1, 0);
+                inTransitEvents++;
+                inTransitBytes += frame.length;
+            }
+            writeHoldingIoLock(alone);
+        }
+        return true;
     }
 
     // ---- delivery ----
@@ -1075,6 +1133,11 @@ class EventStore implements Closeable {
             }
             staged = takeStagedHoldingBufferLock();
         }
+        writeHoldingIoLock(staged);
+    }
+
+    /** Requires {@code ioLock}, and {@code staged} counted in transit. */
+    private void writeHoldingIoLock(Staged staged) {
         byte[] bytes = staged.frames;
 
         int written = 0;

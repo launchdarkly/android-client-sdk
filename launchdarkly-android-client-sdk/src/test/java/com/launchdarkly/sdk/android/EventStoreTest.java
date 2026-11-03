@@ -128,6 +128,41 @@ public class EventStoreTest {
     }
 
     @Test
+    public void anEventWrittenAloneLeavesWhatIsStagedToItsCommit() throws IOException {
+        EventStore store = store();
+        store.stage(event("staged"));
+        store.reserve(1);
+
+        assertTrue(store.writeReservedAlone(event("alone")));
+
+        assertEquals(Arrays.asList("alone"), keysOnDisk());
+        assertEquals(2, store.getPendingEventCount());
+        store.commit();
+        assertEquals(Arrays.asList("alone", "staged"), keysOnDisk());
+    }
+
+    @Test
+    public void anEventReservedToBeWrittenAloneKeepsItsPlace() throws IOException {
+        EventStore store = new EventStore(directory(), 1, true, logger);
+        store.reserve(1);
+
+        // What another thread recording meanwhile finds.
+        assertFalse(store.stage(event("staged")));
+        assertTrue(store.writeReservedAlone(event("alone")));
+        assertEquals(1, store.getPendingEventCount());
+    }
+
+    @Test
+    public void releasingReservationsReleasesOnlyThoseItIsToldTo() {
+        EventStore store = store();
+        store.reserve(1);
+        store.reserve(2);
+        store.releaseReservations(2);
+
+        assertEquals(1, store.getPendingEventCount());
+    }
+
+    @Test
     public void theStoreNeverWritesOnItsOwnHoweverMuchIsStaged() throws IOException {
         // When to write is the caller's decision. 64 KB is well past what a store that wrote on its own would
         // let build up.
@@ -502,5 +537,19 @@ public class EventStoreTest {
         store.remove(batch);
         assertEquals(Collections.emptyList(), store.pendingBatches());
         assertEquals(0, store.getPendingEventCount());
+    }
+
+    @Test
+    public void anEventWrittenAloneIsDeliveredFromMemoryWhenTheWriteFails() throws IOException {
+        EventStore store = unwritableStore(CAPACITY);
+
+        store.reserve(1);
+        assertTrue(store.writeReservedAlone(event("alone")));
+
+        assertFalse(store.isPersisting());
+        assertEquals(1, store.getPendingEventCount());
+        EventStore.Batch batch = closeOne(store);
+        assertEquals(1, batch.eventCount);
+        assertEquals(Arrays.asList("alone"), keysIn(store.body(batch)));
     }
 }

@@ -228,9 +228,9 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void anImmediateTrackPutsTheEvaluationsBeforeItOnDiskBeforeItReturns() throws Exception {
-        // The exposures leading up to an error are what a kill right after the track would otherwise take.
-        // Holding the commit executor leaves the track's own write as the only one there can be.
+    public void anImmediateTrackWritesOnlyItselfAndLeavesTheRestToTheCommitExecutor() throws Exception {
+        // A summary can take megabytes to encode, which on the main thread is a frozen frame, so a track writes
+        // its own event and queues the rest. Holding the commit executor shows which write is whose.
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
         ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
         diagnosticExecutors.add(diagnosticExecutor);
@@ -248,10 +248,60 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             eventProcessor.recordCustomEvent(CONTEXT, "fatal-error", LDValue.of("boom"), null);
 
             assertEquals(1, kindsOnDisk("custom"));
+            assertEquals(0, kindsOnDisk("feature"));
+            assertEquals(0, kindsOnDisk("summary"));
+
+            commitsResume.countDown();
+            lastCommitExecutor.submit(() -> { }).get(5, TimeUnit.SECONDS);
+
             assertEquals(1, kindsOnDisk("feature"));
             assertEquals(1, kindsOnDisk("summary"));
         } finally {
             commitsResume.countDown();
+            eventProcessor.close();
+        }
+    }
+
+    @Test
+    public void anImmediateTrackDoesNotWaitForACommitInProgress() throws Exception {
+        // The commit executor's commit is stalled while it holds the commit lock, as one encoding a large
+        // summary would be. The track has nothing to wait for it about.
+        CountDownLatch commitStalled = new CountDownLatch(1);
+        CountDownLatch commitResumes = new CountDownLatch(1);
+        EventStore store = new EventStore(EventDirectory.defaultDirectory(eventsDirectory.getRoot(), MOBILE_KEY),
+                DEFAULT_CAPACITY, true, logging.logger) {
+            @Override
+            void commit() {
+                if (Thread.currentThread().getName().startsWith("LaunchDarkly-event-store")) {
+                    commitStalled.countDown();
+                    awaitQuietly(commitResumes, 10, TimeUnit.SECONDS);
+                }
+                super.commit();
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        ExecutorService diagnosticExecutor = EventUtil.makeDiagnosticsTaskExecutor();
+        diagnosticExecutors.add(diagnosticExecutor);
+        DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                UNUSED_EVENTS_URI, null, NO_PERIODIC_FLUSH_MILLIS, 60_000, CLOSE_BUDGET_MILLIS,
+                scheduler, diagnosticExecutor, store, DEFAULT_CAPACITY, true);
+        try {
+            for (int i = 0; i < EventCommitter.PENDING_COMMIT_THRESHOLD; i++) {
+                eventProcessor.recordEvaluationEvent(CONTEXT, FLAG_KEY, FLAG_VERSION, VARIATION,
+                        FLAG_VALUE, EvaluationReason.off(), DEFAULT_VALUE, true, null);
+            }
+            assertTrue("the threshold's commit never started", commitStalled.await(5, TimeUnit.SECONDS));
+
+            long start = System.nanoTime();
+            eventProcessor.recordCustomEvent(CONTEXT, "fatal-error", LDValue.of("boom"), null);
+            long tookMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+            assertTrue("the track waited " + tookMillis + "ms for the commit in progress", tookMillis < 1_000);
+            // Without what the stalled commit had staged before it stalled, which is that commit's to write.
+            assertEquals(1, kindsOnDisk("custom"));
+            assertEquals(0, kindsOnDisk("feature"));
+        } finally {
+            commitResumes.countDown();
             eventProcessor.close();
         }
     }
@@ -1422,28 +1472,20 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
-    public void concurrentImmediateTracksShareCommitsAndEachIsDurableOnReturn() throws Exception {
+    public void concurrentImmediateTracksAreEachDurableOnReturn() throws Exception {
         final int trackers = 8;
-        Queue<String> staged = new ConcurrentLinkedQueue<>();
         Queue<String> durable = new ConcurrentLinkedQueue<>();
-        AtomicInteger commits = new AtomicInteger();
         EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
                 logging.logger) {
             @Override
-            boolean stageReserved(byte[] serializedEvent) {
-                staged.add(new String(serializedEvent, StandardCharsets.UTF_8));
-                return super.stageReserved(serializedEvent);
-            }
-
-            @Override
-            void commit() {
-                commits.incrementAndGet();
+            boolean writeReservedAlone(byte[] serializedEvent) {
                 // A slow disk, so that the other tracks arrive while this write is under way.
                 sleepQuietly(50);
-                // Everything staged so far was staged under the commit lock this commit holds.
-                List<String> writing = new ArrayList<>(staged);
-                super.commit();
-                durable.addAll(writing);
+                boolean written = super.writeReservedAlone(serializedEvent);
+                if (written) {
+                    durable.add(new String(serializedEvent, StandardCharsets.UTF_8));
+                }
+                return written;
             }
         };
         ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
@@ -1478,8 +1520,6 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             }
 
             assertEquals("a track returned before its event was on disk", 0, notDurableOnReturn.get());
-            assertTrue("each track committed on its own: " + commits.get() + " commits for "
-                    + trackers + " tracks", commits.get() < trackers);
         } finally {
             eventProcessor.close();
         }

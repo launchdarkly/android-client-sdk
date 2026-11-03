@@ -29,9 +29,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>
  * Where the line falls is the subject of O12 in the event-encoding research, and it falls between the events
  * an application asked for by name and the ones it did not. At {@code IMMEDIATE}, {@code track} and
- * {@code identify} are commit points, because an application reporting an error is saying this matters more
- * than the microseconds it costs, and the crash it describes may be moments away. A commit encodes the whole
- * held run, so the exposures leading up to the error go down with it. Everything else is committed once
+ * {@code identify} write themselves before returning, because an application reporting an error is saying
+ * this matters more than the microseconds it costs, and the crash it describes may be moments away. They
+ * encode and write only themselves: what is held, and the summaries, which can take megabytes to encode, are
+ * left to a commit queued on the commit executor in the same call, so the exposures leading up to the error
+ * follow it moments later rather than costing the caller's thread. Everything else is committed once
  * {@link #PENDING_COMMIT_THRESHOLD} events have accumulated where persistence is on, on {@code flush}, at a
  * delivery, on backgrounding, or when the application flushes from its own crash handler. Backgrounding
  * commits through {@code flush}: {@link ConnectivityManager} calls it on every move to the background, and
@@ -44,8 +46,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * {@code DEFERRED} it costs what an evaluation does.
  * <p>
  * Threads. Recording runs on whichever thread evaluated or tracked. Commits run on {@link #commitExecutor},
- * or on the caller's thread at a commit point, one at a time under {@link #commitLock}. A delivery commits
- * too, on the event processor's delivery thread, before it closes a batch.
+ * or on the caller's thread for a flush, one at a time under {@link #commitLock}. A delivery commits too, on
+ * the event processor's delivery thread, before it closes a batch. A {@code track} or {@code identify} at
+ * {@code IMMEDIATE} writes its one event without {@link #commitLock}, so that it never waits for a commit
+ * encoding a run.
  */
 final class EventCommitter {
     /**
@@ -59,15 +63,15 @@ final class EventCommitter {
      * could take. An uncaught exception runs the application's handler while the process is still alive, and
      * a handler that flushes commits the whole held run. So this is the window for the terminations that run
      * nothing on the way out -- {@code SIGKILL}, a native crash, an ANR kill, and the system reclaiming a
-     * backgrounded process. A {@code track} at {@code IMMEDIATE} closes it too, because it commits.
+     * backgrounded process. A {@code track} at {@code IMMEDIATE} narrows it too, because it queues a commit.
      * <p>
-     * The second is what such a {@code track} usually costs, since it encodes whatever is held before returning.
+     * The second is what a {@code flush} usually costs, since it encodes whatever is held before returning.
      * The commit executor keeps the run drained, so the common case is far below this; raising it trades that
      * cost against the number of writes.
      * <p>
      * Neither is a ceiling. Reaching this only schedules a commit, and recording does not wait for it, so
      * where events arrive faster than the commit executor encodes them, or the executor is starved, the run
-     * grows up to the event capacity, and the next commit point encodes all of it.
+     * grows up to the event capacity, and the next flush encodes all of it.
      */
     static final int PENDING_COMMIT_THRESHOLD = 32;
 
@@ -86,7 +90,8 @@ final class EventCommitter {
      */
     private final int capacity;
     /**
-     * Whether a commit point encodes and writes before returning, rather than queuing that work.
+     * Whether {@code track} and {@code identify} write before returning, and a flush writes even where
+     * nothing persists, rather than leaving that work to a commit off the caller's thread.
      */
     private final boolean commitOnCallerThread;
     /** The event processor's: set once it closes, after which nothing more is recorded. */
@@ -102,10 +107,10 @@ final class EventCommitter {
     /**
      * Held for the whole of a commit, so that only one runs at a time.
      * <p>
-     * This is what {@code track}'s guarantee rests on. Without it a commit already in flight could take the
-     * caller's event out of {@link #pending} before the caller got there, leaving the caller nothing to
+     * This is what a flush's guarantee rests on. Without it a commit already in flight could take the
+     * caller's events out of {@link #pending} before the caller got there, leaving the caller nothing to
      * write and returning while those bytes were still being produced somewhere else. Waiting here instead
-     * means that when the call returns the event is on disk, whichever commit put it there.
+     * means that when the call returns the events are on disk, whichever commit put them there.
      * <p>
      * Distinct from {@link #recordLock}, which is only held long enough to hand the run and the counters
      * over: encoding under this lock must not block a thread that is merely recording.
@@ -116,7 +121,7 @@ final class EventCommitter {
      * The last recording a finished commit covered. Written under {@link #commitLock}, and read outside it
      * so that a caller whose recording is already durable does not queue for the lock at all.
      * <p>
-     * This is what makes concurrent {@code IMMEDIATE} commit points a group commit. The first caller's
+     * This is what makes concurrent flushes a group commit. The first caller's
      * commit takes every recording made before it took the run, including those of callers now waiting
      * behind it. They find their recordings covered and return, and the next caller still uncovered
      * commits everything that arrived in the meantime. Without it each waiter committed again in turn,
@@ -150,6 +155,18 @@ final class EventCommitter {
      * lost to a crash, so the encoding may as well happen where it is cheapest.
      */
     private final List<Event> pending = new ArrayList<>();
+
+    /**
+     * Counters a {@code track} or {@code identify} at {@code IMMEDIATE} took from the summarizer for the next
+     * commit to encode, guarded by {@link #recordLock}.
+     * <p>
+     * Taken there rather than left, so the summarizer's contexts are cleared at each of them as they were when
+     * they committed the counters themselves: an application identifying its way through more contexts than
+     * capacity faster than the commit executor keeps up would otherwise find the cardinality limit binding.
+     * Every commit takes them along with {@link #pending}, so an evaluation's counter and its full event are
+     * still staged together.
+     */
+    private final List<EventSummarizer.EventSummary> takenSummaries = new ArrayList<>();
 
     /**
      * Numbers every recording, guarded by {@link #recordLock}, so a caller at a commit point can tell whether
@@ -253,8 +270,7 @@ final class EventCommitter {
             }
             // Deliberately no commit point. An evaluation is expected to cost what a map lookup costs, and it
             // is usually the main thread doing it. The store writes these on its own thread once enough of them
-            // have piled up, and at IMMEDIATE the next event recorded at a commit point makes them durable along
-            // with itself.
+            // have piled up, and at IMMEDIATE the next track or identify queues that write as well.
             if (needsCommit) {
                 scheduleCommitWherePersisting();
             }
@@ -267,7 +283,7 @@ final class EventCommitter {
     }
 
     /**
-     * Records an {@code identify} or {@code track} event, and at {@code IMMEDIATE} commits before returning.
+     * Records an {@code identify} or {@code track} event, and at {@code IMMEDIATE} writes it before returning.
      * <p>
      * At {@code DEFERRED} it writes nothing itself (durability §13.3), and is committed with what is held
      * at the pending threshold, a flush, a delivery, backgrounding or close. A commit per call would cost
@@ -275,14 +291,59 @@ final class EventCommitter {
      * {@link #recordLock} from the threads evaluating flags and the store's locks from delivery.
      */
     void recordAtCommitPoint(Event event) {
-        long sequence = record(event);
-        if (commitOnCallerThread) {
-            try {
-                commitDurablyThrough(sequence);
-            } catch (RuntimeException e) {
-                // As in recordEvaluation: on the caller's thread, so a failure is logged, not thrown.
-                logUnexpectedError(e);
+        if (commitOnCallerThread && store.isPersisting()) {
+            writeAlone(event);
+        } else {
+            record(event);
+        }
+    }
+
+    /**
+     * Encodes and writes one event on the caller's thread, and queues a commit of everything else.
+     * <p>
+     * Only the event itself, so the caller pays for one small encode and one write however much is held:
+     * a commit encodes the held run and every summary, and a summary with a large context or many flags
+     * takes megabytes, which is a frozen frame on the main thread. They follow on the commit executor,
+     * queued here. The event is written ahead of the run held before it, which LaunchDarkly does not mind:
+     * every event carries its own creation date.
+     * <p>
+     * Not under {@link #commitLock}, which a commit holds for the whole of its encoding, so this never waits
+     * for one. The store writes the one frame rather than committing, which would also write whatever a
+     * commit in flight has staged so far, and the encoder shares nothing between threads; the one wait left
+     * is for the store's write lock, held by a write or by a delivery reading a batch back.
+     */
+    private void writeAlone(Event event) {
+        try {
+            boolean admitted;
+            synchronized (recordLock) {
+                // As in record: orders this against close()'s final commit, which this does not join, so an
+                // event admitted here is written before the store is released, and one refused never is.
+                if (closed.get()) {
+                    return;
+                }
+                admitted = admit(event);
+                if (admitted) {
+                    // Reserved where it is admitted, as a run is where it leaves pending, so capacity counts
+                    // it while it is encoded and a recording on another thread cannot take its place.
+                    store.reserve(1);
+                }
+                takenSummaries.addAll(eventBuffer.takeSummaries());
+                summaryContextsExceeded.set(false);
             }
+            if (admitted) {
+                byte[] serialized = eventBuffer.serialize(event);
+                if (serialized == null) {
+                    // Counted by the commit queued below, which takes the failure.
+                    store.releaseReservations(1);
+                } else if (!store.writeReservedAlone(serialized)) {
+                    // Only the bytes are checked: a frame or byte capacity it turns out not to fit.
+                    reportRefusedByStore("event", serialized);
+                }
+            }
+            scheduleCommit();
+        } catch (RuntimeException e) {
+            // As in recordEvaluation: on the caller's thread, so a failure is logged, not thrown.
+            logUnexpectedError(e);
         }
     }
 
@@ -473,6 +534,12 @@ final class EventCommitter {
                 run = pending.isEmpty() ? Collections.emptyList() : new ArrayList<>(pending);
                 pending.clear();
                 summaries = eventBuffer.takeSummaries();
+                if (!takenSummaries.isEmpty()) {
+                    List<EventSummarizer.EventSummary> taken = new ArrayList<>(takenSummaries);
+                    taken.addAll(summaries);
+                    takenSummaries.clear();
+                    summaries = taken;
+                }
                 summaryContextsExceeded.set(false);
                 // Reserved in the same critical section the run leaves pending in, so capacity counts
                 // it in one place or the other throughout the encoding. Each staged event uses up its
@@ -480,11 +547,7 @@ final class EventCommitter {
                 store.reserve(run.size());
             }
             try {
-                try {
-                    stageRun(run);
-                } finally {
-                    store.releaseReservations();
-                }
+                stageRun(run);
                 stageSummaries(summaries);
             } catch (Throwable t) {
                 // The run and the counters have left pending, and nothing puts them back, so a flush must not
@@ -618,10 +681,17 @@ final class EventCommitter {
      * they finished encoding, which is not the order they were recorded in.
      */
     private void stageRun(List<Event> run) {
-        for (byte[] serialized : eventBuffer.serializeAll(run)) {
-            if (!store.stageReserved(serialized)) {
-                reportRefusedByStore("event", serialized);
+        int unused = run.size();
+        try {
+            for (byte[] serialized : eventBuffer.serializeAll(run)) {
+                unused--;
+                if (!store.stageReserved(serialized)) {
+                    reportRefusedByStore("event", serialized);
+                }
             }
+        } finally {
+            // Only the run's own: a track or identify writing itself alone may hold one beside them.
+            store.releaseReservations(unused);
         }
     }
 
@@ -660,11 +730,21 @@ final class EventCommitter {
      * {@link #recordLock}.
      */
     private void addPending(Event event) {
+        if (admit(event)) {
+            pending.add(event);
+        }
+    }
+
+    /**
+     * Whether to keep an event, counting it as dropped if there is no room for it. Requires
+     * {@link #recordLock}.
+     */
+    private boolean admit(Event event) {
         // Ahead of the capacity check, because an event the SDK was never going to send is not a
         // loss and must not be counted as one. Sampling and capacity are different reasons not to
         // keep an event, and only the second is one the SDK owes anyone a count of.
         if (!Sampler.shouldSample(event.getSamplingRatio())) {
-            return;
+            return false;
         }
         // The bytes are checked here too, before the event is encoded, so that one there is no room for
         // costs nothing; whether it fits is decided when it is staged.
@@ -673,13 +753,13 @@ final class EventCommitter {
                 logger.warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.");
             }
             droppedEvents.incrementAndGet();
-            return;
+            return false;
         }
         // Read before written: a write on every event would contend for the line with nothing to change.
         if (capacityExceeded.get()) {
             capacityExceeded.set(false);
         }
-        pending.add(event);
+        return true;
     }
 
     /**
