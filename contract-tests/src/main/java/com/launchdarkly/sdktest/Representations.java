@@ -136,6 +136,13 @@ public abstract class Representations {
          * (LDConfig.java:321) — the per-env client instances init beside the
          * primary in one LDClient.init pass (LDClient.java:202-236). */
         java.util.Map<String, String> secondaryMobileKeys;
+        /** CENTINEL census seat-cell anonymous-key seam (the ANONKEYS
+         * coverage floor's own config law, CR-ANON-009 features_anonymous.md
+         * line 104): when true, the SDK's own AnonymousKeyContextModifier
+         * (applied at LDClient.java:182 init + :467 identify) replaces an
+         * anonymous context's placeholder key with a device-unique string
+         * that is consistent between app restarts and device reboots. */
+        @SerializedName("generateAnonymousKeys") Boolean generateAnonymousKeys;
     }
 
     public static class SdkConfigEnvironmentParams {
@@ -211,6 +218,7 @@ public abstract class Representations {
         @com.google.gson.annotations.SerializedName("x-cp-closed-evaluate") EvaluateFlagParams xcpClosedEvaluate;
         @com.google.gson.annotations.SerializedName("x-cp-set-streaming") SetStreamingParams xcpSetStreaming;
         @com.google.gson.annotations.SerializedName("x-cp-set-offline") SetOfflineParams xcpSetOffline;
+        @com.google.gson.annotations.SerializedName("x-cp-anon-key-store") AnonKeyStoreParams xcpAnonKeyStore;
         @com.google.gson.annotations.SerializedName("x-cp-multi-env-evaluate") MultiEnvEvaluateParams xcpMultiEnvEvaluate;
         @com.google.gson.annotations.SerializedName("x-cp-multi-env-status") MultiEnvStatusParams xcpMultiEnvStatus;
         public @com.google.gson.annotations.SerializedName("x-cp-logs") XcpLogsParams xcpLogs;
@@ -267,6 +275,19 @@ public abstract class Representations {
      * surface — setOffline on any instance prices OFFLINE for every one). */
     public static class MultiEnvStatusParams {
         public String env;
+    }
+
+    /** ANONKEYS floor-face mint law (floor-register named-open, CR-ANON-009
+     * features_anonymous.md line 104): the census bank's anonymous-key rows
+     * drive the SDK's own persisted generated-key slot via this census
+     * seat-command face — the SDK's PersistentDataStoreWrapper reads its
+     * own `LaunchDarkly` namespace slot `anonKey_<kind>` (PersistentDataStoreWrapper.java
+     * :100 getOrGenerateContextKey persisted the device-unique uuid there). */
+    public static class AnonKeyStoreParams {
+        /** the storage scope the row's client side was created under (x-cp-storage-scope) */
+        public String scope;
+        /** the context kind whose generated anonymous key slot is read */
+        public String kind;
     }
 
     public static class SetOverrideParams {

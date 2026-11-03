@@ -218,6 +218,8 @@ public class SdkClientEntity {
         return doXcpSetOffline(params.xcpSetOffline);
       case "x-cp-set-online":
         return doXcpSetOnline();
+      case "x-cp-anon-key-store":
+        return doXcpAnonKeyStore(params.xcpAnonKeyStore);
       case "x-cp-multi-env-evaluate":
         return doXcpMultiEnvEvaluate(params.xcpMultiEnvEvaluate);
       case "x-cp-multi-env-status":
@@ -469,6 +471,45 @@ public class SdkClientEntity {
   private java.util.Map<String, Object> doXcpSetOnline() {
     client.setOnline();
     return doXcpDataSourceStatus();
+  }
+
+  /**
+   * CENTINEL census seat-face (the ANONKEYS floor-face mint law, CR-ANON-009
+   * features_anonymous.md line 104): the x-cp-anon-key-store command prices
+   * the SDK's own persisted generated-key slot — the SDK's
+   * PersistentDataStoreWrapper generated the device-unique uuid at init
+   * (PersistentDataStoreWrapper.java:100 getOrGenerateContextKey, the
+   * ANON_CONTEXT_KEY_PREFIX "anonKey_" slot inside the wrapper's
+   * GLOBAL_NAMESPACE "LaunchDarkly") into the client's own scoped store,
+   * so the census seat reads the SDK's own persisted slot through the
+   * harness's store face. Module-internal seat bytes, no SDK surface growth.
+   */
+  private java.util.Map<String, Object> doXcpAnonKeyStore(Representations.AnonKeyStoreParams params)
+          throws TestService.BadRequestException {
+    if (params == null || params.kind == null) {
+      throw new TestService.BadRequestException("x-cp-anon-key-store: kind required");
+    }
+    com.launchdarkly.sdk.android.InMemoryPersistentDataStore store =
+            com.launchdarkly.sdk.android.ConfigHelper.scopedStoreForSeat(params.scope);
+    if (store == null) {
+      throw new TestService.BadRequestException(
+              "x-cp-anon-key-store: no scoped store stands (x-cp-storage-scope)");
+    }
+    String persistedKey = store.getValue(
+            com.launchdarkly.sdk.android.ConfigHelper.ANON_KEY_NAMESPACE_OF_RECORD,
+            com.launchdarkly.sdk.android.ConfigHelper.ANON_CONTEXT_KEY_PREFIX_OF_RECORD + params.kind);
+    if (persistedKey == null) {
+      throw new TestService.BadRequestException(
+              "x-cp-anon-key-store: no generated anonymous key persisted for kind "
+                      + params.kind);
+    }
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    java.util.Map<String, Object> slot = new java.util.LinkedHashMap<>();
+    slot.put("name", com.launchdarkly.sdk.android.ConfigHelper.ANON_CONTEXT_KEY_PREFIX_OF_RECORD
+            + params.kind);
+    slot.put("value", persistedKey);
+    out.put("slot", slot);
+    return out;
   }
 
   /**
@@ -1057,6 +1098,15 @@ public class SdkClientEntity {
     // face prices a real secondary instance for the census rows.
     if (cs != null && cs.secondaryMobileKeys != null && !cs.secondaryMobileKeys.isEmpty()) {
       builder.secondaryMobileKeys(new java.util.LinkedHashMap<>(cs.secondaryMobileKeys));
+    }
+    // CENTINEL census seat-cell anonymous-key seam (the ANONKEYS coverage
+    // floor's own config law, CR-ANON-009 features_anonymous.md line 104):
+    // when true the SDK's own AnonymousKeyContextModifier (LDClient.java:182
+    // init + :467 identify) replaces an anonymous context's placeholder key
+    // with a device-unique string that is consistent between app restarts
+    // and device reboots.
+    if (cs != null && cs.generateAnonymousKeys != null && cs.generateAnonymousKeys) {
+      builder.generateAnonymousKeys(true);
     }
     com.launchdarkly.sdk.android.ConfigHelper.configurePollEtagStore(cs == null ? null : cs.xCpStorageScope);
     // CENTINEL seat-cell cadence seam: the provisioning slot clears per

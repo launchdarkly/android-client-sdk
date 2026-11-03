@@ -268,6 +268,27 @@ public class ConfigHelper {
         return store;
     }
 
+    /* CENTINEL census seat-face (the ANONKEYS floor-face mint law): the census
+     * bank's anonymous-key rows price the SDK's own persisted generated-key
+     * slot — the SDK's PersistentDataStoreWrapper persisted the device-unique
+     * uuid inside its GLOBAL_NAMESPACE + ANON_CONTEXT_KEY_PREFIX slots
+     * (PersistentDataStoreWrapper.java:100 getOrGenerateContextKey). The
+     * wrapper's literals are private; the row law's equivalents mirror them
+     * word-for-word (the preloadBootstrapData precedent: "The literal prefixes
+     * live in the wrapper (private)"). */
+
+    /** the SDK's own PersistentDataStoreWrapper GLOBAL_NAMESPACE literal */
+    public static final String ANON_KEY_NAMESPACE_OF_RECORD = "LaunchDarkly";
+    /** the SDK's own PersistentDataStoreWrapper ANON_CONTEXT_KEY_PREFIX literal */
+    public static final String ANON_CONTEXT_KEY_PREFIX_OF_RECORD = "anonKey_";
+
+    /** Reads the shared local store a prior client created under the given
+     * scope tag (the same SCOPED_STORES slot configureInMemoryPersistence
+     * keyed; null when no client has created one). */
+    public static InMemoryPersistentDataStore scopedStoreForSeat(String storageScope) {
+        return storageScope == null ? null : SCOPED_STORES.get(storageScope);
+    }
+
     /**
      * CENTINEL client-lane extension: writes bootstrap flag data (the campaign's
      * x-cp-bootstrap all-flags-state JSON) through the SDK's own persisted-store
