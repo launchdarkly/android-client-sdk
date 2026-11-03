@@ -1229,6 +1229,49 @@ public class FDv2StreamingSynchronizerTest {
     }
 
     @Test
+    public void fdv1FallbackTtlHeaderOnMessageEvent() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "true"),
+                Handlers.header("x-ld-fd-fallback-ttl", "120"),
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+            assertTrue(result.isFdv1Fallback());
+            assertEquals(120, result.getFdv1Fallback().getSeconds());
+
+            sync.close();
+        }
+    }
+
+    @Test
+    public void goodbyeWithProtocolFallbackTtlIsFdv1Fallback() throws Exception {
+        String goodbyeEvent = makeEvent("goodbye", "{\"reason\":\"fdv1-fallback\",\"protocolFallbackTTL\":90}");
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(goodbyeEvent),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri());
+            FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+            assertEquals(SourceSignal.GOODBYE, result.getStatus().getState());
+            assertTrue(result.isFdv1Fallback());
+            assertEquals(90, result.getFdv1Fallback().getSeconds());
+
+            sync.close();
+        }
+    }
+
+    @Test
     public void fdv1FallbackHeaderAbsentOnMessageEvent() throws Exception {
         String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
         String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");

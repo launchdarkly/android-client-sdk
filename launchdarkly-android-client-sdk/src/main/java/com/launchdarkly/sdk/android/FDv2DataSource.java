@@ -28,6 +28,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -49,7 +51,8 @@ final class FDv2DataSource implements DataSource {
     private final LDContext evaluationContext;
     private final DataSourceUpdateSinkV2 dataSourceUpdateSink;
     private static final String FDV1_FALLBACK_MESSAGE =
-            "Falling back to an FDv1 fallback synchronizer.";
+            "Server directed fallback to FDv1; FDv2 will be retried in {} seconds.";
+    private static final Object FDV2_RECOVERY = new Object();
     private static final String INITIALIZER_ERROR = "Initializer error: {}";
     private static final String INITIALIZER_CANCELLED = "Initializer cancelled: {}";
     private static final String INITIALIZER_INTERRUPTED = "Initializer interrupted: {}";
@@ -78,6 +81,11 @@ final class FDv2DataSource implements DataSource {
 
     // This future is set by either the worker thread terminating or stop() being called.
     private final LDAwaitFuture<Throwable> shutdownCause = new LDAwaitFuture<>();
+
+    // Set while a server-directed FDv1 fallback is in effect; the future completes with
+    // FDV2_RECOVERY when its TTL elapses. Only accessed on the worker thread.
+    private LDAwaitFuture<Object> fdv2RecoveryFuture;
+    private ScheduledFuture<?> fdv2RecoveryTask;
     /**
      * Convenience constructor using default fallback and recovery timeouts.
      * See {@link #FDv2DataSource(LDContext, List, List, DataSourceFactory, DataSourceUpdateSinkV2,
@@ -201,7 +209,7 @@ final class FDv2DataSource implements DataSource {
                     runGeneralInitializers(context, dataSourceUpdateSink);
                 }
 
-                if (!sourceManager.hasAvailableSynchronizers()) {
+                if (!sourceManager.hasAvailableSynchronizers() && !sourceManager.isInFdv1Fallback()) {
                     if (!startCompleted.get()) {
                         // try to claim this is the cause of the shutdown, but it might have already been set by an intentional stop().
                         shutdownCause.set(new LDFailure("All initializers exhausted and there are no available synchronizers.", LDFailure.FailureType.UNKNOWN_ERROR));
@@ -216,6 +224,7 @@ final class FDv2DataSource implements DataSource {
                 logger.warn("FDv2DataSource error: {}", t.toString());
                 shutdownCause.set(t);
             } finally {
+                cancelFdv2Recovery();
 
                 // Here we grab the cause of shutdown to report with the OFF status. This is done to ensure that
                 // all status callbacks are handled by the worker thread. This future may have been set
@@ -377,7 +386,7 @@ final class FDv2DataSource implements DataSource {
                 // FDv1 fallback takes priority over all other result processing.
                 // The spec requires honoring the fallback signal from any response,
                 // regardless of whether data was included or what the selector state is.
-                if (result.isFdv1Fallback() && sourceManager.hasFDv1Fallback()) {
+                if (result.isFdv1Fallback()) {
                     if (result.getResultType() == SourceResultType.CHANGE_SET) {
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
@@ -385,8 +394,7 @@ final class FDv2DataSource implements DataSource {
                             anyDataReceived = true;
                         }
                     }
-                    logger.info(FDV1_FALLBACK_MESSAGE);
-                    sourceManager.fdv1Fallback();
+                    fallBackToFdv1(result);
                     if (anyDataReceived) {
                         sink.setStatus(DataSourceState.VALID, null);
                         tryCompleteStart(true, null);
@@ -468,6 +476,57 @@ final class FDv2DataSource implements DataSource {
         }
     }
 
+    /**
+     * Acts on a server-directed FDv1 fallback: stops using the FDv2 synchronizers (retaining them)
+     * in favor of the FDv1 fallback synchronizer, if one is configured, and schedules recovery to
+     * FDv2 when the directive's TTL elapses. The fallback is never indefinite.
+     */
+    private void fallBackToFdv1(@NonNull FDv2SourceResult result) {
+        long ttlSeconds = result.getFdv1Fallback().getSeconds();
+        logger.info(FDV1_FALLBACK_MESSAGE, ttlSeconds);
+        scheduleFdv2Recovery(ttlSeconds);
+        sourceManager.fdv1Fallback();
+    }
+
+    private void scheduleFdv2Recovery(long ttlSeconds) {
+        cancelFdv2Recovery();
+        LDAwaitFuture<Object> future = new LDAwaitFuture<>();
+        fdv2RecoveryFuture = future;
+        fdv2RecoveryTask = sharedExecutor.schedule(() -> future.set(FDV2_RECOVERY), ttlSeconds, TimeUnit.SECONDS);
+    }
+
+    private void cancelFdv2Recovery() {
+        if (fdv2RecoveryTask != null) {
+            fdv2RecoveryTask.cancel(false);
+        }
+        fdv2RecoveryTask = null;
+        fdv2RecoveryFuture = null;
+    }
+
+    private void recoverToFdv2() {
+        cancelFdv2Recovery();
+        sourceManager.recoverFromFdv1Fallback();
+        logger.info("FDv1 fallback TTL elapsed; retrying FDv2 synchronizers.");
+    }
+
+    /**
+     * Waits out the TTL of the active FDv1 fallback when no synchronizer can run in the meantime
+     * (e.g. no FDv1 fallback synchronizer is configured), then recovers to FDv2.
+     *
+     * @return false if the data source was stopped while waiting
+     */
+    private boolean awaitFdv2Recovery(@NonNull DataSourceUpdateSinkV2 sink)
+            throws ExecutionException, InterruptedException {
+        logger.info("No synchronizer is available during FDv1 fallback; waiting to retry FDv2.");
+        sink.setStatus(DataSourceState.INTERRUPTED, null);
+        Object res = LDFutures.anyOf(fdv2RecoveryFuture, shutdownCause).get();
+        if (res != FDV2_RECOVERY) {
+            return false;
+        }
+        recoverToFdv2();
+        return true;
+    }
+
     private List<FDv2DataSourceConditions.Condition> getConditions(int synchronizerCount, boolean isPrime) {
         if (synchronizerCount <= 1) {
             return Collections.emptyList();
@@ -515,8 +574,22 @@ final class FDv2DataSource implements DataSource {
             @NonNull DataSourceUpdateSinkV2 sink
     ) {
         try {
-            Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
-            while (synchronizer != null) {
+            while (true) {
+                Synchronizer synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
+                if (synchronizer == null) {
+                    if (stopCalled.get() || fdv2RecoveryFuture == null || !sourceManager.isInFdv1Fallback()) {
+                        break;
+                    }
+                    try {
+                        if (!awaitFdv2Recovery(sink)) {
+                            break;
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    continue;
+                }
                 String synchronizerName = synchronizer.name();
                 logger.info("Synchronizer '{}' is starting.", synchronizerName);
                 resetSynchronizerStatusDedupe();
@@ -530,7 +603,15 @@ final class FDv2DataSource implements DataSource {
                             Future<FDv2SourceResult> nextFuture = synchronizer.next();
                             // Race the next synchronizer result against any active conditions
                             // (fallback/recovery timers). Whichever resolves first wins.
-                            Object res = LDFutures.anyOf(conditions.getFuture(), nextFuture).get();
+                            Future<Object> recoveryFuture = fdv2RecoveryFuture != null
+                                    ? fdv2RecoveryFuture : new LDAwaitFuture<>();
+                            Object res = LDFutures.anyOf(conditions.getFuture(), nextFuture, recoveryFuture).get();
+
+                            if (res == FDV2_RECOVERY) {
+                                recoverToFdv2();
+                                running = false;
+                                break;
+                            }
 
                             if (res instanceof FDv2DataSourceConditions.ConditionType) {
                                 FDv2DataSourceConditions.ConditionType ct = (FDv2DataSourceConditions.ConditionType) res;
@@ -619,16 +700,19 @@ final class FDv2DataSource implements DataSource {
 
                             // After processing the result, check whether the server signaled
                             // that this environment should fall back to FDv1 (via the
-                            // x-ld-fd-fallback response header). We check regardless of
-                            // whether the synchronizer is still running — a terminal error
-                            // response can still carry the fallback header, and the server's
-                            // instruction to use FDv1 should take precedence.
-                            if (result.isFdv1Fallback()
-                                    && sourceManager.hasFDv1Fallback()
-                                    && !sourceManager.isCurrentSynchronizerFDv1Fallback()) {
-                                logger.info(FDV1_FALLBACK_MESSAGE);
-                                sourceManager.fdv1Fallback();
-                                running = false;
+                            // x-ld-fd-fallback response header or a goodbye event). We check
+                            // regardless of whether the synchronizer is still running — a
+                            // terminal error response can still carry the fallback header, and
+                            // the server's instruction to use FDv1 should take precedence.
+                            if (result.isFdv1Fallback()) {
+                                if (sourceManager.isCurrentSynchronizerFDv1Fallback()) {
+                                    // Already on FDv1: a newer directive only replaces the TTL.
+                                    scheduleFdv2Recovery(
+                                            result.getFdv1Fallback().getSeconds());
+                                } else {
+                                    fallBackToFdv1(result);
+                                    running = false;
+                                }
                             }
                         }
                     }
@@ -651,7 +735,6 @@ final class FDv2DataSource implements DataSource {
                     Thread.currentThread().interrupt();
                     return;
                 }
-                synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
             }
             if (!stopCalled.get()) {
                 logger.warn("No more synchronizers available.");

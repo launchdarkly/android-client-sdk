@@ -260,12 +260,16 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         }
     }
 
-    private static boolean isFdv1Fallback(@Nullable ResponseHeaders headers) {
+    @Nullable
+    private static FDv1FallbackTTL fdv1Fallback(@Nullable ResponseHeaders headers) {
         if (headers == null) {
-            return false;
+            return null;
         }
         String value = headers.value(HeaderConstants.FDV1_FALLBACK_HEADER);
-        return value != null && value.equalsIgnoreCase("true");
+        if (value == null || !value.equalsIgnoreCase("true")) {
+            return null;
+        }
+        return FDv1FallbackTTL.fromHeader(headers.value(HeaderConstants.FDV1_FALLBACK_TTL_HEADER));
     }
 
     @VisibleForTesting
@@ -279,7 +283,7 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             return;
         }
 
-        boolean fdv1Fallback = isFdv1Fallback(event.getHeaders());
+        FDv1FallbackTTL fdv1Fallback = fdv1Fallback(event.getHeaders());
 
         FDv2Event fdv2Event;
         try {
@@ -342,6 +346,14 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             case GOODBYE: {
                 String reason = ((FDv2ProtocolHandler.FDv2ActionGoodbye) action).getReason();
                 logger.info("Stream received GOODBYE with reason: '{}'", reason);
+                FDv1FallbackTTL goodbyeFallback = FDv1FallbackTTL.fromGoodbye(fdv2Event.getData());
+                if (goodbyeFallback != null) {
+                    // A fallback directive: the data source will close this synchronizer, so
+                    // there is no point in reconnecting.
+                    resultQueue.put(FDv2SourceResult.status(
+                            FDv2SourceResult.Status.goodbye(reason), goodbyeFallback));
+                    break;
+                }
                 resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason), fdv1Fallback));
                 restartStream(false);
                 break;
@@ -396,11 +408,13 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
         recordStreamInit(true);
         protocolHandler.reset();
 
-        boolean fdv1Fallback = isFdv1Fallback(event.getHeaders());
+        FDv1FallbackTTL fdv1Fallback = fdv1Fallback(event.getHeaders());
 
         if (t instanceof StreamHttpErrorException) {
             StreamHttpErrorException httpError = (StreamHttpErrorException) t;
-            fdv1Fallback = fdv1Fallback || isFdv1Fallback(httpError.getHeaders());
+            if (fdv1Fallback == null) {
+                fdv1Fallback = fdv1Fallback(httpError.getHeaders());
+            }
             int code = httpError.getCode();
             boolean recoverable = LDUtil.isHttpErrorRecoverable(code);
             LDFailure failure = new LDInvalidResponseCodeFailure(

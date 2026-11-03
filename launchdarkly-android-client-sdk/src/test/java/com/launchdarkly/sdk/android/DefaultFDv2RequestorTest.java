@@ -445,6 +445,35 @@ public class DefaultFDv2RequestorTest {
     }
 
     @Test
+    public void fdv1FallbackTtlHeaderParsed() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "true"),
+                Handlers.header("x-ld-fd-fallback-ttl", "120"),
+                Handlers.bodyJson(VALID_EVENTS_JSON)))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+                assertTrue(response.isFdv1Fallback());
+                assertEquals(120, response.getFdv1Fallback().getSeconds());
+            }
+        }
+    }
+
+    @Test
+    public void fdv1FallbackTtlHeaderMalformed() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.header("x-ld-fd-fallback", "true"),
+                Handlers.header("x-ld-fd-fallback-ttl", "soon"),
+                Handlers.bodyJson(VALID_EVENTS_JSON)))) {
+            try (DefaultFDv2Requestor requestor = makeRequestor(server)) {
+                FDv2Requestor.FDv2PayloadResponse response = requestor.poll(Selector.EMPTY).get(5, TimeUnit.SECONDS);
+                assertTrue(response.isFdv1Fallback());
+                long seconds = response.getFdv1Fallback().getSeconds();
+                assertTrue(seconds >= 1800 && seconds <= 3600);
+            }
+        }
+    }
+
+    @Test
     public void fdv1FallbackHeaderAbsent() throws Exception {
         try (HttpServer server = HttpServer.start(Handlers.bodyJson(VALID_EVENTS_JSON))) {
             try (DefaultFDv2Requestor requestor = makeRequestor(server)) {

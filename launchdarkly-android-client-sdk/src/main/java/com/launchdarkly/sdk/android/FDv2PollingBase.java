@@ -102,7 +102,7 @@ abstract class FDv2PollingBase {
                     : FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(cause), false);
         }
 
-        boolean fdv1Fallback = response.isFdv1Fallback();
+        FDv1FallbackTTL fdv1Fallback = response.getFdv1Fallback();
 
         // 304 Not Modified: nothing changed
         if (response.getStatusCode() == 304) {
@@ -185,6 +185,11 @@ abstract class FDv2PollingBase {
                 case GOODBYE: {
                     String reason = ((FDv2ProtocolHandler.FDv2ActionGoodbye) action).getReason();
                     logger.info("Polling received GOODBYE with reason: '{}'", reason);
+                    FDv1FallbackTTL goodbyeFallback = FDv1FallbackTTL.fromGoodbye(event.getData());
+                    if (goodbyeFallback != null) {
+                        return FDv2SourceResult.status(
+                                FDv2SourceResult.Status.goodbye(reason), goodbyeFallback);
+                    }
                     return FDv2SourceResult.status(FDv2SourceResult.Status.goodbye(reason), fdv1Fallback);
                 }
                 case INTERNAL_ERROR: {
