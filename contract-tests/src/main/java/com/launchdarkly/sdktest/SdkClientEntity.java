@@ -218,6 +218,10 @@ public class SdkClientEntity {
         return doXcpSetOffline(params.xcpSetOffline);
       case "x-cp-set-online":
         return doXcpSetOnline();
+      case "x-cp-multi-env-evaluate":
+        return doXcpMultiEnvEvaluate(params.xcpMultiEnvEvaluate);
+      case "x-cp-multi-env-status":
+        return doXcpMultiEnvStatus(params.xcpMultiEnvStatus);
       case "unregisterListener":
         doUnregisterListener(params.unregisterListener);
         return null;
@@ -465,6 +469,65 @@ public class SdkClientEntity {
   private java.util.Map<String, Object> doXcpSetOnline() {
     client.setOnline();
     return doXcpDataSourceStatus();
+  }
+
+  /**
+   * CENTINEL census seat-face (the MULTIENV floor-face mint law, CR-CONFIG-153
+   * + CR-CONFIG-154): the x-cp-multi-env-evaluate command drives the SDK's own
+   * secondary-environment handle — LDClient.getForMobileKey(envName) priced at
+   * LDClient.java:342 — and the per-env evaluation rides that instance's own
+   * context data (the SDK's own per-instance scope the doc law grades:
+   * "track calls, listeners, and flag evaluation are all tied to the client
+   * instance they are evaluated against"). Module-internal seat bytes, no SDK
+   * surface growth.
+   */
+  private java.util.Map<String, Object> doXcpMultiEnvEvaluate(
+          Representations.MultiEnvEvaluateParams params) throws TestService.BadRequestException {
+    com.launchdarkly.sdk.android.LDClient envClient;
+    try {
+      envClient = com.launchdarkly.sdk.android.LDClient.getForMobileKey(params.env);
+    } catch (com.launchdarkly.sdk.android.LaunchDarklyException e) {
+      throw new TestService.BadRequestException(
+              "x-cp-multi-env-evaluate: " + e.getMessage());
+    }
+    boolean fallback = params.defaultValue == null || params.defaultValue;
+    boolean value = envClient.boolVariation(params.flagKey, fallback);
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    out.put("value", value);
+    return out;
+  }
+
+  /**
+   * CENTINEL census seat-face (the MULTIENV floor-face's calls-affect-all law,
+   * CR-CONFIG-152): the x-cp-multi-env-status reply prices the named
+   * instance's own connection face — the same {state, connectionMode} wire
+   * the x-cp-data-source-status law grades, read from the per-env client so
+   * the SDK's "some calls affect all instances" surface prices whole
+   * (LDClient.java:858 setOffline loops every instance). Module-internal
+   * seat bytes, no SDK surface growth.
+   */
+  private java.util.Map<String, Object> doXcpMultiEnvStatus(Representations.MultiEnvStatusParams params)
+          throws TestService.BadRequestException {
+    com.launchdarkly.sdk.android.LDClient envClient;
+    try {
+      envClient = com.launchdarkly.sdk.android.LDClient.getForMobileKey(params.env);
+    } catch (com.launchdarkly.sdk.android.LaunchDarklyException e) {
+      throw new TestService.BadRequestException(
+              "x-cp-multi-env-status: " + e.getMessage());
+    }
+    com.launchdarkly.sdk.android.ConnectionInformation ci = envClient.getConnectionInformation();
+    java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+    String state;
+    if (envClient.isInitialized()) {
+      state = "VALID";
+    } else if (ci.getLastFailure() != null) {
+      state = "INTERRUPTED";
+    } else {
+      state = "INITIALIZING";
+    }
+    out.put("state", state);
+    out.put("connectionMode", String.valueOf(ci.getConnectionMode()));
+    return out;
   }
 
   private void doIdentifyEvent(IdentifyEventParams params) {
@@ -986,6 +1049,15 @@ public class SdkClientEntity {
             params.proxy == null ? null : params.proxy.httpProxy);
     com.launchdarkly.sdk.android.ConfigHelper.configureEnvironmentFilter(builder,
             cs == null || cs.environment == null ? null : cs.environment.filter);
+    // CENTINEL census seat-cell secondary-environment seam (the MULTIENV
+    // coverage floor's own config law, CR-CONFIG-153): the secondary mobile
+    // keys ride the SDK's own name-to-key map config (LDConfig.java:321) —
+    // the per-env client instances init beside the primary in one
+    // LDClient.init pass (LDClient.java:202-236), so getForMobileKey's
+    // face prices a real secondary instance for the census rows.
+    if (cs != null && cs.secondaryMobileKeys != null && !cs.secondaryMobileKeys.isEmpty()) {
+      builder.secondaryMobileKeys(new java.util.LinkedHashMap<>(cs.secondaryMobileKeys));
+    }
     com.launchdarkly.sdk.android.ConfigHelper.configurePollEtagStore(cs == null ? null : cs.xCpStorageScope);
     // CENTINEL seat-cell cadence seam: the provisioning slot clears per
     // client here; the polling synchronizer's own branch re-arms it with the

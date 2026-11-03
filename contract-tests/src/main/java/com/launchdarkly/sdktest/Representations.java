@@ -130,6 +130,12 @@ public abstract class Representations {
         // data in the all-flags-state shape for the SDK's pre-connection serve.
         @SerializedName("x-cp-storage-scope") String xCpStorageScope;
         @SerializedName("x-cp-bootstrap") java.util.Map<String, Object> xCpBootstrap;
+        /** CENTINEL census seat-cell secondary-environment seam (the MULTIENV
+         * coverage floor's own config law, CR-CONFIG-153): the secondary
+         * mobile keys ride the SDK's own name-to-key map config
+         * (LDConfig.java:321) — the per-env client instances init beside the
+         * primary in one LDClient.init pass (LDClient.java:202-236). */
+        java.util.Map<String, String> secondaryMobileKeys;
     }
 
     public static class SdkConfigEnvironmentParams {
@@ -205,6 +211,8 @@ public abstract class Representations {
         @com.google.gson.annotations.SerializedName("x-cp-closed-evaluate") EvaluateFlagParams xcpClosedEvaluate;
         @com.google.gson.annotations.SerializedName("x-cp-set-streaming") SetStreamingParams xcpSetStreaming;
         @com.google.gson.annotations.SerializedName("x-cp-set-offline") SetOfflineParams xcpSetOffline;
+        @com.google.gson.annotations.SerializedName("x-cp-multi-env-evaluate") MultiEnvEvaluateParams xcpMultiEnvEvaluate;
+        @com.google.gson.annotations.SerializedName("x-cp-multi-env-status") MultiEnvStatusParams xcpMultiEnvStatus;
         public @com.google.gson.annotations.SerializedName("x-cp-logs") XcpLogsParams xcpLogs;
     }
 
@@ -239,6 +247,26 @@ public abstract class Representations {
      * via this census seat-command face; `offline: false` prices setOnline. */
     public static class SetOfflineParams {
         Boolean offline;
+    }
+
+    /** MULTIENV floor-face mint law (floor-register named-open, CR-CONFIG-154):
+     * the census bank's multi-environment rows drive the SDK's own
+     * secondary-environment handle via this census seat-command face —
+     * LDClient.getForMobileKey(envName) + the per-env bool evaluation. */
+    public static class MultiEnvEvaluateParams {
+        /** the identifying env name the config's secondaryMobileKeys map carries */
+        public String env;
+        public String flagKey;
+        /** bool defaultValue the named instance's own boolVariation rides */
+        public Boolean defaultValue;
+    }
+
+    /** MULTIENV floor-face's calls-affect-all law (CR-CONFIG-152): the
+     * per-env status face mirrors the x-cp-data-source-status wire against
+     * the named instance (the SDK's own "some calls affect all instances"
+     * surface — setOffline on any instance prices OFFLINE for every one). */
+    public static class MultiEnvStatusParams {
+        public String env;
     }
 
     public static class SetOverrideParams {
