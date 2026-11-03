@@ -276,7 +276,14 @@ public class ConfigHelper {
      *
      * The all-flags-state shape carries values at the top level with per-flag
      * metadata under {@code $flagsState}; the store format is the flat
-     * {@code {flagKey: Flag}} map, so the conversion keeps key/value/version/variation.
+     * {@code {flagKey: Flag}} map, so the conversion keeps key/value/version/variation
+     * under the js-parity version law (index.js:133-147): a flag with no
+     * {@code $flagsState} metadata carries {@code version: 0} (the
+     * metadata-absent arm prices {@code flag.version = 0;}), a metadata entry
+     * carrying its own version passes it through, and a metadata entry with no
+     * version carries the {@code -1} unknown sentinel — the events engine's own
+     * unknown face prices the summary counter {@code unknown: true} with the
+     * version key omitted (EventSummarizer.js:78-82's null-version law).
      */
     public static void preloadBootstrapData(InMemoryPersistentDataStore store,
             String mobileKey, java.util.Map<String, Object> bootData, LDContext initialContext) {
@@ -302,16 +309,21 @@ public class ConfigHelper {
             com.google.gson.JsonObject f = new com.google.gson.JsonObject();
             f.addProperty("key", flagKey);
             f.add("value", gson.toJsonTree(e.getValue()));
-            int version = 1;
+            int version;
             Integer variation = null;
+            java.util.Map<?, ?> fs = null;
             if (flagsState != null && flagsState.get(flagKey) instanceof java.util.Map<?, ?>) {
-                java.util.Map<?, ?> fs = (java.util.Map<?, ?>) flagsState.get(flagKey);
-                if (fs.get("version") instanceof Number) {
-                    version = ((Number) fs.get("version")).intValue();
-                }
-                if (fs.get("variation") instanceof Number) {
-                    variation = ((Number) fs.get("variation")).intValue();
-                }
+                fs = (java.util.Map<?, ?>) flagsState.get(flagKey);
+            }
+            if (fs != null && fs.get("version") instanceof Number) {
+                version = ((Number) fs.get("version")).intValue();
+            } else if (fs != null) {
+                version = -1; // metadata present but version absent: the unknown sentinel
+            } else {
+                version = 0; // js-parity: metadata absent (index.js:141) prices version 0
+            }
+            if (fs != null && fs.get("variation") instanceof Number) {
+                variation = ((Number) fs.get("variation")).intValue();
             }
             f.addProperty("version", version);
             if (variation != null) {
