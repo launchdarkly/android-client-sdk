@@ -378,10 +378,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
             logger.debug("SSE message '{}' carried no data; ignored", eventName);
             return;
         }
-        // DIAG BAND (reverts with the seam truth keyed; stderr-only)
-        logger.error("DIAG sse event: name={} len={} fallback={} dataHead={}",
-                eventName, eventData.length(), isFdv1Fallback(event.getHeaders()),
-                eventData.substring(0, Math.min(120, eventData.length())));
 
         boolean fdv1Fallback = isFdv1Fallback(event.getHeaders());
 
@@ -485,10 +481,6 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                             FDv2ChangeSetTranslator.toChangeSet(raw, logger);
                     recordStreamInit(false);
                     streamStarted = 0;
-                    // DIAG BAND (reverts with the seam truth keyed; stderr-only)
-                    logger.error("DIAG changeset queued: event={} type={} changes={} fdv1Fallback={}",
-                            eventName, raw.getType(),
-                            raw.getChanges() == null ? 0 : raw.getChanges().size(), fdv1Fallback);
                     resultQueue.put(FDv2SourceResult.changeSet(changeSet, fdv1Fallback));
                 } catch (Exception e) {
                     LDUtil.logExceptionAtErrorLevel(logger, e, "Failed to translate changeset");

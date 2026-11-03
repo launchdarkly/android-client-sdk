@@ -524,6 +524,48 @@ final class FDv2DataSource implements DataSource {
         lastLoggedSynchronizerDedupeStatus = null;
     }
 
+    /**
+     * The DATASYSTEM 1.6.2 census law: a fallback-carrying exchange can also carry the
+     * applied basis, whose bytes hold until the marker closes the transfer. The consumer
+     * above reads the value the synchronizer completed first (the FDv2 held-basis
+     * placeholder's change set), so the marker's own (real) change set can already be
+     * queued behind it when the fallback fires. Consume everything the synchronizer has
+     * already completed — apply its change sets whole — and stop at the first not-yet-done
+     * or not-a-change-set result. Never performs a synchronous wait and never advances the
+     * synchronizer: the FDv1 fallback's own poll owns the flow from here.
+     */
+    private void drainCompletedChangeSets(
+            @NonNull LDContext context,
+            @NonNull DataSourceUpdateSinkV2 sink,
+            @NonNull Synchronizer synchronizer
+    ) {
+        while (true) {
+            Future<FDv2SourceResult> future = synchronizer.next();
+            if (!future.isDone()) {
+                return;
+            }
+            FDv2SourceResult pending;
+            try {
+                pending = future.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (CancellationException | ExecutionException e) {
+                return;
+            }
+            if (pending == null || pending.getResultType() != SourceResultType.CHANGE_SET) {
+                return;
+            }
+            ChangeSet<Map<String, DataModel.Flag>> queuedSet = pending.getChangeSet();
+            if (queuedSet == null) {
+                return;
+            }
+            sink.apply(context, queuedSet);
+            sink.setStatus(DataSourceState.VALID, null);
+            tryCompleteStart(true, null);
+        }
+    }
+
     private void maybeLogSynchronizerStatusChange(@Nullable String sourceName, @NonNull SourceSignal state) {
         if (state == SourceSignal.GOODBYE) {
             return;
@@ -601,10 +643,6 @@ final class FDv2DataSource implements DataSource {
                                     resetSynchronizerStatusDedupe();
                                     ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                                     if (changeSet != null) {
-                                        // DIAG BAND (reverts with the seam truth keyed; stderr-only)
-                                        logger.error("DIAG change set applied: sync={} type={} fdv1Fallback={}",
-                                                synchronizer.name(), result.getChangeSet().getType(),
-                                                result.isFdv1Fallback());
                                         sink.apply(context, changeSet);
                                         sink.setStatus(DataSourceState.VALID, null);
                                         tryCompleteStart(true, null);
@@ -663,9 +701,15 @@ final class FDv2DataSource implements DataSource {
                             if (result.isFdv1Fallback()
                                     && sourceManager.hasFDv1Fallback()
                                     && !sourceManager.isCurrentSynchronizerFDv1Fallback()) {
-                                // DIAG BAND (reverts with the seam truth keyed; stderr-only)
-                                logger.error("DIAG fdv1 fallback transition: sync={} resultType={}",
-                                        synchronizer.name(), result.getResultType());
+                                // The DATASYSTEM 1.6.2 census law: the streamed payload applies
+                                // BEFORE the transition. The fallback header rides the exchange
+                                // that also serves the basis, and the held-basis placeholder's
+                                // change set applies first, so the marker's own (real) change
+                                // set can already be queued behind it. Consume the value the
+                                // synchronizer already completed (zero wait — only what is DONE;
+                                // any further payload rides the FDv1 fallback's own poll), then
+                                // transition to FDv1.
+                                drainCompletedChangeSets(context, sink, synchronizer);
                                 logger.info(FDV1_FALLBACK_MESSAGE);
                                 sourceManager.fdv1Fallback();
                                 running = false;
