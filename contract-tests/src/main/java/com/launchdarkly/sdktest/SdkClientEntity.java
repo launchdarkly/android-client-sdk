@@ -327,6 +327,12 @@ public class SdkClientEntity {
       builder.events(eventsBuilder);
     }
 
+    if (params.streaming != null && params.streaming.filter != null) {
+      builder.payloadFilter(params.streaming.filter);
+    } else if (params.polling != null && params.polling.filter != null) {
+      builder.payloadFilter(params.polling.filter);
+    }
+
     builder.evaluationReasons(params.clientSide.evaluationReasons);
     builder.http(
             Components.httpConfiguration()
