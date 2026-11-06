@@ -237,6 +237,41 @@ final class SourceManager implements Closeable {
         }
     }
 
+    /**
+     * True if a synchronizer other than the current one is available.
+     *
+     * @return true if another synchronizer is available
+     */
+    boolean hasOtherAvailableSynchronizer() {
+        synchronized (activeSourceLock) {
+            for (SynchronizerFactoryWithState s : synchronizerFactories) {
+                if (s != currentSynchronizerFactory && s.isEligible()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * True if a synchronizer earlier in the list than the current one is available.
+     *
+     * @return true if a more-preferred synchronizer is available
+     */
+    boolean hasMorePreferredAvailableSynchronizer() {
+        synchronized (activeSourceLock) {
+            for (SynchronizerFactoryWithState s : synchronizerFactories) {
+                if (s == currentSynchronizerFactory) {
+                    return false;
+                }
+                if (s.isEligible()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     /** True if the current synchronizer is the first available one (prime). */
     boolean isPrimeSynchronizer() {
         synchronized (activeSourceLock) {
