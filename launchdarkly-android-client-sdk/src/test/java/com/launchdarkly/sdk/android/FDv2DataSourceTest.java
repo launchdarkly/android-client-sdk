@@ -41,6 +41,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -2122,6 +2123,52 @@ public class FDv2DataSourceTest {
         // The FDv1 synchronizer should receive data, proving it was activated.
         sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
+        stopDataSource(dataSource);
+    }
+
+    // A payload without a selector that comes with the directive is applied, but it does not make the data source
+    // ready. The data from the FDv1 fallback synchronizer does.
+    @Test
+    public void fdv1FallbackDuringInitializationWithoutSelectorWaitsForFdv1Data() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch fdv1Built = new CountDownLatch(1);
+        MockQueuedSynchronizer fdv1Sync = new MockQueuedSynchronizer();
+
+        // The initializer returns a payload without a selector, with the directive. The FDv1 fallback synchronizer
+        // sends the results that the test gives it.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.singletonList(() -> new MockInitializer(
+                        FDv2SourceResult.changeSet(makeChangeSet(false), true))),
+                Collections.singletonList(() -> new MockQueuedSynchronizer()),
+                () -> {
+                    fdv1Built.countDown();
+                    return fdv1Sync;
+                },
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ TimeUnit.MINUTES.toMillis(5),
+                /* parkMaxDelayMillis= */ TimeUnit.HOURS.toMillis(1),
+                /* failoverDelayMillis= */ 10,
+                /* fdv1FallbackTtlMillis= */ TimeUnit.HOURS.toMillis(1));
+
+        // Start the data source, and wait until it starts the FDv1 fallback synchronizer.
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(fdv1Built.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        // The payload is applied, but the data source is not ready and has not reported VALID.
+        assertEquals(1, sink.getApplyCount());
+        try {
+            startCallback.await(0);
+            fail("Expected the data source not to be ready");
+        } catch (TimeoutException expected) {
+            // The data source is not ready.
+        }
+        assertFalse(sink.statusEvents.stream().anyMatch(event -> event.state == DataSourceState.VALID));
+
+        // The data from the FDv1 fallback synchronizer makes the data source ready.
+        fdv1Sync.addResult(FDv2SourceResult.changeSet(makeChangeSet(true), false));
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+        assertEquals(DataSourceState.VALID, sink.getLastState());
         stopDataSource(dataSource);
     }
 
