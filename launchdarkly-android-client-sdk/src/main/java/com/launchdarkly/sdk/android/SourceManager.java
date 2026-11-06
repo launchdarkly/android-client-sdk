@@ -1,6 +1,7 @@
 package com.launchdarkly.sdk.android;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.launchdarkly.sdk.android.subsystems.Initializer;
 import com.launchdarkly.sdk.android.subsystems.Synchronizer;
@@ -77,8 +78,21 @@ final class SourceManager implements Closeable {
         }
     }
 
+    /**
+     * Stops parking every synchronizer whose unpark time has arrived.
+     */
+    void unparkExpiredSynchronizers() {
+        synchronized (activeSourceLock) {
+            MonotonicTime now = MonotonicTime.now();
+            for (SynchronizerFactoryWithState s : synchronizerFactories) {
+                s.unparkIfExpired(now);
+            }
+        }
+    }
+
     private SynchronizerFactoryWithState getNextAvailableSynchronizer() {
         SynchronizerFactoryWithState candidate = null;
+        unparkExpiredSynchronizers();
         int visited = 0;
         while (visited < synchronizerFactories.size()) {
             synchronizerIndex++;
@@ -86,7 +100,7 @@ final class SourceManager implements Closeable {
                 synchronizerIndex = 0;
             }
             SynchronizerFactoryWithState c = synchronizerFactories.get(synchronizerIndex);
-            if (c.getState() == SynchronizerFactoryWithState.State.Available) {
+            if (c.isEligible()) {
                 candidate = c;
                 break;
             }
@@ -115,11 +129,12 @@ final class SourceManager implements Closeable {
                     return null;
                 }
                 tried++;
+                // Set before the build, so that a build that throws leaves this synchronizer current.
+                currentSynchronizerFactory = factoryWithState;
                 Synchronizer synchronizer = factoryWithState.build();
                 if (synchronizer == null) {
                     continue;
                 }
-                currentSynchronizerFactory = factoryWithState;
                 if (activeSource != null) {
                     safeClose(activeSource);
                 }
@@ -151,12 +166,41 @@ final class SourceManager implements Closeable {
         return initializers.get(initializerIndex);
     }
 
-    /** Block the current synchronizer so it will not be returned again (e.g. after TERMINAL_ERROR). */
-    void blockCurrentSynchronizer() {
+    /**
+     * Records an unexpected failure of the current synchronizer.
+     *
+     * @return the park count of the current synchronizer, including this failure
+     */
+    int incrementCurrentSynchronizerParkCount() {
         synchronized (activeSourceLock) {
-            if (currentSynchronizerFactory != null) {
-                currentSynchronizerFactory.block();
+            return currentSynchronizerFactory.incrementParkCount();
+        }
+    }
+
+    void parkCurrentSynchronizer(@NonNull MonotonicTime unparkTime) {
+        synchronized (activeSourceLock) {
+            currentSynchronizerFactory.park(unparkTime);
+        }
+    }
+
+    /**
+     * The earliest unpark time of the available synchronizers.
+     *
+     * @return the earliest unpark time, or null if no available synchronizer is parked
+     */
+    @Nullable
+    MonotonicTime getEarliestUnparkTime() {
+        synchronized (activeSourceLock) {
+            MonotonicTime earliest = null;
+            for (SynchronizerFactoryWithState s : synchronizerFactories) {
+                MonotonicTime unparkTime = s.getUnparkTime();
+                if (s.getState() == SynchronizerFactoryWithState.State.Available
+                        && unparkTime != null
+                        && (earliest == null || unparkTime.isBefore(earliest))) {
+                    earliest = unparkTime;
+                }
             }
+            return earliest;
         }
     }
 
@@ -214,6 +258,18 @@ final class SourceManager implements Closeable {
                 }
             }
             return count;
+        }
+    }
+
+    /**
+     * Closes the active source, if there is one.
+     */
+    void closeActiveSource() {
+        synchronized (activeSourceLock) {
+            if (activeSource != null) {
+                safeClose(activeSource);
+                activeSource = null;
+            }
         }
     }
 

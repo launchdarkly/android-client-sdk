@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -72,36 +73,56 @@ public class FDv2DataSourceTest {
         }
     }
 
+    /**
+     * Builds a data source with production timeouts and park delays, and a 10ms failover delay.
+     */
     private FDv2DataSource buildDataSource(
             MockComponents.MockDataSourceUpdateSink sink,
             List<FDv2DataSource.DataSourceFactory<Initializer>> initializers,
             List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizers) {
-        return new FDv2DataSource(
-                CONTEXT,
-                initializers,
-                synchronizers,
-                null,
-                sink,
-                executor,
-                logging.logger);
+        return buildDataSource(sink, initializers, synchronizers, 120_000, 300_000);
     }
 
+    /**
+     * Builds a data source with production park delays, and a 10ms failover delay.
+     */
     private FDv2DataSource buildDataSource(
             MockComponents.MockDataSourceUpdateSink sink,
             List<FDv2DataSource.DataSourceFactory<Initializer>> initializers,
             List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizers,
             long fallbackTimeoutMillis,
             long recoveryTimeoutMillis) {
+        return buildDataSource(sink, initializers, synchronizers, null,
+                fallbackTimeoutMillis,
+                recoveryTimeoutMillis,
+                /* parkInitialDelayMillis= */ TimeUnit.MINUTES.toMillis(5),
+                /* parkMaxDelayMillis= */ TimeUnit.HOURS.toMillis(1),
+                /* failoverDelayMillis= */ 10);
+    }
+
+    private FDv2DataSource buildDataSource(
+            MockComponents.MockDataSourceUpdateSink sink,
+            List<FDv2DataSource.DataSourceFactory<Initializer>> initializers,
+            List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizers,
+            FDv2DataSource.DataSourceFactory<Synchronizer> fdv1FallbackSynchronizer,
+            long fallbackTimeoutMillis,
+            long recoveryTimeoutMillis,
+            long parkInitialDelayMillis,
+            long parkMaxDelayMillis,
+            long failoverDelayMillis) {
         return new FDv2DataSource(
                 CONTEXT,
                 initializers,
                 synchronizers,
-                null,
+                fdv1FallbackSynchronizer,
                 sink,
                 executor,
                 logging.logger,
                 fallbackTimeoutMillis,
-                recoveryTimeoutMillis);
+                recoveryTimeoutMillis,
+                parkInitialDelayMillis,
+                parkMaxDelayMillis,
+                failoverDelayMillis);
     }
 
     /** Starts the data source and returns a callback that will receive the start result. */
@@ -577,8 +598,12 @@ public class FDv2DataSourceTest {
         stopDataSource(dataSource); // should not hang while fallback condition is waiting
     }
 
+    // ============================================================================
+    // Source Parking
+    // ============================================================================
+
     @Test
-    public void terminalErrorBlocksSynchronizer() throws Exception {
+    public void terminalErrorFailsOverToNextSynchronizer() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         BlockingQueue<Integer> callOrder = new LinkedBlockingQueue<>();
 
@@ -607,30 +632,230 @@ public class FDv2DataSourceTest {
     }
 
     @Test
-    public void allThreeSynchronizersFailReportsExhaustion() throws Exception {
+    public void terminalErrorParksSynchronizerAndRestartsItAfterUnparkTime() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger();
 
+        // The first instance fails with a terminal error, and the second instance delivers data.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
-                Arrays.asList(
-                        () -> new MockQueuedSynchronizer(terminalError()),
-                        () -> new MockQueuedSynchronizer(terminalError()),
-                        () -> new MockQueuedSynchronizer(terminalError())));
+                Collections.singletonList(() -> buildCount.incrementAndGet() == 1
+                        ? new MockQueuedSynchronizer(terminalError())
+                        : new MockQueuedSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
 
+        // Start the data source with its only synchronizer.
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        awaitExpectingError(startCallback);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        List<DataSourceState> statuses = sink.awaitStatuses(4, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertEquals(4, statuses.size());
-        assertEquals(DataSourceState.INTERRUPTED, statuses.get(0));
-        assertEquals(DataSourceState.INTERRUPTED, statuses.get(1));
-        assertEquals(DataSourceState.INTERRUPTED, statuses.get(2));
-        assertEquals(DataSourceState.OFF, statuses.get(3));
-        assertNotNull(sink.getLastError());
+        // The parked synchronizer is built again after its unpark time, and its data initializes the data source.
+        assertEquals(2, buildCount.get());
+        assertEquals(DataSourceState.VALID, sink.getLastState());
+        stopDataSource(dataSource);
     }
 
     @Test
-    public void blockedSynchronizerSkippedInRotation() throws Exception {
+    public void failedNextParksSynchronizer() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger();
+
+        // The first instance fails from next(), and the second instance delivers data.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> buildCount.incrementAndGet() == 1
+                        ? new MockSynchronizer(new RuntimeException("next-boom"))
+                        : new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
+
+        // Start the data source with its only synchronizer.
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        // The failing synchronizer is parked, and is built again after its unpark time.
+        assertEquals(2, buildCount.get());
+        awaitLogContains(logging, "Synchronizer 'MockSynchronizer' is backing off for ");
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void exceptionThrownFromNextParksSynchronizer() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger();
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> {
+                    if (buildCount.incrementAndGet() == 1) {
+                        // The first instance throws from next() instead of returning a future.
+                        return new Synchronizer() {
+                            @Override
+                            public LDAwaitFuture<FDv2SourceResult> next() {
+                                throw new RuntimeException("next-boom");
+                            }
+
+                            @Override
+                            public void close() {
+                            }
+                        };
+                    }
+                    // The second instance delivers data.
+                    return new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
+                }),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
+
+        // Start the data source with its only synchronizer.
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        // The throwing synchronizer is parked, and is built again after its unpark time.
+        assertEquals(2, buildCount.get());
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void constructionFailureParksSynchronizer() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger();
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> {
+                    if (buildCount.incrementAndGet() == 1) {
+                        // The first build fails.
+                        throw new RuntimeException("build-boom");
+                    }
+                    // The second build delivers data.
+                    return new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false));
+                }),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
+
+        // Start the data source with its only synchronizer.
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        // The synchronizer that failed to build is parked, and is built again after its unpark time.
+        assertEquals(2, buildCount.get());
+        awaitLogContains(logging, "A synchronizer that failed to build is backing off for ");
+        stopDataSource(dataSource);
+    }
+
+    // A synchronizer that shuts down without being stopped is parked, like one with any other unexpected failure.
+    @Test
+    public void unpromptedShutdownParksSynchronizer() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger();
+
+        // The first instance shuts down, and the second instance delivers data.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> buildCount.incrementAndGet() == 1
+                        ? new MockQueuedSynchronizer(FDv2SourceResult.status(FDv2SourceResult.Status.shutdown(), false))
+                        : new MockQueuedSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false))),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
+
+        // Start the data source with its only synchronizer.
+        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
+        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
+
+        // The synchronizer is built again after its unpark time, and its data initializes the data source.
+        assertEquals(2, buildCount.get());
+        stopDataSource(dataSource);
+    }
+
+    // While every synchronizer is parked, the synchronizer that was parked last is stopped.
+    @Test
+    public void parkedSynchronizerIsClosedWhileAllSynchronizersAreParked() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        CountDownLatch closed = new CountDownLatch(1);
+
+        // The only synchronizer fails with a terminal error, and records when it is closed. It is parked for much
+        // longer than the test.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(terminalError()) {
+                    @Override
+                    public void close() {
+                        closed.countDown();
+                        super.close();
+                    }
+                }));
+
+        // Start the data source.
+        startDataSource(dataSource);
+
+        // The parked synchronizer is closed while it waits for its unpark time.
+        assertTrue(closed.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void allSynchronizersParkedRestartsAfterEarliestUnparkTime() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        BlockingQueue<Integer> buildOrder = new LinkedBlockingQueue<>();
+
+        // Every instance of every synchronizer fails with a terminal error.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> { buildOrder.offer(1); return new MockQueuedSynchronizer(terminalError()); },
+                        () -> { buildOrder.offer(2); return new MockQueuedSynchronizer(terminalError()); },
+                        () -> { buildOrder.offer(3); return new MockQueuedSynchronizer(terminalError()); }),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
+
+        // Start the data source, and wait for each synchronizer to be built and then for one more build.
+        startDataSource(dataSource);
+        Integer firstBuild = buildOrder.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        Integer secondBuild = buildOrder.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        Integer thirdBuild = buildOrder.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        Integer buildAfterAllParked = buildOrder.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        // The synchronizers fail over in order, and a parked synchronizer starts again after all of them are parked.
+        assertEquals(Integer.valueOf(1), firstBuild);
+        assertEquals(Integer.valueOf(2), secondBuild);
+        assertEquals(Integer.valueOf(3), thirdBuild);
+        assertNotNull(buildAfterAllParked);
+
+        // Each park reports INTERRUPTED.
+        List<DataSourceState> statuses = sink.awaitStatuses(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(Arrays.asList(
+                DataSourceState.INTERRUPTED,
+                DataSourceState.INTERRUPTED,
+                DataSourceState.INTERRUPTED), statuses);
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void parkedSynchronizerSkippedInRotation() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         AtomicInteger firstCallCount = new AtomicInteger(0);
         AtomicInteger secondCallCount = new AtomicInteger(0);
@@ -645,23 +870,9 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        assertEquals(1, firstCallCount.get()); // called once then blocked
+        assertEquals(1, firstCallCount.get()); // called once, then parked
         assertTrue(secondCallCount.get() >= 1);
         stopDataSource(dataSource);
-    }
-
-    @Test
-    public void allSynchronizersBlockedReturnsNullAndExits() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Arrays.asList(
-                        () -> new MockQueuedSynchronizer(terminalError()),
-                        () -> new MockQueuedSynchronizer(terminalError())));
-
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        awaitExpectingError(startCallback);
     }
 
     @Test
@@ -1468,17 +1679,14 @@ public class FDv2DataSourceTest {
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(terminalErr), false))));
 
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        awaitExpectingError(startCallback);
+        // Start the data source with a synchronizer that fails with a terminal error.
+        startDataSource(dataSource);
+        DataSourceState status = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
-        DataSourceState first = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertEquals(DataSourceState.INTERRUPTED, first);
-
-        DataSourceState second = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertEquals(DataSourceState.OFF, second);
-
-        assertEquals(DataSourceState.OFF, sink.getLastState());
-        assertNotNull(sink.getLastError());
+        // The data source reports INTERRUPTED with the error from the synchronizer.
+        assertEquals(DataSourceState.INTERRUPTED, status);
+        assertSame(terminalErr, sink.statusEvents.get(0).error);
+        stopDataSource(dataSource);
     }
 
     @Test
@@ -1502,25 +1710,43 @@ public class FDv2DataSourceTest {
     }
 
     @Test
-    public void statusTransitionsFromValidToOffWhenAllSynchronizersFail() throws Exception {
+    public void statusStaysInterruptedWhileOnlySynchronizerIsParked() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         RuntimeException err = new RuntimeException("server error");
+        AtomicInteger buildCount = new AtomicInteger();
+        BlockingQueue<Integer> builds = new LinkedBlockingQueue<>();
 
+        // The first instance sends a changeset and then a terminal error. Later instances send nothing.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                        FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(err), false))));
+                Collections.singletonList(() -> {
+                    int build = buildCount.incrementAndGet();
+                    builds.offer(build);
+                    return build == 1
+                            ? new MockQueuedSynchronizer(
+                                    FDv2SourceResult.changeSet(makeChangeSet(false), false),
+                                    FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(err), false))
+                            : new MockQueuedSynchronizer();
+                }),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
 
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000)); // changeset arrives first, so start succeeds
+        // Start the data source, and wait until the parked synchronizer is built again.
+        startDataSource(dataSource);
+        Integer firstBuild = builds.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        Integer rebuild = builds.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
-        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-        assertEquals(DataSourceState.INTERRUPTED, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-        assertEquals(DataSourceState.OFF, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-
-        assertEquals(DataSourceState.OFF, sink.getLastState());
-        assertNotNull(sink.getLastError());
+        // The status goes from VALID to INTERRUPTED, and stays INTERRUPTED through the park.
+        assertEquals(Integer.valueOf(1), firstBuild);
+        assertEquals(Integer.valueOf(2), rebuild);
+        List<DataSourceState> statuses = sink.awaitStatuses(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(Arrays.asList(DataSourceState.VALID, DataSourceState.INTERRUPTED), statuses);
+        assertEquals(DataSourceState.INTERRUPTED, sink.getLastState());
+        stopDataSource(dataSource);
     }
 
     @Test
@@ -1742,6 +1968,37 @@ public class FDv2DataSourceTest {
 
         assertEquals(1, fdv1BuildCount.get());
 
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void fdv1FallbackSynchronizerIsParkedAndRestartedDuringDirectedFallback() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger fdv1BuildCount = new AtomicInteger();
+
+        // The FDv2 synchronizer reports an interruption that carries the FDv1 fallback directive.
+        // The first instance of the FDv1 fallback synchronizer fails, and the second instance delivers data.
+        // The FDv1 fallback synchronizer is parked for 50-100ms.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> new MockQueuedSynchronizer(
+                        FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(new RuntimeException("500")), true))),
+                () -> fdv1BuildCount.incrementAndGet() == 1
+                        ? new MockQueuedSynchronizer(terminalError())
+                        : new MockQueuedSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
+
+        // Start the data source.
+        startDataSource(dataSource);
+
+        // The FDv1 fallback synchronizer is built again after its unpark time, and its data is applied.
+        sink.awaitApplyCount(1, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(1, sink.getApplyCount());
+        assertEquals(2, fdv1BuildCount.get());
         stopDataSource(dataSource);
     }
 
@@ -2081,29 +2338,34 @@ public class FDv2DataSourceTest {
     }
 
     @Test
-    public void orchestrationLogging_permanentFailure_logsWarn() throws Exception {
+    public void orchestrationLogging_logsSynchronizerParkedAndAllParked() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        BlockingQueue<Integer> builds = new LinkedBlockingQueue<>();
+        // Every instance of the only synchronizer fails with a terminal error. Each build is recorded.
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(terminalError())));
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        awaitExpectingError(startCallback);
-        awaitLogContains(logging,
-                "Synchronizer 'MockQueuedSynchronizer' permanently failed and will not be used again until application restart.");
-    }
+                Collections.singletonList(() -> {
+                    builds.offer(1);
+                    return new MockQueuedSynchronizer(terminalError());
+                }),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 1000,
+                /* failoverDelayMillis= */ 10);
 
-    @Test
-    public void orchestrationLogging_allSynchronizersExhausted_logsWarn() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Arrays.asList(
-                        () -> new MockQueuedSynchronizer(terminalError()),
-                        () -> new MockQueuedSynchronizer(terminalError()),
-                        () -> new MockQueuedSynchronizer(terminalError())));
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        awaitExpectingError(startCallback);
-        awaitLogContains(logging, "No more synchronizers available.");
+        // Start the data source, and wait until the parked synchronizer is built again.
+        startDataSource(dataSource);
+        builds.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(builds.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        // The data source logs the park, and logs that every synchronizer is parked.
+        awaitLogContains(logging, "Synchronizer 'MockQueuedSynchronizer' is starting.");
+        awaitLogContains(logging, "Synchronizer 'MockQueuedSynchronizer' reported status: TERMINAL_ERROR.");
+        awaitLogContains(logging, "Synchronizer 'MockQueuedSynchronizer' is backing off for ");
+        awaitLogContains(logging, "All synchronizers are backing off for at least ");
+        stopDataSource(dataSource);
     }
 
     @Test
