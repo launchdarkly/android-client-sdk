@@ -779,6 +779,10 @@ final class FDv2DataSource implements DataSource {
                             // The pending result has arrived.
                             nextFuture = null;
 
+                            if (result.isResetThresholdMet()) {
+                                sourceManager.resetCurrentSynchronizerParkCount();
+                            }
+
                             switch (result.getResultType()) {
                                 case CHANGE_SET:
                                     resetSynchronizerStatusDedupe();

@@ -231,6 +231,12 @@ final class SourceManager implements Closeable {
         }
     }
 
+    void resetCurrentSynchronizerParkCount() {
+        synchronized (activeSourceLock) {
+            currentSynchronizerFactory.resetParkCount();
+        }
+    }
+
     void parkCurrentSynchronizer(@NonNull MonotonicTime unparkTime) {
         synchronized (activeSourceLock) {
             currentSynchronizerFactory.park(unparkTime);

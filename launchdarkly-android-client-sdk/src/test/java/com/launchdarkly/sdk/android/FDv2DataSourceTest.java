@@ -885,6 +885,48 @@ public class FDv2DataSourceTest {
     }
 
     @Test
+    public void resetThresholdMetReturnsParkDelayToBase() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        AtomicInteger buildCount = new AtomicInteger();
+        BlockingQueue<Long> buildTimes = new LinkedBlockingQueue<>();
+
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Collections.singletonList(() -> {
+                    buildTimes.offer(System.nanoTime());
+                    if (buildCount.incrementAndGet() == 3) {
+                        // The third instance reports that it met its reset threshold before it fails.
+                        return new MockQueuedSynchronizer(
+                                FDv2SourceResult.changeSet(makeChangeSet(true), false).withResetThresholdMet(),
+                                terminalError());
+                    }
+                    // Every instance fails with a terminal error.
+                    return new MockQueuedSynchronizer(terminalError());
+                }),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ 100,
+                /* parkMaxDelayMillis= */ 10_000,
+                /* failoverDelayMillis= */ 10,
+                /* fdv1FallbackTtlMillis= */ TimeUnit.HOURS.toMillis(1));
+
+        // Start the data source, and record when the synchronizer is built for the third and fourth times.
+        startDataSource(dataSource);
+        buildTimes.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        buildTimes.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        Long thirdBuild = buildTimes.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        Long fourthBuild = buildTimes.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        // After the reset, the park is at most the base delay. Without the reset, it would be at least twice the base.
+        assertNotNull(thirdBuild);
+        assertNotNull(fourthBuild);
+        long parkMillis = TimeUnit.NANOSECONDS.toMillis(fourthBuild - thirdBuild);
+        assertTrue("park lasted " + parkMillis + "ms", parkMillis < 200);
+        stopDataSource(dataSource);
+    }
+
+    @Test
     public void recoveryResetsToFirstAvailableSynchronizer() throws Exception {
         MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
         AtomicInteger firstCallCount = new AtomicInteger(0);
