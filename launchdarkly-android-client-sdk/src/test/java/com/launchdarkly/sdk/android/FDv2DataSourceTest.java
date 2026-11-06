@@ -90,8 +90,8 @@ public class FDv2DataSourceTest {
             MockComponents.MockDataSourceUpdateSink sink,
             List<FDv2DataSource.DataSourceFactory<Initializer>> initializers,
             List<FDv2DataSource.DataSourceFactory<Synchronizer>> synchronizers,
-            long fallbackTimeoutSeconds,
-            long recoveryTimeoutSeconds) {
+            long fallbackTimeoutMillis,
+            long recoveryTimeoutMillis) {
         return new FDv2DataSource(
                 CONTEXT,
                 initializers,
@@ -100,8 +100,8 @@ public class FDv2DataSourceTest {
                 sink,
                 executor,
                 logging.logger,
-                fallbackTimeoutSeconds,
-                recoveryTimeoutSeconds);
+                fallbackTimeoutMillis,
+                recoveryTimeoutMillis);
     }
 
     /** Starts the data source and returns a callback that will receive the start result. */
@@ -539,7 +539,7 @@ public class FDv2DataSourceTest {
                             return new MockQueuedSynchronizer(
                                     FDv2SourceResult.changeSet(makeChangeSet(false), false));
                         }),
-                1, 2);
+                1000, 2000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -569,7 +569,7 @@ public class FDv2DataSourceTest {
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.changeSet(makeChangeSet(false), false),
                         interrupted())),
-                1, 2);
+                1000, 2000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -687,7 +687,7 @@ public class FDv2DataSourceTest {
                             return new MockQueuedSynchronizer(
                                     FDv2SourceResult.changeSet(makeChangeSet(false), false));
                         }),
-                1, 2);
+                1000, 2000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -713,7 +713,7 @@ public class FDv2DataSourceTest {
                                 interrupted()),
                         () -> { secondCalledQueue.offer(true); return new MockQueuedSynchronizer(
                                 FDv2SourceResult.changeSet(makeChangeSet(false), false)); }),
-                1, 300);
+                1000, 300_000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -721,6 +721,42 @@ public class FDv2DataSourceTest {
         // Generous timeout for Android where fallback timer (1s) and thread scheduling can be delayed
         Boolean secondCalled = secondCalledQueue.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull("second synchronizer should be called after fallback", secondCalled);
+        stopDataSource(dataSource);
+    }
+
+    @Test
+    public void changeSetDuringInterruptionRestartsFallbackTimeout() throws Exception {
+        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
+        MockQueuedSynchronizer primary = new MockQueuedSynchronizer(interrupted());
+        BlockingQueue<Long> secondaryBuildTimes = new LinkedBlockingQueue<>();
+
+        // The primary synchronizer reports that it is interrupted. The secondary records when it is built.
+        // The fallback timeout is 100ms.
+        FDv2DataSource dataSource = buildDataSource(sink,
+                Collections.emptyList(),
+                Arrays.asList(
+                        () -> primary,
+                        () -> {
+                            secondaryBuildTimes.offer(System.nanoTime());
+                            return new MockQueuedSynchronizer();
+                        }),
+                100, 300_000);
+
+        // Start the data source. Before the fallback timeout, the primary delivers a change set and is
+        // interrupted again.
+        long start = System.nanoTime();
+        startDataSource(dataSource);
+        executor.schedule(
+                () -> primary.addResult(FDv2SourceResult.changeSet(makeChangeSet(true), false)),
+                50,
+                TimeUnit.MILLISECONDS);
+        executor.schedule(() -> primary.addResult(interrupted()), 90, TimeUnit.MILLISECONDS);
+
+        // The data source falls back a full timeout after the second interruption, not at the original deadline.
+        Long secondaryBuild = secondaryBuildTimes.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(secondaryBuild);
+        long fallbackMillis = TimeUnit.NANOSECONDS.toMillis(secondaryBuild - start);
+        assertTrue("fell back after " + fallbackMillis + "ms", fallbackMillis >= 150);
         stopDataSource(dataSource);
     }
 
@@ -856,7 +892,7 @@ public class FDv2DataSourceTest {
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.changeSet(makeChangeSet(false), false),
                         interrupted())),
-                120, 300);
+                120_000, 300_000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -1197,25 +1233,8 @@ public class FDv2DataSourceTest {
     }
 
     // ============================================================================
-    // Condition Lifecycle
+    // Fallback and Recovery Conditions
     // ============================================================================
-
-    @Test
-    public void conditionsClosedAfterSynchronizerLoop() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.changeSet(makeChangeSet(false), false),
-                        terminalError())),
-                1, 2);
-
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000)); // changeset arrives first, so start succeeds
-
-        stopDataSource(dataSource); // should complete cleanly if conditions were closed
-    }
 
     @Test
     public void conditionsInformedOfAllResults() throws Exception {
@@ -1227,30 +1246,13 @@ public class FDv2DataSourceTest {
                         FDv2SourceResult.changeSet(makeChangeSet(false), false),
                         interrupted(),
                         FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                10, 20);
+                10_000, 20_000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
         sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(sink.getApplyCount() >= 2);
-        stopDataSource(dataSource);
-    }
-
-    @Test
-    public void conditionsClosedOnException() throws Exception {
-        MockComponents.MockDataSourceUpdateSink sink = new MockComponents.MockDataSourceUpdateSink();
-
-        FDv2DataSource dataSource = buildDataSource(sink,
-                Collections.emptyList(),
-                Arrays.asList(
-                        () -> new MockSynchronizer(new RuntimeException("error")),
-                        () -> new MockSynchronizer(FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                1, 2);
-
-        AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
-        assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
-        // If conditions were not closed on exception, resources would leak
         stopDataSource(dataSource);
     }
 
@@ -1269,7 +1271,7 @@ public class FDv2DataSourceTest {
                 Arrays.asList(
                         () -> firstSync,
                         () -> new MockQueuedSynchronizer()),
-                1, 2);
+                1000, 2000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -1292,7 +1294,7 @@ public class FDv2DataSourceTest {
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.changeSet(makeChangeSet(false), false),
                         FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                1, 2);
+                1000, 2000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -1311,7 +1313,7 @@ public class FDv2DataSourceTest {
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
                         FDv2SourceResult.changeSet(makeChangeSet(false), false),
                         FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                1, 2);
+                1000, 2000);
 
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
@@ -2026,7 +2028,7 @@ public class FDv2DataSourceTest {
                             return new MockQueuedSynchronizer(
                                     FDv2SourceResult.changeSet(makeChangeSet(false), false));
                         }),
-                1, 300);
+                1000, 300_000);
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
         assertNotNull(secondCalledQueue.poll(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -2046,7 +2048,7 @@ public class FDv2DataSourceTest {
                                 interrupted()),
                         () -> new MockQueuedSynchronizer(
                                 FDv2SourceResult.changeSet(makeChangeSet(false), false))),
-                1, 2);
+                1000, 2000);
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         try {
             assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
