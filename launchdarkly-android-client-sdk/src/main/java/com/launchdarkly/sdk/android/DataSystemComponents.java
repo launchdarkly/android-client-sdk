@@ -141,8 +141,9 @@ public abstract class DataSystemComponents {
                     StandardEndpoints.FDV2_STREAMING_REQUEST_BASE_PATH,
                     requestor,
                     initialReconnectDelayMillis,
+                    FDv2StreamingSynchronizer.RESET_THRESHOLD_MILLIS,
                     inputs.isEvaluationReasons(), inputs.getHttp().shouldUsePost(),
-                    httpProps, inputs.getSharedExecutor(),
+                    httpProps, inputs.getSharedExecutor(), inputs.getSharedExecutor(),
                     inputs.getBaseLogger(), null);
         }
     }

@@ -3,6 +3,7 @@ package com.launchdarkly.sdk.android;
 import com.launchdarkly.logging.LDLogger;
 import com.launchdarkly.sdk.LDContext;
 import com.launchdarkly.sdk.LDValue;
+import com.launchdarkly.sdk.fdv2.ChangeSetType;
 import com.launchdarkly.sdk.fdv2.Selector;
 import com.launchdarkly.sdk.fdv2.SourceResultType;
 import com.launchdarkly.sdk.fdv2.SourceSignal;
@@ -24,6 +25,7 @@ import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -39,10 +41,12 @@ public class FDv2StreamingSynchronizerTest {
     public Timeout globalTimeout = Timeout.seconds(10);
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     @After
     public void tearDown() {
         executor.shutdownNow();
+        scheduler.shutdownNow();
     }
 
     private static final LDContext CONTEXT = LDContext.create("test-context");
@@ -82,10 +86,12 @@ public class FDv2StreamingSynchronizerTest {
                 STREAM_PATH,
                 null,
                 100,
+                FDv2StreamingSynchronizer.RESET_THRESHOLD_MILLIS,
                 false,
                 false,
                 httpProperties(),
                 executor,
+                scheduler,
                 LOGGER,
                 diagnosticStore);
     }
@@ -95,8 +101,18 @@ public class FDv2StreamingSynchronizerTest {
             boolean evaluationReasons, boolean usePost) {
         return new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
-                null, 100, evaluationReasons, usePost,
-                httpProperties(), executor, LOGGER, null);
+                null, 100, FDv2StreamingSynchronizer.RESET_THRESHOLD_MILLIS, evaluationReasons, usePost,
+                httpProperties(), executor, scheduler, LOGGER, null);
+    }
+
+    private FDv2StreamingSynchronizer makeSynchronizer(
+            URI streamBaseUri,
+            int initialReconnectDelayMillis,
+            long resetThresholdMillis) {
+        return new FDv2StreamingSynchronizer(
+                CONTEXT, EMPTY_SELECTOR_SOURCE, streamBaseUri, STREAM_PATH,
+                null, initialReconnectDelayMillis, resetThresholdMillis, false, false,
+                httpProperties(), executor, scheduler, LOGGER, null);
     }
 
     private static DiagnosticStore basicDiagnosticStore() {
@@ -180,6 +196,104 @@ public class FDv2StreamingSynchronizerTest {
 
             // Shutdown after receiving a changeset should still work cleanly
             sync.close();
+        }
+    }
+
+    // ---- reset threshold ----
+
+    @Test
+    public void resetThresholdMetIsReportedAfterStreamStaysHealthy() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.all(
+                Handlers.SSE.start(),
+                Handlers.SSE.event(serverIntent),
+                Handlers.SSE.event(payloadTransferred),
+                Handlers.SSE.leaveOpen()))) {
+
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), 100, 100);
+
+            try {
+                // Read the first valid result, then the result that follows while the stream stays open.
+                FDv2SourceResult changeSet = nextChangeSet(sync, "change set");
+                FDv2SourceResult reset = sync.next().get(5, TimeUnit.SECONDS);
+
+                // After the stream stays healthy for the threshold, it reports that the reset threshold was met,
+                // with no changes.
+                assertFalse(changeSet.isResetThresholdMet());
+                assertEquals(SourceResultType.CHANGE_SET, reset.getResultType());
+                assertEquals(ChangeSetType.None, reset.getChangeSet().getType());
+                assertTrue(reset.isResetThresholdMet());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    @Test
+    public void streamFailureCancelsPendingResetThresholdReport() throws Exception {
+        String serverIntent = makeEvent("server-intent", "{\"payloads\":[{\"id\":\"payload-1\",\"target\":100,\"intentCode\":\"xfer-full\",\"reason\":\"payload-missing\"}]}");
+        String payloadTransferred = makeEvent("payload-transferred", "{\"state\":\"(p:payload-1:100)\",\"version\":100}");
+
+        try (HttpServer server = HttpServer.start(Handlers.sequential(
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred)),
+                Handlers.all(
+                        Handlers.SSE.start(),
+                        Handlers.SSE.event(serverIntent),
+                        Handlers.SSE.event(payloadTransferred),
+                        Handlers.SSE.leaveOpen())))) {
+
+            // The reconnect delay is longer than the reset threshold, even with jitter, so a reset from the
+            // first stream would arrive before the second stream connects.
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), 1000, 250);
+
+            try {
+                // Read the results of a stream that ends after one change set, then of a second stream that stays
+                // open.
+                FDv2SourceResult firstStreamChangeSet = sync.next().get(5, TimeUnit.SECONDS);
+                FDv2SourceResult failure = sync.next().get(5, TimeUnit.SECONDS);
+                FDv2SourceResult secondStreamChangeSet = sync.next().get(5, TimeUnit.SECONDS);
+                FDv2SourceResult reset = sync.next().get(5, TimeUnit.SECONDS);
+
+                // The failure cancels the first stream's timer, so the only report follows the second stream's
+                // change set.
+                assertEquals(SourceResultType.CHANGE_SET, firstStreamChangeSet.getResultType());
+                assertFalse(firstStreamChangeSet.isResetThresholdMet());
+                assertEquals(SourceSignal.INTERRUPTED, failure.getStatus().getState());
+                assertEquals(SourceResultType.CHANGE_SET, secondStreamChangeSet.getResultType());
+                assertFalse(secondStreamChangeSet.isResetThresholdMet());
+                assertTrue(reset.isResetThresholdMet());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
+    // ---- unexpected exceptions ----
+
+    @Test
+    public void unexpectedExceptionOnStreamThreadIsTerminal() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.SSE.start())) {
+            // The selector source throws when the stream connects, which ends the stream thread.
+            SelectorSource selectorSource = () -> {
+                throw new IllegalStateException("unexpected");
+            };
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), selectorSource);
+
+            try {
+                // Start the stream.
+                FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+                // The stream thread cannot recover, so the failure is terminal for this synchronizer.
+                assertEquals(SourceResultType.STATUS, result.getResultType());
+                assertEquals(SourceSignal.TERMINAL_ERROR, result.getStatus().getState());
+            } finally {
+                sync.close();
+            }
         }
     }
 
@@ -1131,8 +1245,8 @@ public class FDv2StreamingSynchronizerTest {
 
             FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
                     CONTEXT, EMPTY_SELECTOR_SOURCE, streamServer.getUri(), STREAM_PATH,
-                    requestor, 100, false, false,
-                    httpProperties(), executor, LOGGER, null);
+                    requestor, 100, FDv2StreamingSynchronizer.RESET_THRESHOLD_MILLIS, false, false,
+                    httpProperties(), executor, scheduler, LOGGER, null);
 
             try {
                 Future<FDv2SourceResult> resultFuture = sync.next();
@@ -1171,8 +1285,8 @@ public class FDv2StreamingSynchronizerTest {
 
         FDv2StreamingSynchronizer sync = new FDv2StreamingSynchronizer(
                 CONTEXT, EMPTY_SELECTOR_SOURCE, URI.create("http://localhost:9999/"), STREAM_PATH,
-                trackingRequestor, 100, false, false,
-                httpProperties(), executor, LOGGER, null);
+                trackingRequestor, 100, FDv2StreamingSynchronizer.RESET_THRESHOLD_MILLIS, false, false,
+                httpProperties(), executor, scheduler, LOGGER, null);
 
         assertFalse(requestorClosed.get());
         sync.close();

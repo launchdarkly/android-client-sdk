@@ -134,8 +134,12 @@ public abstract class MockComponents {
 
         @Override
         public void setStatus(@NonNull DataSourceState state, @Nullable Throwable failure) {
+            // Queue only a new state or a new error. statusEvents records every status, including repeats.
+            DataSourceState oldState = getLastState();
             statusEvents.add(new StatusEvent(state, failure));
-            statusUpdates.offer(state);
+            if (state != oldState || failure != null) {
+                statusUpdates.offer(state);
+            }
         }
 
         public volatile boolean shutDownCalled = false;
