@@ -713,6 +713,9 @@ final class FDv2DataSource implements DataSource {
                     MonotonicTime recoveryTime = canRecover
                             ? MonotonicTime.now().plusMillis(recoveryTimeoutMillis) : null;
                     MonotonicTime fallbackTime = null;
+                    // True once the loop has seen the deadline pass.
+                    boolean recoveryMet = false;
+                    boolean fallbackMet = false;
                     // The result the loop is waiting for, or null if it has not asked the synchronizer for one.
                     Future<FDv2SourceResult> nextFuture = null;
                     while (running) {
@@ -720,8 +723,12 @@ final class FDv2DataSource implements DataSource {
                             nextFuture = synchronizer.next();
                         }
 
-                        // Wait for the next result, or for the next deadline.
-                        if (awaitUntil(nextFuture, earliest(recoveryTime, fallbackTime))) {
+                        // Wait for the next result, or for the next deadline that the loop has not seen pass.
+                        MonotonicTime wakeTime = earliest(
+                                recoveryMet ? null : recoveryTime,
+                                fallbackMet ? null : fallbackTime,
+                                sourceManager.getEarliestUnparkTime());
+                        if (awaitUntil(nextFuture, wakeTime)) {
                             FDv2SourceResult result = nextFuture.get();
                             // The pending result has arrived.
                             nextFuture = null;
@@ -731,6 +738,7 @@ final class FDv2DataSource implements DataSource {
                                     resetSynchronizerStatusDedupe();
                                     // The synchronizer is healthy, so it no longer needs to fall back.
                                     fallbackTime = null;
+                                    fallbackMet = false;
                                     ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                                     if (changeSet != null) {
                                         sink.apply(context, changeSet);
@@ -809,9 +817,16 @@ final class FDv2DataSource implements DataSource {
                             break;
                         }
 
-                        // Check each deadline against the current time. Recovery takes precedence over fallback.
+                        // Check every deadline against the current time.
                         MonotonicTime now = MonotonicTime.now();
-                        if (recoveryTime != null && !now.isBefore(recoveryTime)) {
+                        sourceManager.unparkExpiredSynchronizers();
+                        boolean recoveryJustMet = !recoveryMet && recoveryTime != null && !now.isBefore(recoveryTime);
+                        boolean fallbackJustMet = !fallbackMet && fallbackTime != null && !now.isBefore(fallbackTime);
+                        recoveryMet = recoveryMet || recoveryJustMet;
+                        fallbackMet = fallbackMet || fallbackJustMet;
+
+                        // Recovery takes precedence over fallback.
+                        if (recoveryMet && sourceManager.hasMorePreferredAvailableSynchronizer()) {
                             // For recovery, start the search for the next synchronizer at the first one.
                             sourceManager.resetSourceIndex();
                             logger.info(
@@ -820,12 +835,26 @@ final class FDv2DataSource implements DataSource {
                             );
                             break;
                         }
-                        if (fallbackTime != null && !now.isBefore(fallbackTime)) {
+                        if (fallbackMet && sourceManager.hasOtherAvailableSynchronizer()) {
                             logger.info(
                                     "Fallback condition met, falling back from synchronizer '{}'.",
                                     synchronizer.name()
                             );
                             break;
+                        }
+
+                        // Keep running this synchronizer.
+                        if (fallbackJustMet) {
+                            logger.info(
+                                    "Fallback condition met, but no other synchronizer is available; continuing with synchronizer '{}'.",
+                                    synchronizer.name()
+                            );
+                        }
+                        if (recoveryJustMet) {
+                            logger.info(
+                                    "Recovery condition met, but no more-preferred synchronizer is available; continuing with synchronizer '{}'.",
+                                    synchronizer.name()
+                            );
                         }
                     }
                 } catch (ExecutionException | RuntimeException e) {
