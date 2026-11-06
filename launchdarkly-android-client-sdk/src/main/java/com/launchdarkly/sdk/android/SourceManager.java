@@ -32,6 +32,12 @@ final class SourceManager implements Closeable {
 
     private SynchronizerFactoryWithState currentSynchronizerFactory;
 
+    /**
+     * The time at which the fallback to FDv1 ends, or null if the SDK is not falling back to FDv1. Accessed only
+     * under activeSourceLock.
+     */
+    private MonotonicTime fdv1FallbackEndTime;
+
     SourceManager(
             @NonNull List<SynchronizerFactoryWithState> synchronizerFactories,
             @NonNull List<FDv2DataSource.DataSourceFactory<Initializer>> initializers
@@ -60,13 +66,25 @@ final class SourceManager implements Closeable {
         return false;
     }
 
+    boolean hasFDv2Synchronizers() {
+        for (SynchronizerFactoryWithState s : synchronizerFactories) {
+            if (!s.isFDv1Fallback()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Block all non-FDv1 synchronizers, unblock the FDv1 fallback, and reset the
      * synchronizer index so the next {@link #getNextAvailableSynchronizerAndSetActive()}
-     * picks the now-unblocked FDv1 slot.
+     * picks the now-unblocked FDv1 slot. The fallback lasts until the given time.
+     *
+     * @param endTime the time at which the fallback to FDv1 ends
      */
-    void fdv1Fallback() {
+    void startFDv1Fallback(@NonNull MonotonicTime endTime) {
         synchronized (activeSourceLock) {
+            fdv1FallbackEndTime = endTime;
             for (SynchronizerFactoryWithState s : synchronizerFactories) {
                 if (s.isFDv1Fallback()) {
                     s.unblock();
@@ -75,6 +93,42 @@ final class SourceManager implements Closeable {
                 }
             }
             synchronizerIndex = -1;
+        }
+    }
+
+    /**
+     * The time at which the fallback to FDv1 ends.
+     *
+     * @return the end time, or null if the SDK is not falling back to FDv1
+     */
+    @Nullable
+    MonotonicTime getFDv1FallbackEndTime() {
+        synchronized (activeSourceLock) {
+            return fdv1FallbackEndTime;
+        }
+    }
+
+    /**
+     * Ends the fallback to FDv1 if its end time has arrived. This unblocks the FDv2 synchronizers, blocks the FDv1
+     * fallback, and starts the search for the next synchronizer from the most-preferred one.
+     *
+     * @return true if the fallback ended
+     */
+    boolean endFDv1FallbackIfExpired() {
+        synchronized (activeSourceLock) {
+            if (fdv1FallbackEndTime == null || MonotonicTime.now().isBefore(fdv1FallbackEndTime)) {
+                return false;
+            }
+            fdv1FallbackEndTime = null;
+            for (SynchronizerFactoryWithState s : synchronizerFactories) {
+                if (s.isFDv1Fallback()) {
+                    s.block();
+                } else {
+                    s.unblock();
+                }
+            }
+            synchronizerIndex = -1;
+            return true;
         }
     }
 

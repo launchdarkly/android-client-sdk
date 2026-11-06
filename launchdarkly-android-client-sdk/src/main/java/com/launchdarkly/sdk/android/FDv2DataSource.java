@@ -81,6 +81,11 @@ final class FDv2DataSource implements DataSource {
      */
     private static final long DEFAULT_FAILOVER_DELAY_MILLIS = TimeUnit.SECONDS.toMillis(1);
 
+    /**
+     * Default duration of a fallback to FDv1, when the directive does not give one.
+     */
+    private static final long DEFAULT_FDV1_FALLBACK_TTL_MILLIS = TimeUnit.HOURS.toMillis(1);
+
     private final List<DataSourceFactory<Initializer>> cacheInitializers;
     private final SourceManager sourceManager;
     private final long fallbackTimeoutMillis;
@@ -88,6 +93,7 @@ final class FDv2DataSource implements DataSource {
     private final long parkInitialDelayMillis;
     private final long parkMaxDelayMillis;
     private final long failoverDelayMillis;
+    private final long defaultFDv1FallbackTtlMillis;
     private final ScheduledExecutorService sharedExecutor;
 
     private final AtomicBoolean startCalled = new AtomicBoolean(false);
@@ -111,7 +117,7 @@ final class FDv2DataSource implements DataSource {
     /**
      * Convenience constructor using default timeouts and delays.
      * See {@link #FDv2DataSource(LDContext, List, List, DataSourceFactory, DataSourceUpdateSinkV2,
-     * ScheduledExecutorService, LDLogger, long, long, long, long, long)} for parameter documentation.
+     * ScheduledExecutorService, LDLogger, long, long, long, long, long, long)} for parameter documentation.
      */
     FDv2DataSource(
             @NonNull LDContext evaluationContext,
@@ -128,7 +134,8 @@ final class FDv2DataSource implements DataSource {
                 DEFAULT_RECOVERY_TIMEOUT_MILLIS,
                 DEFAULT_PARK_INITIAL_DELAY_MILLIS,
                 DEFAULT_PARK_MAX_DELAY_MILLIS,
-                DEFAULT_FAILOVER_DELAY_MILLIS);
+                DEFAULT_FAILOVER_DELAY_MILLIS,
+                DEFAULT_FDV1_FALLBACK_TTL_MILLIS);
     }
 
     /**
@@ -150,6 +157,7 @@ final class FDv2DataSource implements DataSource {
      * @param parkInitialDelayMillis     base of the park delay, in milliseconds
      * @param parkMaxDelayMillis         maximum of the park delay, in milliseconds
      * @param failoverDelayMillis        base of the failover delay, in milliseconds
+     * @param defaultFDv1FallbackTtlMillis duration of a fallback to FDv1, in milliseconds
      */
     FDv2DataSource(
             @NonNull LDContext evaluationContext,
@@ -163,7 +171,8 @@ final class FDv2DataSource implements DataSource {
             long recoveryTimeoutMillis,
             long parkInitialDelayMillis,
             long parkMaxDelayMillis,
-            long failoverDelayMillis
+            long failoverDelayMillis,
+            long defaultFDv1FallbackTtlMillis
     ) {
         this.evaluationContext = evaluationContext;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
@@ -194,6 +203,7 @@ final class FDv2DataSource implements DataSource {
         this.parkInitialDelayMillis = parkInitialDelayMillis;
         this.parkMaxDelayMillis = parkMaxDelayMillis;
         this.failoverDelayMillis = failoverDelayMillis;
+        this.defaultFDv1FallbackTtlMillis = defaultFDv1FallbackTtlMillis;
         this.sharedExecutor = sharedExecutor;
     }
 
@@ -243,7 +253,7 @@ final class FDv2DataSource implements DataSource {
                     runGeneralInitializers(context, dataSourceUpdateSink);
                 }
 
-                if (!sourceManager.hasAvailableSynchronizers()) {
+                if (!sourceManager.hasFDv2Synchronizers() && !sourceManager.hasAvailableSynchronizers()) {
                     if (!startCompleted.get()) {
                         // try to claim this is the cause of the shutdown, but it might have already been set by an intentional stop().
                         shutdownCause.set(new LDFailure("All initializers exhausted and there are no available synchronizers.", LDFailure.FailureType.UNKNOWN_ERROR));
@@ -419,7 +429,7 @@ final class FDv2DataSource implements DataSource {
                 // FDv1 fallback takes priority over all other result processing.
                 // The spec requires honoring the fallback signal from any response,
                 // regardless of whether data was included or what the selector state is.
-                if (result.isFdv1Fallback() && sourceManager.hasFDv1Fallback()) {
+                if (result.isFdv1Fallback()) {
                     if (result.getResultType() == SourceResultType.CHANGE_SET) {
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
@@ -427,12 +437,14 @@ final class FDv2DataSource implements DataSource {
                             anyDataReceived = true;
                         }
                     }
-                    logger.info(FDV1_FALLBACK_MESSAGE);
-                    sourceManager.fdv1Fallback();
                     if (anyDataReceived) {
                         sink.setStatus(DataSourceState.VALID, null);
                         tryCompleteStart(true, null);
                     }
+                    fallBackToFDv1(
+                            sink,
+                            jittered(defaultFDv1FallbackTtlMillis),
+                            result.getStatus() != null ? result.getStatus().getError() : null);
                     return;
                 }
 
@@ -613,9 +625,33 @@ final class FDv2DataSource implements DataSource {
     }
 
     /**
-     * Gets the next available synchronizer, builds it, and sets it active. While no synchronizer is available, this
-     * waits for the earliest unpark time. A synchronizer that fails to build is parked, and the next available
-     * synchronizer is tried after the failover delay.
+     * Falls back to FDv1 for the given time. If no FDv1 fallback synchronizer is configured, no synchronizer runs
+     * until the fallback ends.
+     *
+     * @param sink             the sink for status updates
+     * @param fallbackTtlMillis how long the fallback lasts, in milliseconds
+     * @param error            the error that came with the directive, or null
+     */
+    private void fallBackToFDv1(
+            @NonNull DataSourceUpdateSinkV2 sink,
+            long fallbackTtlMillis,
+            @Nullable Throwable error
+    ) {
+        sourceManager.startFDv1Fallback(MonotonicTime.now().plusMillis(fallbackTtlMillis));
+        if (sourceManager.hasFDv1Fallback()) {
+            logger.info(FDV1_FALLBACK_MESSAGE);
+        } else {
+            logger.warn("Fallback to FDv1 was requested, but no FDv1 fallback synchronizer is configured.");
+            sink.setStatus(DataSourceState.INTERRUPTED, error);
+        }
+        logger.info("FDv2 retry scheduled in {}s.", TimeUnit.MILLISECONDS.toSeconds(fallbackTtlMillis));
+    }
+
+    /**
+     * Gets the next available synchronizer, builds it, and sets it active. If the FDv1 fallback has expired, this
+     * first makes the FDv2 synchronizers available again. While no synchronizer is available, this waits for the
+     * earliest unpark time or the end of the FDv1 fallback, whichever comes first. A synchronizer that fails to build
+     * is parked, and the next available synchronizer is tried after the failover delay.
      *
      * @param sink the sink for status updates
      * @return the active synchronizer, or null if the data source was stopped
@@ -623,6 +659,9 @@ final class FDv2DataSource implements DataSource {
     @Nullable
     private Synchronizer buildNextAvailableSynchronizer(@NonNull DataSourceUpdateSinkV2 sink) {
         while (!stopCalled.get()) {
+            if (sourceManager.endFDv1FallbackIfExpired()) {
+                logger.info("Fallback TTL elapsed, restarting FDv2 data sources.");
+            }
             Synchronizer synchronizer;
             try {
                 synchronizer = sourceManager.getNextAvailableSynchronizerAndSetActive();
@@ -642,14 +681,20 @@ final class FDv2DataSource implements DataSource {
             }
 
             MonotonicTime earliestUnparkTime = sourceManager.getEarliestUnparkTime();
+            MonotonicTime fallbackEndTime = sourceManager.getFDv1FallbackEndTime();
             long waitMillis;
-            if (earliestUnparkTime == null) {
+            if (earliestUnparkTime == null && fallbackEndTime == null) {
                 // This should never happen.
                 waitMillis = parkInitialDelayMillis;
                 logger.error("No synchronizer can be started; checking again in {}s.",
                         TimeUnit.MILLISECONDS.toSeconds(waitMillis));
+            } else if (earliestUnparkTime == null) {
+                waitMillis = TimeUnit.NANOSECONDS.toMillis(MonotonicTime.now().nanosUntil(fallbackEndTime));
+                logger.warn("No synchronizer is available until the FDv1 fallback ends in {}s.",
+                        Math.max(0, TimeUnit.MILLISECONDS.toSeconds(waitMillis)));
             } else {
-                waitMillis = TimeUnit.NANOSECONDS.toMillis(MonotonicTime.now().nanosUntil(earliestUnparkTime));
+                MonotonicTime earliest = earliest(earliestUnparkTime, fallbackEndTime);
+                waitMillis = TimeUnit.NANOSECONDS.toMillis(MonotonicTime.now().nanosUntil(earliest));
                 logger.warn("All synchronizers are backing off for at least {}s.",
                         Math.max(0, TimeUnit.MILLISECONDS.toSeconds(waitMillis)));
             }
@@ -727,7 +772,8 @@ final class FDv2DataSource implements DataSource {
                         MonotonicTime wakeTime = earliest(
                                 recoveryMet ? null : recoveryTime,
                                 fallbackMet ? null : fallbackTime,
-                                sourceManager.getEarliestUnparkTime());
+                                sourceManager.getEarliestUnparkTime(),
+                                sourceManager.getFDv1FallbackEndTime());
                         if (awaitUntil(nextFuture, wakeTime)) {
                             FDv2SourceResult result = nextFuture.get();
                             // The pending result has arrived.
@@ -803,14 +849,23 @@ final class FDv2DataSource implements DataSource {
                             // whether the synchronizer is still running — a terminal error
                             // response can still carry the fallback header, and the server's
                             // instruction to use FDv1 should take precedence.
-                            if (result.isFdv1Fallback()
-                                    && sourceManager.hasFDv1Fallback()
-                                    && !sourceManager.isCurrentSynchronizerFDv1Fallback()) {
-                                logger.info(FDV1_FALLBACK_MESSAGE);
-                                sourceManager.fdv1Fallback();
-                                // The directive takes over, so there is no failover delay after a park.
-                                parked = false;
-                                running = false;
+                            if (result.isFdv1Fallback()) {
+                                if (sourceManager.isCurrentSynchronizerFDv1Fallback()) {
+                                    // A directive during the FDv1 fallback replaces its TTL, and FDv1 keeps running.
+                                    long fallbackTtlMillis = jittered(defaultFDv1FallbackTtlMillis);
+                                    sourceManager.startFDv1Fallback(MonotonicTime.now().plusMillis(fallbackTtlMillis));
+                                    logger.info("FDv2 retry scheduled in {}s.",
+                                            TimeUnit.MILLISECONDS.toSeconds(fallbackTtlMillis));
+                                } else {
+                                    // A directive to fall back to FDv1 ends the run of an FDv2 synchronizer.
+                                    fallBackToFDv1(
+                                            sink,
+                                            jittered(defaultFDv1FallbackTtlMillis),
+                                            result.getStatus() != null ? result.getStatus().getError() : null);
+                                    // The directive takes over, so there is no failover delay after a park.
+                                    parked = false;
+                                    running = false;
+                                }
                             }
                         }
                         if (!running) {
@@ -820,6 +875,10 @@ final class FDv2DataSource implements DataSource {
                         // Check every deadline against the current time.
                         MonotonicTime now = MonotonicTime.now();
                         sourceManager.unparkExpiredSynchronizers();
+                        if (sourceManager.endFDv1FallbackIfExpired()) {
+                            logger.info("Fallback TTL elapsed, restarting FDv2 data sources.");
+                            break;
+                        }
                         boolean recoveryJustMet = !recoveryMet && recoveryTime != null && !now.isBefore(recoveryTime);
                         boolean fallbackJustMet = !fallbackMet && fallbackTime != null && !now.isBefore(fallbackTime);
                         recoveryMet = recoveryMet || recoveryJustMet;
