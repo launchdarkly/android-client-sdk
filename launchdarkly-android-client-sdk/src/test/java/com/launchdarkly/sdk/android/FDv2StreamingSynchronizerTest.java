@@ -273,6 +273,30 @@ public class FDv2StreamingSynchronizerTest {
         }
     }
 
+    // ---- unexpected exceptions ----
+
+    @Test
+    public void unexpectedExceptionOnStreamThreadIsTerminal() throws Exception {
+        try (HttpServer server = HttpServer.start(Handlers.SSE.start())) {
+            // The selector source throws when the stream connects, which ends the stream thread.
+            SelectorSource selectorSource = () -> {
+                throw new IllegalStateException("unexpected");
+            };
+            FDv2StreamingSynchronizer sync = makeSynchronizer(server.getUri(), selectorSource);
+
+            try {
+                // Start the stream.
+                FDv2SourceResult result = sync.next().get(5, TimeUnit.SECONDS);
+
+                // The stream thread cannot recover, so the failure is terminal for this synchronizer.
+                assertEquals(SourceResultType.STATUS, result.getResultType());
+                assertEquals(SourceSignal.TERMINAL_ERROR, result.getStatus().getState());
+            } finally {
+                sync.close();
+            }
+        }
+    }
+
     // ---- SSE events ----
 
     @Test

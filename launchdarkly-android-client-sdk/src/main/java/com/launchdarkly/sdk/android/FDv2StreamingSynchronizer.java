@@ -259,8 +259,9 @@ final class FDv2StreamingSynchronizer implements Synchronizer {
                 LDUtil.logExceptionAtErrorLevel(logger, e, "Stream thread ended with unexpected exception");
                 cancelResetThresholdTimer();
                 recordStreamInit(true);
-                resultQueue.put(FDv2SourceResult.status(
-                        FDv2SourceResult.Status.interrupted(
+                // The stream thread has ended and does not restart, so the failure is terminal.
+                shutdownFuture.set(FDv2SourceResult.status(
+                        FDv2SourceResult.Status.terminalError(
                                 new LDFailure("Stream thread ended unexpectedly", e,
                                         LDFailure.FailureType.UNKNOWN_ERROR)),
                         false));
