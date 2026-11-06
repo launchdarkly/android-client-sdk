@@ -75,25 +75,30 @@ public final class FDv2SourceResult {
     @Nullable
     private final Status status;
     private final boolean fdv1Fallback;
+    private final boolean resetThresholdMet;
 
     private FDv2SourceResult(@NonNull SourceResultType resultType,
                              @Nullable ChangeSet<Map<String, DataModel.Flag>> changeSet,
                              @Nullable Status status,
-                             boolean fdv1Fallback) {
+                             boolean fdv1Fallback,
+                             boolean resetThresholdMet) {
         this.resultType = resultType;
         this.changeSet = changeSet;
         this.status = status;
         this.fdv1Fallback = fdv1Fallback;
+        this.resetThresholdMet = resetThresholdMet;
     }
 
     @NonNull
     public static FDv2SourceResult changeSet(@NonNull ChangeSet<Map<String, DataModel.Flag>> changeSet, boolean fdv1Fallback) {
-        return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null, fdv1Fallback);
+        return new FDv2SourceResult(SourceResultType.CHANGE_SET, changeSet, null, fdv1Fallback,
+                /* resetThresholdMet= */ false);
     }
 
     @NonNull
     public static FDv2SourceResult status(@NonNull Status status, boolean fdv1Fallback) {
-        return new FDv2SourceResult(SourceResultType.STATUS, null, status, fdv1Fallback);
+        return new FDv2SourceResult(SourceResultType.STATUS, null, status, fdv1Fallback,
+                /* resetThresholdMet= */ false);
     }
 
     @NonNull
@@ -117,5 +122,24 @@ public final class FDv2SourceResult {
      */
     public boolean isFdv1Fallback() {
         return fdv1Fallback;
+    }
+
+    /**
+     * True if the source met its reset threshold at the time of this result.
+     *
+     * @return true if the source met its reset threshold
+     */
+    public boolean isResetThresholdMet() {
+        return resetThresholdMet;
+    }
+
+    /**
+     * Creates a copy of this result that reports that the source met its reset threshold.
+     *
+     * @return a new FDv2SourceResult with {@link #isResetThresholdMet()} set to true
+     */
+    @NonNull
+    public FDv2SourceResult withResetThresholdMet() {
+        return new FDv2SourceResult(resultType, changeSet, status, fdv1Fallback, /* resetThresholdMet= */ true);
     }
 }

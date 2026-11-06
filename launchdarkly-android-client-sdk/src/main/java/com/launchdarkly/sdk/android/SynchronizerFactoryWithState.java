@@ -25,7 +25,7 @@ final class SynchronizerFactoryWithState {
     private final boolean isFDv1Fallback;
 
     /**
-     * The number of unexpected failures of the synchronizer.
+     * The number of unexpected failures since the synchronizer last reported that it met its reset threshold.
      */
     private int parkCount = 0;
 
@@ -70,6 +70,10 @@ final class SynchronizerFactoryWithState {
      */
     int incrementParkCount() {
         return ++parkCount;
+    }
+
+    void resetParkCount() {
+        parkCount = 0;
     }
 
     void park(@NonNull MonotonicTime unparkTime) {
