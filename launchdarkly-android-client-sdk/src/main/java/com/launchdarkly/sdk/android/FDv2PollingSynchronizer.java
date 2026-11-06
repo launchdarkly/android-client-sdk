@@ -26,6 +26,11 @@ import java.util.concurrent.TimeUnit;
  * that subsequent {@link #next()} calls also return the terminal result immediately.
  */
 final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchronizer {
+    /**
+     * The number of consecutive successful polls that meets the reset threshold.
+     */
+    private static final int RESET_THRESHOLD_SUCCESSFUL_POLLS = 2;
+
     private final SelectorSource selectorSource;
 
     private final LDAsyncQueue<FDv2SourceResult> resultQueue = new LDAsyncQueue<>();
@@ -33,6 +38,12 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
 
     private volatile ScheduledFuture<?> scheduledTask;
     private final Object taskLock = new Object();
+
+    /**
+     * Only {@link #pollAndEnqueue()} reads or writes this. {@code scheduleWithFixedDelay} never starts a run of
+     * {@code pollAndEnqueue} before the previous run has finished.
+     */
+    private int consecutiveSuccessfulPolls = 0;
 
     /**
      * @param requestor           the FDv2 requestor used to perform each poll
@@ -70,8 +81,18 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
         try {
             FDv2SourceResult result = doPoll(selectorSource.getSelector(), false);
 
+            if (result.getResultType() == SourceResultType.CHANGE_SET) {
+                consecutiveSuccessfulPolls++;
+                if (consecutiveSuccessfulPolls == RESET_THRESHOLD_SUCCESSFUL_POLLS) {
+                    result = result.withResetThresholdMet();
+                }
+            }
+
             if (result.getResultType() == SourceResultType.STATUS) {
                 FDv2SourceResult.Status status = result.getStatus();
+                if (status != null && status.getState() == SourceSignal.INTERRUPTED) {
+                    consecutiveSuccessfulPolls = 0;
+                }
                 if (status != null && status.getState() == SourceSignal.TERMINAL_ERROR) {
                     synchronized (taskLock) {
                         if (scheduledTask != null) {
@@ -93,6 +114,7 @@ final class FDv2PollingSynchronizer extends FDv2PollingBase implements Synchroni
             // cancels the task on any unchecked exception, ending all future polls with no
             // error signal. Log and enqueue an INTERRUPTED result so the consumer is notified
             LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in polling synchronizer task");
+            consecutiveSuccessfulPolls = 0;
             resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false));
         }
     }
