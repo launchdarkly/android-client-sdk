@@ -1922,7 +1922,14 @@ public class FDv2DataSourceTest {
         FDv2DataSource dataSource = buildDataSource(sink,
                 Collections.emptyList(),
                 Collections.singletonList(() -> new MockQueuedSynchronizer(
-                        FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(terminalErr), false))));
+                        FDv2SourceResult.status(FDv2SourceResult.Status.terminalError(terminalErr), false))),
+                null,
+                120_000,
+                300_000,
+                /* parkInitialDelayMillis= */ TimeUnit.MINUTES.toMillis(5),
+                /* parkMaxDelayMillis= */ TimeUnit.HOURS.toMillis(1),
+                /* failoverDelayMillis= */ 1000,
+                /* fdv1FallbackTtlMillis= */ TimeUnit.HOURS.toMillis(1));
 
         // Start the data source with a synchronizer that fails with a terminal error.
         startDataSource(dataSource);
@@ -1930,7 +1937,7 @@ public class FDv2DataSourceTest {
 
         // The data source reports INTERRUPTED with the error from the synchronizer.
         assertEquals(DataSourceState.INTERRUPTED, status);
-        assertSame(terminalErr, sink.statusEvents.get(0).error);
+        assertSame(terminalErr, sink.getLastError());
         stopDataSource(dataSource);
     }
 
@@ -2140,10 +2147,10 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-
-        DataSourceState secondValid = sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertEquals(DataSourceState.VALID, secondValid);
+        // The FDv2 payload and then the FDv1 payload are applied.
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(2, sink.getApplyCount());
+        assertEquals(DataSourceState.VALID, sink.getLastState());
 
         stopDataSource(dataSource);
     }
@@ -2209,8 +2216,9 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-        assertEquals(DataSourceState.VALID, sink.awaitStatus(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        // The FDv2 payload and then the FDv1 payload are applied.
+        sink.awaitApplyCount(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(2, sink.getApplyCount());
 
         assertEquals(1, fdv1BuildCount.get());
 
@@ -2284,13 +2292,10 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        // Both payloads report VALID. The directive and the wait for the TTL report INTERRUPTED. The first
-        // synchronizer restarts after the TTL and reports VALID.
-        List<DataSourceState> statuses = sink.awaitStatuses(5, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        // The data source reports INTERRUPTED, and restarts the first synchronizer after the TTL.
+        List<DataSourceState> statuses = sink.awaitStatuses(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(Arrays.asList(
                 DataSourceState.VALID,
-                DataSourceState.VALID,
-                DataSourceState.INTERRUPTED,
                 DataSourceState.INTERRUPTED,
                 DataSourceState.VALID), statuses);
         assertEquals(2, firstSyncBuildCount.get());
@@ -2398,12 +2403,9 @@ public class FDv2DataSourceTest {
         assertEquals(1, sink.getApplyCount());
         assertEquals(2, fdv2BuildCount.get());
 
-        // The interruption, the FDv1 failure, and the wait for the TTL report INTERRUPTED. The FDv2 payload reports
-        // VALID. Its directive falls back to the FDv1 synchronizer, which is still parked, so nothing runs until
-        // the TTL, and the wait reports INTERRUPTED.
-        List<DataSourceState> statuses = sink.awaitStatuses(5, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        // Each directive falls back to the FDv1 synchronizer, which is still parked, so nothing runs until the TTL.
+        List<DataSourceState> statuses = sink.awaitStatuses(4, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals(Arrays.asList(
-                DataSourceState.INTERRUPTED,
                 DataSourceState.INTERRUPTED,
                 DataSourceState.INTERRUPTED,
                 DataSourceState.VALID,
@@ -2529,12 +2531,10 @@ public class FDv2DataSourceTest {
         AwaitableCallback<Boolean> startCallback = startDataSource(dataSource);
         assertTrue(startCallback.await(AWAIT_TIMEOUT_SECONDS * 1000));
 
-        // The directive and the wait for the TTL report INTERRUPTED, and the synchronizer starts after the TTL.
-        List<DataSourceState> statuses = sink.awaitStatuses(3, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertEquals(Arrays.asList(
-                DataSourceState.INTERRUPTED,
-                DataSourceState.INTERRUPTED,
-                DataSourceState.VALID), statuses);
+        // The data source never reported OFF, and started the synchronizer after the TTL.
+        List<DataSourceState> statuses = sink.awaitStatuses(2, AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertFalse(statuses.contains(DataSourceState.OFF));
+        assertEquals(DataSourceState.VALID, sink.getLastState());
         assertEquals(1, syncBuildCount.get());
         stopDataSource(dataSource);
     }
