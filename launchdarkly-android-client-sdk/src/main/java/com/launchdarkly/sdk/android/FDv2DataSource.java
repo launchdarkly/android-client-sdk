@@ -21,13 +21,14 @@ import com.launchdarkly.sdk.android.subsystems.Synchronizer;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -54,10 +55,20 @@ final class FDv2DataSource implements DataSource {
     private static final String INITIALIZER_CANCELLED = "Initializer cancelled: {}";
     private static final String INITIALIZER_INTERRUPTED = "Initializer interrupted: {}";
 
+    /**
+     * Default fallback timeout of 2 minutes.
+     */
+    private static final long DEFAULT_FALLBACK_TIMEOUT_MILLIS = TimeUnit.MINUTES.toMillis(2);
+
+    /**
+     * Default recovery timeout of 5 minutes.
+     */
+    private static final long DEFAULT_RECOVERY_TIMEOUT_MILLIS = TimeUnit.MINUTES.toMillis(5);
+
     private final List<DataSourceFactory<Initializer>> cacheInitializers;
     private final SourceManager sourceManager;
-    private final long fallbackTimeoutSeconds;
-    private final long recoveryTimeoutSeconds;
+    private final long fallbackTimeoutMillis;
+    private final long recoveryTimeoutMillis;
     private final ScheduledExecutorService sharedExecutor;
 
     private final AtomicBoolean startCalled = new AtomicBoolean(false);
@@ -94,8 +105,8 @@ final class FDv2DataSource implements DataSource {
     ) {
         this(evaluationContext, initializers, synchronizers, fdv1FallbackSynchronizer,
                 dataSourceUpdateSink, sharedExecutor, logger,
-                FDv2DataSourceConditions.DEFAULT_FALLBACK_TIMEOUT_SECONDS,
-                FDv2DataSourceConditions.DEFAULT_RECOVERY_TIMEOUT_SECONDS);
+                DEFAULT_FALLBACK_TIMEOUT_MILLIS,
+                DEFAULT_RECOVERY_TIMEOUT_MILLIS);
     }
 
     /**
@@ -110,9 +121,9 @@ final class FDv2DataSource implements DataSource {
      * @param sharedExecutor             executor used for internal background tasks; must have at least
      *                                   2 threads available for this data source to run properly.
      * @param logger                     logger
-     * @param fallbackTimeoutSeconds     seconds of INTERRUPTED state before falling back to the
+     * @param fallbackTimeoutMillis      milliseconds of INTERRUPTED state before falling back to the
      *                                   next synchronizer
-     * @param recoveryTimeoutSeconds     seconds before attempting to recover to the primary
+     * @param recoveryTimeoutMillis      milliseconds before attempting to recover to the primary
      *                                   synchronizer
      */
     FDv2DataSource(
@@ -123,8 +134,8 @@ final class FDv2DataSource implements DataSource {
             @NonNull DataSourceUpdateSinkV2 dataSourceUpdateSink,
             @NonNull ScheduledExecutorService sharedExecutor,
             @NonNull LDLogger logger,
-            long fallbackTimeoutSeconds,
-            long recoveryTimeoutSeconds
+            long fallbackTimeoutMillis,
+            long recoveryTimeoutMillis
     ) {
         this.evaluationContext = evaluationContext;
         this.dataSourceUpdateSink = dataSourceUpdateSink;
@@ -150,8 +161,8 @@ final class FDv2DataSource implements DataSource {
 
         // note that the source manager only uses the initializers after the cache initializers and not the cache initializers
         this.sourceManager = new SourceManager(allSynchronizers, generalInitializers);
-        this.fallbackTimeoutSeconds = fallbackTimeoutSeconds;
-        this.recoveryTimeoutSeconds = recoveryTimeoutSeconds;
+        this.fallbackTimeoutMillis = fallbackTimeoutMillis;
+        this.recoveryTimeoutMillis = recoveryTimeoutMillis;
         this.sharedExecutor = sharedExecutor;
     }
 
@@ -468,16 +479,46 @@ final class FDv2DataSource implements DataSource {
         }
     }
 
-    private List<FDv2DataSourceConditions.Condition> getConditions(int synchronizerCount, boolean isPrime) {
-        if (synchronizerCount <= 1) {
-            return Collections.emptyList();
+    /**
+     * Waits for the future to complete, or until the given time.
+     *
+     * @param future the future to wait for
+     * @param time   the time to stop waiting, or null to wait until the future completes
+     * @return true if the future completed
+     * @throws InterruptedException if the thread is interrupted while waiting
+     */
+    private static boolean awaitUntil(@NonNull Future<?> future, @Nullable MonotonicTime time)
+            throws InterruptedException {
+        try {
+            if (time == null) {
+                future.get();
+            } else {
+                future.get(Math.max(0, MonotonicTime.now().nanosUntil(time)), TimeUnit.NANOSECONDS);
+            }
+            return true;
+        } catch (TimeoutException e) {
+            return false;
+        } catch (ExecutionException | CancellationException e) {
+            // The future completed with an error, which the caller gets from the future.
+            return true;
         }
-        List<FDv2DataSourceConditions.Condition> list = new ArrayList<>();
-        list.add(new FDv2DataSourceConditions.FallbackCondition(sharedExecutor, fallbackTimeoutSeconds));
-        if (!isPrime) {
-            list.add(new FDv2DataSourceConditions.RecoveryCondition(sharedExecutor, recoveryTimeoutSeconds));
+    }
+
+    /**
+     * Gets the earliest of the given times.
+     *
+     * @param times the times, any of which may be null
+     * @return the earliest time, or null if every time is null
+     */
+    @Nullable
+    private static MonotonicTime earliest(MonotonicTime... times) {
+        MonotonicTime earliest = null;
+        for (MonotonicTime time : times) {
+            if (time != null && (earliest == null || time.isBefore(earliest))) {
+                earliest = time;
+            }
         }
-        return list;
+        return earliest;
     }
 
     private static String detailForThrowable(@Nullable Throwable error) {
@@ -520,52 +561,32 @@ final class FDv2DataSource implements DataSource {
                 String synchronizerName = synchronizer.name();
                 logger.info("Synchronizer '{}' is starting.", synchronizerName);
                 resetSynchronizerStatusDedupe();
-                int synchronizerCount = sourceManager.getAvailableSynchronizerCount();
-                boolean isPrime = sourceManager.isPrimeSynchronizer();
                 try {
                     boolean running = true;
-                    try (FDv2DataSourceConditions.Conditions conditions =
-                                 new FDv2DataSourceConditions.Conditions(getConditions(synchronizerCount, isPrime))) {
-                        while (running) {
-                            Future<FDv2SourceResult> nextFuture = synchronizer.next();
-                            // Race the next synchronizer result against any active conditions
-                            // (fallback/recovery timers). Whichever resolves first wins.
-                            Object res = LDFutures.anyOf(conditions.getFuture(), nextFuture).get();
+                    // Fallback and recovery apply only when another synchronizer can take over.
+                    boolean canFallBack = sourceManager.getAvailableSynchronizerCount() > 1;
+                    boolean canRecover = canFallBack && !sourceManager.isPrimeSynchronizer();
+                    MonotonicTime recoveryTime = canRecover
+                            ? MonotonicTime.now().plusMillis(recoveryTimeoutMillis) : null;
+                    MonotonicTime fallbackTime = null;
+                    // The result the loop is waiting for, or null if it has not asked the synchronizer for one.
+                    Future<FDv2SourceResult> nextFuture = null;
+                    while (running) {
+                        if (nextFuture == null) {
+                            nextFuture = synchronizer.next();
+                        }
 
-                            if (res instanceof FDv2DataSourceConditions.ConditionType) {
-                                FDv2DataSourceConditions.ConditionType ct = (FDv2DataSourceConditions.ConditionType) res;
-                                switch (ct) {
-                                    case FALLBACK:
-                                        logger.info(
-                                                "Fallback condition met, falling back from synchronizer '{}'.",
-                                                synchronizer.name()
-                                        );
-                                        break;
-                                    case RECOVERY:
-                                        sourceManager.resetSourceIndex();
-                                        logger.info(
-                                                "Recovery condition met, moving from synchronizer '{}' to primary synchronizer.",
-                                                synchronizer.name()
-                                        );
-                                        break;
-                                }
-                                running = false;
-                                break;
-                            }
-
-                            if (!(res instanceof FDv2SourceResult)) {
-                                logger.error("Unexpected result type from synchronizer: {}", res != null ? res.getClass().getName() : "null");
-                                continue;
-                            }
-
-                            FDv2SourceResult result = (FDv2SourceResult) res;
-                            // Let conditions observe the result before we act on it so
-                            // they can update their internal state (e.g. reset interruption timers).
-                            conditions.inform(result);
+                        // Wait for the next result, or for the next deadline.
+                        if (awaitUntil(nextFuture, earliest(recoveryTime, fallbackTime))) {
+                            FDv2SourceResult result = nextFuture.get();
+                            // The pending result has arrived.
+                            nextFuture = null;
 
                             switch (result.getResultType()) {
                                 case CHANGE_SET:
                                     resetSynchronizerStatusDedupe();
+                                    // The synchronizer is healthy, so it no longer needs to fall back.
+                                    fallbackTime = null;
                                     ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                                     if (changeSet != null) {
                                         sink.apply(context, changeSet);
@@ -582,6 +603,10 @@ final class FDv2DataSource implements DataSource {
                                                         synchronizer.name(),
                                                         status.getState()
                                                 );
+                                                // The fallback timeout runs from the first interruption.
+                                                if (canFallBack && fallbackTime == null) {
+                                                    fallbackTime = MonotonicTime.now().plusMillis(fallbackTimeoutMillis);
+                                                }
                                                 sink.setStatus(DataSourceState.INTERRUPTED, status.getError());
                                                 break;
                                             case SHUTDOWN:
@@ -630,6 +655,28 @@ final class FDv2DataSource implements DataSource {
                                 sourceManager.fdv1Fallback();
                                 running = false;
                             }
+                        }
+                        if (!running) {
+                            break;
+                        }
+
+                        // Check each deadline against the current time. Recovery takes precedence over fallback.
+                        MonotonicTime now = MonotonicTime.now();
+                        if (recoveryTime != null && !now.isBefore(recoveryTime)) {
+                            // For recovery, start the search for the next synchronizer at the first one.
+                            sourceManager.resetSourceIndex();
+                            logger.info(
+                                    "Recovery condition met, moving from synchronizer '{}' to primary synchronizer.",
+                                    synchronizer.name()
+                            );
+                            break;
+                        }
+                        if (fallbackTime != null && !now.isBefore(fallbackTime)) {
+                            logger.info(
+                                    "Fallback condition met, falling back from synchronizer '{}'.",
+                                    synchronizer.name()
+                            );
+                            break;
                         }
                     }
                 } catch (ExecutionException e) {
