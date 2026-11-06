@@ -434,12 +434,12 @@ final class FDv2DataSource implements DataSource {
                         ChangeSet<Map<String, DataModel.Flag>> changeSet = result.getChangeSet();
                         if (changeSet != null) {
                             sink.apply(context, changeSet);
-                            anyDataReceived = true;
+                            // Only a payload with a selector that comes with the directive makes the data source ready.
+                            if (!changeSet.getSelector().isEmpty()) {
+                                sink.setStatus(DataSourceState.VALID, null);
+                                tryCompleteStart(true, null);
+                            }
                         }
-                    }
-                    if (anyDataReceived) {
-                        sink.setStatus(DataSourceState.VALID, null);
-                        tryCompleteStart(true, null);
                     }
                     fallBackToFDv1(
                             sink,
