@@ -31,6 +31,11 @@ import java.util.concurrent.TimeUnit;
  * objects so it can be used as a drop-in synchronizer within the FDv2 data source pipeline.
  */
 final class FDv1PollingSynchronizer implements Synchronizer {
+    /**
+     * The number of consecutive successful polls that meets the reset threshold, the same as for an FDv2 polling
+     * synchronizer.
+     */
+    private static final int RESET_THRESHOLD_SUCCESSFUL_POLLS = 2;
 
     private final LDContext evaluationContext;
     private final FeatureFetcher fetcher;
@@ -41,6 +46,12 @@ final class FDv1PollingSynchronizer implements Synchronizer {
 
     private volatile ScheduledFuture<?> scheduledTask;
     private final Object taskLock = new Object();
+
+    /**
+     * Only {@link #pollAndEnqueue()} reads or writes this. {@code scheduleWithFixedDelay} never starts a run of
+     * {@code pollAndEnqueue} before the previous run has finished.
+     */
+    private int consecutiveSuccessfulPolls = 0;
 
     /**
      * @param evaluationContext  the context to evaluate flags for
@@ -74,8 +85,18 @@ final class FDv1PollingSynchronizer implements Synchronizer {
         try {
             FDv2SourceResult result = doPoll();
 
+            if (result.getResultType() == SourceResultType.CHANGE_SET) {
+                consecutiveSuccessfulPolls++;
+                if (consecutiveSuccessfulPolls == RESET_THRESHOLD_SUCCESSFUL_POLLS) {
+                    result = result.withResetThresholdMet();
+                }
+            }
+
             if (result.getResultType() == SourceResultType.STATUS) {
                 FDv2SourceResult.Status status = result.getStatus();
+                if (status != null && status.getState() == SourceSignal.INTERRUPTED) {
+                    consecutiveSuccessfulPolls = 0;
+                }
                 if (status != null && status.getState() == SourceSignal.TERMINAL_ERROR) {
                     synchronized (taskLock) {
                         if (scheduledTask != null) {
@@ -91,6 +112,7 @@ final class FDv1PollingSynchronizer implements Synchronizer {
             resultQueue.put(result);
         } catch (RuntimeException e) {
             LDUtil.logExceptionAtErrorLevel(logger, e, "Unexpected exception in FDv1 polling synchronizer task");
+            consecutiveSuccessfulPolls = 0;
             resultQueue.put(FDv2SourceResult.status(FDv2SourceResult.Status.interrupted(e), false));
         }
     }
