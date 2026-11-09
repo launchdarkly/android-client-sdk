@@ -448,7 +448,7 @@ public class EventStoreBoundsTest {
         EventStore store = environmentStore(MOBILE_KEY);
         stageFrames(store, 1);
         store.closeBatch();
-        age(onlyBatchFile(store), 6);
+        assertTrue(onlyBatchFile(store).setLastModified(System.currentTimeMillis() - TimeUnit.HOURS.toMillis(12)));
 
         assertEquals(0, store.discardExpired());
         assertEquals(1, store.pendingBatches().size());
