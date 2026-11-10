@@ -3520,7 +3520,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         try (HttpServer server = HttpServer.start(service)) {
             EventProcessor eventProcessor = makeEventProcessor(server,
                     ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY))
-                            .retryDelaysForTesting(second, second, refusalWaitMillis), true);
+                            .retryDelaysForTesting(second, second, refusalWaitMillis,
+                                    refusalWaitMillis), true);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "refused", LDValue.ofNull(), null);
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
