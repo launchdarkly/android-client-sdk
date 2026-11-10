@@ -21,6 +21,36 @@ import java.util.List;
  * The frame checksum: a frame the storage changed after it was written ends the walk, as a torn tail does.
  */
 public class EventLogFormatTest {
+    /** The events of the page-cache persistence spec's worked example (Appendix A). */
+    static final List<byte[]> WORKED_EXAMPLE_EVENTS = Arrays.asList(
+            "{\"kind\":\"custom\",\"key\":\"checkout-opened\"}".getBytes(StandardCharsets.UTF_8),
+            "{\"kind\":\"identify\",\"context\":{\"key\":\"u\"}}".getBytes(StandardCharsets.UTF_8));
+
+    /**
+     * The worked example's log, byte for byte: the file header, then a frame per event. The iOS SDK's
+     * {@code EventStoreSpec} holds the same bytes, so a drift on either side fails one suite or the other.
+     */
+    static final byte[] WORKED_EXAMPLE = bytes(
+            "4C444556 0001"
+            + " 0001 00000029"
+            + " 7B226B696E64223A22637573746F6D222C226B6579223A22636865636B6F75742D6F70656E6564227D"
+            + " 194AD1F0"
+            + " 0001 00000029"
+            + " 7B226B696E64223A226964656E74696679222C22636F6E74657874223A7B226B6579223A2275227D7D"
+            + " C549D122");
+
+    static final byte[] WORKED_EXAMPLE_BODY = ("[{\"kind\":\"custom\",\"key\":\"checkout-opened\"},"
+            + "{\"kind\":\"identify\",\"context\":{\"key\":\"u\"}}]").getBytes(StandardCharsets.UTF_8);
+
+    private static byte[] bytes(String hex) {
+        String digits = hex.replace(" ", "");
+        byte[] bytes = new byte[digits.length() / 2];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) Integer.parseInt(digits.substring(2 * i, 2 * i + 2), 16);
+        }
+        return bytes;
+    }
+
     private static byte[] event(String key) {
         return ("{\"kind\":\"custom\",\"key\":\"" + key + "\"}").getBytes(StandardCharsets.UTF_8);
     }
@@ -64,6 +94,24 @@ public class EventLogFormatTest {
         expected.write(event, 0, event.length);
         expected.write(new byte[] {(byte) 0xCB, 0x2B, 0x5E, 0x6F}, 0, 4);
         assertArrayEquals(expected.toByteArray(), frame.toByteArray());
+    }
+
+    @Test
+    public void writesTheWorkedExamplesLogByteForByte() {
+        assertArrayEquals(Arrays.copyOf(WORKED_EXAMPLE, EventLogFormat.FILE_HEADER_SIZE),
+                EventLogFormat.fileHeader());
+        ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        for (byte[] event : WORKED_EXAMPLE_EVENTS) {
+            EventLogFormat.writeFrame(frames, event);
+        }
+        assertArrayEquals(WORKED_EXAMPLE, EventLogFormat.withFileHeader(frames.toByteArray()));
+    }
+
+    @Test
+    public void readsTheWorkedExamplesLog() {
+        assertEquals(2, EventLogFormat.eventCount(WORKED_EXAMPLE));
+        assertFalse(EventLogFormat.isDamaged(WORKED_EXAMPLE));
+        assertArrayEquals(WORKED_EXAMPLE_BODY, EventLogFormat.assembleBody(WORKED_EXAMPLE));
     }
 
     @Test
