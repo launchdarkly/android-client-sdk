@@ -222,6 +222,33 @@ public class EventStoreTest {
     }
 
     @Test
+    public void writesTheWorkedExamplesLogByteForByte() throws IOException {
+        EventStore store = store();
+        for (byte[] event : EventLogFormatTest.WORKED_EXAMPLE_EVENTS) {
+            store.stage(event);
+        }
+        store.commit();
+        store.close();
+
+        assertArrayEquals(EventLogFormatTest.WORKED_EXAMPLE,
+                Files.readAllBytes(onlyFileNamed(EventDirectory.LOG_PREFIX).toPath()));
+    }
+
+    @Test
+    public void deliversTheWorkedExamplesLogAsTheIosSdkWritesIt() throws IOException {
+        assertTrue(directory().mkdirs() || directory().isDirectory());
+        File log = new File(directory(), EventDirectory.LOG_PREFIX + UUID.randomUUID());
+        Files.write(log.toPath(), EventLogFormatTest.WORKED_EXAMPLE);
+
+        EventStore nextRun = store();
+        assertEquals(0, nextRun.preparePayloadsFromInterruptedLogs());
+        List<EventStore.Batch> recovered = nextRun.pendingBatches();
+        assertEquals(1, recovered.size());
+        assertEquals(2, recovered.get(0).eventCount);
+        assertArrayEquals(EventLogFormatTest.WORKED_EXAMPLE_BODY, nextRun.body(recovered.get(0)));
+    }
+
+    @Test
     public void aLogFromAPreviousRunWhoseFirstFrameIsDamagedIsDeletedAndCountedLost() throws IOException {
         EventStore store = store();
         store.stage(event("damaged"));
