@@ -88,10 +88,7 @@ final class DeliveryRetryState {
         }
         long waitMillis;
         if (retryAfterMillis >= 0) {
-            // Every instance hears the same value at the same moment, so it is jittered to keep them from
-            // posting together when it runs out.
-            long directed = Math.min(retryAfterMillis, MAX_SERVER_DIRECTED_WAIT_MILLIS);
-            waitMillis = directed - (long) (random.nextDouble() * (directed / 2.0));
+            waitMillis = directedWaitMillis(retryAfterMillis);
         } else {
             // Not jittered: each instance's failures follow its own history, which already spreads them.
             int doublings = Math.min(attempts - 1, 40);
@@ -122,12 +119,26 @@ final class DeliveryRetryState {
         if (retryAfterMillis < 0) {
             return;
         }
-        long directed = Math.min(retryAfterMillis, MAX_SERVER_DIRECTED_WAIT_MILLIS);
-        long waitMillis = directed - (long) (random.nextDouble() * (directed / 2.0));
-        long asked = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(waitMillis);
+        long asked = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(directedWaitMillis(retryAfterMillis));
         if (asked - nextAttemptNanos > 0) {
             nextAttemptNanos = asked;
         }
+    }
+
+    /**
+     * The wait a {@code Retry-After} sets. Every instance hears the same value at the same moment, so it is
+     * jittered to keep them from posting together when it runs out: up, by as much as half, so it is never
+     * shorter than the service asked, but no further than the hour a server-directed wait is capped at. A
+     * wait asked for of an hour or more is jittered down from the hour instead, as nothing above it is left
+     * to spread over.
+     */
+    private long directedWaitMillis(long retryAfterMillis) {
+        long cap = MAX_SERVER_DIRECTED_WAIT_MILLIS;
+        if (retryAfterMillis >= cap) {
+            return cap - (long) (random.nextDouble() * (cap / 2.0));
+        }
+        long spread = Math.min(retryAfterMillis + retryAfterMillis / 2, cap) - retryAfterMillis;
+        return retryAfterMillis + (long) (random.nextDouble() * spread);
     }
 
     /** How long until a post is allowed, in nanoseconds; zero once it is. */

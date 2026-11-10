@@ -3553,16 +3553,17 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
 
     @Test
     public void aRetryAfterSetsTheWaitBeforeTheNextPost() throws Exception {
-        // Four seconds, jittered down to no less than two, which is past the second a flush waits out.
+        // Three seconds, jittered up to no more than four and a half, which is past the second a flush
+        // waits out.
         try (HttpServer server = HttpServer.start(Handlers.sequential(
-                Handlers.all(Handlers.header("Retry-After", "4"), Handlers.status(503)),
+                Handlers.all(Handlers.header("Retry-After", "3"), Handlers.status(503)),
                 Handlers.status(202)))) {
             EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
             try {
                 eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
                 assertFalse(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
                 server.getRecorder().requireRequest(1, TimeUnit.SECONDS);
-                server.getRecorder().requireNoRequests(1_800, TimeUnit.MILLISECONDS);
+                server.getRecorder().requireNoRequests(2_500, TimeUnit.MILLISECONDS);
                 assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
                         .contains("\"key\":\"an-event\""));
             } finally {
