@@ -107,6 +107,8 @@ public class MainActivity extends AppCompatActivity {
     private final ExposureCountingHook slowHook =
             new ExposureCountingHook("slow", this::updateDedupeStatus);
     private final AtomicInteger evaluationsRequested = new AtomicInteger();
+    /** Null without a mobile key, which is what names the directory. */
+    private EventStorageInspector storageInspector;
 
     private static boolean isStaging() {
         return "staging".equalsIgnoreCase(BuildConfig.LD_ENVIRONMENT);
@@ -177,7 +179,36 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        setupStorageInspector();
         ldClient = startClient(eventPersistence, offlineSwitch().isChecked());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (storageInspector != null) {
+            storageInspector.startWatching();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (storageInspector != null) {
+            storageInspector.stopWatching();
+        }
+        super.onPause();
+    }
+
+    private void setupStorageInspector() {
+        TextView status = findViewById(R.id.storage_status);
+        storageInspector = new EventStorageInspector(this, status, BuildConfig.MOBILE_KEY);
+        status.setOnLongClickListener(v -> {
+            String path = storageInspector.directory().getPath();
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("Event storage", path));
+            Toast.makeText(this, "Copied " + path, Toast.LENGTH_SHORT).show();
+            return true;
+        });
     }
 
     /**
