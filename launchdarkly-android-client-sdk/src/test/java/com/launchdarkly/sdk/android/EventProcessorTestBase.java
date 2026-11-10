@@ -92,7 +92,7 @@ public abstract class EventProcessorTestBase {
      */
     protected EventProcessorBuilder eventsBuilderWithoutBackoff(int capacity) {
         return ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(capacity))
-                .retryDelaysForTesting(0, 0, 0);
+                .retryDelaysForTesting(0, 0, 0, 0);
     }
 
     /**
