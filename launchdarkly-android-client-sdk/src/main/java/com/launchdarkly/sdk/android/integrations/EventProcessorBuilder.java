@@ -62,6 +62,16 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
     public static final long DEFAULT_MAX_AGE_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
     /**
+     * The default value for {@link #eventDeliveryDelayMillis(long)}: 2 seconds.
+     */
+    public static final long DEFAULT_EVENT_DELIVERY_DELAY_MILLIS = 2_000;
+
+    /**
+     * The maximum value for {@link #eventDeliveryDelayMillis(long)}: 60 seconds.
+     */
+    public static final long MAX_EVENT_DELIVERY_DELAY_MILLIS = 60_000;
+
+    /**
      * All attributes should be treated as private
      */
     protected boolean allAttributesPrivate = false;
@@ -95,6 +105,11 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      * How long persisted events are kept before they are discarded, in millis
      */
     protected long maxAgeMillis = DEFAULT_MAX_AGE_MILLIS;
+
+    /**
+     * How long after the SDK first goes online the traffic it starts on its own waits, in millis
+     */
+    protected long eventDeliveryDelayMillis = DEFAULT_EVENT_DELIVERY_DELAY_MILLIS;
 
     /**
      * Set of attributes by reference that will be treated as private
@@ -232,6 +247,30 @@ public abstract class EventProcessorBuilder implements ComponentConfigurer<Event
      */
     public EventProcessorBuilder maxAgeMillis(long maxAgeMillis) {
         this.maxAgeMillis = maxAgeMillis <= 0 ? DEFAULT_MAX_AGE_MILLIS : maxAgeMillis;
+        return this;
+    }
+
+    /**
+     * Sets how long after the SDK first goes online it holds back the traffic it starts on its own, so that
+     * the first flag request has the network to itself.
+     * <p>
+     * That is the diagnostic init event, the events a previous run left where
+     * {@link #eventPersistence(EventPersistence)} keeps them, and the periodic delivery of this run's events.
+     * A flush the application asks for is never held. Zero sends them as soon as the SDK is online.
+     * <p>
+     * This setting is experimental, and not subject to any backwards compatibility guarantees or semantic
+     * versioning.
+     * <p>
+     * The default value is {@link #DEFAULT_EVENT_DELIVERY_DELAY_MILLIS}. A negative value is treated as zero,
+     * and a value above {@link #MAX_EVENT_DELIVERY_DELAY_MILLIS} as that maximum, so an application that ends
+     * soon after every launch still sends what a previous run left.
+     *
+     * @param eventDeliveryDelayMillis how long to hold back, in milliseconds
+     * @return the builder
+     */
+    public EventProcessorBuilder eventDeliveryDelayMillis(long eventDeliveryDelayMillis) {
+        this.eventDeliveryDelayMillis = Math.min(Math.max(eventDeliveryDelayMillis, 0),
+                MAX_EVENT_DELIVERY_DELAY_MILLIS);
         return this;
     }
 

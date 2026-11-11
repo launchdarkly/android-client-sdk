@@ -118,8 +118,9 @@ abstract class ComponentsImpl {
             return this;
         }
 
-        // How long events give way to flag values, settable by tests the specified waits would slow.
-        private DirectEventProcessor.Pacing pacing = DirectEventProcessor.Pacing.SPECIFIED;
+        // How long events give way to flag values, settable by tests the specified waits would slow. Null means
+        // the configured delivery delay and the specified gap.
+        private DirectEventProcessor.Pacing pacing;
 
         EventProcessorBuilderImpl pacingForTesting(DirectEventProcessor.Pacing pacing) {
             this.pacing = pacing;
@@ -164,7 +165,7 @@ abstract class ComponentsImpl {
                     flushIntervalMillis,
                     diagnosticRecordingIntervalMillis,
                     DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
-                    pacing,
+                    pacing != null ? pacing : DirectEventProcessor.Pacing.specified(eventDeliveryDelayMillis),
                     clientContext.isInBackground(),
                     true, // initiallyOffline
                     EventUtil.makeEventsTaskExecutor(),

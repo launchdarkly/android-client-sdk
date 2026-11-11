@@ -43,22 +43,28 @@ import java.util.concurrent.atomic.AtomicLong;
  * one stored batch. They send it under the same payload ID, and LaunchDarkly discards the repeat rather than
  * counting the events twice.
  * <p>
- * Flag values come first. Where events persist, what a previous run left waits at launch until a fixed time
- * after the SDK first goes online, and the deliveries this processor starts on its own send one batch at a time,
+ * Flag values come first. What this processor sends on its own waits at launch until
+ * {@link com.launchdarkly.sdk.android.integrations.EventProcessorBuilder#eventDeliveryDelayMillis(long)} after the
+ * SDK first goes online, and where events persist, the deliveries it starts on its own send one batch at a time,
  * a gap apart, leaving room for flag requests. Both go by time alone: nothing here hears what the flag data
  * source is doing. A delivery the application asks for is never held.
  */
 final class DirectEventProcessor implements EventProcessor {
     /** How long the deliveries this processor starts on its own wait, so that flag values come first. */
     static final class Pacing {
-        static final Pacing SPECIFIED = new Pacing(2_000, 1_000);
+        /** The gap the specification gives, after the launch delay the application configured. */
+        static Pacing specified(long launchDelayMillis) {
+            return new Pacing(launchDelayMillis, 1_000);
+        }
+
         /** No waits at all, for tests about something else. */
         static final Pacing NONE = new Pacing(0, 0);
 
         /**
-         * How long after the SDK first goes online that a previous run's events, and the diagnostic init event,
-         * wait. It gives the application's startup traffic, the first flag request among it, the network first,
-         * and is short enough for an application that dies a few seconds after every launch to still send them.
+         * How long after the SDK first goes online that a previous run's events, this run's periodic delivery,
+         * and the diagnostic init event wait. It gives the application's startup traffic, the first flag request
+         * among it, the network first, and is short enough for an application that dies a few seconds after
+         * every launch to still send them.
          */
         final long launchDelayMillis;
         /** The least time between one paced batch's answer and the next batch's request. */
@@ -138,16 +144,16 @@ final class DirectEventProcessor implements EventProcessor {
     private final Pacing pacing;
 
     /**
-     * Whether events give way to flag values: only where the application asked for persistence, like the
-     * rest of what persistence brings. Without it there is no previous run to hold back, and delivery is
-     * what it was before persistence: no launch gate and no pacing.
+     * Whether the deliveries this processor starts on its own are paced: only where the application asked for
+     * persistence, like the rest of what persistence brings. Without it there is no backlog from a previous
+     * run to spread out. The launch gate does not depend on it.
      */
     private final boolean givesWayToFlags;
 
     /**
      * Whether the launch gate has opened. It opens once the launch delay has passed since the SDK first went
-     * online. Until then neither a previous run's events nor the diagnostic init event are sent. Open from the
-     * start where events do not give way. Only set on the scheduler thread.
+     * online. Until then neither a previous run's events, this run's periodic delivery, nor the diagnostic init
+     * event are sent. Open from the start where there is no launch delay. Only set on the scheduler thread.
      */
     private volatile boolean launchGateOpen;
 
@@ -270,7 +276,7 @@ final class DirectEventProcessor implements EventProcessor {
         this.closeBudgetMillis = closeBudgetMillis;
         this.pacing = pacing;
         this.givesWayToFlags = store.isPersisting();
-        this.launchGateOpen = !givesWayToFlags;
+        this.launchGateOpen = pacing.launchDelayMillis <= 0;
         this.scheduler = scheduler;
         this.logger = logger;
         this.committer = new EventCommitter(eventBuffer, store, capacity, commitOnCallerThread, commitExecutor,
