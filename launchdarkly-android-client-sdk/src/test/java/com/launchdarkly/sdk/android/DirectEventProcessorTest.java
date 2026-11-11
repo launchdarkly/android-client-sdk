@@ -1228,6 +1228,68 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void neitherGoingOfflineNorComingBackOnlineDeliversOnItsOwn() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.setOffline(true);
+                eventProcessor.setOffline(true);
+                eventProcessor.setOffline(false);
+                eventProcessor.setOffline(false);
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
+
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertEquals(1, countEventsOfKind(collectDelivered(server), "custom"));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void thePeriodicFlushPostsNothingWhenThereIsNothingToSend() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, 50, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler);
+            try {
+                eventProcessor.setOffline(false);
+
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void eachPeriodicFlushDeliversWhatWasRecordedSinceTheLastOne() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), null, 50, 60_000, DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS,
+                    scheduler);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                assertTrue(server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"first\""));
+
+                eventProcessor.recordCustomEvent(CONTEXT, "second", LDValue.ofNull(), null);
+                String later = server.getRecorder().requireRequest(5, TimeUnit.SECONDS).getBody();
+                assertTrue(later.contains("\"key\":\"second\""));
+                assertFalse(later.contains("\"key\":\"first\""));
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     public void eventsOnTheirWayIntoTheStoreStillCountAgainstCapacity() throws Exception {
         // A commit takes the pending events and encodes them before staging, and for that long they
         // are in neither place. Counting only the two would let an event recorded then past capacity.
@@ -1299,6 +1361,74 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
             flushing.join(5_000);
             eventProcessor.close();
             scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aDeliveryNeverClosesABatchPartwayThroughAnotherCommitsRun() throws Exception {
+        // Events committed together go out together. A batch closed while a commit has staged part of
+        // its run would leave the rest for a later delivery.
+        CountDownLatch firstStaged = new CountDownLatch(1);
+        CountDownLatch releaseCommit = new CountDownLatch(1);
+        AtomicReference<Runnable> beforeClosing = new AtomicReference<>();
+        EventStore store = new EventStore(eventsDirectory.newFolder(), DEFAULT_CAPACITY, true,
+                logging.logger) {
+            @Override
+            boolean stageReserved(byte[] serializedEvent) {
+                boolean result = super.stageReserved(serializedEvent);
+                if (new String(serializedEvent, StandardCharsets.UTF_8).contains("\"key\":\"first\"")) {
+                    firstStaged.countDown();
+                    awaitQuietly(releaseCommit, 5, TimeUnit.SECONDS);
+                }
+                return result;
+            }
+
+            @Override
+            List<Batch> closeBatch() {
+                Runnable before = beforeClosing.getAndSet(null);
+                if (before != null) {
+                    before.run();
+                }
+                try {
+                    return super.closeBatch();
+                } finally {
+                    if (before != null) {
+                        releaseCommit.countDown();
+                    }
+                }
+            }
+        };
+        ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+        try (HttpServer server = startEventsServer()) {
+            DirectEventProcessor eventProcessor = makeEventProcessor(server, store, scheduler);
+            Thread[] competing = new Thread[1];
+            beforeClosing.set(() -> {
+                eventProcessor.recordCustomEvent(CONTEXT, "first", LDValue.ofNull(), null);
+                eventProcessor.recordCustomEvent(CONTEXT, "second", LDValue.ofNull(), null);
+                competing[0] = new Thread(eventProcessor::flush);
+                competing[0].start();
+                // Long enough for an unguarded commit to stage "first" and stop short of "second".
+                awaitQuietly(firstStaged, 500, TimeUnit.MILLISECONDS);
+            });
+            try {
+                eventProcessor.setOffline(false);
+                awaitFlush(eventProcessor, 10, TimeUnit.SECONDS);
+                competing[0].join(5_000);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                boolean sawFirst = false;
+                while (server.getRecorder().count() > 0) {
+                    String body = server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody();
+                    assertEquals("a batch held one of two events committed together: " + body,
+                            body.contains("\"key\":\"first\""), body.contains("\"key\":\"second\""));
+                    sawFirst |= body.contains("\"key\":\"first\"");
+                }
+                assertTrue("the events committed together were never delivered", sawFirst);
+            } finally {
+                releaseCommit.countDown();
+                eventProcessor.close();
+                scheduler.shutdownNow();
+            }
         }
     }
 
@@ -2081,6 +2211,36 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 assertEquals(1, countEventsOfKind(collectDelivered(server), "custom"));
             } finally {
                 eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aDeliveryRecordsHowManyEventsItsBatchCarriedForTheDiagnosticEvent() throws Exception {
+        DiagnosticStore diagnosticStore = makeDiagnosticStore();
+        try (HttpServer server = startEventsServer()) {
+            ScheduledExecutorService scheduler = EventUtil.makeEventsTaskExecutor();
+            DirectEventProcessor eventProcessor = makeEventProcessor(new StubEventSender(),
+                    server.getUri(), diagnosticStore, NO_PERIODIC_FLUSH_MILLIS, 60_000,
+                    DirectEventProcessor.DEFAULT_CLOSE_BUDGET_MILLIS, scheduler);
+            try {
+                eventProcessor.setOffline(false);
+                eventProcessor.recordIdentifyEvent(CONTEXT);
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                recordEvaluation(eventProcessor, false, null);
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+
+                // The identify, the custom event and the summary.
+                assertEquals(3, diagnosticStore.createEventAndReset(0, 0).getJsonValue()
+                        .get("eventsInLastBatch").intValue());
+
+                assertTrue(awaitFlush(eventProcessor, 10, TimeUnit.SECONDS));
+                assertEquals("a flush with nothing to send recorded a batch", 0,
+                        diagnosticStore.createEventAndReset(0, 0).getJsonValue()
+                                .get("eventsInLastBatch").intValue());
+            } finally {
+                eventProcessor.close();
+                scheduler.shutdownNow();
             }
         }
     }
@@ -3405,6 +3565,23 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
                 ordinary.get(10, TimeUnit.SECONDS);
                 assertTrue(server.getRecorder().requireRequest(1, TimeUnit.SECONDS).getBody()
                         .contains("\"key\":\"refused\""));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
+    public void aFlushBypassingTheBackoffPostsNothingWhileOffline() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            DirectEventProcessor eventProcessor =
+                    (DirectEventProcessor) makeEventProcessor(server, DEFAULT_CAPACITY);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.setOffline(true);
+
+                assertFalse(eventProcessor.flushBypassingBackoff().get(10, TimeUnit.SECONDS));
+                server.getRecorder().requireNoRequests(300, TimeUnit.MILLISECONDS);
             } finally {
                 eventProcessor.close();
             }
