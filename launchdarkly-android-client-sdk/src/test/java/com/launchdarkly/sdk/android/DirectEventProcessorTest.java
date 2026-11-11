@@ -4794,8 +4794,8 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
         return makeEventProcessor(diagnosticSender, eventsUri, diagnosticStore, flushIntervalMillis,
                 diagnosticIntervalMillis, closeBudgetMillis, scheduler, diagnosticExecutor,
                 EventStore.create(eventsDirectory.getRoot(), MOBILE_KEY,
-                        DEFAULT_CAPACITY, true, logging.logger),
-                DEFAULT_CAPACITY);
+                        DEFAULT_CAPACITY, persistence() != EventPersistence.DISABLED, logging.logger),
+                DEFAULT_CAPACITY, persistence() == EventPersistence.IMMEDIATE);
     }
 
     private DirectEventProcessor makeEventProcessor(EventStore store, int capacity,
