@@ -3852,6 +3852,27 @@ public class DirectEventProcessorTest extends EventProcessorTestBase {
     }
 
     @Test
+    public void thePeriodicFlushWaitsForTheLaunchGateWhetherOrNotEventsPersist() throws Exception {
+        try (HttpServer server = startEventsServer()) {
+            EventProcessor eventProcessor = buildOfflineEventProcessor(server,
+                    ((ComponentsImpl.EventProcessorBuilderImpl) eventsBuilder(DEFAULT_CAPACITY)
+                            .flushIntervalMillis(100))
+                            .pacingForTesting(new DirectEventProcessor.Pacing(1_000, 0)),
+                    true);
+            try {
+                eventProcessor.recordCustomEvent(CONTEXT, "an-event", LDValue.ofNull(), null);
+                eventProcessor.setOffline(false);
+                server.getRecorder().requireNoRequests(600, TimeUnit.MILLISECONDS);
+
+                assertTrue(server.getRecorder().requireRequest(2, TimeUnit.SECONDS).getBody()
+                        .contains("\"key\":\"an-event\""));
+            } finally {
+                eventProcessor.close();
+            }
+        }
+    }
+
+    @Test
     public void aFlushIntervalShorterThanTheLaunchDelayDoesNotSendEventsFromAPreviousRun() throws Exception {
         assumePersisting();
         leaveEventsFromAPreviousRun(1);
