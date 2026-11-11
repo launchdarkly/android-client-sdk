@@ -1,1 +1,4 @@
 streaming/fdv2/fallback to FDv1 handling
+events/feature events/single-kind anonymous context redacts all attributes
+events/feature events/multi-kind with anonymous context redacts attributes appropriately
+events/context properties/single-kind, allAttributesPrivate, slash-prefixed attribute name
