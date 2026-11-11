@@ -873,6 +873,11 @@ public class MainActivity extends AppCompatActivity {
                 ((TextView) MainActivity.this.findViewById(R.id.result_textView)).setText(result);
                 MainActivity.this.doSafeClientAction(client -> {
                     client.registerFeatureFlagListener(flagKey, flagKey1 -> {
+                        // Stays registered on this environment after a switch, when the result line is
+                        // the other one's.
+                        if (client != client()) {
+                            return;
+                        }
                         evaluationsRequested.incrementAndGet();
                         ((TextView) MainActivity.this.findViewById(R.id.result_textView))
                                 .setText(client.stringVariation(flagKey1, "default"));
