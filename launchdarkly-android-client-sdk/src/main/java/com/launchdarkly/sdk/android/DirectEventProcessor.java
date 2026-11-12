@@ -293,7 +293,15 @@ final class DirectEventProcessor implements EventProcessor {
                     }
                 },
                 logger);
+    }
 
+    /**
+     * Starts what the processor does on its own: recovering what a previous run left, the periodic flush and
+     * the diagnostics. Called once, straight after the constructor and before anything else uses the processor,
+     * as {@link ComponentsImpl.EventProcessorBuilderImpl#build} does: the recovery is queued on the scheduler
+     * thread first, so that every delivery queued after it waits for it.
+     */
+    void start() {
         // Off the calling thread: this is on the path of LDClient.init, and it reads the filesystem. Only where
         // events persist, since memory holds nothing from a previous run.
         if (store.isPersisting()) {
@@ -301,7 +309,7 @@ final class DirectEventProcessor implements EventProcessor {
         }
 
         synchronized (stateLock) {
-            updateScheduledTasks(initiallyInBackground, initiallyOffline);
+            updateScheduledTasks(inBackground.get(), offline.get());
         }
     }
 
