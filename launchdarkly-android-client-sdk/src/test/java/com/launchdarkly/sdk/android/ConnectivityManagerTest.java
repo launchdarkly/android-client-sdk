@@ -32,6 +32,8 @@ import com.launchdarkly.sdk.android.subsystems.Callback;
 import com.launchdarkly.sdk.android.subsystems.ClientContext;
 import com.launchdarkly.sdk.android.subsystems.ComponentConfigurer;
 import com.launchdarkly.sdk.android.subsystems.DataSource;
+import com.launchdarkly.sdk.android.subsystems.DataSourceState;
+import com.launchdarkly.sdk.android.subsystems.DataSourceUpdateSinkV2;
 import com.launchdarkly.sdk.android.subsystems.EventProcessor;
 
 import org.easymock.EasyMockRule;
@@ -350,6 +352,39 @@ public class ConnectivityManagerTest extends EasyMockSupport {
         assertEquals(LDFailure.FailureType.UNKNOWN_ERROR, failure.getFailureType());
         assertEquals(testError, failure.getCause());
         assertNotNull(connectivityManager.getConnectionInformation().getLastFailedConnection());
+        assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
+    }
+
+    @Test
+    public void fdv2InterruptedStatusWithoutErrorIsNotASuccessfulConnection() throws ExecutionException {
+        eventProcessor.setOffline(false); // we expect this call
+        eventProcessor.setInBackground(false); // we expect this call
+        replayAll();
+
+        // The data source reports INTERRUPTED with an error, and then INTERRUPTED with no error.
+        final LDFailure testFailure = new LDFailure("failure", LDFailure.FailureType.NETWORK_FAILURE);
+        ComponentConfigurer<DataSource> dataSourceConfigurer = clientContext -> new DataSource() {
+            @Override
+            public void start(@NonNull Callback<Boolean> resultCallback) {
+                new Thread(() -> {
+                    DataSourceUpdateSinkV2 sink = (DataSourceUpdateSinkV2) clientContext.getDataSourceUpdateSink();
+                    sink.setStatus(DataSourceState.INTERRUPTED, testFailure);
+                    sink.setStatus(DataSourceState.INTERRUPTED, null);
+                    resultCallback.onError(testFailure);
+                }).start();
+            }
+
+            @Override
+            public void stop(@NonNull Callback<Void> completionCallback) {}
+        };
+
+        createTestManager(defaultTestConfig(false, false), dataSourceConfigurer);
+
+        awaitStartUp();
+        verifyAll();
+
+        // The status with no error does not record a successful connection, and the error is kept.
+        assertSame(testFailure, connectivityManager.getConnectionInformation().getLastFailure());
         assertNull(connectivityManager.getConnectionInformation().getLastSuccessfulConnection());
     }
 

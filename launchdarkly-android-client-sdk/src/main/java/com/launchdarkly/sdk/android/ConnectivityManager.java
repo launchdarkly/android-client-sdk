@@ -128,6 +128,10 @@ class ConnectivityManager implements ContextDataManager.ContextSwitchListener {
                 return;
             }
             if (failure == null) {
+                if (state == DataSourceState.INTERRUPTED) {
+                    // INTERRUPTED with no error is not a successful connection, and it has no new error to record.
+                    return;
+                }
                 updateConnectionInfoForSuccess(publicMode);
             } else {
                 updateConnectionInfoForError(publicMode, failure);
