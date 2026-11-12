@@ -148,7 +148,7 @@ abstract class ComponentsImpl {
                     false, // disable gzip compression for Android
                     clientContext.getBaseLogger());
             boolean commitOnCallerThread = eventPersistence == EventPersistence.IMMEDIATE;
-            return new DirectEventProcessor(
+            DirectEventProcessor processor = new DirectEventProcessor(
                     new OutboundEventBuffer(
                             allAttributesPrivate,
                             privateAttributes,
@@ -175,6 +175,8 @@ abstract class ComponentsImpl {
                     EventUtil.makeDiagnosticsTaskExecutor(),
                     clientContext.getBaseLogger()
             );
+            processor.start();
+            return processor;
         }
 
         /**
